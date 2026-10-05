@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UK Activity Radar — Useful + Cool</title>
+  <meta name="description" content="Live UK transport, roads, weather, rescue and maritime activity on one map.">
+  <meta name="theme-color" content="#091018">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="icon" href="/static/icon-192.png">
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://tile.openstreetmap.org">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="topbar v12-topbar">
+  <div class="brand"><div class="brand-mark">R</div><div class="brand-copy"><strong>UK Activity Radar</strong><span id="mode-pill" class="pill">CONNECTING</span></div></div>
+  <div class="top-actions">
+    <div class="search-shell"><label class="search-wrap"><span>⌕</span><input id="search" type="search" placeholder="Search place, station, road, vessel, bus…" autocomplete="off"></label><button id="search-go" class="ghost-button search-go" type="button">Go</button><div id="search-results" class="search-results hidden" aria-live="polite"></div></div>
+    <button id="install-app" class="ghost-button hidden" type="button">Install</button>
+    <button id="radar-plus" class="plus-button" type="button">Radar+</button>
+    <button id="recenter" class="ghost-button" type="button">Britain</button>
+  </div>
+</header>
+<main class="layout v12-layout">
+  <aside class="leftbar v12-leftbar" id="workspace-shell">
+    <nav class="workspace-rail" aria-label="Radar experiences">
+      <button class="workspace-tab active" data-workspace="useful" title="Useful live information"><span class="rail-symbol">◉</span><span>Useful</span></button>
+      <button class="workspace-tab cool-tab" data-workspace="cool" title="Interesting and unusual activity"><span class="rail-symbol">⚡</span><span>Cool</span></button>
+      <button class="workspace-tab" data-workspace="live" title="Live audio, webcams and radar"><span class="rail-symbol">◌</span><span>Live</span></button>
+      <button class="workspace-tab" data-workspace="settings" title="Settings and data health"><span class="rail-symbol">⚙</span><span>More</span></button>
+      <button id="workspace-collapse" class="workspace-tab workspace-collapse" title="Collapse panel">‹<span>Close</span></button>
+    </nav>
+    <div class="workspace-drawer">
+      <section class="workspace-panel active" data-workspace-panel="useful">
+        <div class="experience-hero useful-hero"><div class="experience-kicker">USEFUL</div><h2>What's happening around me?</h2><p>Trains, buses, roads and weather — the practical view of Britain moving right now.</p></div>
+        <div class="near-controls v12-near"><button id="near-me" class="tool-button accent-action" type="button">📍 Use my location</button><button id="near-centre" class="tool-button" type="button">◎ Watch map centre</button><select id="near-radius" class="tool-select"><option value="5">5 mi</option><option value="10" selected>10 mi</option><option value="25">25 mi</option></select><button id="near-clear" class="tool-button hidden" type="button">Clear</button></div>
+        <div id="nearby-summary" class="nearby-summary"><p class="left-empty">Waiting for live activity…</p></div>
+        <div class="mode-filter-grid filter-bar-v12 useful-filters">
+          <button class="filter active" data-type="useful" type="button">◎ Useful now</button><button class="filter" data-type="transport" type="button">🚆 Transport</button><button class="filter" data-type="road" type="button">🚧 Roadworks</button><button class="filter" data-type="incident" type="button">⚠️ Incidents</button><button class="filter" data-type="weather" type="button">🌦 Weather</button><button class="filter" data-type="flood" type="button">🌊 Floods</button>
+        </div>
+        <div class="useful-tool-grid"><button id="station-boards" class="useful-tool" type="button"><b>🚉</b><span><strong>Station board</strong><small>Next trains</small></span></button><button id="bus-heat" class="useful-tool" type="button"><b>🚌</b><span><strong>Bus density</strong><small>Where buses are</small></span></button><button id="traffic-quick" class="useful-tool" type="button"><b>🚦</b><span><strong>Live traffic</strong><small>Flow + incidents</small></span></button><button id="weather-radar" class="useful-tool" type="button"><b>🌧</b><span><strong>Rain radar</strong><small>Live precipitation</small></span></button></div>
+        <details class="left-details useful-details"><summary>More useful controls</summary><div class="control-grid"><label for="place-mode">Stops on map</label><select id="place-mode" class="tool-select"><option value="all" selected>Stations + stops + terminals</option><option value="rail">Rail stations</option><option value="bus">Bus stops</option><option value="ferry">Ferry terminals</option><option value="off">Off</option></select></div><div class="control-grid"><label for="traffic-mode">TomTom traffic</label><select id="traffic-mode" class="tool-select"><option value="off">Off</option><option value="flow">Live flow</option><option value="delays">Delays only</option><option value="incidents">Incidents</option><option value="combined">Flow + incidents</option></select></div></details>
+      </section>
+
+      <section class="workspace-panel" data-workspace-panel="cool">
+        <div class="experience-hero cool-hero"><div class="experience-kicker">COOL</div><h2>What's worth seeing?</h2><p>Rare rail, military and rescue aircraft, unusual ships and special movements — surfaced ahead of routine traffic.</p></div>
+        <div id="cool-summary" class="cool-summary"><p class="left-empty">Scanning live feeds for unusual activity…</p></div>
+        <div class="cool-filter-grid">
+          <button class="filter cool-filter active" data-type="cool" type="button"><span class="cool-filter-icon all">✦</span><span><strong>All cool</strong><small>Best of everything</small></span></button>
+          <button class="filter cool-filter" data-type="cool-air" type="button"><span class="cool-filter-icon air">▲</span><span><strong>Air</strong><small>Military · special · SAR</small></span></button>
+          <button class="filter cool-filter" data-type="cool-rail" type="button"><span class="cool-filter-icon rail">◆</span><span><strong>Rail</strong><small>Steam · railtour · freight</small></span></button>
+          <button class="filter cool-filter" data-type="cool-sea" type="button"><span class="cool-filter-icon sea">⚓</span><span><strong>Sea</strong><small>Naval · rescue · unusual</small></span></button>
+          <button class="filter cool-filter" data-type="cool-rescue" type="button"><span class="cool-filter-icon rescue">✚</span><span><strong>Rescue</strong><small>Coastguard · RNLI · HEMS</small></span></button>
+        </div>
+        <section class="stats-grid compact-stats cool-stats"><article><span>Visible</span><strong id="stat-visible">0</strong></article><article><span>Moving</span><strong id="stat-moving">0</strong></article><article><span>Cool now</span><strong id="stat-interesting">0</strong></article><article><span>Tracking</span><strong id="stat-tracking">0</strong></article></section>
+        <section class="left-section trending-panel cool-ranking"><div class="section-heading"><div><small>DISCOVER</small><h2 id="ranking-title">Cool stuff now</h2></div><span class="live-dot">LIVE</span></div><div id="ranking" class="ranking"></div></section>
+      </section>
+
+      <section class="workspace-panel" data-workspace-panel="live">
+        <div class="experience-hero live-hero"><div class="experience-kicker">LIVE</div><h2>Hear it. See it.</h2><p>Context that makes the map feel real: specialist public audio where available, location webcams and weather radar.</p></div>
+        <div class="live-context-actions"><button id="live-webcams" class="live-context-card" type="button"><b>◉</b><span><strong>Nearby webcams</strong><small>At the current map position</small></span></button><button id="live-radar" class="live-context-card" type="button"><b>🌧</b><span><strong>Weather radar</strong><small>Toggle precipitation</small></span></button></div>
+        <section id="map-radio" class="radio-panel v12-radio live-audio-panel"><div class="section-heading"><div><small>LIVE AUDIO</small><h2>Specialist audio nearby</h2></div><button id="map-radio-refresh" class="mini-button" type="button">Refresh</button></div><p id="map-radio-location" class="panel-help">Aviation, marine and rail streams are prioritised when a public stream exists. General radio is secondary.</p><div class="radio-player-shell"><div class="radio-player-copy"><strong id="radio-now">Nothing playing</strong><span>Authorised public stream</span></div><audio id="radio-player" controls preload="none"></audio></div><div id="map-radio-list" class="map-radio-list"><p class="left-empty">Move the map to look for nearby public audio.</p></div></section>
+      </section>
+
+      <section class="workspace-panel" data-workspace-panel="settings">
+        <div class="workspace-head"><small>MAP & SYSTEM</small><h2>Display & data health</h2><p>The plumbing stays here, out of the main experience.</p></div>
+        <div class="control-grid map-mode-group"><span>Map</span><div class="segmented"><button class="tool-button map-mode active" data-map-mode="standard" type="button">Standard</button><button class="tool-button map-mode" data-map-mode="dark" type="button">Dark</button><button class="tool-button map-mode" data-map-mode="rail" type="button">Rail</button><button class="tool-button map-mode" data-map-mode="marine" type="button">Marine</button><button class="tool-button map-mode" data-map-mode="terrain" type="button">Terrain</button></div></div>
+        <div class="control-grid"><label for="heat-mode">Density</label><select id="heat-mode" class="tool-select"><option value="off">Off</option><option value="all">All activity</option><option value="train">Rail</option><option value="bus">Bus</option><option value="road">Roadworks</option><option value="incident">Incidents</option><option value="weather">Weather</option></select></div>
+        <details class="left-details"><summary>Data health <span id="health-badge" class="health-badge starting">STARTING</span></summary><div id="health-summary" class="health-summary">Checking live sources…</div><div id="feed-status" class="feed-status-compact"></div></details>
+        <details class="left-details"><summary>My Radar & watch zones <span id="my-radar-count" class="count-badge">0</span></summary><div id="my-radar-list" class="my-radar-list"></div><div class="watch-heading"><strong>Watch zones</strong><button id="add-watch-zone" class="mini-button" type="button">+ Add</button></div><div id="watch-zones" class="watch-zones"></div></details>
+        <section class="left-section product-panel compact-product"><div class="section-heading"><div><small>RADAR+</small><h2>Future features</h2></div><button id="open-plus-lab" class="mini-button" type="button">View</button></div><div id="product-summary" class="product-summary">Waiting for local product signals…</div></section>
+      </section>
+    </div>
+  </aside>
+
+  <section class="map-panel v12-map-panel">
+    <div id="map" aria-label="Live activity map"></div>
+    <div id="bus-zoom-note" class="bus-zoom-note hidden"></div><div id="nearby-note" class="nearby-note hidden"></div><div id="watch-toast" class="watch-toast hidden" role="status"></div>
+    <div class="map-legend v12-map-legend"><span><i class="dot gps"></i> live position</span><span><i class="dot report"></i> confirmed report</span><span><i class="dot estimate"></i> estimate</span><span>Hover for facts • click to investigate</span></div>
+    <div id="weather-radar-legend" class="weather-radar-legend hidden"><strong>LIVE WEATHER RADAR</strong><span id="weather-radar-time">Latest frame</span><span>RainViewer</span></div>
+    <div id="traffic-legend" class="traffic-legend hidden"><strong>LIVE TRAFFIC</strong><span><i class="traffic-swatch free"></i> Free</span><span><i class="traffic-swatch building"></i> Building</span><span><i class="traffic-swatch heavy"></i> Heavy</span><span><i class="traffic-swatch severe"></i> Severe</span></div>
+    <div id="live-ticker" class="live-ticker" aria-live="polite"><span class="ticker-label">LIVE</span><div class="ticker-items">Waiting for activity…</div></div>
+  </section>
+
+  <aside id="detail-sidebar" class="sidebar detail-sidebar is-empty v12-detail">
+    <section id="detail-panel" class="panel detail-panel"><div class="detail-head"><div><small>LIVE DETAIL</small><h2 id="detail-title">Nothing selected</h2></div><button id="detail-close" class="detail-close" type="button" aria-label="Close">×</button></div><p id="detail-subtitle">Hover for the quick answer. Click only when you want the detail.</p><div id="detail-insight" class="detail-insight hidden"></div><div id="detail-placeboard" class="detail-placeboard hidden"></div><div id="detail-fields" class="detail-fields"></div><button id="detail-tech-toggle" class="mini-button detail-tech-toggle" type="button">Technical details</button><div id="detail-photo" class="detail-photo hidden"></div><div id="detail-related" class="detail-related hidden"></div><div id="detail-resources" class="detail-resources hidden"></div><div id="detail-coverage" class="detail-coverage hidden"></div><div id="detail-audio" class="detail-audio hidden"></div><button id="follow" class="primary-button hidden" type="button">Follow activity</button></section>
+  </aside>
+</main>
+<footer class="v12-footer"><span>UK Activity Radar v1.2.1</span><span>Useful when you need it • Cool when you want it</span><a class="footer-link" href="/static/privacy.html">Privacy</a></footer>
+<dialog id="plus-dialog" class="plus-dialog"><form method="dialog" class="plus-shell"><div class="plus-head"><div><small>PRICING EXPERIMENT</small><h2>Radar+</h2></div><button class="dialog-close" value="cancel">×</button></div><p class="plus-intro">The live map stays useful for free. <strong>No payment is taken in this build.</strong></p><div id="plan-cards" class="plan-cards"></div><div class="plus-note">Buttons only record anonymous plan interest on this local server.</div></form></dialog>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script><script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script><script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script><script src="/static/app.js" defer></script>
+</body></html>

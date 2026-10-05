@@ -1,0 +1,14 @@
+{
+  "name": "UK Activity Radar",
+  "short_name": "UK Radar",
+  "description": "Live UK transport, rescue, road, weather and incident discovery map.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#091018",
+  "theme_color": "#091018",
+  "icons": [
+    {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}
