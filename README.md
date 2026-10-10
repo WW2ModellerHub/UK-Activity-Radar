@@ -149,7 +149,16 @@ Configuration scripts merge their own fields into `.env`; they no longer replace
 ## Development checks
 
 ```bash
-PYTHONPATH=. pytest -q
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
 python -m compileall -q app
-node --check app/static/app.js
+npm ci
+npm run check:js
+npx playwright install chromium
+npm run test:e2e
 ```
+
+The Playwright suite uses deterministic recorded fixtures and does not require
+live feed credentials. Production-audit findings and the stabilization changes
+are documented in [`AUDIT_REPORT.md`](AUDIT_REPORT.md) and
+[`CHANGELOG_CODEX.md`](CHANGELOG_CODEX.md).

@@ -49,9 +49,15 @@ if "%HEALTH_RESULT%"=="0" (
   exit /b 0
 )
 
-rem Stop any older Radar build (or other local listener) on port 8000.
+rem Never terminate an arbitrary program just because it owns the configured port.
 echo Preparing local server...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$pids=Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue ^| Select-Object -ExpandProperty OwningProcess -Unique; foreach($p in $pids){ try { Stop-Process -Id $p -Force -ErrorAction Stop } catch {} }; if($pids){Start-Sleep -Seconds 1}"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$pids=Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue ^| Select-Object -ExpandProperty OwningProcess -Unique; if($pids){ Write-Host 'Port 8000 is already in use by process ID(s):' ($pids -join ', '); exit 2 }"
+if errorlevel 1 (
+  echo UK Activity Radar did not start because port 8000 is already in use.
+  echo Close the existing application or service, then run this launcher again.
+  pause
+  exit /b 1
+)
 
 rem Preserve expensive railway downloads/indexes from an earlier extracted build.
 if not exist "data" mkdir "data"

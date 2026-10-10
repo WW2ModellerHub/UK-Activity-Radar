@@ -34,6 +34,27 @@ def test_live_tracking_count_can_be_updated_without_changing_source_time():
     assert saved.last_updated == before
 
 
+def test_state_get_returns_detached_snapshot():
+    state = LiveState()
+    original = Vehicle(id="train:1", type="train", name="1A01", lat=52.0, lon=-1.0)
+    state.upsert(original)
+
+    snapshot = state.get("train:1")
+    snapshot.status = "Mutated outside state lock"
+
+    assert state.get("train:1").status != snapshot.status
+
+
+def test_state_owns_detached_copy_of_upserted_vehicle():
+    state = LiveState()
+    supplied = Vehicle(id="train:1", type="train", name="1A01", lat=52.0, lon=-1.0)
+    state.upsert(supplied)
+
+    supplied.status = "Mutated by caller after upsert"
+
+    assert state.get("train:1").status != supplied.status
+
+
 def test_natural_near_search_intent_parser():
     assert ActivitySearch._parse_intent("ships near Portsmouth") == ("vessel", "Portsmouth")
     assert ActivitySearch._parse_intent("trains around Hinckley") == ("train", "Hinckley")

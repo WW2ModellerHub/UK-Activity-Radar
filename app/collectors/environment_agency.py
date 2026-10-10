@@ -5,7 +5,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import requests
 
@@ -38,11 +38,15 @@ class EnvironmentAgencyFloodCollector:
             pass
 
     def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
         self._thread = threading.Thread(target=self._run, name="ea-floods", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3)
 
     @staticmethod
     def _dt(value) -> datetime | None:
@@ -58,7 +62,26 @@ class EnvironmentAgencyFloodCollector:
     def _area_code(uri: str) -> str:
         return urlparse(uri).path.rstrip("/").split("/")[-1]
 
+    @staticmethod
+    def _safe_area_url(uri: str) -> str:
+        """Validate the area link supplied by the upstream flood feed."""
+        parsed = urlparse(str(uri).strip())
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.hostname != "environment.data.gov.uk"
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path != "/flood-monitoring/id/floodAreas"
+            and not parsed.path.startswith("/flood-monitoring/id/floodAreas/")
+        ):
+            raise ValueError("Unsupported Environment Agency flood-area URL")
+        return urlunparse(("https", "environment.data.gov.uk", parsed.path, "", "", ""))
+
     def _get_area(self, uri: str) -> dict | None:
+        try:
+            uri = self._safe_area_url(uri)
+        except ValueError:
+            return None
         code = self._area_code(uri)
         cached = self._coords.get(code)
         if cached and "lat" in cached and "lon" in cached:

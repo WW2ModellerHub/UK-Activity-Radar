@@ -460,16 +460,20 @@ class PowerOutageCollector(SnapshotThread):
     source_name="power_outages";source_label="UK power outages";event_source="UK power outages"
     def __init__(self,s,state):super().__init__(s,state,s.power_outages_poll_seconds)
     def fetch_once(self):
-        out=[]
+        out=[]; successful_sources=0; errors=[]
         try:
-            r=self._session.get(self.settings.nged_powercuts_url,timeout=25);r.raise_for_status();out.extend(_parse_outage_csv(r.text,"National Grid Electricity Distribution"))
-        except Exception:pass
+            r=self._session.get(self.settings.nged_powercuts_url,timeout=25);r.raise_for_status();out.extend(_parse_outage_csv(r.text,"National Grid Electricity Distribution"));successful_sources+=1
+        except Exception as exc:errors.append(f"NGED {type(exc).__name__}")
         try:
             m=self._session.get(self.settings.ssen_outage_metadata_url,timeout=20);m.raise_for_status();raw=json.dumps(m.json());urls=re.findall(r'https?://[^"\\\s]+',raw)
             url=next((u.rstrip('.,') for u in urls if any(x in u.lower() for x in ('.csv','download'))),None)
             if url:
-                rr=self._session.get(url,timeout=25);rr.raise_for_status();out.extend(_parse_outage_csv(rr.text,"SSEN Distribution"))
-        except Exception:pass
+                rr=self._session.get(url,timeout=25);rr.raise_for_status();out.extend(_parse_outage_csv(rr.text,"SSEN Distribution"));successful_sources+=1
+            else:
+                errors.append("SSEN download URL missing")
+        except Exception as exc:errors.append(f"SSEN {type(exc).__name__}")
+        if successful_sources == 0:
+            raise RuntimeError("All power-outage providers failed: " + "; ".join(errors))
         # normalize to one replace source while preserving provider in text
         for e in out:
             e.reason=(f"Provider: {e.source}. " + (e.reason or "")).strip(); e.source="UK power outages"
@@ -502,4 +506,3 @@ class GritterCollector(SnapshotThread):
     def message(self,e,v):
         if datetime.now(timezone.utc).month not in {11,12,1,2,3}:return "Seasonal tracker ready • official live gritters operate Nov–Mar"
         return f"Traffic Scotland • {len(v):,} live winter-service vehicles"
-

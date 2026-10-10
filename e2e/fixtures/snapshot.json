@@ -1,0 +1,38 @@
+{
+  "activities": [
+    {
+      "id": "train-live-1", "kind": "vehicle", "type": "train", "name": "1A23 London Express",
+      "origin": "London Euston", "destination": "Manchester Piccadilly", "route": "London – Manchester",
+      "headcode": "1A23", "train_uid": "C12345", "operator": "Fixture Rail", "status": "On time",
+      "position_label": "Approaching Milton Keynes", "lat": 52.04, "lon": -0.76, "speed": 110,
+      "speed_unit": "mph", "position_method": "report", "tracking_count": 12,
+      "last_updated": "2026-10-05T10:00:00Z", "source": "Recorded TRUST"
+    },
+    {
+      "id": "bus-live-7", "kind": "vehicle", "type": "bus", "name": "Bus 7",
+      "route": "7", "operator": "Fixture Buses", "status": "In service", "position_label": "High Street",
+      "lat": 52.041, "lon": -0.751, "speed": 18, "speed_unit": "mph", "bearing": 90,
+      "position_method": "gps", "last_updated": "2026-10-05T10:00:00Z", "source": "Recorded BODS"
+    },
+    {
+      "id": "steam-live-1", "kind": "vehicle", "type": "train", "name": "Flying Scotsman Railtour",
+      "route": "York – Edinburgh", "headcode": "1Z45", "operator": "Heritage Rail", "status": "Running",
+      "position_label": "North of York", "lat": 54.12, "lon": -1.08, "speed": 55, "speed_unit": "mph",
+      "position_method": "report", "interesting": true, "last_updated": "2026-10-05T10:00:00Z",
+      "source": "Recorded TRUST"
+    },
+    {
+      "id": "vessel-live-1", "kind": "vehicle", "type": "vessel", "name": "HMS TESTER",
+      "vehicle_ref": "235000001", "status": "Under way", "position_label": "Portsmouth approaches",
+      "lat": 50.78, "lon": -1.05, "speed": 14, "speed_unit": "kn", "bearing": 180,
+      "position_method": "gps", "interesting": true, "last_updated": "2026-10-05T10:00:00Z",
+      "source": "Recorded AIS"
+    }
+  ],
+  "stream": { "mode": "fixture", "zoom": 6 },
+  "sources": [
+    { "name": "network_rail", "enabled": true, "connected": true, "mode": "live", "health": "live", "message": "Recorded fixture", "messages_seen": 2, "age_seconds": 2 },
+    { "name": "bods", "enabled": true, "connected": true, "mode": "live", "health": "live", "message": "Recorded fixture", "messages_seen": 1, "age_seconds": 2 },
+    { "name": "aisstream", "enabled": true, "connected": true, "mode": "live", "health": "live", "message": "Recorded fixture", "messages_seen": 1, "age_seconds": 2 }
+  ]
+}

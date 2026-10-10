@@ -33,6 +33,7 @@ PUBLIC_RAIL_GEO_URLS = [
 USER_AGENT = "UKActivityRadar/0.4.1"
 _NAPTAN_LOCK = Lock()
 _PUBLIC_GEO_LOCK = Lock()
+_STATION_FILE_LOCK = Lock()
 
 
 class FeedDownloadError(RuntimeError):
@@ -321,18 +322,23 @@ def build_stations_from_corpus(corpus_rows: list[dict], naptan: dict) -> dict[st
 
 
 def merge_station_file(station_file: Path, additions: dict[str, dict]) -> int:
-    current: dict[str, dict] = {}
-    if station_file.exists():
-        try:
-            loaded = json.loads(station_file.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                current = loaded
-        except Exception:
-            pass
-    current.update(additions)
-    station_file.parent.mkdir(parents=True, exist_ok=True)
-    station_file.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
-    return len(current)
+    # Schedule and reference bootstrap run concurrently at startup. Serialize
+    # their read/merge/write cycle and publish atomically.
+    with _STATION_FILE_LOCK:
+        current: dict[str, dict] = {}
+        if station_file.exists():
+            try:
+                loaded = json.loads(station_file.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    current = loaded
+            except Exception:
+                pass
+        current.update(additions)
+        station_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp = station_file.with_suffix(station_file.suffix + ".tmp")
+        tmp.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(station_file)
+        return len(current)
 
 
 def sync_public_geography(data_dir: Path, *, force: bool = False) -> dict[str, Any]:

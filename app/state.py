@@ -35,11 +35,11 @@ class LiveState:
 
     def upsert(self, vehicle: Vehicle) -> None:
         with self._lock:
-            self._vehicles[vehicle.id] = vehicle
+            self._vehicles[vehicle.id] = deepcopy(vehicle)
 
     def upsert_event(self, event: Event) -> None:
         with self._lock:
-            self._events[event.id] = event
+            self._events[event.id] = deepcopy(event)
 
     def replace_events_for_source(self, source: str, events: list[Event]) -> None:
         """Replace one source's snapshot atomically so cleared incidents disappear."""
@@ -49,15 +49,17 @@ class LiveState:
             for old_id in current_ids - incoming_ids:
                 self._events.pop(old_id, None)
             for event in events:
-                self._events[event.id] = event
+                self._events[event.id] = deepcopy(event)
 
     def get(self, activity_id: str) -> Vehicle | Event | None:
         with self._lock:
-            return self._vehicles.get(activity_id) or self._events.get(activity_id)
+            item = self._vehicles.get(activity_id) or self._events.get(activity_id)
+            return deepcopy(item) if item is not None else None
 
     def get_event(self, event_id: str) -> Event | None:
         with self._lock:
-            return self._events.get(event_id)
+            item = self._events.get(event_id)
+            return deepcopy(item) if item is not None else None
 
     def find_train_by_headcode(self, headcode: str, lat: float | None = None, lon: float | None = None) -> Vehicle | None:
         headcode = (headcode or "").strip().upper()
@@ -71,7 +73,7 @@ class LiveState:
                 candidates.sort(key=lambda v: _distance_km(v.lat, v.lon, lat, lon))
             else:
                 candidates.sort(key=lambda v: v.last_updated, reverse=True)
-            return candidates[0]
+            return deepcopy(candidates[0])
 
     def all(
         self,
@@ -174,23 +176,24 @@ class LiveState:
 
     def set_source(self, status: SourceStatus) -> None:
         with self._lock:
-            self._sources[status.name] = status
+            self._sources[status.name] = deepcopy(status)
 
     def source(self, name: str) -> SourceStatus | None:
         with self._lock:
-            return self._sources.get(name)
+            item = self._sources.get(name)
+            return deepcopy(item) if item is not None else None
 
     def sources(self) -> list[SourceStatus]:
         with self._lock:
-            return list(self._sources.values())
+            return deepcopy(list(self._sources.values()))
 
     def add_unmapped(self, item: dict) -> None:
         with self._lock:
-            self._unmapped.appendleft(item)
+            self._unmapped.appendleft(deepcopy(item))
 
     def unmapped(self) -> list[dict]:
         with self._lock:
-            return list(self._unmapped)
+            return deepcopy(list(self._unmapped))
 
     def count_type(self, type_name: str, max_age_minutes: int | None = None) -> int:
         now = datetime.now(timezone.utc)

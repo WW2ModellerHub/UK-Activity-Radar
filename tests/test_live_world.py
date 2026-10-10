@@ -1,4 +1,8 @@
-from app.collectors.live_world import parse_bgs_georss, parse_carbon_regions, _parse_outage_csv
+from types import SimpleNamespace
+
+import requests
+
+from app.collectors.live_world import PowerOutageCollector, parse_bgs_georss, parse_carbon_regions, _parse_outage_csv
 
 
 def test_bgs_georss_maps_earthquake():
@@ -26,3 +30,24 @@ def test_power_outage_csv_flexible_fields():
     assert rows[0].type=='outage'
     assert rows[0].interesting is True
     assert '800' in rows[0].subtitle
+
+
+def test_power_outage_snapshot_fails_instead_of_clearing_state_when_all_providers_fail():
+    settings = SimpleNamespace(
+        power_outages_poll_seconds=900,
+        nged_powercuts_url="https://nged.test/outages.csv",
+        ssen_outage_metadata_url="https://ssen.test/metadata.json",
+    )
+    collector = PowerOutageCollector(settings, state=None)
+
+    class FailedSession:
+        def get(self, *args, **kwargs):
+            raise requests.ConnectionError("offline")
+
+    collector._session = FailedSession()
+    try:
+        collector.fetch_once()
+    except RuntimeError as exc:
+        assert "All power-outage providers failed" in str(exc)
+    else:
+        raise AssertionError("failed providers were incorrectly treated as an empty healthy snapshot")

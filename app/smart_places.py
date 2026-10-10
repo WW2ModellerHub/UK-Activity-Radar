@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, urlunparse
 
 import requests
 
@@ -24,6 +24,23 @@ USER_AGENT = "UKActivityRadar/1.2.1 smart-places"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 TRAINIAC_BASE = "https://api.traini.ac"
 EA_ROOT = "https://environment.data.gov.uk/flood-monitoring"
+
+
+def _ea_readings_url(url: str) -> str:
+    """Return a canonical EA readings URL for a browser-supplied measure URL."""
+    candidate = urlparse(str(url).strip())
+    root = urlparse(EA_ROOT)
+    if (
+        candidate.scheme != root.scheme
+        or candidate.hostname != root.hostname
+        or candidate.username is not None
+        or candidate.password is not None
+        or candidate.port not in (None, 443)
+        or not candidate.path.startswith(root.path + "/")
+    ):
+        raise ValueError("Unsupported Environment Agency measure URL")
+    clean_path = candidate.path.rstrip("/") + "/readings"
+    return urlunparse((root.scheme, root.netloc, clean_path, "", "", ""))
 
 
 def _local(tag: str) -> str:
@@ -634,9 +651,7 @@ class SmartPlacesService:
         return {"mode":"live_readings","source":"Environment Agency","rows":rows}
 
     def environment_measure(self, url: str) -> dict:
-        if not str(url).startswith(EA_ROOT + "/"):
-            raise ValueError("Unsupported Environment Agency measure URL")
-        readings_url=url.rstrip('/') + '/readings'
+        readings_url = _ea_readings_url(url)
         r=self._session.get(readings_url,params={"_sorted":"","_limit":8},timeout=(5,15)); r.raise_for_status()
         items=r.json().get('items',[]) or []
         vals=[x for x in items if isinstance(x.get('value'),(int,float))]

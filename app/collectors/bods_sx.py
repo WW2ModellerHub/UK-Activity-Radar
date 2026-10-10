@@ -7,6 +7,7 @@ from xml.etree import ElementTree as ET
 
 import requests
 
+from ..error_safety import public_error
 from ..models import Event, SourceStatus
 
 
@@ -142,5 +143,8 @@ class BODSSXCollector:
                     last_message_at=datetime.now(timezone.utc), messages_seen=total, movements_mapped=total,
                 ))
             except Exception as exc:
-                self.state.set_source(SourceStatus(name='bods_sx', enabled=True, connected=False, mode='error', message=f'BODS disruption feed error: {type(exc).__name__}: {exc}'))
+                self.state.set_source(SourceStatus(
+                    name='bods_sx', enabled=True, connected=False, mode='error',
+                    message=f'BODS disruption feed error: {public_error(exc, self.settings.bods_api_key)}',
+                ))
             self._stop.wait(self.settings.bods_sx_poll_seconds)

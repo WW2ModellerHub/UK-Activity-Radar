@@ -5,7 +5,7 @@ from pathlib import Path
 from app.collectors.bods import parse_siri_stop_predictions
 from app.models import Vehicle
 from app.schedule_store import ScheduleStore
-from app.smart_places import SmartPlacesService
+from app.smart_places import SmartPlacesService, _ea_readings_url
 from app.timeutils import london_tz
 
 
@@ -186,3 +186,18 @@ def test_nearest_station_can_resolve_from_tomtom_before_local_cache(tmp_path: Pa
     assert place['crs']=='HNK'
     assert place['source']=='TomTom Search + traini.ac station resolver'
     assert svc.get_place('rail-station:HNK')['crs']=='HNK'
+
+
+def test_environment_measure_url_is_restricted_to_ea_host():
+    url = "https://environment.data.gov.uk/flood-monitoring/id/measures/example"
+    assert _ea_readings_url(url) == url + "/readings"
+
+
+def test_environment_measure_url_rejects_external_userinfo_host():
+    malicious = "https://environment.data.gov.uk@attacker.example/flood-monitoring/id/measures/x"
+    try:
+        _ea_readings_url(malicious)
+    except ValueError as exc:
+        assert str(exc) == "Unsupported Environment Agency measure URL"
+    else:
+        raise AssertionError("external Environment Agency URL was accepted")

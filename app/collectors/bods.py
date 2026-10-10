@@ -11,6 +11,7 @@ from xml.etree import ElementTree as ET
 
 import requests
 
+from ..error_safety import public_error
 from ..models import SourceStatus, Vehicle
 
 
@@ -508,8 +509,8 @@ class BODSCollector:
         except Exception as bulk_exc:
             if api_error is not None:
                 raise RuntimeError(
-                    f"GTFS-RT failed ({type(api_error).__name__}: {api_error}); "
-                    f"bulk fallback also failed ({type(bulk_exc).__name__}: {bulk_exc})"
+                    f"GTFS-RT failed ({public_error(api_error, self.settings.bods_api_key)}); "
+                    f"bulk fallback also failed ({public_error(bulk_exc)})"
                 ) from bulk_exc
             raise
 
@@ -559,8 +560,9 @@ class BODSCollector:
                 payload, content_type, used_mode = self._fetch()
                 vehicles = parse_bods_payload(payload, content_type)
                 predictions = parse_siri_predictions_from_payload(payload, content_type)
-                if predictions:
-                    self._update_predictions(predictions)
+                # An empty successful snapshot must clear predictions removed
+                # upstream (for example after a journey cancellation).
+                self._update_predictions(predictions)
                 now = datetime.now(timezone.utc)
                 fresh = [v for v in vehicles if (now - v.last_updated).total_seconds() <= self.settings.bods_max_age_seconds]
                 for vehicle in fresh:
@@ -594,7 +596,7 @@ class BODSCollector:
                 previous = self.state.source("bods")
                 self.state.set_source(SourceStatus(
                     name="bods", enabled=True, connected=False, mode="error",
-                    message=f"BODS error: {type(exc).__name__}: {exc}",
+                    message=f"BODS error: {public_error(exc, self.settings.bods_api_key)}",
                     messages_seen=previous.messages_seen if previous else self._messages_seen,
                     movements_mapped=previous.movements_mapped if previous else 0,
                 ))

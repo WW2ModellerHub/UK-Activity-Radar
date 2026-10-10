@@ -1,0 +1,7 @@
+{
+  "places": [
+    { "id": "rail:MKC", "place_type": "rail_station", "name": "Milton Keynes Central", "crs": "MKC", "lat": 52.034, "lon": -0.774, "source": "Fixture station index" },
+    { "id": "bus:490000077A", "place_type": "bus_stop", "name": "Central Station Stop A", "atco_code": "490000077A", "lat": 52.036, "lon": -0.772, "source": "Fixture NaPTAN" },
+    { "id": "ferry:PORTSMOUTH", "place_type": "ferry_terminal", "name": "Portsmouth Ferry Port", "lat": 50.813, "lon": -1.088, "source": "Fixture port index" }
+  ]
+}

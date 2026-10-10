@@ -325,11 +325,15 @@ class NationalHighwaysCollector:
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
         self._thread = threading.Thread(target=self._run, name="national-highways", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3)
 
     def _get(self, closure_type: str) -> list[Event]:
         url = f"{self.settings.national_highways_base_url}/closures"

@@ -1,0 +1,13 @@
+{
+  "name": "uk-activity-radar",
+  "version": "1.2.1",
+  "private": true,
+  "scripts": {
+    "check:js": "node --check app/static/app.js && node --check app/static/service-worker.js",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.1"
+  }
+}

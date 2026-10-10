@@ -2,8 +2,19 @@
 .venv/
 __pycache__/
 *.pyc
-data/schedule-full.dat
-data/schedule.sqlite*
-data/naptan_rail.json
-data/corpus.json
-data/smart.json
+node_modules/
+work/
+.pytest_cache/
+pytest-cache-files-*/
+test-results/
+playwright-report/
+.coverage
+htmlcov/
+
+# All files below data/ are downloaded, generated, cached, or runtime state.
+# Deterministic test fixtures belong under tests/fixtures or e2e/fixtures.
+data/*
+!data/README.md
+node_modules/
+test-results/
+playwright-report/

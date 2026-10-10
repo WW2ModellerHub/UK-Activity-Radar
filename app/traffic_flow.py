@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 import requests
 
+from .error_safety import public_error
 from .models import SourceStatus
 from .state import LiveState
 
@@ -83,7 +84,7 @@ class TrafficFlowService:
         except Exception as exc:
             self.state.set_source(SourceStatus(
                 name="traffic_flow", enabled=True, connected=False, mode="error",
-                message=f"Traffic-flow test failed: {type(exc).__name__}: {exc}",
+                message=f"Traffic-flow test failed: {public_error(exc, self.settings.tomtom_traffic_api_key)}",
             ))
             return False
 

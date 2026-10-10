@@ -33,6 +33,7 @@ from .collectors.live_world import (
     PowerOutageCollector, GritterCollector,
 )
 from .config import settings
+from .error_safety import same_origin_websocket
 from .models import SourceStatus
 from .coverage import coverage_for_event
 from .media import WikimediaLookup
@@ -770,6 +771,9 @@ def unmapped():
 
 @app.websocket("/ws")
 async def websocket_updates(websocket: WebSocket):
+    if not same_origin_websocket(websocket.headers.get("origin"), websocket.headers.get("host")):
+        await websocket.close(code=1008, reason="WebSocket origin is not allowed")
+        return
     await websocket.accept()
     # Start with a broad Britain viewport. Buses are intentionally hidden at
     # national zoom to avoid shipping tens of thousands of GPS points every

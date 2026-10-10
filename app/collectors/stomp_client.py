@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from typing import Callable
 
 import stomp
@@ -53,6 +52,8 @@ class StompFeed:
                 self._connection.disconnect()
         except Exception:
             pass
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3)
 
     def set_status(self, connected: bool, message: str, *, mode: str = "live") -> SourceStatus:
         old = self.state.source(self.name)
@@ -94,7 +95,7 @@ class StompFeed:
             except Exception as exc:
                 self.set_status(False, f"Connection failed: {type(exc).__name__}: {exc}. Retrying in 10s…")
             if not self._stop.is_set():
-                time.sleep(10)
+                self._stop.wait(10)
 
     def handle_message(self, payload: str) -> None:
         raise NotImplementedError

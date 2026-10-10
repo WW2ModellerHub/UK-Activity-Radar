@@ -9,6 +9,12 @@ def test_launcher_uses_env_migration_and_previous_builds():
     assert 'EXPECTED_VERSION=1.2.1' in text
 
 
+def test_launcher_never_kills_an_unrelated_port_owner():
+    text = Path("run.bat").read_text(encoding="utf-8")
+    assert "Stop-Process" not in text
+    assert "Port 8000 is already in use" in text
+
+
 def test_network_rail_configurator_merges_instead_of_overwriting_env():
     text = Path("configure_live.ps1").read_text(encoding="utf-8")
     assert "Set-DotEnvValue 'NETWORK_RAIL_USERNAME'" in text
@@ -38,4 +44,3 @@ def test_useful_cool_live_shell_is_wired():
     assert 'data-type="cool-air"' in html
     assert 'function coolInfo(a)' in js
     assert "currentWorkspace==='cool'" in js
-
