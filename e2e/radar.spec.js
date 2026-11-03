@@ -789,8 +789,9 @@ test('mobile nearby aircraft leaves the map visible and uses a compact toast', a
   expect(toast.width).toBeLessThanOrEqual(370);
   expect(toast.height).toBeLessThan(90);
   const shell=await page.locator('#workspace-shell').boundingBox();
-  expect(shell.width).toBeGreaterThanOrEqual(360);
-  expect(shell.height).toBeLessThanOrEqual(52);
+  expect(shell.width).toBeLessThanOrEqual(60);
+  expect(shell.x).toBeLessThanOrEqual(10);
+  expect(shell.height).toBeGreaterThan(180);
   await expect(page.locator('[data-workspace="live"]')).toBeVisible();
   await page.locator('#workspace-collapse').click();
   await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);

@@ -546,22 +546,23 @@ footer { height:35px; min-height:35px; padding:0 12px; display:flex; align-items
 @media(max-width:900px){.v12-layout{height:auto;min-height:calc(100vh - 58px);overflow:visible}.v12-map-panel{position:relative;height:68vh;min-height:500px}.v12-leftbar{top:8px;left:8px;bottom:auto;max-height:calc(68vh - 66px);width:330px}.v12-leftbar.collapsed{width:62px}.workspace-rail{width:61px;flex-basis:61px}.workspace-drawer{width:267px}.v12-detail{position:fixed;left:8px;right:8px;top:auto;bottom:8px;width:auto;max-height:64vh!important;overflow:auto;z-index:1500}.live-ticker{left:72px;right:8px}.v12-map-legend{display:none}.nearby-note{left:72px}.v12-footer{display:none}}
 @media(max-width:560px){.v12-topbar{padding:7px 8px}.v12-topbar .brand-copy span{display:none}.v12-topbar .brand strong{display:none}.v12-topbar .top-actions{gap:5px}.v12-topbar #radar-plus,.v12-topbar #recenter{display:none}.v12-leftbar{width:calc(100vw - 16px);max-width:335px}.workspace-tab{min-height:46px}.workspace-tab span{display:none}.workspace-drawer{width:calc(100vw - 78px)}.live-ticker{left:70px}.ticker-item:nth-of-type(n+4){display:none}.v12-detail{max-height:72vh!important}}
 
-/* Phone layout: the workspace is a bottom sheet, not a tall map-obscuring rail. */
+/* Phone layout: keep the workspace attached to the left edge.  It is deliberately
+   narrower than the viewport so the map remains visible and never reads as a
+   centred modal. */
 @media(max-width:560px){
   .v12-layout{height:calc(100dvh - 92px);min-height:520px;overflow:hidden}
   .v12-map-panel{position:absolute;inset:0;height:auto;min-height:0}
-  .v12-leftbar{top:auto;left:8px;right:8px;bottom:50px;width:auto;max-width:none;max-height:min(62dvh,540px);display:block;border-radius:15px}
-  .workspace-rail{width:100%;height:52px;display:flex;flex-direction:row;gap:3px;padding:4px;border-right:0;border-bottom:1px solid var(--border)}
-  .workspace-tab{min-width:0;min-height:42px;flex:1 1 0;padding:2px;font-size:16px}
-  .workspace-tab span{display:block;font-size:7px}
+  .v12-leftbar{top:8px;left:8px;right:auto;bottom:50px;width:min(88vw,360px);max-width:calc(100vw - 68px);max-height:none;display:flex;border-radius:15px}
+  .workspace-rail{width:54px;height:100%;flex:0 0 54px;display:flex;flex-direction:column;gap:3px;padding:4px;border-right:1px solid var(--border);border-bottom:0}
+  .workspace-tab{min-width:0;min-height:48px;flex:0 0 auto;padding:2px;font-size:16px}
+  .workspace-tab span{display:block;font-size:6.5px}
   .workspace-tab .rail-symbol{font-size:17px}
-  .workspace-collapse{margin-top:0;margin-left:2px;flex:0 0 42px}
-  .workspace-drawer{width:100%;max-height:calc(min(62dvh,540px) - 52px);padding:11px;overflow:auto}
-  .v12-leftbar.collapsed{left:8px;right:auto;bottom:50px;width:48px;height:48px;max-height:48px;border-radius:13px}
-  .v12-leftbar.collapsed .workspace-rail{width:46px;height:46px;padding:3px;border:0}
-  .v12-leftbar.collapsed .workspace-tab:not(.workspace-collapse){display:none}
-  .v12-leftbar.collapsed .workspace-collapse{display:flex;flex:1;margin:0}
-  .v12-leftbar.collapsed .workspace-collapse span{display:none}
+  .workspace-collapse{margin-top:auto;margin-left:0;flex:0 0 42px}
+  .workspace-drawer{width:calc(100% - 54px);max-height:none;height:100%;padding:11px;overflow:auto}
+  .v12-leftbar.collapsed{top:8px;left:8px;right:auto;bottom:auto;width:54px;height:auto;max-height:calc(100% - 66px);border-radius:13px}
+  .v12-leftbar.collapsed .workspace-rail{width:52px;height:auto;padding:3px;border:0}
+  .v12-leftbar.collapsed .workspace-tab:not(.workspace-collapse){display:flex}
+  .v12-leftbar.collapsed .workspace-collapse{display:flex;flex:0 0 42px;margin-top:auto}
   .live-ticker{left:64px;right:8px;bottom:8px}
   .watch-toast{position:absolute;top:10px;left:10px;right:10px;bottom:auto;max-width:none;min-height:0;padding:9px 11px;border-radius:10px;font-size:10px;line-height:1.35}
   .nearby-note{top:10px;left:10px;right:10px;max-width:none}
