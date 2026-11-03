@@ -481,3 +481,5 @@ See `AUDIT_REPORT.md` for the prioritized remaining risks. The highest prioritie
   buttons visible, and moved Leaflet zoom controls clear of the menu.
 - Replaced the generic helicopter blocks with distinct top-down Chinook,
   Apache and conventional-helicopter silhouettes.
+- Kept the four workspace destinations visible in the collapsed phone bar so
+  location actions reveal the map without making My Radar unreachable.

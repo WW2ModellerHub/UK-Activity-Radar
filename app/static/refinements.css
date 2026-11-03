@@ -55,6 +55,12 @@
   .v12-leftbar{z-index:1100!important}
   .v12-leftbar:not(.collapsed) .workspace-rail{position:sticky;top:0;z-index:4}
   .v12-leftbar:not(.collapsed) .workspace-tab{display:flex!important;visibility:visible;opacity:1}
+  .v12-leftbar.collapsed{left:8px!important;right:8px!important;width:auto!important;height:50px!important;max-height:50px!important}
+  .v12-leftbar.collapsed .workspace-rail{width:100%!important;height:48px!important;display:flex!important;flex-direction:row!important;padding:3px!important;border:0!important}
+  .v12-leftbar.collapsed .workspace-tab:not(.workspace-collapse){display:flex!important;visibility:visible;opacity:1}
+  .v12-leftbar.collapsed .workspace-collapse{display:flex!important;flex:0 0 40px!important;margin:0 0 0 2px!important}
+  .v12-leftbar.collapsed{z-index:1700!important}
+  .v12-detail{bottom:108px!important;max-height:calc(72dvh - 100px)!important}
   .workspace-drawer,.workspace-panel,.cool-filter,.cool-filter>span{min-width:0}
   .cool-filter strong,.cool-filter small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .leaflet-top.leaflet-left{left:auto;right:8px}

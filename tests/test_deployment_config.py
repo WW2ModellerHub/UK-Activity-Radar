@@ -193,4 +193,4 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     assert "/static/styles.css?v=15118" in index
     assert "/static/app.js?v=15118" in index
     assert "NETWORK_FIRST_ASSETS" in worker
-    assert "uk-activity-radar-shell-v1.5.1-r18" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r18" in worker
