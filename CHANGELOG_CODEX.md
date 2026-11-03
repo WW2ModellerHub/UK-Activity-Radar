@@ -471,3 +471,13 @@ See `AUDIT_REPORT.md` for the prioritized remaining risks. The highest prioritie
   immediately visible on the map, with a small one-tap control to reopen it.
 - Fixed status toasts stretching between top and bottom edges in mobile Safari.
 - Shortened route-detail failure copy and removed the misleading validity claim.
+# 2026-11-03 — Hosted mobile cache, routes and aircraft polish
+
+- Versioned the main browser assets and made live CSS/JavaScript network-first
+  so deployed phone clients cannot remain stuck on an obsolete layout.
+- Made basic train routes and calling points part of the free live detail while
+  keeping advanced locating, tracking and the remaining Radar+ paywall intact.
+- Put the phone logo, search and Go action on one compact row, kept workspace
+  buttons visible, and moved Leaflet zoom controls clear of the menu.
+- Replaced the generic helicopter blocks with distinct top-down Chinook,
+  Apache and conventional-helicopter silhouettes.

@@ -763,9 +763,9 @@
 
   function aircraftMapShape(v) {
     const text=[v.aircraft_model,v.aircraft_type_code,v.subtitle].filter(Boolean).join(' ').toUpperCase();
-    if(/CHINOOK|CH-?47|\bH47\b/.test(text)) return {kind:'chinook',svg:'<svg viewBox="0 0 64 40" aria-hidden="true"><path d="M16 16h31l7 7-8 5H17l-8-5 7-7Zm6 12h4v7h-4Zm22 0h4v7h-4Z"/><path class="rotor" d="M3 10h24M38 10h23M15 8v8M50 8v8"/></svg>'};
-    if(/APACHE|AH-?64/.test(text)) return {kind:'apache',svg:'<svg viewBox="0 0 64 40" aria-hidden="true"><path d="M14 18h28l10 6-9 5H20l-9-5 3-6Zm28 1 8-8h5l-4 11ZM19 29h4v6h-4Zm20 0h4v6h-4Z"/><path class="rotor" d="M5 11h49M30 9v10"/></svg>'};
-    if(v.type==='sar' || /HELICOPTER|SIKORSKY|AW1|EC1|H135|H145|DAUPHIN/.test(text)) return {kind:'helicopter',svg:'<svg viewBox="0 0 64 40" aria-hidden="true"><path d="M13 18h30l9 7-10 5H20L9 25l4-7Zm30 1 9-9h4l-4 12ZM18 30h4v5h-4Zm21 0h4v5h-4Z"/><path class="rotor" d="M4 11h50M29 9v10"/></svg>'};
+    if(/CHINOOK|CH-?47|\bH47\b/.test(text)) return {kind:'chinook',svg:'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M25 6h14l5 11-3 30-6 11h-6l-6-11-3-30 5-11Zm-9 23 8-4h16l8 4-8 5H24l-8-5Z"/><path class="rotor" d="M6 15h52M32 5v20M4 49h56M32 39v20"/></svg>'};
+    if(/APACHE|AH-?64/.test(text)) return {kind:'apache',svg:'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M28 5h8l4 18 10 8-3 5-9-3-2 17 7 7-3 3-8-5-8 5-3-3 7-7-2-17-9 3-3-5 10-8 4-18Z"/><path class="rotor" d="M5 27h54M32 8v42"/></svg>'};
+    if(v.type==='sar' || /HELICOPTER|SIKORSKY|AW1|EC1|H135|H145|DAUPHIN/.test(text)) return {kind:'helicopter',svg:'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M27 5h10l5 21 9 7-4 5-8-4-3 17 7 7-4 3-7-6-7 6-4-3 7-7-3-17-8 4-4-5 9-7 5-21Z"/><path class="rotor" d="M5 27h54M32 8v40"/></svg>'};
     return {kind:'plane',svg:'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M30 5h5l4 21 17 10v6L39 37l-2 15 8 5v4l-12-3-12 3v-4l8-5-2-15-17 5v-6l17-10 3-21Z"/></svg>'};
   }
 

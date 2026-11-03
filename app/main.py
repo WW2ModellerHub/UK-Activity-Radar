@@ -1587,7 +1587,6 @@ def activity_aircraft(request: Request, activity_id: str):
 @app.get("/api/activity/{activity_id:path}/rail")
 def activity_rail(request: Request, activity_id: str):
     _enforce_public_budget(request, lookup_request_budget)
-    _require_plus(request, "advanced_transport")
     item = state.get(activity_id)
     if not item or item.type != "train":
         raise HTTPException(status_code=404, detail="Train activity not found")
@@ -1602,7 +1601,6 @@ def activity_rail(request: Request, activity_id: str):
 def rail_schedule(request: Request, train_uid: str, headcode: str | None = None):
     """Published route fallback for a station-board train without a live marker."""
     _enforce_public_budget(request, lookup_request_budget)
-    _require_plus(request, "advanced_transport")
     if smart_places is None:
         raise HTTPException(status_code=503, detail="Rail intelligence is not ready")
     return {"train_uid": train_uid, "detail": smart_places.scheduled_train_detail(train_uid, headcode)}

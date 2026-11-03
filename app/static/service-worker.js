@@ -1,5 +1,6 @@
-const CACHE = 'uk-activity-radar-shell-v1.5.0-r17';
-const SHELL = ['/', '/terms', '/privacy', '/data-licences', '/static/styles.css', '/static/refinements.css', '/static/app.js', '/static/share.html', '/static/share.css', '/static/share.js', '/static/legal.css', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png'];
+const CACHE = 'uk-activity-radar-shell-v1.5.1-r18';
+const SHELL = ['/', '/terms', '/privacy', '/data-licences', '/static/styles.css?v=15118', '/static/refinements.css?v=15118', '/static/app.js?v=15118', '/static/share.html', '/static/share.css', '/static/share.js', '/static/legal.css', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png'];
+const NETWORK_FIRST_ASSETS = new Set(['/static/styles.css', '/static/refinements.css', '/static/movement-history.css', '/static/app.js', '/static/movement-history.js']);
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).catch(() => null));
   self.skipWaiting();
@@ -13,6 +14,13 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.pathname === '/ws') return;
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/static/')) {
+    if (NETWORK_FIRST_ASSETS.has(url.pathname)) {
+      event.respondWith(fetch(event.request).then(response => {
+        if (response.ok) caches.open(CACHE).then(cache => cache.put(event.request, response.clone()));
+        return response;
+      }).catch(() => caches.match(event.request)));
+      return;
+    }
     event.respondWith(caches.match(event.request).then(hit => {
       const refresh = fetch(event.request).then(response => {
         if (response.ok) caches.open(CACHE).then(cache => cache.put(event.request, response.clone()));

@@ -41,3 +41,30 @@
 
 .detail-insight.motorway-sign-card{padding:10px;border:0;background:linear-gradient(#7b858c,#3f474d);box-shadow:inset 0 0 0 2px #9da4a8,0 7px 18px rgba(0,0,0,.28)}.motorway-sign-card>small{display:block;margin-bottom:6px;color:#e7ecee;font-size:7px;font-weight:950;letter-spacing:.13em}.vms-display{display:grid;gap:2px;min-height:72px;align-content:center;padding:10px;border:3px solid #171b1d;border-radius:4px;background:#050606;box-shadow:inset 0 0 15px rgba(0,0,0,.9);text-align:center}.vms-display span{color:#ffcf35;font-family:"Consolas","Lucida Console",monospace;font-size:15px;font-weight:850;letter-spacing:.08em;line-height:1.15;text-shadow:0 0 6px rgba(255,180,25,.5)}.motorway-sign-card>em{display:block;margin-top:6px;color:#eef3f4;font-size:8px;font-style:normal;text-align:center}
 @media(max-width:560px){.cool-filter-grid{grid-template-columns:1fr}.cool-filter:first-child,.cool-off-filter{grid-column:auto}.focus-map-button{right:8px;top:8px}.focus-map-button span{display:none}}
+
+/* v1.5.1 phone polish: one compact header row, visible workspace controls and
+   Leaflet controls kept clear of the bottom sheet. */
+@media(max-width:560px){
+  .v12-topbar{display:grid!important;grid-template-columns:34px minmax(0,1fr);align-items:center!important;gap:8px!important;min-height:52px!important;padding:7px 8px!important}
+  .v12-topbar .brand{grid-column:1;min-width:34px}
+  .v12-topbar .top-actions{grid-column:2;display:block!important;width:100%;min-width:0}
+  .v12-topbar .search-shell{display:grid!important;grid-template-columns:minmax(0,1fr) 48px;gap:6px;width:100%}
+  .v12-topbar .search-wrap{height:38px!important;padding:0 9px}
+  .v12-topbar .search-wrap input{font-size:12px}
+  .v12-topbar .search-go{min-width:48px;padding:0 8px}
+  .v12-leftbar{z-index:1100!important}
+  .v12-leftbar:not(.collapsed) .workspace-rail{position:sticky;top:0;z-index:4}
+  .v12-leftbar:not(.collapsed) .workspace-tab{display:flex!important;visibility:visible;opacity:1}
+  .workspace-drawer,.workspace-panel,.cool-filter,.cool-filter>span{min-width:0}
+  .cool-filter strong,.cool-filter small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .leaflet-top.leaflet-left{left:auto;right:8px}
+  .leaflet-top.leaflet-left .leaflet-control{margin-left:0;margin-right:0}
+  .focus-map-button{display:none}
+  .watch-toast{inset:10px 10px auto 10px!important;width:auto!important;height:auto!important;min-height:0!important;max-height:80px;overflow:hidden}
+}
+
+/* Purpose-built top-down helicopter silhouettes remain legible at map size. */
+.aircraft-shape-helicopter .aircraft-silhouette,.aircraft-shape-apache .aircraft-silhouette,.aircraft-shape-chinook .aircraft-silhouette{width:42px;height:42px;padding:4px;border-radius:13px}
+.aircraft-shape-helicopter .aircraft-silhouette svg,.aircraft-shape-apache .aircraft-silhouette svg,.aircraft-shape-chinook .aircraft-silhouette svg{width:34px;height:34px}
+.aircraft-shape-helicopter .aircraft-silhouette svg .rotor,.aircraft-shape-apache .aircraft-silhouette svg .rotor,.aircraft-shape-chinook .aircraft-silhouette svg .rotor{stroke-width:1.4;opacity:.9}
+.aircraft-shape-helicopter>small,.aircraft-shape-apache>small,.aircraft-shape-chinook>small{top:44px}

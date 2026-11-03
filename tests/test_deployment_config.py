@@ -103,6 +103,16 @@ def test_public_deployment_mode_is_opt_in_for_local_installs(monkeypatch):
     assert Settings().public_deployment is False
 
 
+def test_basic_train_route_details_are_not_hidden_behind_subscription():
+    source = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
+    activity_route = source[source.index("def activity_rail("):source.index("def rail_schedule(")]
+    schedule_route = source[source.index("def rail_schedule("):source.index("def locate_rail_service(")]
+    assert '_require_plus(request, "advanced_transport")' not in activity_route
+    assert '_require_plus(request, "advanced_transport")' not in schedule_route
+    locate_route = source[source.index("def locate_rail_service("):source.index("def activity_bus(")]
+    assert '_require_plus(request, "advanced_transport")' in locate_route
+
+
 def test_paid_launch_requires_public_seller_name_and_support_email():
     assert Settings(seller_legal_name="", support_email="").seller_details_ready is False
     assert Settings(seller_legal_name="Example Operator", support_email="not-an-email").seller_details_ready is False
@@ -175,3 +185,12 @@ def test_long_lived_service_rechecks_schedule_and_reference_data():
     assert "async def _reference_sync_loop()" in source
     assert "await asyncio.sleep(24 * 3600)" in source
     assert "asyncio.create_task(_reference_sync_loop())" in source
+
+
+def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
+    index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
+    worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
+    assert "/static/styles.css?v=15118" in index
+    assert "/static/app.js?v=15118" in index
+    assert "NETWORK_FIRST_ASSETS" in worker
+    assert "uk-activity-radar-shell-v1.5.1-r18" in worker
