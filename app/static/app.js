@@ -633,6 +633,33 @@
     mediaLoadedFor = null;
   }
 
+  const AIRCRAFT_TYPE_PHOTOS = {
+    chinook: {
+      src: '/static/assets/aircraft/chinook-raf.jpg',
+      title: 'RAF Boeing CH-47 Chinook',
+      page: 'https://commons.wikimedia.org/wiki/File:Raf_ch-47_chinook_hc2_za707_arp.jpg',
+      licence: 'https://commons.wikimedia.org/wiki/File:Raf_ch-47_chinook_hc2_za707_arp.jpg#Licensing',
+      credit: 'Adrian Pingstone • Public domain • Wikimedia Commons',
+    },
+    apache: {
+      src: '/static/assets/aircraft/apache-army.jpg',
+      title: 'British Army Apache helicopters',
+      page: 'https://commons.wikimedia.org/wiki/File:Army_Air_Corps_Apache_Helicopters_MOD_45153319.jpg',
+      licence: 'https://www.nationalarchives.gov.uk/doc/open-government-licence/version/1/',
+      credit: 'Ministry of Defence / Crown copyright • OGL v1.0',
+    },
+  };
+
+  function aircraftTypePhoto(a) {
+    const media=AIRCRAFT_TYPE_PHOTOS[aircraftMapShape(a).kind];
+    if(!media)return null;
+    return {
+      ...media,
+      image:`<a target="_blank" rel="noopener" href="${esc(media.page)}"><img class="aircraft-type-photo" src="${esc(media.src)}" alt="${esc(media.title)}" loading="eager" fetchpriority="high"></a>`,
+      truth:'Reference photo of this aircraft type — not necessarily this exact airframe',
+    };
+  }
+
   async function loadPhoto(a) {
     const box = $('detail-photo');
     if (!box) return;
@@ -687,10 +714,12 @@
     mediaLoadedFor = a.id;
     const requestId = ++mediaRequest;
     const knownIdentity = [a.vehicle_ref, a.aircraft_model || a.aircraft_type_code].filter(Boolean).join(' • ');
-    const fallbackShape=aircraftMapShape(a);
-    const fallbackVisual=`<div class="aircraft-reference-visual aircraft-reference-${esc(fallbackShape.kind)}"><span>${fallbackShape.svg}</span><b>${esc(aircraftMapIdentity(a))}</b></div>`;
+    const fallback=aircraftTypePhoto(a);
+    const fallbackVisual=fallback?.image || '';
     box.classList.remove('hidden');
-    box.innerHTML = `${fallbackVisual}<div class="detail-photo-copy aircraft-known"><strong>${esc(a.aircraft_model || a.aircraft_type_code || a.name)}</strong><span>${esc(knownIdentity || 'Live aircraft')}</span><small>Finding a licensed reference photo…</small></div>`;
+    box.innerHTML = fallback
+      ? `${fallbackVisual}<div class="detail-photo-copy aircraft-known"><strong>${esc(fallback.title)}</strong><span>${esc(knownIdentity || 'Live aircraft')}</span><b class="image-truth">${esc(fallback.truth)}</b><span>${esc(fallback.credit)} • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a></span></div>`
+      : '<div class="photo-loading">Looking for a licensed aircraft photo…</div>';
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3500);
     try {
@@ -706,14 +735,16 @@
       const imagePage=reference.page_url || reference.search_url;
       const image = imageUrl ? `<a target="_blank" rel="noopener" href="${esc(safeUrl(imagePage))}"><img src="${esc(safeUrl(imageUrl))}" alt="${esc(identity || a.name)}" loading="lazy"></a>` : '';
       const imageTruth=referenceImage ? (reference.match_kind==='exact_airframe' ? 'Archive photo of this aircraft registration — not live' : 'Example of this aircraft type — not necessarily this exact airframe') : null;
-      const imageCredit=referenceImage ? [reference.artist,reference.license,'Wikimedia Commons'].filter(Boolean).join(' • ') : 'Identity from the live ADS-B feed';
+      const imageCredit=referenceImage ? [reference.artist,reference.license,'Wikimedia Commons'].filter(Boolean).join(' • ') : fallback?.credit;
       const links = a.source_id ? `<a target="_blank" rel="noopener" href="https://www.planespotters.net/hex/${esc(String(a.source_id).toUpperCase())}">Planespotters ↗</a>` : '';
-      box.innerHTML = `${image || fallbackVisual}<div class="detail-photo-copy"><strong>${esc(model || a.aircraft_model || a.aircraft_type_code || 'Aircraft type not resolved')}</strong><span>${esc(identity || a.name)}</span>${imageTruth?`<b class="image-truth">${esc(imageTruth)}</b>`:''}<span>${esc(imageCredit)}${links ? ` • ${links}` : ''}</span></div>`;
+      const visibleTruth=imageTruth || fallback?.truth;
+      if(!image && !fallbackVisual){box.classList.add('hidden');box.innerHTML='';return;}
+      box.innerHTML = `${image || fallbackVisual}<div class="detail-photo-copy"><strong>${esc(referenceImage ? (model || a.aircraft_model || a.aircraft_type_code || 'Aircraft type not resolved') : fallback.title)}</strong><span>${esc(identity || a.name)}</span>${visibleTruth?`<b class="image-truth">${esc(visibleTruth)}</b>`:''}<span>${esc(imageCredit || 'Licensed aircraft reference')}${!referenceImage && fallback ? ` • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a>` : ''}${links ? ` • ${links}` : ''}</span></div>`;
     } catch {
       if (requestId !== mediaRequest) return;
-      if (knownIdentity) {
+      if (knownIdentity && fallback) {
         box.classList.remove('hidden');
-        box.innerHTML = `${fallbackVisual}<div class="detail-photo-copy aircraft-known"><strong>${esc(a.aircraft_model || a.aircraft_type_code || a.name)}</strong><span>${esc(knownIdentity)}</span></div>`;
+        box.innerHTML = `${fallbackVisual}<div class="detail-photo-copy aircraft-known"><strong>${esc(fallback.title)}</strong><span>${esc(knownIdentity)}</span><b class="image-truth">${esc(fallback.truth)}</b><span>${esc(fallback.credit)} • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a></span></div>`;
       } else { box.classList.add('hidden'); box.innerHTML=''; }
     } finally {
       clearTimeout(timeout);

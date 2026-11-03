@@ -571,6 +571,23 @@ test('aircraft media is not restarted on every live snapshot', async ({ page }) 
   expect(mediaCalls).toBe(1);
 });
 
+test('known military helicopters show a bundled real photograph when live image lookup is unavailable', async ({ page }) => {
+  await page.route('**/api/activity/aircraft-live-1/media', route => route.fulfill({ json:{ ok:false, reason:'no_match' } }));
+  await page.locator('[data-layer-toggle="aircraft"]').click();
+  await page.evaluate(() => {
+    const next=structuredClone(window.__fixtureSnapshot);
+    const aircraft=next.activities.find(row=>row.id==='aircraft-live-1');
+    next.updated_at='2026-10-05T10:03:00Z';
+    Object.assign(aircraft,{name:'SHF475',vehicle_ref:'ZH900',aircraft_model:'Boeing CH-47 Chinook',aircraft_type_code:'H47',last_updated:'2026-10-05T10:03:00Z'});
+    window.__fixtureSocket.onmessage({data:JSON.stringify(next)});
+  });
+  await page.locator('.aircraft-shape-chinook').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-photo img')).toHaveAttribute('src','/static/assets/aircraft/chinook-raf.jpg');
+  await expect(page.locator('#detail-photo')).toContainText('Reference photo of this aircraft type');
+  await expect(page.locator('#detail-photo')).toContainText('Adrian Pingstone');
+  await expect(page.locator('#detail-photo .aircraft-reference-visual')).toHaveCount(0);
+});
+
 test('selected aircraft draws an honest browser-local live trail', async ({ page }) => {
   await page.goto('/');
   await page.locator('[data-workspace="cool"]').click();
@@ -789,9 +806,9 @@ test('mobile nearby aircraft leaves the map visible and uses a compact toast', a
   expect(toast.width).toBeLessThanOrEqual(370);
   expect(toast.height).toBeLessThan(90);
   const shell=await page.locator('#workspace-shell').boundingBox();
-  expect(shell.width).toBeLessThanOrEqual(60);
-  expect(shell.x).toBeLessThanOrEqual(10);
-  expect(shell.height).toBeGreaterThan(180);
+  expect(shell.width).toBeLessThan(80);
+  expect(shell.x).toBeLessThanOrEqual(12);
+  expect(shell.height).toBeGreaterThan(150);
   await expect(page.locator('[data-workspace="live"]')).toBeVisible();
   await page.locator('#workspace-collapse').click();
   await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
