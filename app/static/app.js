@@ -605,7 +605,7 @@
     box.innerHTML='';
     box.removeAttribute('style');
     const panel=$('detail-panel');
-    panel?.classList.remove('operator-themed-detail');
+    panel?.classList.remove('operator-themed-detail','operator-theme-train','operator-theme-aircraft','operator-theme-bus');
     panel?.removeAttribute('style');
   }
 
@@ -618,6 +618,8 @@
     box.style.cssText=`--operator-primary:${theme.primary};--operator-accent:${theme.accent};--operator-ink:${theme.ink}`;
     const panel=$('detail-panel');
     panel?.classList.add('operator-themed-detail');
+    panel?.classList.remove('operator-theme-train','operator-theme-aircraft','operator-theme-bus');
+    panel?.classList.add(`operator-theme-${a.type}`);
     if(panel)panel.style.cssText=`--operator-primary:${theme.primary};--operator-accent:${theme.accent};--operator-ink:${theme.ink}`;
     const movement=a.type==='aircraft'
       ? [a.aircraft_model||a.aircraft_type_code,a.vehicle_ref].filter(Boolean).join(' • ')
@@ -846,9 +848,13 @@
         iconSize:[58,52],iconAnchor:[29,26]
       });
     }
+    const trainTheme=type==='train' ? trainLiveryTheme('',v.operator || v.operator_name || v.toc || v.owner) : null;
+    const trainStyle=trainTheme && trainTheme.key!=='reference'
+      ? ` style="background:${esc(trainTheme.primary)};border-color:${esc(trainTheme.accent)};color:${esc(trainTheme.ink)};box-shadow:0 4px 13px rgba(0,0,0,.38),0 0 0 3px ${esc(trainTheme.accent)}40"`
+      : '';
     return L.divIcon({
       className: `marker-wrap marker-wrap-${esc(type)}`,
-      html: `<div class="motion-shell"><div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}" title="${esc(v.position_label)}"><span>${icons[type] || '•'}</span></div>${pointer}${speedTag}</div>`,
+      html: `<div class="motion-shell"><div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}"${trainStyle} title="${esc(v.position_label)}"><span>${icons[type] || '•'}</span></div>${pointer}${speedTag}</div>`,
       iconSize: [42,42], iconAnchor: [21,21]
     });
   }

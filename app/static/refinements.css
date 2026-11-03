@@ -74,3 +74,47 @@
 .aircraft-shape-helicopter .aircraft-silhouette svg,.aircraft-shape-apache .aircraft-silhouette svg,.aircraft-shape-chinook .aircraft-silhouette svg{width:34px;height:34px}
 .aircraft-shape-helicopter .aircraft-silhouette svg .rotor,.aircraft-shape-apache .aircraft-silhouette svg .rotor,.aircraft-shape-chinook .aircraft-silhouette svg .rotor{stroke-width:1.4;opacity:.9}
 .aircraft-shape-helicopter>small,.aircraft-shape-apache>small,.aircraft-shape-chinook>small{top:44px}
+
+/* Compact phone sheets. Keep the map visible and never stack navigation over a
+   selected vehicle. */
+@media(max-width:560px){
+  .v12-leftbar{width:min(78vw,300px)!important;max-width:calc(100vw - 76px)!important;right:auto!important;bottom:auto!important;height:auto!important;max-height:min(62dvh,520px)!important}
+  .workspace-rail{width:50px!important;flex-basis:50px!important}
+  .workspace-drawer{width:calc(100% - 50px)!important;height:auto!important;max-height:min(62dvh,520px)!important;padding:9px!important}
+  .workspace-tab{min-height:43px!important}
+  .v12-detail{left:8px!important;right:8px!important;bottom:52px!important;max-height:56dvh!important;border-radius:14px!important;z-index:1800!important}
+  .v12-detail .detail-panel{padding:10px!important}
+  .detail-head h2{font-size:18px!important}.detail-head>div>small{font-size:7px!important}
+  .detail-close{width:36px!important;height:36px!important}
+  .detail-operator{margin:6px 0;padding:8px 9px}.detail-operator>i{min-height:38px}.detail-operator strong{font-size:15px}
+  .detail-intelligence{margin:6px 0;padding:8px}.detail-fields{gap:5px}.detail-field{padding:7px!important}.detail-field strong{font-size:10px!important}
+  .detail-photo img,.detail-photo img.aircraft-type-photo{height:145px!important;max-height:145px!important}
+  .detail-insight,.detail-discovery{margin:6px 0!important;padding:8px!important}
+  .v12-layout:has(.v12-detail:not(.is-empty)) .v12-leftbar{opacity:0!important;pointer-events:none!important;transform:translateX(-12px)!important}
+}
+
+/* Train operator colour should feel like part of the whole service card, not a
+   token strip on the heading. */
+.detail-panel.operator-themed-detail.operator-theme-train{
+  background:
+    linear-gradient(180deg,color-mix(in srgb,var(--operator-primary) 22%,transparent),transparent 180px),
+    transparent!important;
+}
+.detail-panel.operator-themed-detail.operator-theme-train .detail-intelligence{
+  border:1px solid color-mix(in srgb,var(--operator-accent) 45%,#294052);
+  border-left:5px solid var(--operator-primary);
+  box-shadow:inset 0 1px 0 color-mix(in srgb,var(--operator-accent) 28%,transparent);
+}
+.detail-panel.operator-themed-detail.operator-theme-train .detail-intelligence>small{color:color-mix(in srgb,var(--operator-accent) 82%,#b7d8ef)}
+.detail-panel.operator-themed-detail.operator-theme-train .detail-fields{border:1px solid color-mix(in srgb,var(--operator-primary) 38%,#253746)}
+.detail-panel.operator-themed-detail.operator-theme-train .detail-field{background:linear-gradient(145deg,color-mix(in srgb,var(--operator-primary) 24%,#14212c),#14212c)}
+.detail-panel.operator-themed-detail.operator-theme-train .detail-tech-toggle{border-color:color-mix(in srgb,var(--operator-accent) 48%,#334859);color:color-mix(in srgb,var(--operator-accent) 72%,#e6edf2)}
+.transport-run-card.operator-themed{
+  border-color:color-mix(in srgb,var(--train-accent) 48%,#283946);
+  border-top:5px solid var(--train-primary);
+  background:linear-gradient(135deg,color-mix(in srgb,var(--train-primary) 34%,#071018),#071018 72%);
+  box-shadow:inset 0 1px 0 color-mix(in srgb,var(--train-accent) 32%,transparent);
+}
+.transport-run-card.operator-themed .transport-run-head span{background:var(--train-accent);color:#111}
+.transport-run-card.operator-themed .transport-facts span{border-color:color-mix(in srgb,var(--train-accent) 35%,#263744);background:color-mix(in srgb,var(--train-primary) 35%,#17232d)}
+.transport-run-card.operator-themed .train-service-identity{border-left:5px solid var(--train-accent);background:linear-gradient(110deg,var(--train-primary),color-mix(in srgb,var(--train-secondary) 26%,#081017))}

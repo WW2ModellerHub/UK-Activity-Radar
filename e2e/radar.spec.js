@@ -714,6 +714,8 @@ test('Station Board opens a real fixture station and departure', async ({ page }
   await expect(page.locator('.rolling-stock-card')).toHaveAttribute('data-livery-theme', 'intercity');
   await expect(page.locator('.rolling-stock-card')).toContainText('InterCity');
   await expect(page.locator('.transport-run-card')).toHaveAttribute('data-livery-theme', 'east-midlands');
+  await expect(page.locator('#detail-panel')).toHaveClass(/operator-theme-train/);
+  await expect(page.locator('#detail-operator')).toContainText('Fixture Rail');
 });
 
 test('scheduled station-board train opens its published route without a live marker', async ({ page }) => {
@@ -763,6 +765,8 @@ test('mobile viewport keeps core navigation, map, and details usable', async ({ 
   const box = await page.locator('#detail-sidebar').boundingBox();
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(390);
+  expect(box.height).toBeLessThan(500);
+  await expect(page.locator('#workspace-shell')).toHaveCSS('opacity','0');
   const mapBox = await page.locator('#map').boundingBox();
   expect(mapBox.y + mapBox.height).toBeGreaterThan(820);
   await page.locator('#detail-close').click();
