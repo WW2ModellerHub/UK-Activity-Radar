@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from urllib.parse import quote, quote_plus, urlparse
 
+from requests.exceptions import ProxyError
+
 
 _SENSITIVE_QUERY_VALUE = re.compile(
     r"(?i)([?&](?:api[_-]?key|key|token|access[_-]?token|password|secret)=)[^&#\s]+"
@@ -17,6 +19,12 @@ def public_error(exc: BaseException, *secrets: str) -> str:
     query-string API keys. Source status is returned to browsers, so it must
     never contain those values.
     """
+
+    if isinstance(exc, ProxyError):
+        return (
+            "ProxyError: the configured outbound proxy could not be reached. "
+            "Check HTTP_PROXY/HTTPS_PROXY or restart UK Activity Radar from a normal Windows session."
+        )
 
     message = str(exc) or "upstream request failed"
     message = _SENSITIVE_QUERY_VALUE.sub(r"\1[REDACTED]", message)

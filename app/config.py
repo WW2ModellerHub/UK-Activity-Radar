@@ -15,6 +15,18 @@ def _bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _commercial_source(name: str, default: bool = True) -> bool:
+    """Enable a source only outside the monetised/public commercial build.
+
+    These sources either lack a published commercial redistribution grant or
+    depend on a public/community endpoint that is unsuitable for a paid site.
+    A future provider agreement should get a dedicated, reviewed integration
+    rather than an environment-variable bypass here.
+    """
+    commercial = _bool("COMMERCIAL_MODE", _bool("PUBLIC_DEPLOYMENT", False))
+    return (not commercial) and _bool(name, default)
+
+
 @dataclass(frozen=True)
 class Settings:
     network_rail_username: str = os.getenv("NETWORK_RAIL_USERNAME", "").strip()
@@ -31,6 +43,59 @@ class Settings:
     td_enabled: bool = _bool("TD_ENABLED", True)
     vstp_enabled: bool = _bool("VSTP_ENABLED", True)
     demo_mode: bool = _bool("DEMO_MODE", False)
+    public_deployment: bool = _bool("PUBLIC_DEPLOYMENT", False)
+    commercial_mode: bool = _bool("COMMERCIAL_MODE", _bool("PUBLIC_DEPLOYMENT", False))
+    public_tile_requests_per_minute: int = max(30, int(os.getenv("PUBLIC_TILE_REQUESTS_PER_MINUTE", "240")))
+    public_tile_global_per_minute: int = max(60, int(os.getenv("PUBLIC_TILE_GLOBAL_PER_MINUTE", "1200")))
+    public_lookup_requests_per_minute: int = max(10, int(os.getenv("PUBLIC_LOOKUP_REQUESTS_PER_MINUTE", "60")))
+    public_lookup_global_per_minute: int = max(20, int(os.getenv("PUBLIC_LOOKUP_GLOBAL_PER_MINUTE", "300")))
+    # The local prototype can collect coarse, pseudonymous usage events. Public
+    # deployments should leave this disabled until there is an explicit consent
+    # flow and a protected operator-only reporting path.
+    product_analytics_enabled: bool = _bool("PRODUCT_ANALYTICS_ENABLED", False)
+    websocket_refresh_seconds: float = max(0.5, float(os.getenv("WEBSOCKET_REFRESH_SECONDS", "1.0")))
+
+    # Radar+ is fail-closed. Enabling it without every required Stripe secret,
+    # HTTPS origin and a strong token pepper stops startup rather than silently
+    # exposing paid features or accepting an unverifiable payment.
+    billing_enabled: bool = _bool("BILLING_ENABLED", False)
+    public_base_url: str = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    stripe_secret_key: str = os.getenv("STRIPE_SECRET_KEY", "").strip()
+    stripe_webhook_secret: str = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
+    stripe_plus_price_id: str = os.getenv("STRIPE_PLUS_PRICE_ID", "").strip()
+    billing_token_pepper: str = os.getenv("BILLING_TOKEN_PEPPER", "").strip()
+    billing_cookie_secure: bool = _bool("BILLING_COOKIE_SECURE", True)
+    radar_plus_price_display: str = os.getenv("RADAR_PLUS_PRICE_DISPLAY", "£3.99/month").strip()
+    seller_legal_name: str = os.getenv("SELLER_LEGAL_NAME", "").strip()
+    support_email: str = os.getenv("SUPPORT_EMAIL", "").strip()
+    min_free_disk_mb: int = max(256, int(os.getenv("MIN_FREE_DISK_MB", "1024")))
+
+    @property
+    def seller_details_ready(self) -> bool:
+        email = self.support_email
+        return bool(
+            self.seller_legal_name
+            and email
+            and "@" in email
+            and not any(character.isspace() for character in email)
+        )
+
+    # Browser Web Push. VAPID keys are generated once for the hosted service
+    # and remain server-side; only the public key is returned to browsers.
+    push_alerts_enabled: bool = _bool("PUSH_ALERTS_ENABLED", False)
+    vapid_public_key: str = os.getenv("VAPID_PUBLIC_KEY", "").strip()
+    vapid_private_key: str = os.getenv("VAPID_PRIVATE_KEY", "").strip()
+    vapid_subject: str = os.getenv("VAPID_SUBJECT", "").strip()
+    push_poll_seconds: int = max(30, int(os.getenv("PUSH_POLL_SECONDS", "90")))
+
+    @property
+    def push_alerts_ready(self) -> bool:
+        return (
+            self.push_alerts_enabled
+            and self.public_base_url.startswith("https://")
+            and (self.vapid_subject.startswith("mailto:") or self.vapid_subject.startswith("https://"))
+            and bool(self.vapid_public_key and self.vapid_private_key)
+        )
 
     auto_sync_schedule: bool = _bool("AUTO_SYNC_SCHEDULE", True)
     auto_sync_reference: bool = _bool("AUTO_SYNC_REFERENCE", True)
@@ -63,8 +128,16 @@ class Settings:
     bods_sx_poll_seconds: int = max(30, int(os.getenv("BODS_SX_POLL_SECONDS", "60")))
     bods_poll_seconds: int = max(10, int(os.getenv("BODS_POLL_SECONDS", "30")))
     bods_max_age_seconds: int = max(60, int(os.getenv("BODS_MAX_AGE_SECONDS", "300")))
+    train_min_map_zoom: float = float(os.getenv("TRAIN_MIN_MAP_ZOOM", "7"))
+    train_max_stream: int = max(100, int(os.getenv("TRAIN_MAX_STREAM", "2000")))
     bus_min_map_zoom: float = float(os.getenv("BUS_MIN_MAP_ZOOM", "7"))
     bus_max_stream: int = max(100, int(os.getenv("BUS_MAX_STREAM", "2500")))
+
+    # OpenTripPlanner runs as a separate service with its own OSM + public
+    # transport graph.  An empty URL keeps the app fully usable without OTP.
+    otp_graphql_url: str = os.getenv("OTP_GRAPHQL_URL", "").strip()
+    otp_timeout_seconds: float = max(2.0, min(float(os.getenv("OTP_TIMEOUT_SECONDS", "12")), 30.0))
+    tomtom_routing_enabled: bool = _bool("TOMTOM_ROUTING_ENABLED", True)
 
     # National Highways Road & Lane Closures v2.0. Registration and an API
     # subscription key are free; never expose this key to browser JavaScript.
@@ -74,7 +147,25 @@ class Settings:
         "NATIONAL_HIGHWAYS_BASE_URL", "https://api.data.nationalhighways.co.uk/roads/v2.0"
     ).rstrip("/")
     national_highways_poll_seconds: int = max(30, int(os.getenv("NATIONAL_HIGHWAYS_POLL_SECONDS", "60")))
-    national_highways_include_planned: bool = _bool("NATIONAL_HIGHWAYS_INCLUDE_PLANNED", False)
+    national_highways_include_planned: bool = _bool("NATIONAL_HIGHWAYS_INCLUDE_PLANNED", True)
+    # Digital VMS is a separate subscription from Road & Lane Closures. Keep
+    # the full operation URL configurable because the portal may revise it.
+    national_highways_vms_enabled: bool = _bool("NATIONAL_HIGHWAYS_VMS_ENABLED", False)
+    national_highways_vms_url: str = os.getenv("NATIONAL_HIGHWAYS_VMS_URL", "").strip()
+    national_highways_speed_enabled: bool = _bool("NATIONAL_HIGHWAYS_SPEED_ENABLED", False)
+    national_highways_speed_url: str = os.getenv("NATIONAL_HIGHWAYS_SPEED_URL", "").strip()
+    national_highways_speed_poll_seconds: int = max(60, int(os.getenv("NATIONAL_HIGHWAYS_SPEED_POLL_SECONDS", "120")))
+    national_highways_features_enabled: bool = _bool("NATIONAL_HIGHWAYS_FEATURES_ENABLED", False)
+    national_highways_features_url: str = os.getenv("NATIONAL_HIGHWAYS_FEATURES_URL", "").strip()
+    national_highways_feature_types: tuple[str, ...] = tuple(
+        value.strip() for value in os.getenv("NATIONAL_HIGHWAYS_FEATURE_TYPES", "emergencyTelephone,busStop").split(",") if value.strip()
+    )
+    national_highways_features_poll_seconds: int = max(900, int(os.getenv("NATIONAL_HIGHWAYS_FEATURES_POLL_SECONDS", "3600")))
+
+    # DfT Street Manager public open data is delivered to a registered HTTPS
+    # callback by AWS SNS; it is not a pollable nationwide REST endpoint.
+    street_manager_enabled: bool = _bool("STREET_MANAGER_ENABLED", False)
+    street_manager_auto_confirm: bool = _bool("STREET_MANAGER_AUTO_CONFIRM", True)
 
     # Live traffic-flow overlay. TomTom offers a no-card free allowance for
     # traffic raster/vector tiles. The browser calls our server-side tile proxy
@@ -86,6 +177,8 @@ class Settings:
     traffic_flow_cache_seconds: int = max(15, int(os.getenv("TRAFFIC_FLOW_CACHE_SECONDS", "45")))
     traffic_flow_cache_max_tiles: int = max(64, int(os.getenv("TRAFFIC_FLOW_CACHE_MAX_TILES", "512")))
     traffic_flow_timeout_seconds: int = max(3, int(os.getenv("TRAFFIC_FLOW_TIMEOUT_SECONDS", "12")))
+    map_tile_cache_seconds: int = max(300, int(os.getenv("MAP_TILE_CACHE_SECONDS", "86400")))
+    map_tile_cache_max_tiles: int = max(128, int(os.getenv("MAP_TILE_CACHE_MAX_TILES", "2048")))
 
     @property
     def traffic_flow_ready(self) -> bool:
@@ -104,7 +197,7 @@ class Settings:
 
     # AISStream live maritime positions. The service is free but requires a
     # free account/API key. Keep the key server-side only.
-    aisstream_enabled: bool = _bool("AISSTREAM_ENABLED", True)
+    aisstream_enabled: bool = _commercial_source("AISSTREAM_ENABLED")
     aisstream_api_key: str = os.getenv("AISSTREAM_API_KEY", "").strip()
     aisstream_url: str = os.getenv("AISSTREAM_URL", "wss://stream.aisstream.io/v0/stream").strip()
     maritime_min_map_zoom: float = float(os.getenv("MARITIME_MIN_MAP_ZOOM", "6"))
@@ -133,7 +226,10 @@ class Settings:
     # Free/open ADSB.lol API for relevant UK SAR / air-ambulance aircraft.
     adsb_sar_enabled: bool = _bool("ADSB_SAR_ENABLED", True)
     adsb_lol_base_url: str = os.getenv("ADSB_LOL_BASE_URL", "https://api.adsb.lol").rstrip("/")
-    adsb_sar_poll_seconds: int = max(30, int(os.getenv("ADSB_SAR_POLL_SECONDS", "60")))
+    # One polite regional request per interval. Four default UK regions now
+    # complete in about 48 seconds instead of two minutes; HTTP 429 still
+    # triggers the collector's much longer Retry-After backoff.
+    adsb_sar_poll_seconds: int = max(10, int(os.getenv("ADSB_SAR_POLL_SECONDS", "12")))
 
     @property
     def adsb_sar_points(self) -> list[tuple[float, float, int]]:
@@ -146,41 +242,48 @@ class Settings:
         ]
 
     # Official RNLI latest-launch API. No account/key required.
-    rnli_enabled: bool = _bool("RNLI_ENABLED", True)
+    rnli_enabled: bool = _commercial_source("RNLI_ENABLED")
     rnli_launches_url: str = os.getenv("RNLI_LAUNCHES_URL", "https://services.rnli.org/api/launches").strip()
     rnli_poll_seconds: int = max(60, int(os.getenv("RNLI_POLL_SECONDS", "120")))
 
     # London Fire Brigade public incident pages — free, no key.
-    london_fire_enabled: bool = _bool("LONDON_FIRE_ENABLED", True)
+    london_fire_enabled: bool = _commercial_source("LONDON_FIRE_ENABLED")
     london_fire_url: str = os.getenv("LONDON_FIRE_URL", "https://www.london-fire.gov.uk/incidents/?initialLoad=True").strip()
     london_fire_poll_seconds: int = max(60, int(os.getenv("LONDON_FIRE_POLL_SECONDS", "180")))
 
 
     # Free public mirror of Met Office NSWWS warning polygons. No key. The
     # mirror refreshes hourly; official Met Office links remain authoritative.
-    met_office_enabled: bool = _bool("MET_OFFICE_ENABLED", True)
+    met_office_enabled: bool = _commercial_source("MET_OFFICE_ENABLED")
     met_office_arcgis_item: str = os.getenv("MET_OFFICE_ARCGIS_ITEM", "23e51204bd3348f1a37b50786b8abdea").strip()
     met_office_poll_seconds: int = max(300, int(os.getenv("MET_OFFICE_POLL_SECONDS", "900")))
 
     # Free OpenStreetMap Nominatim fallback for one-off map searches such as
     # "M1 J20" or "A5 Hinckley". The server caches and rate-limits requests.
-    nominatim_enabled: bool = _bool("NOMINATIM_ENABLED", True)
+    nominatim_enabled: bool = _commercial_source("NOMINATIM_ENABLED")
     nominatim_url: str = os.getenv("NOMINATIM_URL", "https://nominatim.openstreetmap.org/search").strip()
 
     # Free Wikimedia Commons image lookup used for optional detail-card photos.
-    wikimedia_enabled: bool = _bool("WIKIMEDIA_ENABLED", False)
+    # Click-driven, openly licensed reference imagery. Exact-identity rules in
+    # ``media.py`` prevent a plausible-looking image being presented as the
+    # live object when the feed does not identify it precisely.
+    wikimedia_enabled: bool = _bool("WIKIMEDIA_ENABLED", True)
     wikimedia_api_url: str = os.getenv("WIKIMEDIA_API_URL", "https://commons.wikimedia.org/w/api.php").strip()
 
     # Free related-coverage discovery. No GDELT key is required. X is linked
     # via its normal public search page rather than a paid API.
-    coverage_enabled: bool = _bool("COVERAGE_ENABLED", True)
+    coverage_enabled: bool = _commercial_source("COVERAGE_ENABLED")
     gdelt_url: str = os.getenv(
         "GDELT_URL", "https://api.gdeltproject.org/api/v2/doc/doc"
     ).strip()
 
 
     # --- v1.2 UK live-world layers: all free/open endpoints where practical ---
-    bgs_earthquakes_enabled: bool = _bool("BGS_EARTHQUAKES_ENABLED", True)
+    # The public BGS feed is useful locally, but its website/feed terms do not
+    # provide the same explicit commercial reuse grant as our OGL/ODbL feeds.
+    # Commercial/public builds therefore fail closed unless the operator has
+    # separately confirmed permission and explicitly opts it in.
+    bgs_earthquakes_enabled: bool = _commercial_source("BGS_EARTHQUAKES_ENABLED")
     bgs_earthquakes_url: str = os.getenv("BGS_EARTHQUAKES_URL", "https://quakes.bgs.ac.uk/feeds/MhSeismology.xml").strip()
     bgs_earthquakes_poll_seconds: int = max(120, int(os.getenv("BGS_EARTHQUAKES_POLL_SECONDS", "300")))
 
@@ -190,7 +293,7 @@ class Settings:
     ea_levels_poll_seconds: int = max(300, int(os.getenv("EA_LEVELS_POLL_SECONDS", "900")))
     ea_levels_max_points: int = max(100, int(os.getenv("EA_LEVELS_MAX_POINTS", "1200")))
 
-    wavenet_enabled: bool = _bool("WAVENET_ENABLED", True)
+    wavenet_enabled: bool = _commercial_source("WAVENET_ENABLED")
     wavenet_map_url: str = os.getenv("WAVENET_MAP_URL", "https://wavenet.cefas.co.uk/map").strip()
     wavenet_poll_seconds: int = max(600, int(os.getenv("WAVENET_POLL_SECONDS", "1800")))
     wavenet_max_sites: int = max(10, int(os.getenv("WAVENET_MAX_SITES", "60")))
@@ -199,16 +302,16 @@ class Settings:
     carbon_intensity_url: str = os.getenv("CARBON_INTENSITY_URL", "https://api.carbonintensity.org.uk/regional").strip()
     carbon_intensity_poll_seconds: int = max(300, int(os.getenv("CARBON_INTENSITY_POLL_SECONDS", "1800")))
 
-    uk_air_enabled: bool = _bool("UK_AIR_ENABLED", True)
+    uk_air_enabled: bool = _commercial_source("UK_AIR_ENABLED")
     uk_air_base_url: str = os.getenv("UK_AIR_BASE_URL", "https://uk-air.defra.gov.uk/latest/measurement-summary-map").strip()
     uk_air_poll_seconds: int = max(900, int(os.getenv("UK_AIR_POLL_SECONDS", "3600")))
 
-    tfl_live_enabled: bool = _bool("TFL_LIVE_ENABLED", True)
+    tfl_live_enabled: bool = _commercial_source("TFL_LIVE_ENABLED")
     tfl_api_base: str = os.getenv("TFL_API_BASE", "https://api.tfl.gov.uk").rstrip("/")
     tfl_app_key: str = os.getenv("TFL_APP_KEY", "").strip()
     tfl_poll_seconds: int = max(60, int(os.getenv("TFL_POLL_SECONDS", "120")))
 
-    gbfs_enabled: bool = _bool("GBFS_ENABLED", True)
+    gbfs_enabled: bool = _commercial_source("GBFS_ENABLED")
     gbfs_systems_url: str = os.getenv("GBFS_SYSTEMS_URL", "https://raw.githubusercontent.com/MobilityData/gbfs/master/systems.csv").strip()
     gbfs_poll_seconds: int = max(120, int(os.getenv("GBFS_POLL_SECONDS", "300")))
     gbfs_max_systems: int = max(1, int(os.getenv("GBFS_MAX_SYSTEMS", "12")))
@@ -219,17 +322,17 @@ class Settings:
     noaa_aurora_url: str = os.getenv("NOAA_AURORA_URL", "https://services.swpc.noaa.gov/json/ovation_aurora_latest.json").strip()
     space_weather_poll_seconds: int = max(120, int(os.getenv("SPACE_WEATHER_POLL_SECONDS", "300")))
 
-    iss_enabled: bool = _bool("ISS_ENABLED", True)
+    iss_enabled: bool = _commercial_source("ISS_ENABLED")
     iss_tle_url: str = os.getenv("ISS_TLE_URL", "https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=TLE").strip()
     iss_poll_seconds: int = max(10, int(os.getenv("ISS_POLL_SECONDS", "20")))
     iss_tle_refresh_seconds: int = max(1800, int(os.getenv("ISS_TLE_REFRESH_SECONDS", "21600")))
 
-    power_outages_enabled: bool = _bool("POWER_OUTAGES_ENABLED", True)
+    power_outages_enabled: bool = _commercial_source("POWER_OUTAGES_ENABLED")
     nged_powercuts_url: str = os.getenv("NGED_POWERCUTS_URL", "https://connecteddata.nationalgrid.co.uk/dataset/d6672e1e-c684-4cea-bb78-c7e5248b62a2/resource/a1365982-4e05-463c-8304-8323a2ba0ccd/download/live_detailed_power_cuts.csv").strip()
     ssen_outage_metadata_url: str = os.getenv("SSEN_OUTAGE_METADATA_URL", "https://ckan-prod.sse.datopian.com/dataset/real_time_outage.jsonld").strip()
     power_outages_poll_seconds: int = max(300, int(os.getenv("POWER_OUTAGES_POLL_SECONDS", "900")))
 
-    gritter_enabled: bool = _bool("GRITTER_ENABLED", True)
+    gritter_enabled: bool = _commercial_source("GRITTER_ENABLED")
     gritter_arcgis_item: str = os.getenv("GRITTER_ARCGIS_ITEM", "a256a6b57fa440daa50fc2974d80f219").strip()
     gritter_poll_seconds: int = max(60, int(os.getenv("GRITTER_POLL_SECONDS", "120")))
 

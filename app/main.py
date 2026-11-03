@@ -1,18 +1,25 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import math
+import os
+import shutil
 import time
 
 import requests
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from datetime import datetime, timezone
+from urllib.parse import quote
+from html import escape as html_escape
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.gzip import GZipMiddleware
 
 from .collectors.demo import run_demo
 from .collectors.bods import BODSCollector
@@ -23,10 +30,14 @@ from .collectors.rnli import RNLILaunchCollector
 from .collectors.adsb_lol import ADSBLolSARCollector
 from .collectors.london_fire import LondonFireCollector
 from .collectors.met_office import MetOfficeWarningCollector
-from .collectors.national_highways import NationalHighwaysCollector
+from .collectors.national_highways import (
+    NationalHighwaysCollector, NationalHighwaysFeaturesCollector,
+    NationalHighwaysSpeedCollector, NationalHighwaysVMSCollector,
+)
 from .collectors.network_rail import TrustCollector
 from .collectors.td import TDCollector
 from .collectors.vstp import VSTPCollector
+from .collectors.stomp_client import MultiplexStompFeed
 from .collectors.live_world import (
     BGSEarthquakeCollector, EALevelsCollector, WaveNetCollector, CarbonIntensityCollector,
     UKAirCollector, TfLLiveCollector, GBFSCollector, SpaceWeatherCollector, ISSCollector,
@@ -34,35 +45,80 @@ from .collectors.live_world import (
 )
 from .config import settings
 from .error_safety import same_origin_websocket
+from .network_environment import blocked_proxy_variables
 from .models import SourceStatus
+from .engagement import build_today_payload, safe_share_payload
+from .commute_alerts import CommuteAlertStore, alert_for_activity, within_alert_hours
 from .coverage import coverage_for_event
 from .media import WikimediaLookup
-from .aircraft_info import AircraftInfoService
-from .radio import RadioBrowserLookup
 from .search import ActivitySearch
 from .product import ProductAnalytics, product_plans
 from .traffic_flow import TrafficFlowService
-from .weather_radar import rainviewer_payload
 from .smart_places import SmartPlacesService
+from .cameras import TrafficCameraService
+from .discoveries import (
+    DiscoveryClaimError,
+    catalogue_payload,
+    claim_activity,
+    missions_payload,
+)
 from .reference_data import sync_public_geography, sync_reference_data
+from .train_reference import UKTrainReference
 from .schedule_store import ScheduleStore, sync_schedule_data
+from .request_budget import FixedWindowBudget
+from .rail_snapshot import RailPositionSnapshot
+from .open_trip_planner import OpenTripPlannerClient
+from .tomtom_routing import TomTomRoutingClient
+from .billing import (
+    PLUS_FEATURES,
+    AccessContext,
+    BillingAuthenticationError,
+    BillingConfiguration,
+    BillingError,
+    BillingPaymentPending,
+    BillingStateError,
+    BillingStore,
+    BillingWebhookError,
+    billing_configuration_errors,
+    StripeBillingService,
+)
+from .street_manager_open_data import (
+    StreetManagerMessageError,
+    StreetManagerSnapshotStore,
+    verify_and_parse_sns_envelope,
+)
 from .state import state
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "app" / "static"
-DATA_DIR = BASE_DIR / "data"
+LEGAL_DIR = BASE_DIR / "app" / "legal"
+DATA_DIR = Path(os.getenv("RADAR_DATA_DIR", str(BASE_DIR / "data"))).expanduser().resolve()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 STATION_FILE = DATA_DIR / "stations.json"
 SMART_FILE = DATA_DIR / "smart.json"
 SCHEDULE_DB = DATA_DIR / "schedule.sqlite"
 PRODUCT_DB = DATA_DIR / "product.sqlite"
+STREET_MANAGER_DB = DATA_DIR / "street_manager.sqlite"
+BILLING_DB = DATA_DIR / "billing.sqlite"
+ALERTS_DB = DATA_DIR / "commute_alerts.sqlite"
+RAIL_POSITION_SNAPSHOT = DATA_DIR / "rail_positions.json"
+UK_TRAIN_DATASET = BASE_DIR / "app" / "vendor" / "uk_train_dataset" / "trains.csv"
+APP_VERSION = "1.5.0"
+ACCESS_COOKIE = "__Host-radar_access"
+CHECKOUT_COOKIE = "__Host-radar_checkout"
 
 schedules = ScheduleStore(SCHEDULE_DB)
+train_reference = UKTrainReference(UK_TRAIN_DATASET)
 trust_collector: TrustCollector | None = None
 td_collector: TDCollector | None = None
 vstp_collector: VSTPCollector | None = None
+rail_feed_hub: MultiplexStompFeed | None = None
 bods_collector: BODSCollector | None = None
 bods_sx_collector: BODSSXCollector | None = None
 roads_collector: NationalHighwaysCollector | None = None
+vms_collector: NationalHighwaysVMSCollector | None = None
+speed_collector: NationalHighwaysSpeedCollector | None = None
+features_collector: NationalHighwaysFeaturesCollector | None = None
 floods_collector: EnvironmentAgencyFloodCollector | None = None
 ais_collector: AISStreamCollector | None = None
 rnli_collector: RNLILaunchCollector | None = None
@@ -71,15 +127,42 @@ london_fire_collector: LondonFireCollector | None = None
 met_office_collector: MetOfficeWarningCollector | None = None
 traffic_flow_service: TrafficFlowService | None = None
 smart_places: SmartPlacesService | None = None
+journey_planner: OpenTripPlannerClient | None = None
+road_journey_planner = TomTomRoutingClient(
+    settings.tomtom_traffic_api_key if settings.tomtom_routing_enabled else "",
+    settings.tomtom_traffic_base_url,
+    settings.otp_timeout_seconds,
+)
+street_manager_store: StreetManagerSnapshotStore | None = None
+billing_store: BillingStore | None = None
+billing_service: StripeBillingService | None = None
+commute_alert_store: CommuteAlertStore | None = None
+rail_position_snapshot = RailPositionSnapshot(RAIL_POSITION_SNAPSHOT)
 world_collectors: list = []
 media_lookup = WikimediaLookup(settings.wikimedia_api_url, enabled=settings.wikimedia_enabled)
-aircraft_info = AircraftInfoService()
 activity_search = ActivitySearch(state, settings.nominatim_url, enabled=settings.nominatim_enabled, tomtom_api_key=settings.tomtom_traffic_api_key, tomtom_base_url=settings.tomtom_traffic_base_url)
-radio_lookup = RadioBrowserLookup()
-product_analytics = ProductAnalytics(PRODUCT_DB)
+product_analytics = ProductAnalytics(PRODUCT_DB, enabled=settings.product_analytics_enabled)
+traffic_cameras = TrafficCameraService(settings.tfl_api_base, settings.tfl_app_key)
 viewer_counts: dict[str, int] = {}
 viewer_lock = asyncio.Lock()
-_weather_radar_cache: dict = {"expires": 0.0, "payload": None}
+tile_request_budget = FixedWindowBudget(
+    per_client=settings.public_tile_requests_per_minute,
+    global_limit=settings.public_tile_global_per_minute,
+)
+lookup_request_budget = FixedWindowBudget(
+    per_client=settings.public_lookup_requests_per_minute,
+    global_limit=settings.public_lookup_global_per_minute,
+)
+
+billing_configuration = BillingConfiguration(
+    enabled=settings.billing_enabled,
+    public_base_url=settings.public_base_url,
+    stripe_secret_key=settings.stripe_secret_key,
+    stripe_webhook_secret=settings.stripe_webhook_secret,
+    stripe_plus_price_id=settings.stripe_plus_price_id,
+    token_pepper=settings.billing_token_pepper,
+    cookie_secure=settings.billing_cookie_secure,
+)
 
 
 class ProductEventIn(BaseModel):
@@ -88,9 +171,91 @@ class ProductEventIn(BaseModel):
     feature: str = ""
 
 
+class DiscoveryClaimIn(BaseModel):
+    activity_id: str
+
+
+class JourneyPlanIn(BaseModel):
+    origin_name: str = ""
+    destination_name: str = ""
+    origin_lat: float | None = None
+    origin_lon: float | None = None
+    destination_lat: float | None = None
+    destination_lon: float | None = None
+    mode: str = "transit"
+    arrive_by: bool = False
+    wheelchair: bool = False
+
+
+class CommuteAlertIn(BaseModel):
+    device_token: str
+    subscription: dict
+    preferences: dict
+
+
+class CommuteAlertRemoveIn(BaseModel):
+    device_token: str
+
+
+def _route_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    radius = 6371.0088
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    value = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
+    return radius * 2 * math.atan2(math.sqrt(value), math.sqrt(max(0.0, 1 - value)))
+
+
+def _route_polyline_distance_km(lat: float, lon: float, points: list[tuple[float, float]]) -> float:
+    """Shortest local distance to a route segment, not merely a route vertex."""
+    lon_scale = 111.32 * math.cos(math.radians(lat))
+    lat_scale = 111.32
+    best = float("inf")
+    for (lat1, lon1), (lat2, lon2) in zip(points, points[1:]):
+        ax, ay = (lon1 - lon) * lon_scale, (lat1 - lat) * lat_scale
+        bx, by = (lon2 - lon) * lon_scale, (lat2 - lat) * lat_scale
+        dx, dy = bx - ax, by - ay
+        denominator = dx * dx + dy * dy
+        progress = 0.0 if denominator == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / denominator))
+        best = min(best, math.hypot(ax + progress * dx, ay + progress * dy))
+    return best
+
+
+def _add_live_route_issues(result: dict) -> dict:
+    """Attach current authoritative road events close to each returned route."""
+    itineraries = result.get("itineraries") if isinstance(result, dict) else None
+    if not isinstance(itineraries, list):
+        return result
+    for itinerary in itineraries:
+        geometry = itinerary.get("geometry") if isinstance(itinerary, dict) else None
+        if not isinstance(geometry, list) or len(geometry) < 2:
+            continue
+        try:
+            points = [(float(row["lat"]), float(row["lon"])) for row in geometry]
+        except (KeyError, TypeError, ValueError):
+            continue
+        lats, lons = [p[0] for p in points], [p[1] for p in points]
+        candidates = state.all_events(bbox=(min(lons) - 0.06, min(lats) - 0.04, max(lons) + 0.06, max(lats) + 0.04))
+        issues = []
+        for event in candidates:
+            if event.type not in {"road", "incident"}:
+                continue
+            distance = _route_polyline_distance_km(event.lat, event.lon, points)
+            if distance > 3.0:
+                continue
+            issues.append({
+                "id": event.id, "name": event.name, "type": event.type, "category": event.category,
+                "road": event.road, "reason": event.reason, "status": event.status,
+                "distance_km": round(distance, 1), "lat": event.lat, "lon": event.lon,
+                "source": event.source, "last_updated": event.last_updated.isoformat(),
+            })
+        issues.sort(key=lambda row: (row["distance_km"], row["name"]))
+        itinerary["route_issues"] = issues[:8]
+    return result
+
+
 _SOURCE_TTLS = {
     "network_rail": 150, "td": 150, "vstp": 900, "bods": 180, "bods_timetable": 86400, "bods_sx": 300,
-    "national_highways": 300, "ea_floods": 1200, "aisstream": 150, "rnli": 1800,
+    "national_highways": 300, "street_manager": 86400, "ea_floods": 1200, "aisstream": 150, "rnli": 1800,
     "adsb_sar": 420, "london_fire": 1800, "met_office": 10800,
     "bgs_earthquakes": 900, "ea_levels": 2400, "wavenet": 5400, "carbon_intensity": 5400,
     "uk_air": 10800, "tfl_live": 600, "gbfs": 1200, "space_weather": 1200, "iss": 120,
@@ -125,11 +290,68 @@ def _readiness_payload() -> dict:
     sources = [_source_payload(s) for s in state.sources()]
     core = [s for s in sources if s["name"] not in {"schedule", "rail_reference", "demo"} and s["enabled"]]
     counts = {key: sum(s["health"] == key for s in core) for key in ["live", "ready", "sync", "stale", "error", "setup", "offline"]}
-    if counts["error"] or counts["stale"]: overall = "degraded"
+    if counts["error"] or counts["stale"] or counts["offline"]: overall = "degraded"
     elif counts["setup"] and not (counts["live"] or counts["ready"]): overall = "setup"
     elif counts["live"] or counts["ready"]: overall = "healthy"
     else: overall = "starting"
-    return {"overall": overall, "counts": counts, "sources": sources, "version": "1.2.1"}
+    storage = _storage_payload()
+    bad_core_health = {"error", "stale", "offline", "setup"}
+    launch_checks = {
+        "commercial_profile": bool(settings.public_deployment and settings.commercial_mode),
+        "tomtom_base_map": bool(settings.tomtom_traffic_api_key),
+        "network_rail": (not settings.network_rail_enabled_flag) or settings.credentials_present,
+        "bods": (not settings.bods_enabled) or bool(settings.bods_api_key),
+        "national_highways": (not settings.national_highways_enabled) or bool(settings.national_highways_api_key),
+        "billing_safe": (not settings.billing_enabled) or not billing_configuration_errors(billing_configuration),
+        "seller_details": (not settings.billing_enabled) or settings.seller_details_ready,
+        "push_alerts_safe": (not settings.push_alerts_enabled) or settings.push_alerts_ready,
+        "storage_headroom": storage["healthy"],
+        "core_feeds_healthy": not any(source["health"] in bad_core_health for source in core),
+    }
+    launch_blockers = [name for name, passed in launch_checks.items() if not passed]
+    launch = {
+        "ready": not launch_blockers,
+        "checks": launch_checks,
+        "blockers": launch_blockers,
+        "note": "Credential values are never returned by this endpoint.",
+    }
+    return {
+        "overall": overall,
+        "counts": counts,
+        "sources": sources,
+        "launch": launch,
+        "operations": {
+            "storage": storage,
+            "request_budgets": {
+                "tiles": tile_request_budget.status(),
+                "lookups": lookup_request_budget.status(),
+            },
+        },
+        "version": APP_VERSION,
+    }
+
+
+def _storage_payload() -> dict:
+    try:
+        usage = shutil.disk_usage(DATA_DIR)
+        total_mb = round(usage.total / 1024 / 1024)
+        free_mb = round(usage.free / 1024 / 1024)
+        used_percent = round((usage.used / usage.total) * 100, 1) if usage.total else 100.0
+        return {
+            "healthy": free_mb >= settings.min_free_disk_mb,
+            "free_mb": free_mb,
+            "total_mb": total_mb,
+            "used_percent": used_percent,
+            "minimum_free_mb": settings.min_free_disk_mb,
+        }
+    except OSError:
+        return {
+            "healthy": False,
+            "free_mb": None,
+            "total_mb": None,
+            "used_percent": None,
+            "minimum_free_mb": settings.min_free_disk_mb,
+        }
 
 
 def _mapped_location_count() -> int:
@@ -252,37 +474,133 @@ async def _sync_reference() -> None:
         ))
 
 
+async def _schedule_sync_loop() -> None:
+    """Keep the daily schedule cache fresh without relying on service restarts."""
+    while True:
+        await _sync_schedule()
+        await asyncio.sleep(6 * 3600)
+
+
+async def _reference_sync_loop() -> None:
+    """Recheck slower-changing rail reference data once per day."""
+    while True:
+        await _sync_reference()
+        await asyncio.sleep(24 * 3600)
+
+
+def _send_commute_push(subscription: dict, payload: dict) -> None:
+    from pywebpush import webpush
+
+    webpush(
+        subscription_info=subscription,
+        data=json.dumps(payload),
+        vapid_private_key=settings.vapid_private_key,
+        vapid_claims={"sub": settings.vapid_subject},
+        ttl=1800,
+        timeout=12,
+    )
+
+
+async def _commute_alert_loop() -> None:
+    while True:
+        await asyncio.sleep(settings.push_poll_seconds)
+        store = commute_alert_store
+        if store is None:
+            continue
+        activities = state.all_activities()
+        for saved in store.active():
+            if not within_alert_hours(saved.preferences):
+                continue
+            candidates = [alert_for_activity(item, saved.preferences) for item in activities]
+            candidate = next((row for row in candidates if row and not store.already_delivered(saved.endpoint_hash, row["key"])), None)
+            if candidate is None:
+                continue
+            candidate["url"] = f"{settings.public_base_url}/live/{quote(candidate['activity_id'], safe='')}"
+            candidate["tag"] = f"commute-{hashlib.sha256(candidate['key'].encode()).hexdigest()[:20]}"
+            try:
+                await asyncio.to_thread(_send_commute_push, saved.subscription, candidate)
+                store.mark_delivered(saved.endpoint_hash, candidate["key"])
+            except Exception as exc:
+                status_code = getattr(exc, "status_code", None)
+                if status_code in {404, 410}:
+                    store.deactivate(saved.endpoint_hash)
+
+
+def _recent_trains():
+    return [
+        row for row in state.all(
+            include_trains=True,
+            train_limit=None,
+            include_buses=False,
+            include_vessels=False,
+        )
+        if row.type == "train"
+    ]
+
+
+async def _rail_position_snapshot_loop() -> None:
+    while True:
+        await asyncio.sleep(15)
+        await asyncio.to_thread(rail_position_snapshot.save, _recent_trains())
+
+
+async def _state_maintenance_loop() -> None:
+    """Bound long-running in-memory state without touching current live rows."""
+    while True:
+        await asyncio.sleep(300)
+        state.prune_stale()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global trust_collector, td_collector, vstp_collector, bods_collector, bods_sx_collector, roads_collector, floods_collector, ais_collector, rnli_collector, adsb_sar_collector, london_fire_collector, met_office_collector, traffic_flow_service, world_collectors, smart_places
+    global trust_collector, td_collector, vstp_collector, rail_feed_hub, bods_collector, bods_sx_collector, roads_collector, vms_collector, speed_collector, features_collector, floods_collector, ais_collector, rnli_collector, adsb_sar_collector, london_fire_collector, met_office_collector, traffic_flow_service, world_collectors, smart_places, journey_planner, street_manager_store, billing_store, billing_service, commute_alert_store
     tasks: list[asyncio.Task] = []
+    tasks.append(asyncio.create_task(_state_maintenance_loop()))
+
+    if billing_configuration.enabled:
+        billing_store = BillingStore(
+            BILLING_DB,
+            token_pepper=billing_configuration.token_pepper,
+        )
+        billing_service = StripeBillingService(billing_store, billing_configuration)
+
+    if settings.push_alerts_ready:
+        commute_alert_store = CommuteAlertStore(ALERTS_DB)
+        tasks.append(asyncio.create_task(_commute_alert_loop()))
 
     if settings.demo_mode:
         tasks.append(asyncio.create_task(run_demo(state)))
 
     if settings.network_rail_enabled:
+        for restored_train in await asyncio.to_thread(rail_position_snapshot.load):
+            state.upsert(restored_train)
         trust_collector = TrustCollector(settings, state, STATION_FILE, schedules)
-        trust_collector.start()
+        rail_feeds = [trust_collector]
 
         if settings.td_enabled:
-            td_collector = TDCollector(settings, state, STATION_FILE, SMART_FILE)
-            td_collector.start()
+            td_collector = TDCollector(settings, state, STATION_FILE, SMART_FILE, schedules)
+            rail_feeds.append(td_collector)
         else:
             state.set_source(SourceStatus(name="td", enabled=False, mode="off", message="TD disabled in .env"))
 
         if settings.vstp_enabled:
             vstp_collector = VSTPCollector(settings, state, schedules)
-            vstp_collector.start()
+            rail_feeds.append(vstp_collector)
         else:
             state.set_source(SourceStatus(name="vstp", enabled=False, mode="off", message="VSTP disabled in .env"))
+
+        rail_feed_hub = MultiplexStompFeed(settings, rail_feeds)
+        rail_feed_hub.start()
 
         if schedules.ready():
             state.set_source(SourceStatus(
                 name="schedule", enabled=True, connected=True, mode="ready",
                 message=f"Local SCHEDULE index loaded • {schedules.count():,} schedules",
             ))
+            if not schedules.call_index_ready():
+                tasks.append(asyncio.create_task(asyncio.to_thread(schedules.ensure_call_index)))
         if settings.auto_sync_schedule:
-            tasks.append(asyncio.create_task(_sync_schedule()))
+            tasks.append(asyncio.create_task(_schedule_sync_loop()))
 
         if _mapped_location_count() > 0:
             state.set_source(SourceStatus(
@@ -290,7 +608,8 @@ async def lifespan(app: FastAPI):
                 message=f"{_mapped_location_count():,} mapped STANOX locations loaded; background refresh pending",
             ))
         if settings.auto_sync_reference:
-            tasks.append(asyncio.create_task(_sync_reference()))
+            tasks.append(asyncio.create_task(_reference_sync_loop()))
+        tasks.append(asyncio.create_task(_rail_position_snapshot_loop()))
     elif not settings.demo_mode:
         state.set_source(SourceStatus(
             name="network_rail", enabled=False, connected=False, mode="setup",
@@ -303,7 +622,16 @@ async def lifespan(app: FastAPI):
     else:
         state.set_source(SourceStatus(name="bods", enabled=False, mode="off", message="BODS live buses disabled in .env"))
 
-    smart_places = SmartPlacesService(DATA_DIR, schedules, state, bods_collector_getter=lambda: bods_collector)
+    journey_planner = OpenTripPlannerClient(
+        settings.otp_graphql_url,
+        timeout_seconds=settings.otp_timeout_seconds,
+    )
+    smart_places = SmartPlacesService(
+        DATA_DIR,
+        schedules,
+        state,
+        bods_collector_getter=lambda: bods_collector,
+    )
     smart_places.start_background_sync()
 
     if settings.bods_sx_enabled:
@@ -317,6 +645,50 @@ async def lifespan(app: FastAPI):
         roads_collector.start()
     else:
         state.set_source(SourceStatus(name="national_highways", enabled=False, mode="off", message="National Highways road events disabled in .env"))
+
+    if settings.national_highways_vms_enabled:
+        vms_collector = NationalHighwaysVMSCollector(settings, state)
+        vms_collector.start()
+    else:
+        state.set_source(SourceStatus(name="national_highways_vms", enabled=False, mode="off", message="Motorway signs off"))
+
+    if settings.national_highways_speed_enabled and settings.national_highways_speed_url:
+        speed_collector = NationalHighwaysSpeedCollector(settings, state)
+        speed_collector.start()
+    else:
+        state.set_source(SourceStatus(name="national_highways_speed", enabled=False, mode="off", message="Managed-speed areas off"))
+
+    if settings.national_highways_features_enabled and settings.national_highways_features_url:
+        features_collector = NationalHighwaysFeaturesCollector(settings, state)
+        features_collector.start()
+    else:
+        state.set_source(SourceStatus(name="national_highways_features", enabled=False, mode="off", message="Roadside features off"))
+
+    if settings.street_manager_enabled:
+        try:
+            street_manager_store = StreetManagerSnapshotStore(STREET_MANAGER_DB)
+            stored_events = street_manager_store.events()
+            state.replace_events_for_source("DfT Street Manager Open Data", stored_events)
+            state.set_source(SourceStatus(
+                name="street_manager", enabled=True, connected=True,
+                mode="live" if stored_events else "ready",
+                message=(
+                    f"Street Manager callback ready • {len(stored_events):,} active local-road events restored"
+                    if stored_events else
+                    "Street Manager callback ready • register /api/integrations/street-manager with DfT"
+                ),
+                movements_mapped=len(stored_events),
+            ))
+        except Exception as exc:
+            state.set_source(SourceStatus(
+                name="street_manager", enabled=True, connected=False, mode="error",
+                message=f"Street Manager snapshot could not open: {type(exc).__name__}",
+            ))
+    else:
+        state.set_source(SourceStatus(
+            name="street_manager", enabled=False, connected=False, mode="off",
+            message="Street Manager open-data callback disabled in .env",
+        ))
 
     traffic_flow_service = TrafficFlowService(settings, state)
     traffic_flow_service.set_initial_status()
@@ -386,7 +758,10 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    for collector in (trust_collector, td_collector, vstp_collector, bods_collector, bods_sx_collector, roads_collector, floods_collector, ais_collector, rnli_collector, adsb_sar_collector, london_fire_collector, met_office_collector):
+    if rail_feed_hub:
+        rail_feed_hub.stop()
+        rail_feed_hub = None
+    for collector in (trust_collector, td_collector, vstp_collector, bods_collector, bods_sx_collector, roads_collector, vms_collector, speed_collector, features_collector, floods_collector, ais_collector, rnli_collector, adsb_sar_collector, london_fire_collector, met_office_collector):
         if collector:
             collector.stop()
     for collector in world_collectors:
@@ -394,14 +769,121 @@ async def lifespan(app: FastAPI):
             collector.stop()
         except Exception:
             pass
+    if settings.network_rail_enabled:
+        with suppress(Exception):
+            await asyncio.to_thread(rail_position_snapshot.save, _recent_trains())
     for task in tasks:
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+    if street_manager_store is not None:
+        street_manager_store.close()
+        street_manager_store = None
+    if billing_store is not None:
+        billing_store.close()
+        billing_store = None
+        billing_service = None
+    if commute_alert_store is not None:
+        commute_alert_store.close()
+        commute_alert_store = None
 
 
-app = FastAPI(title="UK Activity Radar", version="1.2.1", lifespan=lifespan)
+app = FastAPI(
+    title="UK Activity Radar",
+    version=APP_VERSION,
+    lifespan=lifespan,
+    docs_url=None if settings.public_deployment else "/docs",
+    redoc_url=None if settings.public_deployment else "/redoc",
+    openapi_url=None if settings.public_deployment else "/openapi.json",
+)
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
+    if settings.public_deployment:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: https:; media-src 'self' https:; connect-src 'self' wss:; "
+            "font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+        )
+    path = request.url.path
+    if path.startswith("/api/"):
+        # Live positions, entitlements and account state must never be cached by
+        # a shared proxy. Tile routes set their own safe public cache policy.
+        response.headers.setdefault("Cache-Control", "private, no-store")
+    elif path.startswith("/static/"):
+        if path.endswith((".png", ".ico", ".webp", ".woff2")) or "/vendor/" in path:
+            response.headers.setdefault("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
+        else:
+            response.headers.setdefault("Cache-Control", "public, max-age=300, stale-while-revalidate=86400")
+    elif path == "/" or path.startswith("/live/") or path in {"/data-licences", "/terms"}:
+        response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
+
+def _require_local_debug_route() -> None:
+    if settings.public_deployment:
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+def _enforce_public_budget(request: Request, budget: FixedWindowBudget) -> None:
+    if not settings.public_deployment:
+        return
+    client = request.client.host if request.client else "unknown"
+    allowed, retry_after = budget.consume(client)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Public beta request budget reached. Please wait before retrying.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+def _billing_context(request: Request) -> AccessContext:
+    if not settings.public_deployment and not billing_configuration.enabled:
+        return AccessContext(
+            token_valid=True,
+            customer_id="local-development",
+            plan="plus",
+            subscription_status="active",
+            features=PLUS_FEATURES,
+        )
+    if billing_store is None:
+        return AccessContext()
+    return billing_store.access_context(request.cookies.get(ACCESS_COOKIE))
+
+
+def _require_plus(request: Request, feature: str) -> AccessContext:
+    context = _billing_context(request)
+    if not context.has(feature):
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "radar_plus_required",
+                "feature": feature,
+                "message": "This advanced tool is included with Radar+.",
+            },
+            headers={"Cache-Control": "private, no-store", "Vary": "Cookie"},
+        )
+    return context
+
+
+def _require_same_origin_post(request: Request) -> None:
+    origin = request.headers.get("origin")
+    host = request.headers.get("host")
+    if origin and not same_origin_websocket(origin, host):
+        raise HTTPException(status_code=403, detail="Cross-site request rejected")
 
 
 @app.get("/", include_in_schema=False)
@@ -409,59 +891,258 @@ def home():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/data-licences", include_in_schema=False)
+def data_licences():
+    return FileResponse(STATIC_DIR / "data-licences.html")
+
+
+def _legal_page(filename: str) -> Response:
+    page = (LEGAL_DIR / filename).read_text(encoding="utf-8")
+    seller = settings.seller_legal_name or "Seller details pending"
+    email = settings.support_email or "Support contact pending"
+    page = page.replace("{{SELLER_LEGAL_NAME}}", html_escape(seller))
+    page = page.replace("{{SUPPORT_EMAIL}}", html_escape(email))
+    page = page.replace("{{SUPPORT_EMAIL_URL}}", quote(email, safe="@.+-_"))
+    return Response(
+        page,
+        media_type="text/html",
+        headers={"Cache-Control": "public, max-age=300, stale-while-revalidate=3600"},
+    )
+
+
+@app.get("/terms", include_in_schema=False)
+def service_terms():
+    return _legal_page("terms.html")
+
+
+@app.get("/privacy", include_in_schema=False)
+def privacy_notice():
+    return _legal_page("privacy.html")
+
+
+@app.get("/live/{activity_id:path}", include_in_schema=False)
+def shared_live_page(activity_id: str):
+    return FileResponse(STATIC_DIR / "share.html")
+
+
+@app.get("/api/billing/status")
+def billing_status(request: Request, response: Response):
+    context = _billing_context(request)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Vary"] = "Cookie"
+    return {
+        "enabled": bool(billing_service),
+        "plan": context.plan,
+        "plus": context.plus,
+        "subscription_status": context.subscription_status,
+        "features": sorted(context.features),
+        "price_display": settings.radar_plus_price_display,
+        "free_features": ["live_map", "core_layers", "basic_cool", "field_guide", "basic_my_radar"],
+        "plus_features": sorted(PLUS_FEATURES),
+    }
+
+
+@app.get("/api/alerts/status")
+def commute_alert_status(request: Request, response: Response):
+    device_token = request.headers.get("x-radar-device") or ""
+    saved = commute_alert_store.status(device_token) if commute_alert_store is not None and device_token else None
+    response.headers["Cache-Control"] = "private, no-store"
+    return {
+        "configured": settings.push_alerts_ready,
+        "public_key": settings.vapid_public_key if settings.push_alerts_ready else None,
+        "subscribed": bool(saved and saved["active"]),
+        "preferences": saved["preferences"] if saved and saved["active"] else None,
+        "requires_https": True,
+    }
+
+
+@app.post("/api/alerts/subscribe")
+def subscribe_commute_alerts(payload: CommuteAlertIn, request: Request):
+    _require_same_origin_post(request)
+    _enforce_public_budget(request, lookup_request_budget)
+    if commute_alert_store is None or not settings.push_alerts_ready:
+        raise HTTPException(status_code=503, detail="Commute alerts will become available when Web Push is configured on the hosted site")
+    try:
+        commute_alert_store.upsert(payload.device_token, payload.subscription, payload.preferences)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "message": "Commute alerts are active on this device"}
+
+
+@app.post("/api/alerts/unsubscribe")
+def unsubscribe_commute_alerts(payload: CommuteAlertRemoveIn, request: Request):
+    _require_same_origin_post(request)
+    if commute_alert_store is not None:
+        commute_alert_store.remove(payload.device_token)
+    return {"ok": True}
+
+
+@app.post("/api/billing/checkout")
+def billing_checkout(request: Request, response: Response):
+    _require_same_origin_post(request)
+    _enforce_public_budget(request, lookup_request_budget)
+    if billing_service is None:
+        raise HTTPException(status_code=503, detail="Radar+ checkout is not configured yet")
+    try:
+        started = billing_service.create_checkout()
+    except BillingError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    response.set_cookie(
+        CHECKOUT_COOKIE,
+        started.state_token,
+        max_age=max(60, started.expires_at - int(time.time())),
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+    response.headers["Cache-Control"] = "private, no-store"
+    return {"checkout_url": started.checkout_url}
+
+
+@app.get("/billing/success", include_in_schema=False)
+def billing_success(request: Request, session_id: str):
+    if billing_service is None:
+        return RedirectResponse(url="/?billing=unavailable", status_code=303)
+    state_token = request.cookies.get(CHECKOUT_COOKIE) or ""
+    try:
+        confirmation = billing_service.confirm_checkout(session_id, state_token)
+    except BillingPaymentPending:
+        return RedirectResponse(url="/?billing=pending", status_code=303)
+    except BillingError:
+        return RedirectResponse(url="/?billing=failed", status_code=303)
+    response = RedirectResponse(url="/?billing=success", status_code=303)
+    response.set_cookie(
+        ACCESS_COOKIE,
+        confirmation.access_token,
+        max_age=billing_configuration.access_ttl_seconds,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+    response.delete_cookie(CHECKOUT_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@app.post("/api/billing/portal")
+def billing_portal(request: Request):
+    _require_same_origin_post(request)
+    if billing_service is None:
+        raise HTTPException(status_code=503, detail="Radar+ billing is not configured yet")
+    try:
+        url = billing_service.create_portal(request.cookies.get(ACCESS_COOKIE) or "")
+    except BillingAuthenticationError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except BillingError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"portal_url": url}
+
+
+@app.post("/api/billing/logout")
+def billing_logout(request: Request):
+    _require_same_origin_post(request)
+    token = request.cookies.get(ACCESS_COOKIE)
+    if billing_store is not None and token:
+        billing_store.revoke_access_token(token)
+    response = Response(status_code=204)
+    response.delete_cookie(ACCESS_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@app.post("/api/billing/webhook", include_in_schema=False)
+async def billing_webhook(request: Request):
+    if billing_service is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    raw = await request.body()
+    try:
+        result = billing_service.handle_webhook(raw, request.headers.get("stripe-signature") or "")
+    except BillingWebhookError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "received": True,
+        "processed": result.processed,
+        "duplicate": result.duplicate,
+        "ignored": result.ignored,
+    }
+
+
 @app.get("/api/health")
 def health():
     mode = "live" if settings.network_rail_enabled else ("demo" if settings.demo_mode else "setup")
+    counts = state.type_counts({
+        "bus": 5,
+        "vessel": 10,
+        "sar": 10,
+        "gritter": 10,
+        "aircraft": 10,
+        "satellite": 10,
+    })
+    storage = _storage_payload()
     return {
         "ok": True,
-        "version": "1.2.1",
+        "version": APP_VERSION,
+        "outbound_proxy_blocked": bool(blocked_proxy_variables()),
         "mode": mode,
         "network_rail_credentials_present": settings.credentials_present,
+        "open_trip_planner_configured": bool(settings.otp_graphql_url),
         "mapped_rail_locations": _mapped_location_count(),
         "schedule_count": schedules.count(),
         "td_enabled": settings.td_enabled,
         "vstp_enabled": settings.vstp_enabled,
         "bods_enabled": settings.bods_enabled,
         "bods_api_key_present": bool(settings.bods_api_key),
-        "live_bus_count": state.count_type("bus", max_age_minutes=5),
+        "live_bus_count": counts.get("bus", 0),
         "bods_sx_enabled": settings.bods_sx_enabled,
         "national_highways_enabled": settings.national_highways_enabled,
         "national_highways_api_key_present": bool(settings.national_highways_api_key),
-        "road_event_count": state.count_type("road") + state.count_type("incident"),
+        "road_event_count": counts.get("road", 0) + counts.get("incident", 0),
+        "street_manager_enabled": settings.street_manager_enabled,
+        "street_manager_callback_path": "/api/integrations/street-manager" if settings.street_manager_enabled else None,
         "traffic_flow_enabled": settings.traffic_flow_enabled,
         "traffic_flow_api_key_present": bool(settings.tomtom_traffic_api_key),
         "traffic_flow_ready": settings.traffic_flow_ready,
+        "base_map_provider": "TomTom Orbis Map Display",
+        "base_map_ready": bool(traffic_flow_service and traffic_flow_service.map_ready),
+        "commercial_profile": bool(settings.public_deployment and settings.commercial_mode),
         "ea_floods_enabled": settings.ea_floods_enabled,
-        "flood_event_count": state.count_type("flood"),
+        "flood_event_count": counts.get("flood", 0),
         "aisstream_enabled": settings.aisstream_enabled,
         "aisstream_api_key_present": bool(settings.aisstream_api_key),
-        "live_vessel_count": state.count_type("vessel", max_age_minutes=10),
-        "live_sar_count": state.count_type("sar", max_age_minutes=10),
+        "live_vessel_count": counts.get("vessel", 0),
+        "live_sar_count": counts.get("sar", 0),
         "rnli_enabled": settings.rnli_enabled,
-        "rnli_launch_count": state.count_type("rescue"),
+        "rnli_launch_count": counts.get("rescue", 0),
         "adsb_sar_enabled": settings.adsb_sar_enabled,
-        "adsb_sar_count": state.count_type("sar", max_age_minutes=10),
+        "adsb_sar_count": counts.get("sar", 0),
         "london_fire_enabled": settings.london_fire_enabled,
         "met_office_enabled": settings.met_office_enabled,
-        "weather_warning_count": state.count_type("weather"),
-        "earthquake_count": state.count_type("earthquake"),
-        "river_level_count": state.count_type("river"),
-        "tide_gauge_count": state.count_type("tide"),
-        "wave_buoy_count": state.count_type("wave"),
-        "grid_region_count": state.count_type("grid"),
-        "air_quality_count": state.count_type("airquality"),
-        "bike_point_count": state.count_type("bike"),
-        "power_outage_count": state.count_type("outage"),
-        "gritter_count": state.count_type("gritter", max_age_minutes=10),
-        "interesting_aircraft_count": state.count_type("aircraft", max_age_minutes=10),
-        "satellite_count": state.count_type("satellite", max_age_minutes=10),
+        "weather_warning_count": counts.get("weather", 0),
+        "earthquake_count": counts.get("earthquake", 0),
+        "river_level_count": counts.get("river", 0),
+        "tide_gauge_count": counts.get("tide", 0),
+        "wave_buoy_count": counts.get("wave", 0),
+        "grid_region_count": counts.get("grid", 0),
+        "air_quality_count": counts.get("airquality", 0),
+        "bike_point_count": counts.get("bike", 0),
+        "power_outage_count": counts.get("outage", 0),
+        "gritter_count": counts.get("gritter", 0),
+        "interesting_aircraft_count": counts.get("aircraft", 0),
+        "satellite_count": counts.get("satellite", 0),
+        "storage_healthy": storage["healthy"],
+        "storage_free_mb": storage["free_mb"],
+        "billing_enabled": bool(billing_service),
+        "seller_details_ready": settings.seller_details_ready,
     }
 
 
 @app.get("/api/diagnostics")
 def diagnostics():
+    _require_local_debug_route()
     return {
-        "version": "1.2.1",
+        "version": APP_VERSION,
         "mapped_stanox": _mapped_location_count(),
         "schedule_count": schedules.count(),
         "schedule_last_sync": schedules.last_sync(),
@@ -479,6 +1160,7 @@ def diagnostics():
 
 @app.get("/api/vehicles")
 def vehicles(type: str | None = None, q: str | None = None):
+    _require_local_debug_route()
     items = state.all()
     if type and type != "all":
         items = [v for v in items if v.type == type]
@@ -499,8 +1181,31 @@ def vehicle(vehicle_id: str):
     return item.model_dump(mode="json")
 
 
+@app.get("/api/aircraft/nearby")
+def nearby_aircraft(request: Request, lat: float, lon: float, radius_miles: float = 25):
+    """Resolve aircraft around one user-selected point without widening the background feed."""
+    _enforce_public_budget(request, lookup_request_budget)
+    if adsb_sar_collector is None:
+        raise HTTPException(status_code=503, detail="Nearby aircraft feed is not ready")
+    if not (48.0 <= lat <= 62.5 and -13.5 <= lon <= 5.0):
+        raise HTTPException(status_code=400, detail="Location is outside UK aircraft coverage")
+    miles = max(5.0, min(50.0, float(radius_miles)))
+    radius_nm = max(5, round(miles / 1.15078))
+    try:
+        rows, checked = adsb_sar_collector.fetch_nearby(lat, lon, radius_nm)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Nearby aircraft lookup failed: {public_error(exc)}") from exc
+    return {
+        "activities": [row.model_dump(mode="json") for row in rows],
+        "checked": checked,
+        "radius_miles": miles,
+        "source": "ADSB.lol point feed",
+    }
+
+
 @app.get("/api/events")
 def events(type: str | None = None, q: str | None = None):
+    _require_local_debug_route()
     items = state.all_events()
     if type and type != "all":
         items = [e for e in items if e.type == type]
@@ -521,7 +1226,8 @@ def places(west: float, south: float, east: float, north: float, zoom: float = 1
 
 
 @app.get("/api/places/nearest-rail")
-def nearest_rail_place(lat: float, lon: float):
+def nearest_rail_place(request: Request, lat: float, lon: float):
+    _enforce_public_budget(request, lookup_request_budget)
     if smart_places is None:
         raise HTTPException(status_code=503, detail="Smart places are not ready")
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
@@ -535,8 +1241,22 @@ def nearest_rail_place(lat: float, lon: float):
     return {"place":place}
 
 
+@app.get("/api/places/nearest-bus")
+def nearest_bus_place(request: Request, lat: float, lon: float):
+    _enforce_public_budget(request, lookup_request_budget)
+    if smart_places is None:
+        raise HTTPException(status_code=503, detail="Smart places are not ready")
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise HTTPException(status_code=400, detail="Invalid coordinates")
+    place=smart_places.nearest_bus_stop(lat,lon)
+    if not place:
+        raise HTTPException(status_code=404, detail="No cached bus stop is available near this location yet")
+    return {"place":place}
+
+
 @app.get("/api/places/{place_id:path}/board")
-def place_board(place_id: str, limit: int = 10):
+def place_board(place_id: str, request: Request, limit: int = 10):
+    _enforce_public_budget(request, lookup_request_budget)
     if smart_places is None:
         raise HTTPException(status_code=503, detail="Smart places are not ready")
     place=smart_places.get_place(place_id)
@@ -552,8 +1272,86 @@ def place_board(place_id: str, limit: int = 10):
     return {"place": place, "board": payload}
 
 
+@app.get("/api/journeys/status")
+def journey_status():
+    planner = journey_planner or OpenTripPlannerClient(
+        settings.otp_graphql_url,
+        timeout_seconds=settings.otp_timeout_seconds,
+    )
+    payload = planner.status_payload()
+    return {
+        **payload,
+        "available": bool(payload.get("available") or road_journey_planner.configured),
+        "providers": {
+            "public_transport": "OpenTripPlanner" if planner.configured else None,
+            "road_walk_cycle": "TomTom Routing" if road_journey_planner.configured else None,
+        },
+    }
+
+
+@app.post("/api/journeys/plan")
+def plan_journey(request: Request, plan: JourneyPlanIn):
+    """Plan a real journey without inventing routes when providers are absent."""
+    _enforce_public_budget(request, lookup_request_budget)
+    _require_plus(request, "journey_planner")
+    mode = str(plan.mode or "transit").strip().casefold()
+    if mode not in {"transit", "walk", "bike", "car"}:
+        raise HTTPException(status_code=400, detail="Mode must be transit, walk, bike, or car")
+
+    planner = journey_planner or OpenTripPlannerClient(
+        settings.otp_graphql_url,
+        timeout_seconds=settings.otp_timeout_seconds,
+    )
+    coordinates = (
+        plan.origin_lat, plan.origin_lon,
+        plan.destination_lat, plan.destination_lon,
+    )
+    if mode in {"car", "walk", "bike"} and road_journey_planner.configured:
+        if any(value is None for value in coordinates):
+            raise HTTPException(status_code=400, detail="Origin and destination coordinates are required for routing")
+        try:
+            result = road_journey_planner.plan(
+                float(plan.origin_lat), float(plan.origin_lon),
+                float(plan.destination_lat), float(plan.destination_lon),
+                mode, from_name=plan.origin_name, to_name=plan.destination_name,
+            )
+            return _add_live_route_issues(result)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except requests.RequestException as exc:
+            raise HTTPException(status_code=503, detail="TomTom routing is temporarily unavailable") from exc
+
+    if planner.configured:
+        if any(value is None for value in coordinates):
+            raise HTTPException(
+                status_code=400,
+                detail="Origin and destination coordinates are required for multimodal planning",
+            )
+        try:
+            result = planner.plan(
+                float(plan.origin_lat), float(plan.origin_lon),
+                float(plan.destination_lat), float(plan.destination_lon),
+                mode,
+                from_name=plan.origin_name,
+                to_name=plan.destination_name,
+                arrive_by=plan.arrive_by,
+                wheelchair=plan.wheelchair,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {**result, "provider": "OpenTripPlanner"}
+
+    return {
+        "status": "unavailable", "available": False,
+        "provider": "OpenTripPlanner",
+        "message": "Public-transport planning needs a configured OpenTripPlanner service. Driving, walking and cycling use TomTom when its key is configured.",
+        "itineraries": [],
+    }
+
+
 @app.get("/api/environment/measure")
-def environment_measure(url: str):
+def environment_measure(request: Request, url: str):
+    _enforce_public_budget(request, lookup_request_budget)
     if smart_places is None:
         raise HTTPException(status_code=503, detail="Smart places are not ready")
     try:
@@ -564,6 +1362,66 @@ def environment_measure(url: str):
         raise HTTPException(status_code=502, detail=f"Environment Agency lookup failed: {type(exc).__name__}: {exc}") from exc
 
 
+@app.post("/api/integrations/street-manager", include_in_schema=False)
+async def street_manager_webhook(request: Request):
+    """Receive the signed DfT Street Manager public AWS SNS stream."""
+    if not settings.street_manager_enabled or street_manager_store is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        content_length = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid content length")
+    if content_length > 1_000_000:
+        raise HTTPException(status_code=413, detail="Street Manager message is too large")
+    raw = await request.body()
+    if len(raw) > 1_000_000:
+        raise HTTPException(status_code=413, detail="Street Manager message is too large")
+    try:
+        message = await asyncio.to_thread(verify_and_parse_sns_envelope, raw)
+    except StreetManagerMessageError as exc:
+        raise HTTPException(status_code=403, detail="Street Manager SNS message could not be verified") from exc
+
+    if message.message_type == "SubscriptionConfirmation":
+        confirmed = False
+        if settings.street_manager_auto_confirm and message.subscribe_url:
+            try:
+                def _confirm_subscription() -> None:
+                    response = requests.get(message.subscribe_url, timeout=12, allow_redirects=False)
+                    response.raise_for_status()
+                await asyncio.to_thread(_confirm_subscription)
+                confirmed = True
+            except requests.RequestException as exc:
+                raise HTTPException(status_code=503, detail="Street Manager subscription confirmation failed") from exc
+        state.set_source(SourceStatus(
+            name="street_manager", enabled=True, connected=confirmed,
+            mode="ready" if confirmed else "setup",
+            message=(
+                "Street Manager open-data subscription confirmed"
+                if confirmed else
+                "A valid Street Manager subscription request was received; automatic confirmation is disabled"
+            ),
+            last_message_at=datetime.now(timezone.utc), messages_seen=1,
+        ))
+        return {"accepted": True, "confirmed": confirmed}
+
+    try:
+        changed = street_manager_store.apply(message)
+        events = street_manager_store.events()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Street Manager snapshot could not be updated") from exc
+    if changed:
+        state.replace_events_for_source("DfT Street Manager Open Data", events)
+    stats = street_manager_store.stats()
+    state.set_source(SourceStatus(
+        name="street_manager", enabled=True, connected=True,
+        mode="live" if events else "ready",
+        message=f"Street Manager open data • {len(events):,} active local-road events",
+        last_message_at=datetime.now(timezone.utc),
+        messages_seen=stats["objects"], movements_mapped=len(events),
+    ))
+    return {"accepted": True, "changed": changed, "active_events": len(events)}
+
+
 @app.get("/api/traffic/status")
 def traffic_status():
     if traffic_flow_service is None:
@@ -571,8 +1429,31 @@ def traffic_status():
     return traffic_flow_service.status_payload()
 
 
+@app.get("/api/map/tile/{z}/{x}/{y}.png")
+def map_tile(request: Request, z: int, x: int, y: int, style: str = "street-light"):
+    """Proxy the licensed production base map without exposing its API key."""
+    _enforce_public_budget(request, tile_request_budget)
+    if traffic_flow_service is None or not traffic_flow_service.map_ready:
+        raise HTTPException(status_code=503, detail="The production base map is not configured")
+    try:
+        tile = traffic_flow_service.get_map_tile(z, x, y, style)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Map provider unavailable: {type(exc).__name__}") from exc
+    return Response(
+        content=tile.content,
+        media_type=tile.content_type,
+        headers={"Cache-Control": tile.cache_control},
+    )
+
+
 @app.get("/api/traffic/tile/{z}/{x}/{y}.png")
-def traffic_tile(z: int, x: int, y: int, style: str = "relative0"):
+def traffic_tile(request: Request, z: int, x: int, y: int, style: str = "relative0"):
+    _enforce_public_budget(request, tile_request_budget)
+    _require_plus(request, "traffic_pro")
     if traffic_flow_service is None or not traffic_flow_service.ready:
         raise HTTPException(status_code=503, detail="Live traffic flow is not configured. Run configure_traffic.bat.")
     try:
@@ -591,7 +1472,9 @@ def traffic_tile(z: int, x: int, y: int, style: str = "relative0"):
 
 
 @app.get("/api/traffic/incidents/tile/{z}/{x}/{y}.png")
-def traffic_incident_tile(z: int, x: int, y: int):
+def traffic_incident_tile(request: Request, z: int, x: int, y: int):
+    _enforce_public_budget(request, tile_request_budget)
+    _require_plus(request, "traffic_pro")
     if traffic_flow_service is None or not traffic_flow_service.ready:
         raise HTTPException(status_code=503, detail="Live traffic incidents are not configured. Run configure_traffic.bat.")
     try:
@@ -610,7 +1493,9 @@ def traffic_incident_tile(z: int, x: int, y: int):
 
 
 @app.get("/api/traffic/segment")
-def traffic_segment(lat: float, lon: float, zoom: int = 10):
+def traffic_segment(request: Request, lat: float, lon: float, zoom: int = 10):
+    _enforce_public_budget(request, lookup_request_budget)
+    _require_plus(request, "traffic_pro")
     if traffic_flow_service is None or not traffic_flow_service.ready:
         raise HTTPException(status_code=503, detail="Live traffic flow is not configured. Run configure_traffic.bat.")
     try:
@@ -622,39 +1507,9 @@ def traffic_segment(lat: float, lon: float, zoom: int = 10):
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Traffic segment provider unavailable: {type(exc).__name__}") from exc
 
-@app.get("/api/weather/radar")
-def weather_radar():
-    """Return the latest public RainViewer radar tile template.
-
-    No API key is required. Metadata is cached server-side so opening/toggling
-    the layer does not repeatedly hit RainViewer.
-    """
-    now = time.time()
-    cached = _weather_radar_cache.get("payload")
-    if cached and now < float(_weather_radar_cache.get("expires") or 0):
-        return cached
-    try:
-        response = requests.get(
-            "https://api.rainviewer.com/public/weather-maps.json",
-            headers={"User-Agent": "UKActivityRadar/1.2.1 weather-radar"},
-            timeout=8,
-        )
-        response.raise_for_status()
-        payload = rainviewer_payload(response.json())
-    except Exception as exc:
-        if cached:
-            stale = dict(cached)
-            stale["stale"] = True
-            stale["warning"] = f"Radar metadata refresh failed: {type(exc).__name__}"
-            return stale
-        raise HTTPException(status_code=502, detail=f"Weather radar unavailable: {type(exc).__name__}") from exc
-    _weather_radar_cache["payload"] = payload
-    _weather_radar_cache["expires"] = now + 120
-    return payload
-
-
 @app.get("/api/search")
-def search(q: str):
+def search(request: Request, q: str):
+    _enforce_public_budget(request, lookup_request_budget)
     payload = activity_search.search(q)
     if smart_places is not None:
         try:
@@ -666,23 +1521,37 @@ def search(q: str):
     return payload
 
 
-@app.get("/api/radio/nearby")
-def nearby_radio(lat: float, lon: float, limit: int = 5):
+@app.get("/api/cameras")
+def cameras(request: Request, west: float, south: float, east: float, north: float, limit: int = 250):
+    _enforce_public_budget(request, lookup_request_budget)
+    _require_plus(request, "live_cameras")
+    if not (-180 <= west <= 180 and -180 <= east <= 180 and -90 <= south <= 90 and -90 <= north <= 90):
+        raise HTTPException(status_code=400, detail="Invalid map bounds")
+    if west > east or south > north:
+        raise HTTPException(status_code=400, detail="Invalid map bounds")
+    try:
+        return traffic_cameras.for_bounds(west=west, south=south, east=east, north=north, limit=limit)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"TfL JamCam feed unavailable: {type(exc).__name__}") from exc
+
+
+@app.get("/api/cameras/nearest")
+def nearest_camera(request: Request, lat: float, lon: float, max_km: float = 25.0):
+    _enforce_public_budget(request, lookup_request_budget)
+    _require_plus(request, "live_cameras")
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         raise HTTPException(status_code=400, detail="Invalid coordinates")
+    max_km = max(1.0, min(float(max_km), 100.0))
     try:
-        return radio_lookup.nearby(lat, lon, limit=max(1, min(limit, 8)))
+        return traffic_cameras.nearest(lat=lat, lon=lon, max_km=max_km)
     except Exception as exc:
-        return {
-            "ok": False,
-            "source": "Radio Browser",
-            "stations": [],
-            "note": f"Nearby public radio lookup unavailable: {type(exc).__name__}",
-        }
+        raise HTTPException(status_code=502, detail=f"TfL JamCam feed unavailable: {type(exc).__name__}") from exc
 
 
 @app.get("/api/activity/{activity_id:path}/media")
-def activity_media(activity_id: str):
+def activity_media(request: Request, activity_id: str):
+    _enforce_public_budget(request, lookup_request_budget)
+    _require_plus(request, "advanced_identity")
     item = state.get(activity_id)
     if not item:
         raise HTTPException(status_code=404, detail="Activity not found")
@@ -697,15 +1566,91 @@ def activity_media(activity_id: str):
 
 
 @app.get("/api/activity/{activity_id:path}/aircraft")
-def activity_aircraft(activity_id: str):
+def activity_aircraft(request: Request, activity_id: str):
+    _enforce_public_budget(request, lookup_request_budget)
+    _require_plus(request, "advanced_identity")
     item = state.get(activity_id)
     if not item or item.type not in {"sar", "aircraft"}:
         raise HTTPException(status_code=404, detail="Aircraft activity not found")
-    return aircraft_info.lookup(item.source_id, item.vehicle_ref)
+    return {
+        "ok": True,
+        "source": item.source,
+        "hex": item.source_id,
+        "registration": item.vehicle_ref,
+        "type_code": item.aircraft_type_code,
+        "model": item.aircraft_model,
+        "operator": item.operator,
+        "photo": None,
+    }
+
+
+@app.get("/api/activity/{activity_id:path}/rail")
+def activity_rail(request: Request, activity_id: str):
+    _enforce_public_budget(request, lookup_request_budget)
+    _require_plus(request, "advanced_transport")
+    item = state.get(activity_id)
+    if not item or item.type != "train":
+        raise HTTPException(status_code=404, detail="Train activity not found")
+    if smart_places is None:
+        raise HTTPException(status_code=503, detail="Rail intelligence is not ready")
+    detail = smart_places.train_vehicle_detail(item)
+    detail["rolling_stock"] = train_reference.lookup(item.vehicle_ref)
+    return {"activity": activity_id, "detail": detail}
+
+
+@app.get("/api/rail/schedule/{train_uid}")
+def rail_schedule(request: Request, train_uid: str, headcode: str | None = None):
+    """Published route fallback for a station-board train without a live marker."""
+    _enforce_public_budget(request, lookup_request_budget)
+    _require_plus(request, "advanced_transport")
+    if smart_places is None:
+        raise HTTPException(status_code=503, detail="Rail intelligence is not ready")
+    return {"train_uid": train_uid, "detail": smart_places.scheduled_train_detail(train_uid, headcode)}
+
+
+@app.get("/api/rail/locate")
+def locate_rail_service(request: Request, train_uid: str | None = None, headcode: str | None = None):
+    """Locate a station-board service even when its layer is not streamed."""
+    _enforce_public_budget(request, lookup_request_budget)
+    _require_plus(request, "advanced_transport")
+    if smart_places is None:
+        raise HTTPException(status_code=503, detail="Rail intelligence is not ready")
+    item = smart_places.locate_live_train(headcode, train_uid)
+    return {
+        "live": item is not None,
+        "activity": item.model_dump(mode="json", exclude_none=True) if item is not None else None,
+        "message": "Live train position found." if item is not None else "No live train position is currently published for this service.",
+    }
+
+
+@app.get("/api/activity/{activity_id:path}/bus")
+def activity_bus(request: Request, activity_id: str, limit: int = 12):
+    _enforce_public_budget(request, lookup_request_budget)
+    _require_plus(request, "advanced_transport")
+    item = state.get(activity_id)
+    if not item or item.type != "bus":
+        raise HTTPException(status_code=404, detail="Bus activity not found")
+    if smart_places is None:
+        raise HTTPException(status_code=503, detail="Bus intelligence is not ready")
+    return {
+        "activity": activity_id,
+        "detail": smart_places.bus_vehicle_journey(item, limit=max(3, min(int(limit), 30))),
+    }
+
+
+@app.get("/api/activity/{activity_id:path}")
+def activity_detail(request: Request, activity_id: str):
+    """Resolve one current item independently of the caller's map viewport."""
+    _enforce_public_budget(request, lookup_request_budget)
+    item = state.get(activity_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="This live activity has ended")
+    return item.model_dump(mode="json")
 
 
 @app.get("/api/events/{event_id}/coverage")
-def event_coverage(event_id: str):
+def event_coverage(request: Request, event_id: str):
+    _enforce_public_budget(request, lookup_request_budget)
     item = state.get_event(event_id)
     if not item:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -722,6 +1667,7 @@ def event(event_id: str):
 
 @app.get("/api/activities")
 def activities(type: str | None = None, q: str | None = None):
+    _require_local_debug_route()
     items = state.all_activities()
     if type and type != "all":
         items = [x for x in items if x.type == type]
@@ -736,6 +1682,68 @@ def summary():
     return state.summary()
 
 
+@app.get("/api/cool")
+def cool_activities(request: Request, limit: int = 20, category: str | None = None):
+    """Small national Cool priority feed, independent of the current map viewport."""
+    allowed_categories = {"air", "rail", "sea", "rescue"}
+    wanted = (category or "").strip().lower() or None
+    if wanted and wanted not in allowed_categories:
+        raise HTTPException(status_code=400, detail="Unknown Cool category")
+    context = _billing_context(request)
+    maximum = 50 if context.has("cool_full") else 3
+    rows = state.cool_candidates(limit=max(1, min(limit, maximum)), category=wanted)
+    return {
+        "activities": [row.model_dump(mode="json") for row in rows],
+        "count": len(rows),
+        "full_access": context.has("cool_full"),
+        "limit": maximum,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/today")
+def today_on_radar(request: Request, since: datetime | None = None):
+    """A small, public editorial summary built only from current verified state."""
+    _enforce_public_budget(request, lookup_request_budget)
+    return build_today_payload(state.all_activities(), since=since)
+
+
+@app.get("/api/share/{activity_id:path}")
+def shared_activity(activity_id: str, request: Request):
+    """Facts for a stable share page; precise coordinates are never returned."""
+    _enforce_public_budget(request, lookup_request_budget)
+    item = state.get(activity_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="This live activity is no longer available")
+    payload = safe_share_payload(item)
+    payload["share_url"] = str(request.base_url).rstrip("/") + "/live/" + quote(activity_id, safe="")
+    return payload
+
+
+@app.get("/api/discoveries/catalogue")
+def discovery_catalogue():
+    """Return the stable, server-owned map discovery catalogue."""
+    return catalogue_payload()
+
+
+@app.get("/api/discoveries/missions")
+def discovery_missions():
+    """Return stateless weekly map missions; progress remains in the browser."""
+    return missions_payload()
+
+
+@app.post("/api/discoveries/claim")
+def discovery_claim(payload: DiscoveryClaimIn):
+    try:
+        discovery = claim_activity(state.get(payload.activity_id))
+    except DiscoveryClaimError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return {"ok": True, "discovery": discovery}
+
+
 @app.get("/api/feed-status")
 def feed_status():
     return [_source_payload(s) for s in state.sources()]
@@ -748,7 +1756,10 @@ def readiness():
 
 @app.get("/api/product/plans")
 def plans():
-    return product_plans()
+    return product_plans(
+        payments_enabled=bool(billing_service),
+        price_display=settings.radar_plus_price_display,
+    )
 
 
 @app.post("/api/product/event")
@@ -761,11 +1772,13 @@ def product_event(payload: ProductEventIn):
 
 @app.get("/api/product/summary")
 def product_summary():
+    _require_local_debug_route()
     return product_analytics.summary()
 
 
 @app.get("/api/unmapped")
 def unmapped():
+    _require_local_debug_route()
     return state.unmapped()
 
 
@@ -775,19 +1788,35 @@ async def websocket_updates(websocket: WebSocket):
         await websocket.close(code=1008, reason="WebSocket origin is not allowed")
         return
     await websocket.accept()
+    if not settings.public_deployment and not billing_configuration.enabled:
+        websocket_access = AccessContext(
+            token_valid=True, customer_id="local-development", plan="plus",
+            subscription_status="active", features=PLUS_FEATURES,
+        )
+    elif billing_store is not None:
+        websocket_access = billing_store.access_context(websocket.cookies.get(ACCESS_COOKIE))
+    else:
+        websocket_access = AccessContext()
     # Start with a broad Britain viewport. Buses are intentionally hidden at
     # national zoom to avoid shipping tens of thousands of GPS points every
     # second. The browser sends its real viewport/zoom immediately after open.
     viewport: dict[str, object] = {
         "bbox": (-8.7, 49.5, 2.1, 59.2),
         "zoom": 6.0,
+        # Empty means the default Useful map is intentionally clear. ``None``
+        # means Cool mode needs the complete candidate pool for classification.
+        "types": set(),
     }
+    viewport_revision = 0
+    viewport_changed = asyncio.Event()
 
     watched_id: str | None = None
 
     async def set_watching(new_id: str | None) -> None:
         nonlocal watched_id
         new_id = (new_id or "").strip() or None
+        if new_id and not websocket_access.has("live_tracking"):
+            return
         if new_id == watched_id:
             return
         async with viewer_lock:
@@ -802,6 +1831,7 @@ async def websocket_updates(websocket: WebSocket):
                 state.set_tracking_count(watched_id, viewer_counts[watched_id])
 
     async def receive_client() -> None:
+        nonlocal viewport_revision
         try:
             while True:
                 message = await websocket.receive_json()
@@ -818,51 +1848,195 @@ async def websocket_updates(websocket: WebSocket):
                         if -180 <= west <= east <= 180 and -90 <= south <= north <= 90:
                             viewport["bbox"] = (west, south, east, north)
                     viewport["zoom"] = float(message.get("zoom", viewport["zoom"]))
+                    if "types" in message:
+                        requested_types = message.get("types")
+                        allowed_types = {
+                            "train", "bus", "vessel", "sar", "aircraft", "rescue",
+                            "road", "roadfeature", "incident", "weather", "flood", "earthquake",
+                            "river", "tide", "wave", "grid", "airquality", "bike",
+                            "space", "satellite", "outage", "gritter", "camera", "other",
+                        }
+                        if requested_types is None:
+                            viewport["types"] = None
+                        elif isinstance(requested_types, list):
+                            viewport["types"] = {
+                                str(item) for item in requested_types
+                                if str(item) in allowed_types
+                            }
+                    viewport_revision += 1
+                    viewport_changed.set()
                 except (TypeError, ValueError):
                     pass
         except (WebSocketDisconnect, RuntimeError):
             return
 
     receiver = asyncio.create_task(receive_client())
+    # The browser sends its real viewport as soon as the socket opens. Waiting
+    # briefly avoids sending a redundant national snapshot immediately before
+    # the useful local one; that removes hundreds of kilobytes from cold start.
+    with suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(viewport_changed.wait(), timeout=0.35)
+    viewport_changed.clear()
+
+    async def wait_for_refresh() -> None:
+        """Keep the normal cadence, but send a newly requested viewport now."""
+        cadence = (
+            settings.websocket_refresh_seconds
+            if websocket_access.has("fast_updates")
+            else max(2.0, settings.websocket_refresh_seconds)
+        )
+        with suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(
+                viewport_changed.wait(),
+                timeout=cadence,
+            )
+        viewport_changed.clear()
+    last_state_revision = -1
+    last_viewport_revision = -1
+    last_activity_signature = None
+    last_activity_payload: dict[str, dict] = {}
+    last_send_at = 0.0
     try:
         while True:
+            current_state_revision = state.revision
+            current_viewport_revision = viewport_revision
+            if (
+                current_state_revision == last_state_revision
+                and current_viewport_revision == last_viewport_revision
+                and time.monotonic() - last_send_at < 10.0
+            ):
+                await wait_for_refresh()
+                continue
             zoom = float(viewport["zoom"])
-            include_buses = zoom >= settings.bus_min_map_zoom
-            include_vessels = zoom >= settings.maritime_min_map_zoom
+            requested_types = viewport.get("types")
+            all_types = requested_types is None
+            visible_types = set() if all_types else set(requested_types or set())
+            include_trains = all_types or "train" in visible_types
+            include_buses = (all_types or "bus" in visible_types) and zoom >= settings.bus_min_map_zoom
+            include_vessels = (all_types or bool({"vessel", "sar"} & visible_types)) and zoom >= settings.maritime_min_map_zoom
+            # At regional zooms clusters communicate density better than
+            # thousands of individual records. Raise the caps as the user
+            # zooms in so local detail remains complete while the broad map
+            # stays responsive on ordinary laptops and phones.
+            train_limit = min(
+                settings.train_max_stream,
+                250 if zoom < 7 else 800 if zoom < 9 else 1400 if zoom < 10 else settings.train_max_stream,
+            )
+            bus_limit = min(
+                settings.bus_max_stream,
+                900 if zoom < 9 else 1600 if zoom < 10 else settings.bus_max_stream,
+            )
+            vessel_limit = min(
+                settings.maritime_max_stream,
+                450 if zoom < 7 else 600 if zoom < 9 else 1000 if zoom < 10 else settings.maritime_max_stream,
+            )
             streamed_vehicles = state.all(
                 bbox=viewport["bbox"],
+                include_trains=include_trains,
+                train_limit=train_limit,
+                cool_trains_only=zoom < settings.train_min_map_zoom,
                 include_buses=include_buses,
-                bus_limit=settings.bus_max_stream,
+                bus_limit=bus_limit,
                 include_vessels=include_vessels,
-                vessel_limit=settings.maritime_max_stream,
+                vessel_limit=vessel_limit,
             )
-            streamed_events = state.all_events(bbox=viewport["bbox"])
+            if not all_types:
+                streamed_vehicles = [row for row in streamed_vehicles if row.type in visible_types]
+            dense_event_types: set[str] = set()
+            if zoom < 10:
+                dense_event_types.add("bike")
+            if zoom < 8:
+                dense_event_types.update({"tide", "river", "wave", "airquality"})
+            streamed_events = state.all_events(
+                bbox=viewport["bbox"],
+                exclude_types=dense_event_types,
+            )
+            if not all_types:
+                streamed_events = [row for row in streamed_events if row.type in visible_types]
             streamed = [*streamed_vehicles, *streamed_events]
+            if all_types and not websocket_access.has("cool_full"):
+                # ``types: null`` is the Discover request. Free visitors receive
+                # a useful three-item preview; the browser cannot bypass the
+                # Radar+ limit by reading the websocket directly.
+                streamed = sorted(
+                    (row for row in streamed if row.cool_candidate),
+                    key=lambda row: (row.cool_score or 0, row.last_updated),
+                    reverse=True,
+                )[:3]
+                allowed_ids = {row.id for row in streamed}
+                streamed_vehicles = [row for row in streamed_vehicles if row.id in allowed_ids]
+                streamed_events = [row for row in streamed_events if row.id in allowed_ids]
+            activity_signature = tuple(
+                (
+                    item.id,
+                    item.last_updated,
+                    round(item.lat, 6),
+                    round(item.lon, 6),
+                    item.tracking_count,
+                    item.cool_candidate,
+                )
+                for item in streamed
+            )
+            now_monotonic = time.monotonic()
+            if (
+                current_viewport_revision == last_viewport_revision
+                and activity_signature == last_activity_signature
+                and now_monotonic - last_send_at < 10.0
+            ):
+                last_state_revision = current_state_revision
+                await wait_for_refresh()
+                continue
+            summary_payload = state.summary()
+            live_counts = state.type_counts({"train": 45, "bus": 5, "vessel": 10, "sar": 10})
+            activity_rows = [x.model_dump(mode="json", exclude_none=True) for x in streamed]
+            activity_payload = {str(row["id"]): row for row in activity_rows}
+            force_full_snapshot = current_viewport_revision != last_viewport_revision or last_viewport_revision < 0
+            if force_full_snapshot:
+                activity_transport = {"activities": activity_rows}
+                transport_mode = "full"
+            else:
+                upsert = [row for key, row in activity_payload.items() if last_activity_payload.get(key) != row]
+                removed = [key for key in last_activity_payload if key not in activity_payload]
+                activity_transport = {"activity_delta": {"upsert": upsert, "remove": removed}}
+                transport_mode = "delta"
             payload = {
-                "activities": [x.model_dump(mode="json") for x in streamed],
-                "vehicles": [v.model_dump(mode="json") for v in streamed_vehicles],
-                "events": [e.model_dump(mode="json") for e in streamed_events],
-                "summary": state.summary(),
+                **activity_transport,
+                "summary": summary_payload,
                 "sources": [_source_payload(s) for s in state.sources()],
                 "stream": {
+                    "train_min_zoom": settings.train_min_map_zoom,
+                    "trains_in_memory": live_counts.get("train", 0),
+                    "trains_streamed": sum(v.type == "train" for v in streamed_vehicles),
+                    "train_limit": train_limit,
+                    "environment_detail_min_zoom": 8,
+                    "bike_min_zoom": 10,
                     "bus_min_zoom": settings.bus_min_map_zoom,
-                    "buses_in_memory": state.count_type("bus", max_age_minutes=5),
+                    "buses_in_memory": live_counts.get("bus", 0),
                     "buses_streamed": sum(v.type == "bus" for v in streamed_vehicles),
-                    "bus_limit": settings.bus_max_stream,
+                    "bus_limit": bus_limit,
                     "maritime_min_zoom": settings.maritime_min_map_zoom,
-                    "vessels_in_memory": state.count_type("vessel", max_age_minutes=10),
-                    "sar_in_memory": state.count_type("sar", max_age_minutes=10),
+                    "vessels_in_memory": live_counts.get("vessel", 0),
+                    "sar_in_memory": live_counts.get("sar", 0),
                     "vessels_streamed": sum(v.type in {"vessel", "sar"} for v in streamed_vehicles),
-                    "maritime_limit": settings.maritime_max_stream,
+                    "maritime_limit": vessel_limit,
                     "road_events": sum(e.type in {"road", "incident"} for e in streamed_events),
                     "flood_events": sum(e.type == "flood" for e in streamed_events),
                     "rnli_events": sum(e.type == "rescue" for e in streamed_events),
                     "weather_events": sum(e.type == "weather" for e in streamed_events),
                     "zoom": zoom,
+                    "selected_types": sorted(visible_types) if not all_types else None,
+                    "transport": transport_mode,
+                    "upserts": len(activity_rows) if force_full_snapshot else len(activity_transport["activity_delta"]["upsert"]),
+                    "removals": 0 if force_full_snapshot else len(activity_transport["activity_delta"]["remove"]),
                 },
             }
             await websocket.send_json(payload)
-            await asyncio.sleep(1.5)
+            last_state_revision = current_state_revision
+            last_viewport_revision = current_viewport_revision
+            last_activity_signature = activity_signature
+            last_activity_payload = activity_payload
+            last_send_at = now_monotonic
+            await wait_for_refresh()
     except (WebSocketDisconnect, asyncio.CancelledError):
         return
     finally:

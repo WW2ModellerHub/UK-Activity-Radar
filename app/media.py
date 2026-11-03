@@ -30,6 +30,37 @@ _GENERIC_STOP_WORDS = {
     "aircraft", "railway", "service", "route", "united", "kingdom", "live",
 }
 
+_GENERIC_VESSEL_NAMES = {
+    "warship", "french warship", "naval vessel", "military vessel", "ship", "vessel",
+    "patrol vessel", "specialist vessel", "unknown vessel",
+}
+
+
+def _commercial_commons_licence(meta: dict[str, Any]) -> tuple[str, str | None] | None:
+    """Return a display licence only when commercial reuse is explicit.
+
+    Wikimedia hosts files under many different terms.  A file being on
+    Commons is not, by itself, enough evidence for a paid product, so missing,
+    non-commercial and no-derivatives metadata all fail closed.
+    """
+    raw = WikimediaLookup._plain(meta.get("LicenseShortName") or meta.get("UsageTerms"))
+    if not raw:
+        return None
+    normalised = re.sub(r"\s+", " ", raw).strip().casefold()
+    if any(marker in normalised for marker in ("noncommercial", "non-commercial", "cc nc", "cc-nc", "by-nc", "no derivatives", "no-derivatives", "cc nd", "cc-nd", "by-nd")):
+        return None
+    allowed = (
+        "public domain" in normalised
+        or normalised == "pd"
+        or "cc0" in normalised
+        or "creative commons attribution" in normalised
+        or normalised.startswith("cc by")
+        or normalised.startswith("cc-by")
+    )
+    if not allowed:
+        return None
+    return raw, WikimediaLookup._plain(meta.get("LicenseUrl"))
+
 
 class WikimediaLookup:
     """Conservative free/no-key Wikimedia Commons image lookup.
@@ -44,7 +75,7 @@ class WikimediaLookup:
         self.api_url = api_url
         self.enabled = enabled
         self._session = requests.Session()
-        self._session.headers.update({"User-Agent": "UKActivityRadar/1.2.1 (Wikimedia Commons consumer)"})
+        self._session.headers.update({"User-Agent": "UKActivityRadar/1.4.0 (Wikimedia Commons consumer)"})
         self._cache: dict[str, _CacheItem] = {}
         self._lock = threading.RLock()
 
@@ -52,7 +83,11 @@ class WikimediaLookup:
     def query_for(activity: Vehicle | Event) -> str:
         if isinstance(activity, Event):
             if activity.type == "rescue":
-                return " ".join(x for x in [activity.name, "RNLI lifeboat"] if x)
+                # A photograph of a station or another launch is not evidence
+                # of this launch.  Only an exact event-owned media URL should
+                # ever be shown for a live RNLI event, and the launch feed does
+                # not currently publish one.
+                return ""
             # Event imagery is often historic/generic and can be actively
             # misleading, so only rescue events are auto-matched.
             return ""
@@ -61,17 +96,30 @@ class WikimediaLookup:
             # Never use transient headcodes or signalling locations as an image
             # query. Without a real unit/vehicle identity an operator-level train
             # photo would look authoritative while possibly being the wrong stock.
-            if not (activity.vehicle_ref or "").strip():
-                return ""
-            return " ".join(x for x in [activity.operator, activity.vehicle_ref, "train"] if x)
+            if (activity.vehicle_ref or "").strip():
+                return " ".join(x for x in [activity.operator, activity.vehicle_ref, "train"] if x)
+            return ""
         if activity.type == "bus":
             if not (activity.vehicle_ref or "").strip():
                 return ""
             return " ".join(x for x in [activity.operator, activity.vehicle_ref, "bus"] if x)
         if activity.type == "vessel":
-            return " ".join(x for x in [activity.name, activity.vehicle_ref, "ship"] if x)
-        if activity.type == "sar":
-            return " ".join(x for x in [activity.vehicle_ref, activity.name, "helicopter"] if x)
+            name = str(activity.name or "").strip()
+            # A provider label such as "French warship" is a category, not an
+            # identity.  Search by MMSI only in that case; a generic warship
+            # photograph must never look like the exact live vessel.
+            identity = None if name.casefold() in _GENERIC_VESSEL_NAMES else name
+            return " ".join(x for x in [identity, activity.vehicle_ref, "ship"] if x)
+        if activity.type in {"sar", "aircraft"}:
+            # Prefer the registration because it can identify the exact
+            # airframe.  If ADS-B has only resolved a type, a clearly labelled
+            # type-reference image is still useful (Apache vs Chinook, etc.)
+            # but must never be presented as a photo of this exact aircraft.
+            if (activity.vehicle_ref or "").strip():
+                return " ".join(x for x in [activity.vehicle_ref, activity.aircraft_model, "aircraft"] if x)
+            if (activity.aircraft_model or "").strip():
+                return f"{activity.aircraft_model} aircraft"
+            return ""
         return ""
 
     @staticmethod
@@ -106,6 +154,10 @@ class WikimediaLookup:
             self._plain(meta.get("Categories")),
         ]))
         hay = description.casefold()
+
+        if isinstance(activity, Vehicle) and activity.type == "train" and not (activity.vehicle_ref or "").strip():
+            return -100.0
+
         q_tokens = self._tokens(query)
         overlap = len(q_tokens & self._tokens(description))
         score = overlap * 4.0
@@ -113,7 +165,12 @@ class WikimediaLookup:
         # Strong identifiers matter much more than generic words.
         identifiers = []
         if isinstance(activity, Vehicle):
-            identifiers.extend([activity.vehicle_ref, activity.operator, activity.name])
+            if activity.type == "train" and not (activity.vehicle_ref or "").strip():
+                # Do not let a live headcode stored in ``name`` turn a subtype
+                # reference search into an apparent exact-train match.
+                identifiers = []
+            else:
+                identifiers.extend([activity.vehicle_ref, activity.aircraft_model, activity.aircraft_type_code, activity.operator, activity.name])
         else:
             identifiers.append(activity.name)
         for raw in identifiers:
@@ -121,10 +178,20 @@ class WikimediaLookup:
             if len(raw) >= 4 and raw.casefold() in hay:
                 score += 10.0
 
+        if isinstance(activity, Vehicle) and activity.type == "vessel":
+            name = str(activity.name or "").strip().casefold()
+            mmsi = str(activity.vehicle_ref or "").strip().casefold()
+            exact_name = bool(name and name not in _GENERIC_VESSEL_NAMES and len(name) >= 5 and name in hay)
+            exact_mmsi = bool(mmsi and len(mmsi) >= 7 and mmsi in hay)
+            if not (exact_name or exact_mmsi):
+                return -100.0
+
         if isinstance(activity, Vehicle):
             if activity.type == "vessel" and any(x in hay for x in ("ship", "vessel", "boat")):
                 score += 2.0
             elif activity.type == "sar" and any(x in hay for x in ("helicopter", "coastguard", "rescue")):
+                score += 2.0
+            elif activity.type == "aircraft" and any(x in hay for x in ("aircraft", "aeroplane", "fighter", "helicopter")):
                 score += 2.0
             elif activity.type == "bus" and "bus" in hay:
                 score += 2.0
@@ -136,12 +203,22 @@ class WikimediaLookup:
     def lookup(self, activity: Vehicle | Event) -> dict[str, Any]:
         query = self.query_for(activity).strip()
         if not self.enabled or not query:
-            fallback_query = " ".join(x for x in [getattr(activity, "name", None), getattr(activity, "operator", None), getattr(activity, "type", None)] if x).strip()
+            suppress_fallback = (
+                (isinstance(activity, Event) and activity.type == "rescue")
+                or (
+                    isinstance(activity, Vehicle)
+                    and activity.type == "train"
+                    and not (activity.vehicle_ref or "").strip()
+                )
+            )
+            fallback_query = "" if suppress_fallback else " ".join(
+                x for x in [getattr(activity, "name", None), getattr(activity, "operator", None), getattr(activity, "type", None)] if x
+            ).strip()
             return {
                 "ok": False,
                 "query": query or fallback_query,
                 "search_url": f"https://commons.wikimedia.org/w/index.php?search={quote(fallback_query)}" if fallback_query else None,
-                "reason": "insufficient_identity" if self.enabled else "disabled",
+                "reason": "event_specific_media_unavailable" if isinstance(activity, Event) and activity.type == "rescue" else ("insufficient_identity" if self.enabled else "disabled"),
             }
 
         key = f"{getattr(activity, 'id', '')}|{query}".casefold()
@@ -155,14 +232,16 @@ class WikimediaLookup:
             "generator": "search",
             "gsrsearch": query,
             "gsrnamespace": 6,
-            "gsrlimit": 15,
+            # Eight strong candidates are enough for the conservative matcher
+            # and noticeably reduce Commons response and metadata time.
+            "gsrlimit": 8,
             "prop": "imageinfo",
             "iiprop": "url|extmetadata",
-            "iiurlwidth": 720,
+            "iiurlwidth": 520,
             "format": "json",
             "formatversion": 2,
         }
-        response = self._session.get(self.api_url, params=params, timeout=12)
+        response = self._session.get(self.api_url, params=params, timeout=(1.25, 3.0))
         response.raise_for_status()
         pages = ((response.json().get("query") or {}).get("pages") or [])
 
@@ -172,6 +251,9 @@ class WikimediaLookup:
             if not infos:
                 continue
             info = infos[0]
+            licence = _commercial_commons_licence(info.get("extmetadata") or {})
+            if licence is None:
+                continue
             thumb = info.get("thumburl") or info.get("url")
             if not thumb:
                 continue
@@ -191,6 +273,10 @@ class WikimediaLookup:
         else:
             score, page, info, title = chosen
             meta = info.get("extmetadata") or {}
+            licence = _commercial_commons_licence(meta)
+            if licence is None:  # Defensive: ranked candidates already filter this.
+                return {"ok": False, "query": query, "reason": "commercial_licence_unavailable"}
+            licence_name, licence_url = licence
             page_id = page.get("pageid")
             page_url = f"https://commons.wikimedia.org/?curid={page_id}" if page_id else info.get("descriptionurl")
             value = {
@@ -203,11 +289,25 @@ class WikimediaLookup:
                 "page_url": page_url,
                 "artist": self._plain(meta.get("Artist")),
                 "credit": self._plain(meta.get("Credit")),
-                "license": self._plain(meta.get("LicenseShortName") or meta.get("UsageTerms")),
-                "license_url": self._plain(meta.get("LicenseUrl")),
+                "license": licence_name,
+                "license_url": licence_url,
                 "search_url": f"https://commons.wikimedia.org/w/index.php?search={quote(query)}",
                 "source": "Wikimedia Commons",
             }
+            if isinstance(activity, Vehicle) and activity.type in {"sar", "aircraft"}:
+                registration = str(activity.vehicle_ref or "").strip().casefold()
+                metadata_text = " ".join(filter(None, [title, self._plain((info.get("extmetadata") or {}).get("ImageDescription"))])).casefold()
+                value["match_kind"] = "exact_airframe" if registration and registration in metadata_text else "type_reference"
+            elif isinstance(activity, Vehicle) and activity.type == "train":
+                vehicle_ref = str(activity.vehicle_ref or "").strip().casefold()
+                metadata_text = " ".join(filter(None, [
+                    title,
+                    self._plain((info.get("extmetadata") or {}).get("ImageDescription")),
+                    self._plain((info.get("extmetadata") or {}).get("ObjectName")),
+                ])).casefold()
+                value["match_kind"] = "exact_vehicle" if vehicle_ref and vehicle_ref in metadata_text else "type_reference"
+            elif isinstance(activity, Vehicle) and activity.type == "vessel":
+                value["match_kind"] = "exact_vessel"
 
         with self._lock:
             self._cache[key] = _CacheItem(time.time() + 6 * 3600, value)

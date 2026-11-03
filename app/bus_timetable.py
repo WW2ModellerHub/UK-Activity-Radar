@@ -15,8 +15,9 @@ import requests
 from .models import SourceStatus
 from .timeutils import london_tz
 
-USER_AGENT = "UKActivityRadar/1.2.1 BODS-GTFS"
+USER_AGENT = "UKActivityRadar/1.4.0 BODS-GTFS"
 BODS_GTFS = "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/{region}/"
+BODS_CACHE_MAX_AGE_SECONDS = 36 * 3600
 
 REGION_URLS = {
     "east_anglia": BODS_GTFS.format(region="east_anglia"),
@@ -109,6 +110,37 @@ def _service_ids(con: sqlite3.Connection, service_date: date) -> set[str]:
     return ids
 
 
+def _service_ids_subset(con: sqlite3.Connection, service_date: date, candidates: set[str]) -> set[str]:
+    """Resolve service-day activity without scanning every regional service."""
+    if not candidates:
+        return set()
+    stamp = service_date.strftime("%Y%m%d")
+    weekday = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"][service_date.weekday()]
+    values = sorted(candidates)
+    placeholders = ",".join("?" for _ in values)
+    ids: set[str] = set()
+    try:
+        ids.update(str(row[0]) for row in con.execute(
+            f"SELECT service_id FROM calendar WHERE service_id IN ({placeholders}) AND start_date<=? AND end_date>=? AND {weekday}=1",
+            [*values, stamp, stamp],
+        ).fetchall())
+    except sqlite3.Error:
+        pass
+    try:
+        exceptions = con.execute(
+            f"SELECT service_id,exception_type FROM calendar_dates WHERE service_id IN ({placeholders}) AND date=?",
+            [*values, stamp],
+        ).fetchall()
+    except sqlite3.Error:
+        exceptions = []
+    for service_id, exception_type in exceptions:
+        if int(exception_type or 0) == 1:
+            ids.add(str(service_id))
+        elif int(exception_type or 0) == 2:
+            ids.discard(str(service_id))
+    return ids
+
+
 def _read_csv(zf: zipfile.ZipFile, name: str) -> Iterable[dict[str, str]]:
     with zf.open(name) as raw:
         with io.TextIOWrapper(raw, encoding="utf-8-sig", errors="replace", newline="") as text:
@@ -132,10 +164,44 @@ class BusTimetableService:
         self._session.headers.update({"User-Agent": USER_AGENT})
         self._lock = threading.RLock()
         self._building: set[str] = set()
+        self._indexing: set[str] = set()
         self._progress: dict[str, str] = {}
+        self._journey_cache: dict[tuple[str, str, str, str], tuple[float, dict]] = {}
+        # Upgrade previously downloaded regional databases without making the
+        # first user click pay the CREATE INDEX cost. Fresh downloads already
+        # receive these indexes inside _index_zip.
+        for database in self.data_dir.glob("*.sqlite"):
+            region = database.stem
+            if region in REGION_URLS and not self.needs_refresh(region):
+                threading.Thread(
+                    target=self._ensure_query_indexes,
+                    args=(region,),
+                    name=f"bods-index-{region}",
+                    daemon=True,
+                ).start()
 
     def _db(self, region: str) -> Path:
         return self.data_dir / f"{region}.sqlite"
+
+    def _ensure_query_indexes(self, region: str) -> None:
+        with self._lock:
+            if region in self._indexing:
+                return
+            self._indexing.add(region)
+        try:
+            with sqlite3.connect(self._db(region), timeout=30) as con:
+                con.executescript("""
+                    CREATE INDEX IF NOT EXISTS idx_trips_route ON trips(route_id);
+                    CREATE INDEX IF NOT EXISTS idx_routes_short_name ON routes(short_name);
+                """)
+                con.commit()
+        except sqlite3.Error:
+            # A stale/incomplete cache will be replaced by the normal atomic
+            # regional refresh; it must not make the web process fail startup.
+            pass
+        finally:
+            with self._lock:
+                self._indexing.discard(region)
 
     def ready(self, region: str) -> bool:
         db = self._db(region)
@@ -148,8 +214,17 @@ class BusTimetableService:
         except sqlite3.Error:
             return False
 
+    def needs_refresh(self, region: str) -> bool:
+        db = self._db(region)
+        if not db.exists():
+            return True
+        try:
+            return max(0.0, datetime.now().timestamp() - db.stat().st_mtime) >= BODS_CACHE_MAX_AGE_SECONDS
+        except OSError:
+            return True
+
     def ensure_region(self, region: str) -> None:
-        if region not in REGION_URLS or self.ready(region):
+        if region not in REGION_URLS or (self.ready(region) and not self.needs_refresh(region)):
             return
         with self._lock:
             if region in self._building:
@@ -263,6 +338,8 @@ class BusTimetableService:
                 CREATE INDEX idx_stop_times_stop ON stop_times(stop_id);
                 CREATE INDEX idx_stop_times_trip ON stop_times(trip_id);
                 CREATE INDEX idx_trips_service ON trips(service_id);
+                CREATE INDEX idx_trips_route ON trips(route_id);
+                CREATE INDEX idx_routes_short_name ON routes(short_name);
                 CREATE INDEX idx_calendar_dates ON calendar_dates(date,service_id);
             """)
             con.execute("INSERT OR REPLACE INTO meta VALUES('built_at',?)",(datetime.now(tz=london_tz()).isoformat(),))
@@ -300,6 +377,11 @@ class BusTimetableService:
             self.ensure_region(region)
             progress=self._progress.get(region) or f"BODS timetable for {region.replace('_',' ')} is preparing."
             return {"mode":"timetable_sync","source":"DfT BODS GTFS timetable","rows":[],"region":region,"note":progress,"retry_seconds":5}
+        refreshing = self.needs_refresh(region)
+        if refreshing:
+            # Keep the last complete timetable serving while its atomic
+            # replacement downloads and indexes in the background.
+            self.ensure_region(region)
         db=self._db(region)
         now=datetime.now(tz=london_tz())
         rows=[]
@@ -349,5 +431,183 @@ class BusTimetableService:
             dedup.append(row)
         return {
             "mode":"published_timetable","source":"DfT BODS GTFS timetable","rows":dedup[:limit],"region":region,
-            "note":"Published stop times from the official BODS regional GTFS timetable. Live BODS vehicle positions are matched by GTFS trip ID where available.",
+            "note":"Published stop times from the official BODS regional GTFS timetable. Live BODS vehicle positions are matched by GTFS trip ID where available."
+                   + (" A newer regional timetable is refreshing in the background." if refreshing else ""),
         }
+
+    def journey_for_vehicle(self, vehicle, limit: int = 12) -> dict:
+        """Return an honest timetable spine for one live BODS vehicle.
+
+        BODS AVL identifies a GTFS trip on many vehicles but does not guarantee
+        an ETA at every stop.  This method joins that trip to the official BODS
+        timetable and marks the next reported stop; it never turns scheduled
+        times into invented live predictions.
+        """
+        trip_id = str(getattr(vehicle, "journey_ref", None) or "").strip()
+        if not trip_id:
+            return {
+                "mode": "identity_unavailable", "source": "DfT BODS",
+                "stops": [], "note": "The bus operator has not linked this live vehicle to a published journey, so its next stop cannot be identified reliably.",
+            }
+        try:
+            lat, lon = float(vehicle.lat), float(vehicle.lon)
+        except (TypeError, ValueError, AttributeError):
+            return {"mode": "location_unavailable", "source": "DfT BODS", "stops": []}
+        region = region_for(lat, lon)
+        cache_key = (
+            region, trip_id, str(getattr(vehicle, "route", None) or "").strip(),
+            str(getattr(vehicle, "destination", None) or "").strip(),
+        )
+        with self._lock:
+            cached = self._journey_cache.get(cache_key)
+            if cached and datetime.now().timestamp() - cached[0] < 30:
+                return dict(cached[1])
+        if not self.ready(region):
+            self.ensure_region(region)
+            return {
+                "mode": "timetable_sync", "source": "DfT BODS GTFS timetable", "region": region,
+                "stops": [], "retry_seconds": 5,
+                "note": self._progress.get(region) or f"BODS timetable for {region.replace('_', ' ')} is preparing.",
+            }
+        if self.needs_refresh(region):
+            self.ensure_region(region)
+
+        now = datetime.now(tz=london_tz())
+        match_method = "exact_trip"
+        with sqlite3.connect(self._db(region)) as con:
+            con.row_factory = sqlite3.Row
+            trip = con.execute(
+                """SELECT t.trip_id,t.service_id,t.headsign,t.direction_id,t.route_id,
+                          r.short_name,r.long_name,a.name AS agency_name
+                   FROM trips t LEFT JOIN routes r ON r.route_id=t.route_id
+                   LEFT JOIN agencies a ON a.agency_id=r.agency_id
+                   WHERE t.trip_id=? LIMIT 1""",
+                (trip_id,),
+            ).fetchone()
+            if trip is None:
+                # SIRI publishers often use an operational journey reference
+                # that is different from the BODS GTFS trip_id. Match within
+                # the same official timetable by route, service day, time and
+                # proximity instead of giving up or pretending the nearest bus
+                # stop is necessarily next.
+                route = str(getattr(vehicle, "route", None) or "").strip()
+                destination = str(getattr(vehicle, "destination", None) or "").strip().casefold()
+                candidates = con.execute(
+                    """SELECT t.trip_id,t.service_id,t.headsign,t.direction_id,t.route_id,
+                              r.short_name,r.long_name,a.name AS agency_name
+                       FROM trips t JOIN routes r ON r.route_id=t.route_id
+                       LEFT JOIN agencies a ON a.agency_id=r.agency_id
+                       WHERE r.short_name=? OR r.route_id=? LIMIT 240""",
+                    (route, route),
+                ).fetchall() if route else []
+                candidate_services = {str(row["service_id"]) for row in candidates}
+                active_by_date = {
+                    now.date() - timedelta(days=1): _service_ids_subset(con, now.date() - timedelta(days=1), candidate_services),
+                    now.date(): _service_ids_subset(con, now.date(), candidate_services),
+                }
+                candidates = [row for row in candidates if any(str(row["service_id"]) in ids for ids in active_by_date.values())]
+                stop_rows: dict[str, list[sqlite3.Row]] = {}
+                if candidates:
+                    ids = [str(row["trip_id"]) for row in candidates]
+                    placeholders = ",".join("?" for _ in ids)
+                    for row in con.execute(
+                        f"""SELECT st.trip_id,st.arrival_time,st.departure_time,st.stop_sequence,
+                                   s.stop_id,s.stop_code,s.name,s.lat,s.lon
+                            FROM stop_times st LEFT JOIN stops s ON s.stop_id=st.stop_id
+                            WHERE st.trip_id IN ({placeholders}) ORDER BY st.trip_id,st.stop_sequence""",
+                        ids,
+                    ).fetchall():
+                        stop_rows.setdefault(str(row["trip_id"]), []).append(row)
+                best: tuple[float, sqlite3.Row] | None = None
+                for row in candidates:
+                    raw = stop_rows.get(str(row["trip_id"]), [])
+                    if not raw:
+                        continue
+                    spatial = min((_distance_km(lat, lon, float(s["lat"]), float(s["lon"])) for s in raw if s["lat"] is not None and s["lon"] is not None), default=999.0)
+                    temporal = 999.0
+                    for service_date, active in active_by_date.items():
+                        if str(row["service_id"]) not in active:
+                            continue
+                        for stop in raw:
+                            minutes = _gtfs_minutes(stop["departure_time"] or stop["arrival_time"])
+                            if minutes is None:
+                                continue
+                            due = datetime.combine(service_date, datetime.min.time(), tzinfo=london_tz()) + timedelta(minutes=minutes)
+                            temporal = min(temporal, abs((due-now).total_seconds())/60)
+                    headsign = str(row["headsign"] or "").casefold()
+                    destination_penalty = 0 if not destination or destination in headsign or headsign in destination else 12
+                    score = spatial + temporal/12 + destination_penalty
+                    if spatial <= 20 and temporal <= 180 and (best is None or score < best[0]):
+                        best = (score, row)
+                if best is not None:
+                    trip = best[1]
+                    match_method = "route_time_position"
+                else:
+                    payload = {
+                        "mode": "trip_not_in_cache", "source": "DfT BODS GTFS timetable", "region": region,
+                        "stops": [], "note": "The operator has not supplied a journey identifier that matches the current regional timetable, so a next stop cannot be stated safely.",
+                    }
+                    with self._lock:
+                        self._journey_cache[cache_key] = (datetime.now().timestamp(), payload)
+                    return payload
+            raw_stops = con.execute(
+                """SELECT st.stop_id,st.arrival_time,st.departure_time,st.stop_sequence,
+                          s.stop_code,s.name,s.lat,s.lon
+                   FROM stop_times st LEFT JOIN stops s ON s.stop_id=st.stop_id
+                   WHERE st.trip_id=? ORDER BY st.stop_sequence""",
+                (str(trip["trip_id"]),),
+            ).fetchall()
+
+            candidates: list[tuple[float, date, list[dict]]] = []
+            for service_date in (now.date() - timedelta(days=1), now.date()):
+                if str(trip["service_id"]) not in _service_ids(con, service_date):
+                    continue
+                timeline: list[dict] = []
+                for row in raw_stops:
+                    minutes = _gtfs_minutes(row["departure_time"] or row["arrival_time"])
+                    if minutes is None:
+                        continue
+                    due = datetime.combine(service_date, datetime.min.time(), tzinfo=london_tz()) + timedelta(minutes=minutes)
+                    timeline.append({
+                        "stop_id": row["stop_id"], "stop_code": row["stop_code"],
+                        "name": row["name"] or row["stop_id"], "sequence": row["stop_sequence"],
+                        "scheduled": due.isoformat(), "clock": due.strftime("%H:%M"),
+                        "lat": row["lat"], "lon": row["lon"],
+                    })
+                if timeline:
+                    distance = min(abs((datetime.fromisoformat(row["scheduled"]) - now).total_seconds()) for row in timeline)
+                    candidates.append((distance, service_date, timeline))
+
+        if not candidates:
+            return {
+                "mode": "service_not_running", "source": "DfT BODS GTFS timetable", "region": region,
+                "stops": [], "note": "The matched timetable trip is not scheduled on the current service day.",
+            }
+        _, service_date, timeline = min(candidates, key=lambda item: item[0])
+        reported_stop = str(getattr(vehicle, "next_location", None) or "").strip().casefold()
+        next_index = None
+        if reported_stop:
+            next_index = next((index for index, row in enumerate(timeline) if reported_stop in {
+                str(row.get("stop_id") or "").casefold(), str(row.get("stop_code") or "").casefold()
+            }), None)
+        if next_index is None:
+            next_index = next((index for index, row in enumerate(timeline)
+                               if datetime.fromisoformat(row["scheduled"]) >= now - timedelta(minutes=3)), len(timeline) - 1)
+        start = max(0, next_index - 2)
+        shown = timeline[start:start + max(3, min(30, int(limit)))]
+        for index, row in enumerate(shown, start=start):
+            row["state"] = "next" if index == next_index else ("passed" if index < next_index else "upcoming")
+        payload = {
+            "mode": "matched_timetable", "source": "DfT BODS GTFS timetable + live BODS GPS",
+            "region": region, "service_date": service_date.isoformat(),
+            "route": trip["short_name"] or trip["route_id"], "route_long_name": trip["long_name"],
+            "destination": trip["headsign"], "operator": trip["agency_name"],
+            "trip_id": trip["trip_id"], "next_stop_id": timeline[next_index]["stop_id"], "stops": shown,
+            "match_method": match_method,
+            "note": ("Stop order and times are the official timetable. The live feed's journey reference matched this trip exactly."
+                     if match_method == "exact_trip" else
+                     "The operator uses a different live journey reference. This official timetable trip is the best route/time/position match; times remain scheduled, not live predictions."),
+        }
+        with self._lock:
+            self._journey_cache[cache_key] = (datetime.now().timestamp(), payload)
+        return payload

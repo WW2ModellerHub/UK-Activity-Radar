@@ -18,7 +18,7 @@ from bs4 import BeautifulSoup
 
 from ..models import Event, SourceStatus, Vehicle
 
-UA = {"User-Agent": "UKActivityRadar/1.2.1 (free/open public data consumer)"}
+UA = {"User-Agent": "UKActivityRadar/1.4.0 (free/open public data consumer)"}
 
 
 def _num(v):
@@ -492,11 +492,27 @@ class GritterCollector(SnapshotThread):
         if not url:
             d=self._session.get(f"https://www.arcgis.com/sharing/rest/content/items/{self.settings.gritter_arcgis_item}/data?f=json",timeout=15).json();raw=json.dumps(d);m=re.search(r'https?://[^" ]+/FeatureServer',raw);url=m.group(0) if m else None
         if not url:return []
-        q=f"{url.rstrip('/')}/0/query";rr=self._session.get(q,params={"where":"1=1","outFields":"*","f":"geojson"},timeout=25);rr.raise_for_status();features=rr.json().get("features",[]);out=[]
+        # The hosted service moved Vehicle Locations from layer 0 to layer 1
+        # in 2026 and advertises JSON (not GeoJSON) as its query format. Resolve
+        # the layer by name so a future numeric move does not silently break it.
+        service_url=url.rstrip('/')
+        service_response=self._session.get(service_url,params={"f":"json"},timeout=20);service_response.raise_for_status()
+        service=service_response.json()
+        layers=service.get("layers") or []
+        vehicle_layer=next((row for row in layers if "vehicle location" in str(row.get("name") or "").casefold()),None)
+        if not vehicle_layer:
+            raise RuntimeError("Traffic Scotland Vehicle Locations layer is unavailable")
+        q=f"{service_url}/{vehicle_layer['id']}/query"
+        rr=self._session.get(q,params={"where":"1=1","outFields":"*","returnGeometry":"true","outSR":"4326","f":"json"},timeout=25);rr.raise_for_status();payload=rr.json()
+        if payload.get("error"):
+            raise RuntimeError(f"Traffic Scotland query error {payload['error'].get('code','unknown')}")
+        features=payload.get("features",[]);out=[]
         for f in features:
             geom=f.get("geometry") or {};coords=geom.get("coordinates") or []
-            if len(coords)<2:continue
-            lon,lat=_num(coords[0]),_num(coords[1]);props=f.get("properties") or {}
+            lon=_num(geom.get("x"));lat=_num(geom.get("y"))
+            if (lon is None or lat is None) and len(coords)>=2:
+                lon,lat=_num(coords[0]),_num(coords[1])
+            props=f.get("attributes") or f.get("properties") or {}
             if lat is None or lon is None:continue
             name=str(_pick(props,"name","vehicle","call_sign","fleetno","registration") or "Traffic Scotland gritter")
             ident=str(_pick(props,"objectid","id","vehicleid","registration") or _hash(lat,lon,name))

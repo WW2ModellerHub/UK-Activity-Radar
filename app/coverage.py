@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from datetime import datetime, timezone
 from urllib.parse import quote_plus
 
 import requests
@@ -50,29 +52,91 @@ def gdelt_articles(event: Event, limit: int = 6) -> list[dict]:
                 "timespan": "1week",
             },
             timeout=12,
-            headers={"User-Agent": "UKActivityRadar/1.2"},
+            headers={"User-Agent": "UKActivityRadar/1.5.0"},
         )
         response.raise_for_status()
         payload = response.json()
         rows = payload.get("articles", []) if isinstance(payload, dict) else []
         out = []
-        for row in rows[:limit]:
+        for row in rows:
             if not isinstance(row, dict) or not row.get("url"):
+                continue
+            if event.source == "RNLI" and not _rnli_article_matches(event, row):
                 continue
             out.append({
                 "title": row.get("title") or row.get("url"),
                 "url": row.get("url"),
                 "source": row.get("domain") or "News",
                 "seen": row.get("seendate"),
+                "verified_match": event.source == "RNLI",
             })
+            if len(out) >= limit:
+                break
         return out
     except Exception:
         return []
 
 
+def _rnli_station_name(event: Event) -> str:
+    return re.sub(r"\s+(?:lifeboat station\s+)?launch\s*$", "", event.name, flags=re.I).strip()
+
+
+def _rnli_article_matches(event: Event, row: dict) -> bool:
+    """Require strong station, rescue and time agreement for RNLI coverage.
+
+    GDELT is discovery, not an authority.  This guard prevents generic rescue
+    articles, similarly named places and old launch stories being presented as
+    coverage of the selected live record.
+    """
+    title = str(row.get("title") or "")
+    haystack = title.casefold()
+    station_tokens = {
+        token for token in re.findall(r"[a-z0-9]{4,}", _rnli_station_name(event).casefold())
+        if token not in {"rnli", "lifeboat", "station", "launch"}
+    }
+    if not station_tokens or not any(token in haystack for token in station_tokens):
+        return False
+    if not any(word in haystack for word in ("rnli", "lifeboat", "rescue")):
+        return False
+
+    seen = str(row.get("seendate") or "").strip()
+    if event.start_time and seen:
+        parsed = None
+        for fmt in ("%Y%m%dT%H%M%SZ", "%Y-%m-%dT%H:%M:%SZ"):
+            try:
+                parsed = datetime.strptime(seen, fmt).replace(tzinfo=timezone.utc)
+                break
+            except ValueError:
+                continue
+        if parsed is None:
+            return False
+        started = event.start_time
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        if abs((parsed - started.astimezone(timezone.utc)).total_seconds()) > 3 * 86400:
+            return False
+    return True
+
+
 def coverage_for_event(event: Event) -> dict:
     query = (event.social_query or event.news_query or event.name).strip()
     live_query = event.news_query or query
+    if event.source == "RNLI":
+        # Do not imply that broad social/news searches or generic station
+        # photographs document this launch.  Return only strongly matched
+        # coverage plus the official source record.
+        return {
+            "event_id": event.id,
+            "query": query,
+            "articles": gdelt_articles(event),
+            "links": [
+                {"label": "Open verified launch location", "url": google_maps_url(event.lat, event.lon), "type": "map"},
+            ],
+            "official_url": event.official_url,
+            "official_label": "Official RNLI launch record",
+            "verified_only": True,
+            "verification_note": "Only coverage matching this station, rescue context and launch date is shown. No generic or historic substitute media is used.",
+        }
     links = [
         {"label": "Live stories • Google News", "url": google_news_search_url(live_query), "type": "news_search"},
         {"label": "BBC search", "url": bbc_search_url(live_query), "type": "news_search"},

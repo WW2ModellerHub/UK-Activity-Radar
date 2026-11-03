@@ -317,6 +317,275 @@ def parse_closure_payload(payload: Any, closure_type: str) -> list[Event]:
     return list({event.id: event for event in events}.values())
 
 
+def _vms_message(record: dict) -> str | None:
+    """Extract displayed text without treating IDs or instructions as copy."""
+    lines: list[str] = []
+    exact = {
+        "messagetext", "vmstext", "textline", "legend", "displayedmessage",
+        "vmsmessage", "textdisplayed", "messagecontent",
+    }
+    for node in _walk(record):
+        for key, value in node.items():
+            norm = _norm(key)
+            if isinstance(value, (dict, list)):
+                continue
+            # DATEX places metadata such as messageSetBy, messageIndex and
+            # reasonForSetting beside the actual textLine values. Only accept
+            # explicit display-text fields; otherwise cards misleadingly show
+            # strings such as "0 / External Center" as part of the sign.
+            if norm not in exact:
+                continue
+            text = re.sub(r"\s+", " ", str(value)).strip(" -•")
+            if not text or text.lower() in {"none", "null", "unknown", "not set"}:
+                continue
+            if re.fullmatch(r"\[[a-z0-9_:.\-]+\]", text, re.I):
+                continue
+            if text not in lines:
+                lines.append(text)
+    return " / ".join(lines[:4]) or None
+
+
+def parse_vms_payload(payload: Any) -> list[Event]:
+    """Normalise National Highways DATEX-II VMS records into honest map cards."""
+    events: list[Event] = []
+    now = datetime.now(timezone.utc)
+    for record in _walk(payload):
+        if not isinstance(record, dict):
+            continue
+        coords = _coordinates(record)
+        message = _vms_message(record)
+        if not coords or not message:
+            continue
+        lat, lon = coords
+        road = _humanise(_first(record, "roadNumber", "roadName", "roadIdentifier", "road"), allow_generic=True)
+        location = _humanise(_first(record, "locationDescription", "locationName", "descriptor"), allow_generic=True)
+        direction = _humanise(_first(record, "applicableForTrafficDirection", "direction", "directionBound"))
+        source_id = _first(record, "externalIdentifier", "vmsUnitReference", "vmsUnitId", "vmsReference", "situationRecordId", "id")
+        if not source_id:
+            source_id = hashlib.sha1(f"{message}|{lat:.5f}|{lon:.5f}".encode("utf-8")).hexdigest()[:20]
+        updated = _parse_dt(_first(record, "publicationTime", "vmsMessagePublicationTime", "situationRecordVersionTime")) or now
+        subtitle = " • ".join(part for part in (road, location, direction) if part)
+        events.append(Event(
+            id=f"nh-vms:{source_id}", type="incident", name=message[:220], subtitle=subtitle[:350],
+            lat=lat, lon=lon, category="Live motorway sign", status="Displaying now",
+            road=road, direction=direction, reason=message[:500], position_method="static",
+            position_label="National Highways sign location", source="National Highways VMS",
+            source_id=source_id, official_url="https://nationalhighways.co.uk/travel-updates/",
+            interesting=True, last_updated=updated,
+        ))
+    return list({event.id: event for event in events}.values())
+
+
+def _speed_mph(value: str | None) -> int | None:
+    """Convert DATEX km/h values to the nearest displayed UK mph value."""
+    if not value:
+        return None
+    try:
+        mph = float(value) / 1.609344
+    except (TypeError, ValueError):
+        return None
+    if mph <= 0:
+        return None
+    # VSS values are emitted as metric conversions (64.3736 == 40 mph).
+    return int(round(mph / 5.0) * 5)
+
+
+def parse_speed_managed_payload(payload: Any) -> list[Event]:
+    """Normalise active National Highways temporary speed restrictions."""
+    events: list[Event] = []
+    now = datetime.now(timezone.utc)
+    for record in _candidate_records(payload):
+        speed = _speed_mph(_first(record, "temporarySpeedLimit"))
+        status = (_first(record, "validityStatus", "operatorActionStatus") or "active").strip()
+        status_key = _norm(status)
+        if not speed or status_key in {"suspended", "inactive", "cancelled", "cleared"}:
+            continue
+        start = _parse_dt(_first(record, "overallStartTime", "startOfPeriod"))
+        end = _parse_dt(_first(record, "overallEndTime", "endOfPeriod"))
+        if start and start > now:
+            continue
+        if end and end < now:
+            continue
+        coords = _coordinates(record)
+        if not coords:
+            continue
+        lat, lon = coords
+        road = _humanise(_first(record, "roadName", "roadNumber", "roadIdentifier", "road"), allow_generic=True)
+        direction = _humanise(_first(record, "directionOnLinearSection", "applicableForTrafficDirection", "direction"))
+        location = _humanise(_first(record, "locationDescription", "locationName", "descriptor"), allow_generic=True)
+        cause = _humanise(_first(record, "generalPublicComment", "comment", "causeType", "detailedCauseType", "constructionWorkType"), allow_generic=True)
+        compliance = _humanise(_first(record, "complianceOption"), allow_generic=True)
+        source_id = _first(record, "idG", "situationRecordId", "recordId", "id")
+        if not source_id:
+            source_id = hashlib.sha1(f"{road}|{speed}|{lat:.5f}|{lon:.5f}|{start}".encode("utf-8")).hexdigest()[:20]
+        updated = _parse_dt(_first(record, "situationRecordVersionTime", "publicationTime")) or now
+        subtitle_parts = [location or road, direction]
+        subtitle = " • ".join(x for x in subtitle_parts if x)
+        reason = cause or f"{compliance or 'Temporary'} {speed} mph restriction"
+        events.append(Event(
+            id=f"nh-sma:{source_id}", type="incident", name=f"{speed} mph temporary limit",
+            subtitle=subtitle[:350], lat=lat, lon=lon, category="Live managed speed",
+            status="Active", severity=None, road=road, direction=direction, reason=reason[:500],
+            start_time=start, end_time=end, position_method="static",
+            position_label="National Highways managed-speed area", source="National Highways Speed",
+            source_id=source_id, official_url="https://nationalhighways.co.uk/travel-updates/",
+            news_query=_dedupe_query_parts(road, location, f"{speed} mph speed restriction"),
+            interesting=True, last_updated=updated,
+        ))
+    return list({event.id: event for event in events}.values())
+
+
+def _feature_records(payload: Any) -> list[dict]:
+    records: list[dict] = []
+    for node in _walk(payload):
+        for key, value in node.items():
+            if _norm(key) != "limitorfeaturerecord":
+                continue
+            if isinstance(value, dict):
+                records.append(value)
+            elif isinstance(value, list):
+                records.extend(item for item in value if isinstance(item, dict))
+    return records
+
+
+def parse_road_feature_payload(payload: Any, feature_type: str) -> list[Event]:
+    """Normalise static SRN roadside features without presenting them as incidents."""
+    events: list[Event] = []
+    now = datetime.now(timezone.utc)
+    feature_key = _norm(feature_type)
+    is_bus_stop = feature_key == "busstop"
+    label = "Strategic-road bus stop" if is_bus_stop else "Emergency roadside telephone"
+    icon_word = "Bus stop" if is_bus_stop else "Emergency telephone"
+    for record in _feature_records(payload):
+        status = _first(record, "validityStatus") or "active"
+        if _norm(status) not in {"active", "implemented"}:
+            continue
+        coords = _coordinates(record)
+        if not coords:
+            continue
+        lat, lon = coords
+        road = _humanise(_first(record, "roadName", "roadNumber", "roadIdentifier", "road"), allow_generic=True)
+        location = _humanise(_first(record, "locationDescription"), allow_generic=True) or _humanise(
+            _first(record, "description", "locationName", "descriptor"), allow_generic=True
+        )
+        direction = _humanise(_first(record, "directionAtPoint", "directionOnLinearSection", "direction", "applicableForTrafficDirection"))
+        source_id = _first(record, "idG", "externalIdentifier", "featureId", "siteId", "id")
+        if not source_id:
+            source_id = hashlib.sha1(f"{feature_type}|{lat:.6f}|{lon:.6f}".encode("utf-8")).hexdigest()[:20]
+        name = f"{icon_word}{f' • {road}' if road else ''}"
+        updated = _parse_dt(_first(record, "limitOrFeatureRecordVersionTime", "publicationTime")) or now
+        events.append(Event(
+            id=f"nh-rlf:{feature_key}:{source_id}", type="roadfeature", name=name,
+            subtitle=" • ".join(x for x in (location, direction) if x)[:350],
+            lat=lat, lon=lon, category=label, status="Mapped feature", road=road,
+            direction=direction, reason=label, position_method="static",
+            position_label="National Highways network feature", source="National Highways Features",
+            source_id=source_id, official_url="https://nationalhighways.co.uk/travel-updates/",
+            interesting=False, last_updated=updated,
+        ))
+    return list({event.id: event for event in events}.values())
+
+
+def _response_payload(response: requests.Response, service: str) -> Any:
+    try:
+        return response.json()
+    except Exception:
+        try:
+            return _xml_to_obj(ET.fromstring(response.content))
+        except Exception as exc:
+            raise RuntimeError(f"{service} returned neither JSON nor parseable DATEX XML") from exc
+
+
+class _NationalHighwaysOptionalCollector:
+    source_name = "National Highways"
+    status_name = "national_highways_optional"
+    connecting_message = "Connecting to National Highways…"
+    success_label = "records"
+
+    def __init__(self, settings, state):
+        self.settings = settings
+        self.state = state
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._thread = threading.Thread(target=self._run, name=self.status_name.replace("_", "-"), daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3)
+
+    def fetch_once(self) -> list[Event]:
+        raise NotImplementedError
+
+    @property
+    def poll_seconds(self) -> int:
+        return self.settings.national_highways_poll_seconds
+
+    def _run(self) -> None:
+        self.state.set_source(SourceStatus(name=self.status_name, enabled=True, connected=False, mode="connecting", message=self.connecting_message))
+        while not self._stop.is_set():
+            try:
+                events = self.fetch_once()
+                self.state.replace_events_for_source(self.source_name, events)
+                self.state.set_source(SourceStatus(
+                    name=self.status_name, enabled=True, connected=True, mode="live" if events else "ready",
+                    message=f"{len(events):,} {self.success_label}", last_message_at=datetime.now(timezone.utc),
+                    messages_seen=len(events), movements_mapped=len(events),
+                ))
+            except requests.HTTPError as exc:
+                code = exc.response.status_code if exc.response is not None else "HTTP"
+                self.state.set_source(SourceStatus(name=self.status_name, enabled=True, connected=False, mode="error", message=f"National Highways {self.success_label} HTTP {code}; check this API subscription"))
+            except Exception as exc:
+                self.state.set_source(SourceStatus(name=self.status_name, enabled=True, connected=False, mode="error", message=f"{self.success_label.capitalize()} unavailable: {type(exc).__name__}"))
+            self._stop.wait(self.poll_seconds)
+
+
+class NationalHighwaysSpeedCollector(_NationalHighwaysOptionalCollector):
+    source_name = "National Highways Speed"
+    status_name = "national_highways_speed"
+    connecting_message = "Connecting to live managed-speed areas…"
+    success_label = "active managed-speed areas"
+
+    @property
+    def poll_seconds(self) -> int:
+        return self.settings.national_highways_speed_poll_seconds
+
+    def fetch_once(self) -> list[Event]:
+        response = requests.get(self.settings.national_highways_speed_url, headers={
+            "Ocp-Apim-Subscription-Key": self.settings.national_highways_api_key,
+            "Accept": "application/json, application/xml", "User-Agent": "UKActivityRadar/1.5",
+        }, timeout=35)
+        response.raise_for_status()
+        return parse_speed_managed_payload(_response_payload(response, "Managed-speed feed"))
+
+
+class NationalHighwaysFeaturesCollector(_NationalHighwaysOptionalCollector):
+    source_name = "National Highways Features"
+    status_name = "national_highways_features"
+    connecting_message = "Loading strategic-road features…"
+    success_label = "roadside features"
+
+    @property
+    def poll_seconds(self) -> int:
+        return self.settings.national_highways_features_poll_seconds
+
+    def fetch_once(self) -> list[Event]:
+        events: list[Event] = []
+        for feature_type in self.settings.national_highways_feature_types:
+            response = requests.get(self.settings.national_highways_features_url, params={"limitOrFeatureType": feature_type}, headers={
+                "Ocp-Apim-Subscription-Key": self.settings.national_highways_api_key,
+                "Accept": "application/json, application/xml", "User-Agent": "UKActivityRadar/1.5",
+            }, timeout=40)
+            response.raise_for_status()
+            events.extend(parse_road_feature_payload(_response_payload(response, "Road-feature feed"), feature_type))
+        return list({event.id: event for event in events}.values())
+
+
 class NationalHighwaysCollector:
     def __init__(self, settings, state):
         self.settings = settings
@@ -394,5 +663,73 @@ class NationalHighwaysCollector:
                 self.state.set_source(SourceStatus(
                     name="national_highways", enabled=True, connected=False, mode="error",
                     message=f"Road feed error: {type(exc).__name__}: {exc}",
+                ))
+            self._stop.wait(self.settings.national_highways_poll_seconds)
+
+
+class NationalHighwaysVMSCollector:
+    """Independent VMS poller so sign errors never take down road incidents."""
+
+    def __init__(self, settings, state):
+        self.settings = settings
+        self.state = state
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._thread = threading.Thread(target=self._run, name="national-highways-vms", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3)
+
+    def fetch_once(self) -> list[Event]:
+        response = requests.get(
+            self.settings.national_highways_vms_url,
+            headers={
+                "Ocp-Apim-Subscription-Key": self.settings.national_highways_api_key,
+                "Accept": "application/json, application/xml",
+                "User-Agent": "UKActivityRadar/1.5",
+            },
+            timeout=25,
+        )
+        response.raise_for_status()
+        try:
+            payload = response.json()
+        except Exception:
+            payload = _xml_to_obj(ET.fromstring(response.content))
+        return parse_vms_payload(payload)
+
+    def _run(self) -> None:
+        if not self.settings.national_highways_api_key or not self.settings.national_highways_vms_url:
+            self.state.set_source(SourceStatus(
+                name="national_highways_vms", enabled=True, connected=False, mode="setup",
+                message="Subscribe to Digital VMS, then add its API URL",
+            ))
+            return
+        while not self._stop.is_set():
+            try:
+                events = self.fetch_once()
+                self.state.replace_events_for_source("National Highways VMS", events)
+                self.state.set_source(SourceStatus(
+                    name="national_highways_vms", enabled=True, connected=True,
+                    mode="live" if events else "ready",
+                    message=f"{len(events):,} live motorway sign messages",
+                    last_message_at=datetime.now(timezone.utc), messages_seen=len(events), movements_mapped=len(events),
+                ))
+            except requests.HTTPError as exc:
+                code = exc.response.status_code if exc.response is not None else "HTTP"
+                self.state.set_source(SourceStatus(
+                    name="national_highways_vms", enabled=True, connected=False, mode="error",
+                    message=f"Motorway signs HTTP {code}; check the Digital VMS subscription",
+                ))
+            except Exception as exc:
+                self.state.set_source(SourceStatus(
+                    name="national_highways_vms", enabled=True, connected=False, mode="error",
+                    message=f"Motorway signs unavailable: {type(exc).__name__}",
                 ))
             self._stop.wait(self.settings.national_highways_poll_seconds)

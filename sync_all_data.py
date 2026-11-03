@@ -9,7 +9,7 @@ data = root / "data"
 if not settings.credentials_present:
     raise SystemExit("No credentials in .env. Run run.bat once to configure them.")
 
-print("UK Activity Radar v0.4.1 - manual rail-data sync")
+print("UK Activity Radar v1.4.0 - manual rail-data sync")
 print("1/2 Downloading/indexing Network Rail full SCHEDULE...")
 try:
     result = sync_schedule_data(settings.network_rail_username, settings.network_rail_password, data, force=True)

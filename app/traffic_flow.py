@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import math
+import re
 import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from .error_safety import public_error
 from .models import SourceStatus
 from .state import LiveState
 
 _ALLOWED_STYLES = {"relative0", "relative0-dark", "relative-delay"}
+_ALLOWED_MAP_STYLES = {"street-light", "street-dark"}
 
 
 def _tile_for(lat: float, lon: float, zoom: int) -> tuple[int, int]:
@@ -29,6 +32,31 @@ class TileResult:
     content: bytes
     content_type: str
     fetched_at: float
+    cache_max_age: int | None = None
+
+    @property
+    def cache_control(self) -> str:
+        if self.cache_max_age is None:
+            return "no-store"
+        if self.cache_max_age <= 0:
+            return "no-cache"
+        return f"public, max-age={self.cache_max_age}"
+
+
+def _provider_cache_max_age(response: requests.Response, fallback: int) -> int:
+    """Use the provider's freshness instruction without extending it.
+
+    Map providers can change tile freshness independently of this application.
+    A missing directive uses our conservative configured fallback; explicit
+    no-cache/no-store must always win.
+    """
+    control = str(response.headers.get("Cache-Control") or "").lower()
+    if "no-store" in control or "no-cache" in control:
+        return 0
+    match = re.search(r"(?:^|,)\s*(?:s-maxage|max-age)\s*=\s*\"?(\d+)", control)
+    if match:
+        return max(0, int(match.group(1)))
+    return max(0, int(fallback))
 
 
 class TrafficFlowService:
@@ -43,9 +71,28 @@ class TrafficFlowService:
         self.settings = settings
         self.state = state
         self._cache: dict[tuple[int, int, int, str], TileResult] = {}
+        self._map_cache: dict[tuple[int, int, int, str], TileResult] = {}
         self._lock = threading.RLock()
         self._session = requests.Session()
+        # A single map view requests many independent tiles at once. Requests'
+        # default pool only keeps ten connections, which made cold map pans
+        # queue behind discarded connections.
+        adapter = HTTPAdapter(pool_connections=32, pool_maxsize=64, max_retries=0)
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
         self._messages = 0
+        self._map_cache_hits = 0
+        self._map_cache_misses = 0
+        # Coalesce identical cold requests after a production restart.
+        self._map_inflight: dict[tuple[int, int, int, str], threading.Event] = {}
+
+    @staticmethod
+    def _evict_oldest(cache: dict, limit: int) -> None:
+        if len(cache) <= limit:
+            return
+        oldest = sorted(cache.items(), key=lambda item: item[1].fetched_at)[:max(1, len(cache) // 5)]
+        for old_key, _ in oldest:
+            cache.pop(old_key, None)
 
     @property
     def enabled(self) -> bool:
@@ -54,6 +101,11 @@ class TrafficFlowService:
     @property
     def ready(self) -> bool:
         return self.enabled and bool(self.settings.tomtom_traffic_api_key)
+
+    @property
+    def map_ready(self) -> bool:
+        """TomTom map display needs the same server-side platform key."""
+        return bool(self.settings.tomtom_traffic_api_key)
 
     def set_initial_status(self) -> None:
         if not self.enabled:
@@ -108,7 +160,7 @@ class TrafficFlowService:
     def _tile_request(self, primary_url: str, primary_params: dict, *, fallback_url: str | None = None,
                       fallback_params: dict | None = None) -> requests.Response:
         headers = {
-            "User-Agent": "UKActivityRadar/1.2",
+            "User-Agent": "UKActivityRadar/1.5.0",
             "Accept": "image/png",
             "TomTom-Api-Key": self.settings.tomtom_traffic_api_key,
             "TomTom-Api-Version": "2",
@@ -127,7 +179,7 @@ class TrafficFlowService:
             legacy = self._session.get(
                 fallback_url,
                 params=fallback_params or {"key": self.settings.tomtom_traffic_api_key, "tileSize": 256},
-                headers={"User-Agent": "UKActivityRadar/1.2", "Accept": "image/png"},
+                headers={"User-Agent": "UKActivityRadar/1.5.0", "Accept": "image/png"},
                 timeout=self.settings.traffic_flow_timeout_seconds,
             )
             if legacy.status_code == 200:
@@ -191,6 +243,79 @@ class TrafficFlowService:
             messages_seen=messages,
         ))
         return result
+
+    def get_map_tile(self, z: int, x: int, y: int, style: str = "street-light", *, force: bool = False) -> TileResult:
+        """Return a commercially supported TomTom Orbis base-map tile.
+
+        The API key stays on the server, replacing community tile servers that
+        provide no production SLA.  Base-map tiles receive a much longer cache
+        lifetime than live traffic overlays.
+        """
+        if not self.map_ready:
+            raise RuntimeError("Base map is not configured")
+        if style not in _ALLOWED_MAP_STYLES:
+            style = "street-light"
+        if not (0 <= z <= 22):
+            raise ValueError("Invalid zoom")
+        n = 2 ** z
+        if not (0 <= x < n and 0 <= y < n):
+            raise ValueError("Invalid tile coordinates")
+
+        cache_style = f"map-{style}"
+        key = (z, x, y, cache_style)
+        owner_event: threading.Event | None = None
+        registered_inflight = False
+        while owner_event is None:
+            now = time.time()
+            with self._lock:
+                cached = self._map_cache.get(key)
+                if cached and not force and now - cached.fetched_at <= int(cached.cache_max_age or 0):
+                    self._map_cache_hits += 1
+                    return cached
+                if force:
+                    owner_event = threading.Event()
+                    self._map_cache_misses += 1
+                    break
+                waiting_for = None if force else self._map_inflight.get(key)
+                if waiting_for is None:
+                    owner_event = threading.Event()
+                    self._map_inflight[key] = owner_event
+                    registered_inflight = True
+                    self._map_cache_misses += 1
+                    break
+            # Never hold the service lock while another request is doing I/O.
+            # If that request fails, the loop elects one waiter to retry.
+            waiting_for.wait(timeout=max(1.0, float(self.settings.traffic_flow_timeout_seconds) + 1.0))
+
+        url = (
+            f"{self.settings.tomtom_traffic_base_url}/maps/orbis/display/"
+            f"raster/tile/{z}/{x}/{y}"
+        )
+        try:
+            response = self._tile_request(
+                url,
+                {"apiVersion": 2, "style": style},
+            )
+            content_type = response.headers.get("Content-Type", "image/png").split(";")[0]
+            if not response.content:
+                raise RuntimeError("Map provider returned an empty tile")
+            result = TileResult(
+                response.content,
+                content_type,
+                time.time(),
+                cache_max_age=_provider_cache_max_age(response, self.settings.map_tile_cache_seconds),
+            )
+            with self._lock:
+                if result.cache_max_age:
+                    self._map_cache[key] = result
+                    self._evict_oldest(self._map_cache, self.settings.map_tile_cache_max_tiles)
+            return result
+        finally:
+            if registered_inflight:
+                with self._lock:
+                    event = self._map_inflight.pop(key, None)
+                    if event is not None:
+                        event.set()
 
 
     def get_incident_tile(self, z: int, x: int, y: int, *, force: bool = False) -> TileResult:
@@ -258,7 +383,7 @@ class TrafficFlowService:
         response = self._session.get(
             url,
             params={"key": self.settings.tomtom_traffic_api_key, "point": f"{lat},{lon}", "unit": "mph"},
-            headers={"User-Agent": "UKActivityRadar/1.2"},
+            headers={"User-Agent": "UKActivityRadar/1.5.0"},
             timeout=self.settings.traffic_flow_timeout_seconds,
         )
         if response.status_code == 403:
@@ -296,6 +421,13 @@ class TrafficFlowService:
 
     def status_payload(self) -> dict:
         status = self.state.source("traffic_flow")
+        with self._lock:
+            map_cache = {
+                "entries": len(self._map_cache),
+                "hits": self._map_cache_hits,
+                "misses": self._map_cache_misses,
+                "limit": self.settings.map_tile_cache_max_tiles,
+            }
         return {
             "enabled": self.enabled,
             "configured": self.ready,
@@ -303,4 +435,9 @@ class TrafficFlowService:
             "free_tier": True,
             "source_status": status.model_dump(mode="json") if status else None,
             "styles": ["relative0", "relative-delay", "relative0-dark"],
+            "base_map": {
+                "configured": self.map_ready,
+                "provider": "TomTom Orbis Map Display",
+                "cache": map_cache,
+            },
         }

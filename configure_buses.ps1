@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $envPath = Join-Path $PSScriptRoot '.env'
 Write-Host ''
-Write-Host 'UK Activity Radar v0.9 - BODS live bus setup' -ForegroundColor Cyan
+Write-Host 'UK Activity Radar v1.4.0 - BODS live bus setup' -ForegroundColor Cyan
 Write-Host 'Paste the free Data Consumer API key from BODS Account settings.'
 Write-Host 'It is stored only in this local .env file and is never sent to the browser.'
 Write-Host ''

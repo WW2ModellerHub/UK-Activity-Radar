@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -16,6 +17,24 @@ class FakeState:
         return None
     def all(self, **kwargs):
         return []
+
+
+def test_nearest_bus_stop_uses_distance_not_database_order(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    svc=SmartPlacesService(tmp_path,store,FakeState())
+    with sqlite3.connect(svc.stop_db) as con:
+        con.executescript("""
+            CREATE TABLE stops(atco_code TEXT PRIMARY KEY,naptan_code TEXT,name TEXT,indicator TEXT,stop_type TEXT,lat REAL,lon REAL);
+            CREATE INDEX idx_stops_lat_lon ON stops(lat,lon);
+        """)
+        con.executemany("INSERT INTO stops VALUES(?,?,?,?,?,?,?)",[
+            ('FAR','far','Far Stop','B','BCT',52.56,-1.39),
+            ('NEAR','near','Nearest Stop','A','BCT',52.5505,-1.3805),
+        ])
+    place=svc.nearest_bus_stop(52.55,-1.38)
+    assert place['id']=='bus-stop:NEAR'
+    assert place['name']=='Nearest Stop'
+    assert place['distance_km'] < 0.1
 
 
 def test_siri_stop_predictions_extracts_expected_time():
@@ -46,6 +65,83 @@ def test_local_station_board_finds_upcoming_calls(tmp_path: Path):
     assert board['arrivals']
     assert board['departures'][0]['destination']=='Leicester'
     assert board['departures'][0]['platform']=='1'
+
+
+def test_scheduled_train_detail_returns_calling_points_without_live_marker(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    now=datetime.now(london_tz())
+    locations=[
+        {'tiploc_code':'NUNEAT','scheduled_departure':'1010'},
+        {'tiploc_code':'HNK','scheduled_arrival':'1020','scheduled_departure':'1022'},
+        {'tiploc_code':'LESTER','scheduled_arrival':'1040'},
+    ]
+    with store._connect() as con:
+        con.executemany(
+            "INSERT INTO tiplocs(tiploc,description) VALUES(?,?)",
+            [('NUNEAT','Nuneaton'),('HNK','Hinckley'),('LESTER','Leicester')],
+        )
+        con.execute(
+            """INSERT INTO schedules(train_uid,start_date,end_date,source,atoc_code,origin_name,destination_name,locations_json,power_type,booked_speed)
+               VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            ('C12345',(now-timedelta(days=1)).date().isoformat(),(now+timedelta(days=1)).date().isoformat(),'SCHEDULE','XC','Birmingham New Street','Edinburgh',json.dumps(locations),'DMU','125'),
+        )
+    detail=SmartPlacesService(tmp_path,store,FakeState()).scheduled_train_detail('C12345','1L23')
+    assert detail['live_marker'] is False
+    assert detail['runs'][0]['headcode']=='1L23'
+    assert detail['runs'][0]['operator']=='CrossCountry'
+    assert detail['runs'][0]['power_type']=='Diesel multiple unit'
+    assert detail['runs'][0]['booked_speed_mph']=='125'
+    assert detail['runs'][0]['likely_train']['label']=='Class 220/221 Voyager family'
+    assert [row['name'] for row in detail['runs'][0]['calling_points']]==['Nuneaton','Hinckley','Leicester']
+
+
+def test_scheduled_train_detail_does_not_reuse_an_expired_route(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    now=datetime.now(london_tz())
+    with store._connect() as con:
+        con.execute(
+            """INSERT INTO schedules(train_uid,start_date,end_date,source,atoc_code,origin_name,destination_name,locations_json)
+               VALUES(?,?,?,?,?,?,?,?)""",
+            ('COLD01',(now-timedelta(days=10)).date().isoformat(),(now-timedelta(days=5)).date().isoformat(),'SCHEDULE','XC','Old origin','Old destination','[]'),
+        )
+    detail=SmartPlacesService(tmp_path,store,FakeState()).scheduled_train_detail('COLD01','1A01')
+    run=detail['runs'][0]
+    assert run.get('origin') is None
+    assert run.get('destination') is None
+    assert run.get('calling_points') is None
+
+
+def test_td_only_train_detail_resolves_todays_schedule_from_headcode(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    now=datetime.now(london_tz())
+    locations=[
+        {'tiploc_code':'CHFD','scheduled_departure':(now+timedelta(minutes=2)).strftime('%H%M')},
+        {'tiploc_code':'DRBY','scheduled_arrival':(now+timedelta(minutes=34)).strftime('%H%M')},
+        {'tiploc_code':'LESTER','scheduled_arrival':(now+timedelta(minutes=60)).strftime('%H%M')},
+    ]
+    with store._connect() as con:
+        con.executemany(
+            "INSERT INTO tiplocs(tiploc,description) VALUES(?,?)",
+            [('CHFD','Chesterfield'),('DRBY','Derby'),('LESTER','Leicester')],
+        )
+        con.execute(
+            """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,source,atoc_code,signalling_id,origin_name,destination_name,locations_json)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            ('C2S53',(now-timedelta(days=1)).date().isoformat(),(now+timedelta(days=1)).date().isoformat(),'1111111','P','SCHEDULE','EM','2S53','Sheffield','Leicester',json.dumps(locations)),
+        )
+    vehicle=Vehicle(
+        id='td:DY:2S53',type='train',name='2S53',headcode='2S53',
+        lat=53.235,lon=-1.421,status='TD live',source='Network Rail TD',
+    )
+
+    detail=SmartPlacesService(tmp_path,store,FakeState()).train_vehicle_detail(vehicle)
+
+    run=detail['runs'][0]
+    assert run['train_uid']=='C2S53'
+    assert run['origin']=='Sheffield'
+    assert run['destination']=='Leicester'
+    assert run['operator']=='East Midlands Railway'
+    assert [call['name'] for call in run['calling_points']]==['Chesterfield','Derby','Leicester']
 
 
 class FakeStateWithGet(FakeState):
@@ -122,6 +218,26 @@ def test_bus_next_stop_match_focuses_only_bus_targeting_stop(tmp_path: Path):
     assert [r['live_vehicle_id'] for r in payload['rows']]==['bus:ARMD:4407']
     assert payload['next_live_id']=='bus:ARMD:4407'
 
+
+def test_bus_vehicle_journey_uses_only_exact_live_prediction(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    vehicle=_bus('bus:7',vehicle_ref='vehicle-7',next_location='stop-7')
+    vehicle.journey_ref='trip-7'
+    collector=type('Collector',(),{
+        'predictions_for_stop': lambda self, stop_ref, limit=25: [
+            {'stop_ref':stop_ref,'vehicle_ref':'other','journey_ref':'other-trip','expected':'2099-01-01T10:00:00Z'},
+            {'stop_ref':stop_ref,'vehicle_ref':'vehicle-7','journey_ref':'trip-7','expected':'2099-01-01T10:06:00Z','delay_minutes':6,'status':'Live • 6 min late'},
+        ]
+    })()
+    svc=SmartPlacesService(tmp_path,store,FakeStateWithGet(),bods_collector_getter=lambda:collector)
+    svc.bus_timetables.journey_for_vehicle=lambda _vehicle,limit=12:{'mode':'matched_timetable','stops':[]}
+
+    payload=svc.bus_vehicle_journey(vehicle)
+
+    assert payload['live_prediction']['vehicle_ref']=='vehicle-7'
+    assert payload['live_prediction']['delay_minutes']==6
+    assert 'operator-published' in payload['note']
+
 class FakeJsonResponse:
     def __init__(self, payload):
         self.payload=payload
@@ -131,38 +247,59 @@ class FakeJsonResponse:
         return self.payload
 
 
-class FakeRailSession:
-    def get(self, url, params=None, timeout=None):
-        if '/api/departures/HNK' in url:
-            return FakeJsonResponse({'results':[{
-                'departs':'2026-10-05T16:35:00+01:00',
-                'expected_departs':'2026-10-05T16:38:00+01:00',
-                'train_uid':'C12345','train_id':'123ABC','headcode':'1L23',
-                'status':'expected_late','status_text':'Expected 16:38','platform':'1',
-                'operator':'East Midlands Railway',
-                'origin':{'name':'Birmingham New Street'},'destination':{'name':'Leicester'},
-            }]})
-        if '/api/stations/HNK/activity' in url:
-            return FakeJsonResponse({'results':[{
-                'headcode':'1D99','train_id':'999XYZ','event_type':'ARRIVAL',
-                'planned':'2026-10-05T16:10:00+01:00','actual':'2026-10-05T16:12:00+01:00',
-                'variation_status':'LATE','platform':'2','location':'HINCKLEY',
-            }]})
-        raise AssertionError(url)
-
-
-def test_rail_board_works_without_local_schedule_index(tmp_path: Path):
+def test_rail_board_waits_for_direct_network_rail_index(tmp_path: Path):
     store=ScheduleStore(tmp_path/'schedule.sqlite')
     train=type('Train',(),{'id':'nr:123ABC'})()
     state=FakeStateWithGet({'nr:123ABC':train})
     svc=SmartPlacesService(tmp_path,store,state)
-    svc._session=FakeRailSession()
     payload=svc.rail_board('HNK',10)
-    assert payload['departures'][0]['destination']=='Leicester'
-    assert payload['departures'][0]['expected']=='16:38'
-    assert payload['departures'][0]['live_train_id']=='nr:123ABC'
-    assert payload['next_live_id']=='nr:123ABC'
-    assert payload['recent_arrivals'][0]['expected']=='16:12'
+    assert payload['mode']=='schedule_sync'
+    assert payload['source']=='Published railway timetable'
+    assert payload['departures']==[]
+    assert 'no personal-use or scraped fallback' in payload['note']
+
+
+def test_ready_but_incomplete_schedule_reports_sync_instead_of_unlicensed_fallback(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    store.ready=lambda: True
+    svc=SmartPlacesService(tmp_path,store,FakeStateWithGet())
+    payload=svc.rail_board('HNK',10)
+    assert payload['mode']=='schedule_sync'
+    assert payload['departures']==[]
+    assert 'no calls for this station' in payload['note']
+
+
+def _vessel(item_id: str, *, lat: float, lon: float=-1.0, bearing: float=90, speed: float=8):
+    return Vehicle(
+        id=item_id, type='vessel', name=item_id, subtitle='Live AIS vessel',
+        lat=lat, lon=lon, operator='AIS', status='Under way', source='AISStream',
+        position_method='gps', position_label='Live AIS', vehicle_ref=item_id[-3:],
+        speed=speed, speed_unit='kt', bearing=bearing,
+    )
+
+
+def test_ferry_board_excludes_unrelated_vessels_tens_of_kilometres_away(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    near=_vessel('vessel:near',lat=52.03,bearing=90)
+    inbound=_vessel('vessel:inbound',lat=52.14,bearing=180)
+    far=_vessel('vessel:far',lat=52.315,bearing=180)
+    svc=SmartPlacesService(tmp_path,store,FakeStateWithGet({v.id:v for v in (near,inbound,far)}))
+    payload=svc.ferry_board({'lat':52.0,'lon':-1.0},10)
+    ids={row['live_vehicle_id'] for row in payload['rows']}
+    assert 'vessel:inbound' in ids
+    assert 'vessel:far' not in ids
+    assert all(row['distance_km'] <= 20 for row in payload['rows'])
+
+
+def test_ferry_board_nearby_fallback_is_limited_to_five_kilometres(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    near=_vessel('vessel:near',lat=52.03,bearing=90)
+    passing=_vessel('vessel:passing',lat=52.09,bearing=90)
+    svc=SmartPlacesService(tmp_path,store,FakeStateWithGet({v.id:v for v in (near,passing)}))
+    payload=svc.ferry_board({'lat':52.0,'lon':-1.0},10)
+    assert payload['mode']=='live_harbour_activity'
+    assert [row['live_vehicle_id'] for row in payload['rows']]==['vessel:near']
+    assert 'within 5 km' in payload['note']
 
 class FakeNearestSession:
     def get(self, url, params=None, timeout=None):
@@ -172,19 +309,22 @@ class FakeNearestSession:
                 'position':{'lat':52.5350,'lon':-1.3710},
                 'address':{'freeformAddress':'Hinckley Station'},
             }]})
-        if '/api/stations' in url:
-            return FakeJsonResponse({'resolved':{'resolves_to':{'name':'HINCKLEY','crs':'HNK'}},'results':[]})
         raise AssertionError(url)
 
 
 def test_nearest_station_can_resolve_from_tomtom_before_local_cache(tmp_path: Path):
     store=ScheduleStore(tmp_path/'schedule.sqlite')
+    with store._connect() as con:
+        con.execute(
+            "INSERT INTO tiplocs(tiploc,stanox,crs,description,lat,lon) VALUES(?,?,?,?,?,?)",
+            ('HNK','12345','HNK','HINCKLEY TRAIN STATION',52.535,-1.371),
+        )
     svc=SmartPlacesService(tmp_path,store,FakeStateWithGet())
     svc._session=FakeNearestSession()
     place=svc.nearest_rail_station(52.55,-1.38,tomtom_api_key='test-key')
     assert place['id']=='rail-station:HNK'
     assert place['crs']=='HNK'
-    assert place['source']=='TomTom Search + traini.ac station resolver'
+    assert place['source']=='Network Rail SCHEDULE + rail geography'
     assert svc.get_place('rail-station:HNK')['crs']=='HNK'
 
 

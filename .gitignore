@@ -6,10 +6,13 @@ node_modules/
 work/
 .pytest_cache/
 pytest-cache-files-*/
+pytest-local-turn/
+test-run-*/
 test-results/
 playwright-report/
 .coverage
 htmlcov/
+local-server*.log
 
 # All files below data/ are downloaded, generated, cached, or runtime state.
 # Deterministic test fixtures belong under tests/fixtures or e2e/fixtures.

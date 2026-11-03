@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from math import asin, cos, radians, sin, sqrt
 from threading import RLock
 
+from .cool_classifier import apply_cool_classification
 from .models import Event, SourceStatus, Vehicle
 
 
@@ -29,37 +30,63 @@ class LiveState:
     def __init__(self) -> None:
         self._lock = RLock()
         self._vehicles: dict[str, Vehicle] = {}
+        self._train_uid_index: dict[str, str] = {}
         self._events: dict[str, Event] = {}
         self._sources: dict[str, SourceStatus] = {}
         self._unmapped: deque[dict] = deque(maxlen=500)
+        self._revision = 0
+
+    @property
+    def revision(self) -> int:
+        """Monotonic change marker used to avoid resending unchanged map snapshots."""
+        with self._lock:
+            return self._revision
+
+    def _touch_unlocked(self) -> None:
+        self._revision += 1
 
     def upsert(self, vehicle: Vehicle) -> None:
+        stored = apply_cool_classification(deepcopy(vehicle))
         with self._lock:
-            self._vehicles[vehicle.id] = deepcopy(vehicle)
+            previous=self._vehicles.get(vehicle.id)
+            if previous is not None and previous.type=='train' and previous.train_uid:
+                old_uid=str(previous.train_uid).strip()
+                if self._train_uid_index.get(old_uid)==vehicle.id:
+                    self._train_uid_index.pop(old_uid,None)
+            self._vehicles[vehicle.id] = stored
+            if stored.type=='train' and stored.train_uid:
+                self._train_uid_index[str(stored.train_uid).strip()]=stored.id
+            self._touch_unlocked()
 
     def upsert_event(self, event: Event) -> None:
+        stored = apply_cool_classification(deepcopy(event))
         with self._lock:
-            self._events[event.id] = deepcopy(event)
+            self._events[event.id] = stored
+            self._touch_unlocked()
 
     def replace_events_for_source(self, source: str, events: list[Event]) -> None:
         """Replace one source's snapshot atomically so cleared incidents disappear."""
+        classified = [apply_cool_classification(deepcopy(event)) for event in events]
         with self._lock:
             current_ids = {k for k, e in self._events.items() if e.source == source}
-            incoming_ids = {e.id for e in events}
+            incoming_ids = {e.id for e in classified}
             for old_id in current_ids - incoming_ids:
                 self._events.pop(old_id, None)
-            for event in events:
-                self._events[event.id] = deepcopy(event)
+            for event in classified:
+                self._events[event.id] = event
+            self._touch_unlocked()
 
     def get(self, activity_id: str) -> Vehicle | Event | None:
         with self._lock:
             item = self._vehicles.get(activity_id) or self._events.get(activity_id)
-            return deepcopy(item) if item is not None else None
+            copy = deepcopy(item) if item is not None else None
+        return apply_cool_classification(copy) if copy is not None else None
 
     def get_event(self, event_id: str) -> Event | None:
         with self._lock:
             item = self._events.get(event_id)
-            return deepcopy(item) if item is not None else None
+            copy = deepcopy(item) if item is not None else None
+        return apply_cool_classification(copy) if copy is not None else None
 
     def find_train_by_headcode(self, headcode: str, lat: float | None = None, lon: float | None = None) -> Vehicle | None:
         headcode = (headcode or "").strip().upper()
@@ -73,12 +100,42 @@ class LiveState:
                 candidates.sort(key=lambda v: _distance_km(v.lat, v.lon, lat, lon))
             else:
                 candidates.sort(key=lambda v: v.last_updated, reverse=True)
-            return deepcopy(candidates[0])
+            copy = deepcopy(candidates[0])
+        return apply_cool_classification(copy)
+
+    def find_train_by_uid(self, train_uid: str) -> Vehicle | None:
+        uid=str(train_uid or '').strip()
+        if not uid:
+            return None
+        with self._lock:
+            activity_id=self._train_uid_index.get(uid)
+            item=self._vehicles.get(activity_id) if activity_id else None
+            if item is not None and item.last_updated < datetime.now(timezone.utc)-timedelta(minutes=45):
+                item=None
+            copy=deepcopy(item) if item is not None else None
+        return apply_cool_classification(copy) if copy is not None else None
+
+    def trains_by_uids(self, train_uids: set[str]) -> dict[str, Vehicle]:
+        wanted={str(uid).strip() for uid in train_uids if str(uid).strip()}
+        if not wanted:
+            return {}
+        cutoff=datetime.now(timezone.utc)-timedelta(minutes=45)
+        with self._lock:
+            found={}
+            for uid in wanted:
+                activity_id=self._train_uid_index.get(uid)
+                item=self._vehicles.get(activity_id) if activity_id else None
+                if item is not None and item.last_updated >= cutoff:
+                    found[uid]=deepcopy(item)
+        return found
 
     def all(
         self,
         max_age_minutes: int = 45,
         bbox: tuple[float, float, float, float] | None = None,
+        include_trains: bool = True,
+        train_limit: int | None = None,
+        cool_trains_only: bool = False,
         include_buses: bool = True,
         bus_limit: int | None = None,
         include_vessels: bool = True,
@@ -88,13 +145,22 @@ class LiveState:
         cutoff = now - timedelta(minutes=max_age_minutes)
         bus_cutoff = now - timedelta(minutes=5)
         vessel_cutoff = now - timedelta(minutes=10)
+        cool_cutoff = now - timedelta(minutes=60)
 
         with self._lock:
-            result: list[Vehicle] = []
-            buses: list[Vehicle] = []
-            vessels: list[Vehicle] = []
+            regular_refs: list[Vehicle] = []
+            train_refs: list[Vehicle] = []
+            bus_refs: list[Vehicle] = []
+            vessel_refs: list[Vehicle] = []
             for stored in self._vehicles.values():
-                if stored.type == "bus":
+                if stored.type == "train":
+                    if (
+                        not include_trains
+                        or stored.last_updated < cutoff
+                        or (cool_trains_only and not stored.cool_candidate)
+                    ):
+                        continue
+                elif stored.type == "bus":
                     if not include_buses or stored.last_updated < bus_cutoff:
                         continue
                 elif stored.type in {"vessel", "sar"} and stored.source == "AISStream":
@@ -106,77 +172,176 @@ class LiveState:
                 if not _inside(stored.lat, stored.lon, bbox):
                     continue
 
-                v = deepcopy(stored)
-                # TRUST is a reporting-point feed, not GPS. Never draw a train on
-                # a straight geometric chord between reports: that can cut across
-                # fields/towns instead of following the railway. Rail stays at the
-                # last confirmed mapped report until the next real movement.
-                if (
-                    v.type != "train"
-                    and v.reported_lat is not None and v.reported_lon is not None
-                    and v.next_lat is not None and v.next_lon is not None
-                    and v.estimate_started_at and v.estimate_due_at
-                    and v.estimate_due_at > v.estimate_started_at
-                ):
-                    total = (v.estimate_due_at - v.estimate_started_at).total_seconds()
-                    elapsed = (now - v.estimate_started_at).total_seconds()
-                    fraction = max(0.0, min(0.97, elapsed / total))
-                    v.lat = v.reported_lat + (v.next_lat - v.reported_lat) * fraction
-                    v.lon = v.reported_lon + (v.next_lon - v.reported_lon) * fraction
-                    if fraction > 0.02:
-                        v.position_method = "estimated"
-                        v.position_label = f"Estimated between confirmed reports • {v.position_label}"
-
-                if v.type == "bus":
-                    buses.append(v)
-                elif v.type in {"vessel", "sar"} and v.source == "AISStream":
-                    vessels.append(v)
+                if stored.type == "train":
+                    train_refs.append(stored)
+                elif stored.type == "bus":
+                    bus_refs.append(stored)
+                elif stored.type in {"vessel", "sar"} and stored.source == "AISStream":
+                    vessel_refs.append(stored)
                 else:
-                    result.append(v)
+                    regular_refs.append(stored)
 
-            buses.sort(key=lambda x: x.last_updated, reverse=True)
+            # Apply high-volume limits before copying/classifying records.  The
+            # old order deep-copied every visible bus and only then discarded
+            # most of them, which made each browser update needlessly costly.
+            train_refs.sort(key=lambda x: x.last_updated, reverse=True)
+            bus_refs.sort(key=lambda x: x.last_updated, reverse=True)
+            vessel_refs.sort(key=lambda x: x.last_updated, reverse=True)
+            if train_limit is not None:
+                train_refs = train_refs[:train_limit]
             if bus_limit is not None:
-                buses = buses[:bus_limit]
-            vessels.sort(key=lambda x: x.last_updated, reverse=True)
+                bus_refs = bus_refs[:bus_limit]
             if vessel_limit is not None:
-                vessels = vessels[:vessel_limit]
-            result.extend(buses)
-            result.extend(vessels)
-            return result
+                vessel_refs = vessel_refs[:vessel_limit]
+            result = deepcopy(regular_refs)
+            trains = deepcopy(train_refs)
+            buses = deepcopy(bus_refs)
+            vessels = deepcopy(vessel_refs)
 
-    def all_events(self, bbox: tuple[float, float, float, float] | None = None) -> list[Event]:
+        for v in [*result, *trains, *buses, *vessels]:
+            # TRUST is a reporting-point feed, not GPS. Never draw a train on
+            # a straight geometric chord between reports: that can cut across
+            # fields/towns instead of following the railway. Rail stays at the
+            # last confirmed mapped report until the next real movement.
+            if (
+                v.type != "train"
+                and v.reported_lat is not None and v.reported_lon is not None
+                and v.next_lat is not None and v.next_lon is not None
+                and v.estimate_started_at and v.estimate_due_at
+                and v.estimate_due_at > v.estimate_started_at
+            ):
+                total = (v.estimate_due_at - v.estimate_started_at).total_seconds()
+                elapsed = (now - v.estimate_started_at).total_seconds()
+                fraction = max(0.0, min(0.97, elapsed / total))
+                v.lat = v.reported_lat + (v.next_lat - v.reported_lat) * fraction
+                v.lon = v.reported_lon + (v.next_lon - v.reported_lon) * fraction
+                if fraction > 0.02:
+                    v.position_method = "estimated"
+                    v.position_label = f"Estimated between confirmed reports • {v.position_label}"
+
+            # Classification is stored at ingest. Re-run it only when a former
+            # candidate has just aged out; re-scoring thousands of unchanged
+            # buses on every frame was pure overhead.
+            if v.cool_candidate and v.last_updated < cool_cutoff:
+                apply_cool_classification(v, now=now)
+
+        result.extend(trains)
+        result.extend(buses)
+        result.extend(vessels)
+        return result
+
+    def all_events(
+        self,
+        bbox: tuple[float, float, float, float] | None = None,
+        exclude_types: set[str] | None = None,
+    ) -> list[Event]:
+        now = datetime.now(timezone.utc)
+        cool_cutoff = now - timedelta(minutes=60)
+        excluded = exclude_types or set()
         with self._lock:
-            rows = [deepcopy(e) for e in self._events.values() if _inside(e.lat, e.lon, bbox)]
+            rows = [
+                deepcopy(e) for e in self._events.values()
+                if e.type not in excluded and _inside(e.lat, e.lon, bbox)
+            ]
+        for row in rows:
+            if row.cool_candidate and row.last_updated < cool_cutoff:
+                apply_cool_classification(row, now=now)
         rows.sort(key=lambda x: x.last_updated, reverse=True)
         return rows
 
     def all_activities(
         self,
         bbox: tuple[float, float, float, float] | None = None,
+        include_trains: bool = True,
+        train_limit: int | None = None,
+        cool_trains_only: bool = False,
         include_buses: bool = True,
         bus_limit: int | None = None,
         include_vessels: bool = True,
         vessel_limit: int | None = None,
     ) -> list[Vehicle | Event]:
         return self.all(
-            bbox=bbox, include_buses=include_buses, bus_limit=bus_limit,
+            bbox=bbox, include_trains=include_trains, train_limit=train_limit,
+            cool_trains_only=cool_trains_only,
+            include_buses=include_buses, bus_limit=bus_limit,
             include_vessels=include_vessels, vessel_limit=vessel_limit,
         ) + self.all_events(bbox=bbox)
+
+    def cool_candidates(self, limit: int = 25, category: str | None = None) -> list[Vehicle | Event]:
+        """Return a small national priority list without copying routine traffic."""
+        now = datetime.now(timezone.utc)
+        vehicle_cutoff = now - timedelta(minutes=45)
+        event_cutoff = now - timedelta(minutes=60)
+        wanted = (category or "").strip().lower()
+        with self._lock:
+            candidates: list[Vehicle | Event] = [
+                vehicle for vehicle in self._vehicles.values()
+                if vehicle.cool_candidate
+                and vehicle.last_updated >= vehicle_cutoff
+                and (not wanted or str(vehicle.cool_category or "").lower() == wanted)
+            ]
+            candidates.extend(
+                event for event in self._events.values()
+                if event.cool_candidate
+                and event.last_updated >= event_cutoff
+                and (not wanted or str(event.cool_category or "").lower() == wanted)
+            )
+            candidates.sort(
+                key=lambda item: (int(item.cool_score or 0), item.last_updated),
+                reverse=True,
+            )
+            return deepcopy(candidates[:max(1, min(int(limit), 50))])
 
     def set_tracking_count(self, activity_id: str, count: int) -> None:
         """Update the live viewer count for an activity without changing its source timestamp."""
         with self._lock:
             item = self._vehicles.get(activity_id) or self._events.get(activity_id)
             if item is not None:
-                item.tracking_count = max(0, int(count))
+                new_count = max(0, int(count))
+                if item.tracking_count != new_count:
+                    item.tracking_count = new_count
+                    self._touch_unlocked()
 
     def remove(self, vehicle_id: str) -> None:
         with self._lock:
-            self._vehicles.pop(vehicle_id, None)
+            if self._vehicles.pop(vehicle_id, None) is not None:
+                self._touch_unlocked()
+
+    def prune_stale(self, *, now: datetime | None = None) -> int:
+        """Remove expired vehicle identities using source-appropriate retention.
+
+        Normal map queries already hide stale rows. This maintenance path also
+        releases them from memory so a public single-process service does not
+        grow forever as vehicle identifiers change through the day.
+        """
+        current = now or datetime.now(timezone.utc)
+        retention = {
+            "bus": timedelta(minutes=15),
+            "aircraft": timedelta(minutes=30),
+            "sar": timedelta(minutes=30),
+            "vessel": timedelta(minutes=30),
+            "train": timedelta(hours=3),
+        }
+        removed = 0
+        with self._lock:
+            for activity_id, vehicle in list(self._vehicles.items()):
+                keep_for = retention.get(vehicle.type, timedelta(hours=3))
+                if vehicle.last_updated >= current - keep_for:
+                    continue
+                self._vehicles.pop(activity_id, None)
+                if vehicle.type == "train" and vehicle.train_uid:
+                    uid = str(vehicle.train_uid).strip()
+                    if self._train_uid_index.get(uid) == activity_id:
+                        self._train_uid_index.pop(uid, None)
+                removed += 1
+            if removed:
+                self._touch_unlocked()
+        return removed
 
     def set_source(self, status: SourceStatus) -> None:
         with self._lock:
             self._sources[status.name] = deepcopy(status)
+            self._touch_unlocked()
 
     def source(self, name: str) -> SourceStatus | None:
         with self._lock:
@@ -204,18 +369,74 @@ class LiveState:
                 vehicles = [v for v in vehicles if v.last_updated >= cutoff]
             return len(vehicles) + sum(e.type == type_name for e in self._events.values())
 
+    def type_counts(self, max_age_minutes: dict[str, int] | None = None) -> dict[str, int]:
+        """Count every activity type in one pass, with optional vehicle freshness limits."""
+        now = datetime.now(timezone.utc)
+        ages = max_age_minutes or {}
+        cutoffs = {type_name: now - timedelta(minutes=minutes) for type_name, minutes in ages.items()}
+        counts: dict[str, int] = {}
+        with self._lock:
+            for vehicle in self._vehicles.values():
+                type_cutoff = cutoffs.get(vehicle.type)
+                if type_cutoff is not None and vehicle.last_updated < type_cutoff:
+                    continue
+                counts[vehicle.type] = counts.get(vehicle.type, 0) + 1
+            # Match count_type: event counts are snapshots and are not affected
+            # by a vehicle freshness limit supplied for the same type.
+            for event in self._events.values():
+                counts[event.type] = counts.get(event.type, 0) + 1
+        return counts
+
     def summary(self) -> dict:
-        vehicles = self.all()
-        events = self.all_events()
-        activities = [*vehicles, *events]
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(minutes=45)
+        bus_cutoff = now - timedelta(minutes=5)
+        vessel_cutoff = now - timedelta(minutes=10)
+        cool_cutoff = now - timedelta(minutes=60)
         keys = {"train", "bus", "vessel", "sar", "aircraft", "satellite", "gritter", "rescue", "road", "incident", "flood", "weather", "earthquake", "river", "tide", "wave", "grid", "airquality", "bike", "space", "outage", "camera", "other"}
+        by_type = {key: 0 for key in keys}
+        visible = moving = tracking = interesting = cool = events_total = 0
+        moving_types = {"train", "bus", "vessel", "sar", "aircraft", "satellite", "gritter"}
+
+        # Summary figures do not need model copies, route interpolation, or a
+        # second Cool classification pass.  With a national BODS snapshot that
+        # removed tens of thousands of deep copies from every WebSocket tick.
+        with self._lock:
+            for vehicle in self._vehicles.values():
+                if vehicle.type == "bus":
+                    if vehicle.last_updated < bus_cutoff:
+                        continue
+                elif vehicle.type in {"vessel", "sar"} and vehicle.source == "AISStream":
+                    if vehicle.last_updated < vessel_cutoff:
+                        continue
+                elif vehicle.last_updated < cutoff:
+                    continue
+                visible += 1
+                if vehicle.type in moving_types:
+                    moving += 1
+                tracking += vehicle.tracking_count
+                interesting += int(vehicle.interesting)
+                cool += int(bool(vehicle.cool_candidate and vehicle.last_updated >= cool_cutoff))
+                if vehicle.type in by_type:
+                    by_type[vehicle.type] += 1
+
+            for event in self._events.values():
+                events_total += 1
+                visible += 1
+                tracking += event.tracking_count
+                interesting += int(event.interesting)
+                cool += int(bool(event.cool_candidate and event.last_updated >= cool_cutoff))
+                if event.type in by_type:
+                    by_type[event.type] += 1
+
         return {
-            "visible": len(activities),
-            "moving": sum(v.type in {"train", "bus", "vessel", "sar", "aircraft", "satellite", "gritter"} for v in vehicles),
-            "tracking": sum(x.tracking_count for x in activities),
-            "interesting": sum(x.interesting for x in activities),
-            "events": len(events),
-            "by_type": {key: sum(x.type == key for x in activities) for key in keys},
+            "visible": visible,
+            "moving": moving,
+            "tracking": tracking,
+            "interesting": interesting,
+            "cool": cool,
+            "events": events_total,
+            "by_type": by_type,
         }
 
 

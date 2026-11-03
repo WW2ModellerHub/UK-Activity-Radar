@@ -15,6 +15,11 @@ ALLOWED_EVENTS = {
     "activity_selected",
     "activity_followed",
     "activity_unfollowed",
+    "discovery_claimed",
+    "discovery_shared",
+    "field_guide_opened",
+    "missions_opened",
+    "discovery_interest_changed",
     "watch_zone_added",
     "watch_zone_removed",
     "nearby_used",
@@ -24,50 +29,7 @@ ALLOWED_EVENTS = {
     "pwa_installed",
 }
 
-ALLOWED_PLANS = {"plus", "enthusiast"}
-
-PLANS = [
-    {
-        "id": "free",
-        "name": "Free",
-        "price_gbp_month": 0.0,
-        "status": "current",
-        "features": [
-            "Live UK map",
-            "Core transport and incident layers",
-            "Search and Interesting Now",
-            "Nearby mode",
-            "Basic favourites and watch zones",
-        ],
-    },
-    {
-        "id": "plus",
-        "name": "Radar+",
-        "price_gbp_month": 2.99,
-        "status": "pricing-test",
-        "features": [
-            "Unlimited watch zones and favourites",
-            "Custom live alerts",
-            "Advanced filters",
-            "No advertising",
-            "Saved route / area monitoring",
-        ],
-    },
-    {
-        "id": "enthusiast",
-        "name": "Radar Enthusiast",
-        "price_gbp_month": 5.99,
-        "status": "pricing-test",
-        "features": [
-            "Everything in Radar+",
-            "Advanced rail / vessel / aircraft detail",
-            "Unusual movement alerts",
-            "Power-user search and filtering",
-            "Priority experimental layers",
-        ],
-    },
-]
-
+ALLOWED_PLANS = {"plus"}
 
 def _clean_token(value: str, max_len: int = 64) -> str:
     value = re.sub(r"[^a-zA-Z0-9._:-]", "", (value or ""))[:max_len]
@@ -82,11 +44,13 @@ class ProductAnalytics:
     text, coordinates, IP addresses, URLs or activity IDs.
     """
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, enabled: bool = True) -> None:
         self.path = path
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.enabled = bool(enabled)
         self._lock = threading.RLock()
-        self._init_db()
+        if self.enabled:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=10)
@@ -114,6 +78,11 @@ class ProductAnalytics:
         event_name = (event_name or "").strip().lower()
         if event_name not in ALLOWED_EVENTS:
             return False
+        # Treat a valid event as accepted when analytics is disabled so the
+        # browser does not retry or surface an error. No directory, database or
+        # event row is created in this mode.
+        if not self.enabled:
+            return True
         session_id = _clean_token(session_id, 80)
         feature = _clean_token(feature.lower(), 80) if feature else ""
         with self._lock, self._connect() as conn:
@@ -125,6 +94,14 @@ class ProductAnalytics:
         return True
 
     def summary(self) -> dict:
+        if not self.enabled:
+            return {
+                "enabled": False,
+                "anonymous_sessions": 0,
+                "events": {},
+                "pricing_interest": {},
+                "note": "Anonymous product analytics are disabled for this deployment.",
+            }
         with self._lock, self._connect() as conn:
             rows = conn.execute("SELECT event_name, feature, session_id FROM product_events").fetchall()
         events = Counter(row["event_name"] for row in rows)
@@ -134,6 +111,7 @@ class ProductAnalytics:
         )
         sessions = {row["session_id"] for row in rows}
         return {
+            "enabled": True,
             "anonymous_sessions": len(sessions),
             "events": dict(events),
             "pricing_interest": dict(interest),
@@ -141,10 +119,36 @@ class ProductAnalytics:
         }
 
 
-def product_plans() -> dict:
+def product_plans(*, payments_enabled: bool = False, price_display: str = "£3.99/month") -> dict:
     return {
-        "payments_enabled": False,
+        "payments_enabled": bool(payments_enabled),
         "currency": "GBP",
-        "plans": PLANS,
-        "message": "Pricing is a hypothesis test only; no payment is taken in v1.1.",
+        "plans": [
+            {
+                "id": "free", "name": "Free", "price_display": "£0",
+                "status": "current",
+                "features": [
+                    "Live UK map and core transport layers",
+                    "Three-item Cool preview and weekly Field Guide",
+                    "Station and stop boards",
+                    "Basic My Radar favourites on this device",
+                ],
+            },
+            {
+                "id": "plus", "name": "Radar+", "price_display": price_display,
+                "status": "available" if payments_enabled else "setup",
+                "features": [
+                    "Full Cool ranking and advanced filters",
+                    "Rich vehicle identity and transport detail",
+                    "Journey planning and official live cameras",
+                    "TomTom traffic intelligence and faster tracking",
+                    "Unlimited local favourites and watch zones",
+                ],
+            },
+        ],
+        "message": (
+            "Radar+ checkout is available through Stripe."
+            if payments_enabled else
+            "Radar+ is ready in the application but checkout needs production Stripe configuration."
+        ),
     }

@@ -12,7 +12,7 @@ from app.traffic_flow import TrafficFlowService
 
 
 def main() -> int:
-    print('UK Activity Radar v1.1 — live traffic-flow test')
+    print('UK Activity Radar v1.4.0 — live traffic-flow test')
     if not settings.tomtom_traffic_api_key:
         print('NOT CONFIGURED: run configure_traffic.bat first.')
         return 2

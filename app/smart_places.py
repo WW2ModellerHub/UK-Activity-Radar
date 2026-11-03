@@ -10,6 +10,7 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import quote, urlparse, urlunparse
 
@@ -19,10 +20,10 @@ from .models import SourceStatus
 from .bus_timetable import BusTimetableService
 from .timeutils import london_tz
 from .reference_data import NAPTAN_URL, ensure_naptan_cache
+from .train_identity import infer_train_family, is_charter_operator, operator_name, power_type_name
 
-USER_AGENT = "UKActivityRadar/1.2.1 smart-places"
+USER_AGENT = "UKActivityRadar/1.4.0 smart-places"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
-TRAINIAC_BASE = "https://api.traini.ac"
 EA_ROOT = "https://environment.data.gov.uk/flood-monitoring"
 
 
@@ -109,7 +110,13 @@ class SmartPlacesService:
     their boards/context are fetched only when clicked.
     """
 
-    def __init__(self, data_dir: Path, schedules, state, bods_collector_getter=None):
+    def __init__(
+        self,
+        data_dir: Path,
+        schedules,
+        state,
+        bods_collector_getter=None,
+    ):
         self.data_dir = data_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.schedules = schedules
@@ -120,6 +127,7 @@ class SmartPlacesService:
         self.ferry_cache = self.data_dir / "ferry_terminals.json"
         self.rain_cache = self.data_dir / "ea_rain_stations.json"
         self.rail_cache = self.data_dir / "naptan_rail.json"
+        self.station_cache = self.data_dir / "stations.json"
         self._session = requests.Session()
         self._session.headers.update({"User-Agent": USER_AGENT})
         self._sync_thread: threading.Thread | None = None
@@ -127,7 +135,72 @@ class SmartPlacesService:
         self._ferries: list[dict] = []
         self._rain: list[dict] = []
         self._rail: list[dict] = []
+        self._rail_board_cache: dict[tuple[str, int], tuple[float, dict]] = {}
         self._load_small_caches()
+
+    @staticmethod
+    def _rail_places_from_rows(rows: Any, *, source: str) -> list[dict]:
+        """Build one passenger-station place per CRS code from cached geography."""
+        if not isinstance(rows, dict):
+            return []
+        by_crs: dict[str, dict] = {}
+        for row_key, row in rows.items():
+            if not isinstance(row, dict):
+                continue
+            crs = str(row.get("crs") or row_key or "").strip().upper()
+            if len(crs) != 3 or not crs.isalnum():
+                continue
+            try:
+                lat, lon = float(row["lat"]), float(row["lon"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not (49.0 <= lat <= 61.8 and -9.9 <= lon <= 3.5):
+                continue
+            name = str(row.get("name") or crs).strip() or crs
+            candidate = {
+                "id": f"rail-station:{crs}",
+                "kind": "place",
+                "place_type": "rail_station",
+                "name": name,
+                "subtitle": crs,
+                "lat": lat,
+                "lon": lon,
+                "crs": crs,
+                "tiploc": row.get("tiploc"),
+                "source": source,
+            }
+            existing = by_crs.get(crs)
+            # Prefer a descriptive name over a bare code when duplicate STANOX
+            # rows refer to the same passenger station.
+            if existing is None or (existing["name"] == crs and name != crs):
+                by_crs[crs] = candidate
+        return list(by_crs.values())
+
+    def _load_cached_rail_places(self) -> list[dict]:
+        """Load NaPTAN, falling back to the already-built TRUST station cache.
+
+        ``stations.json`` is produced from public rail geography before the much
+        slower NaPTAN download.  Reusing its CRS-tagged rows makes station search
+        available immediately and keeps it available if NaPTAN refresh fails.
+        """
+        try:
+            payload = json.loads(self.rail_cache.read_text(encoding="utf-8"))
+            places = self._rail_places_from_rows(
+                payload.get("by_crs") or {},
+                source="DfT NaPTAN rail geography",
+            )
+            if places:
+                return places
+        except Exception:
+            pass
+        try:
+            payload = json.loads(self.station_cache.read_text(encoding="utf-8"))
+            return self._rail_places_from_rows(
+                payload,
+                source="Cached public rail geography",
+            )
+        except Exception:
+            return []
 
     def _load_small_caches(self) -> None:
         try:
@@ -138,17 +211,7 @@ class SmartPlacesService:
             self._rain = json.loads(self.rain_cache.read_text(encoding="utf-8"))
         except Exception:
             self._rain = []
-        try:
-            payload = json.loads(self.rail_cache.read_text(encoding="utf-8"))
-            self._rail = [
-                {"id":f"rail-station:{crs}","kind":"place","place_type":"rail_station",
-                 "name":row.get("name") or crs,"subtitle":crs,"lat":float(row["lat"]),"lon":float(row["lon"]),
-                 "crs":crs,"source":"DfT NaPTAN rail geography"}
-                for crs,row in (payload.get("by_crs") or {}).items()
-                if row.get("lat") is not None and row.get("lon") is not None
-            ]
-        except Exception:
-            self._rail = []
+        self._rail = self._load_cached_rail_places()
 
     def start_background_sync(self) -> None:
         if self._sync_thread and self._sync_thread.is_alive():
@@ -161,16 +224,24 @@ class SmartPlacesService:
         notes: list[str] = []
         try:
             rail = ensure_naptan_cache(self.rail_cache)
-            self._rail = [
-                {"id":f"rail-station:{crs}","kind":"place","place_type":"rail_station",
-                 "name":row.get("name") or crs,"subtitle":crs,"lat":float(row["lat"]),"lon":float(row["lon"]),
-                 "crs":crs,"source":"DfT NaPTAN rail geography"}
-                for crs,row in (rail.get("by_crs") or {}).items()
-                if row.get("lat") is not None and row.get("lon") is not None
-            ]
-            notes.append(f"{len(self._rail):,} rail stations")
+            refreshed = self._rail_places_from_rows(
+                rail.get("by_crs") or {},
+                source="DfT NaPTAN rail geography",
+            )
+            if refreshed:
+                self._rail = refreshed
+                notes.append(f"{len(self._rail):,} rail stations")
+            elif self._rail:
+                notes.append(f"{len(self._rail):,} rail stations from cached geography")
+            else:
+                notes.append("rail stations unavailable: empty NaPTAN geography")
         except Exception as exc:
-            notes.append(f"rail stations unavailable: {type(exc).__name__}")
+            if not self._rail:
+                self._rail = self._load_cached_rail_places()
+            if self._rail:
+                notes.append(f"{len(self._rail):,} rail stations from cached geography (NaPTAN refresh {type(exc).__name__})")
+            else:
+                notes.append(f"rail stations unavailable: {type(exc).__name__}")
         try:
             if not self.stop_db.exists() or time.time() - self.stop_db.stat().st_mtime > 30*86400:
                 count = self._sync_bus_stops()
@@ -302,7 +373,9 @@ class SmartPlacesService:
 
         Prefer local Network Rail/NaPTAN geography. On a brand-new install where
         those caches are still building, a configured TomTom Search key can find
-        a nearby station POI and traini.ac resolves its passenger CRS code.
+        a nearby station POI; its name is resolved only against the local Network
+        Rail schedule index so commercial deployments never call a third-party
+        personal-use rail API.
         """
         lat=float(lat); lon=float(lon)
         # A roughly 80 km local window is enough for a useful "nearest station"
@@ -332,33 +405,35 @@ class SmartPlacesService:
             name=str(poi.get('name') or (item.get('address') or {}).get('freeformAddress') or '').strip()
             if not name:
                 continue
-            # TomTom gives excellent station geography but not UK rail CRS. Use
-            # traini.ac's station resolver so the resulting marker opens a real
-            # departure board rather than a generic POI panel.
-            try:
-                tr=self._session.get(f"{TRAINIAC_BASE}/api/stations",params={"q":name},timeout=(5,10)); tr.raise_for_status(); body=tr.json()
-                resolved=(body.get('resolved') or {}).get('resolves_to') or {}
-                crs=str(resolved.get('crs') or '').strip().upper()
-                station_name=str(resolved.get('name') or name).strip()
-                if not crs:
-                    # Fall back to the first passenger-station result when the
-                    # resolver doesn't populate resolves_to.
-                    first=next((x for x in (body.get('results') or []) if x.get('crs') and x.get('type')=='station'),None)
-                    if first:
-                        crs=str(first.get('crs') or '').upper(); station_name=str(first.get('description') or name)
-                if not crs:
-                    continue
-                plat=float(pos.get('lat')); plon=float(pos.get('lon'))
-                row={"id":f"rail-station:{crs}","kind":"place","place_type":"rail_station","name":station_name,"subtitle":crs,"lat":plat,"lon":plon,"crs":crs,"source":"TomTom Search + traini.ac station resolver","distance_km":round(_distance_km(lat,lon,plat,plon),1)}
-                # Keep the resolved station in memory so the immediately-following
-                # /api/places/{id}/board request can resolve it even while the
-                # national NaPTAN rail cache is still being built.
-                with self._lock:
-                    self._rail=[p for p in self._rail if str(p.get('crs') or '').upper()!=crs]
-                    self._rail.append(dict(row))
-                return row
-            except Exception:
+            # TomTom supplies the POI candidate, but the passenger CRS and
+            # canonical station coordinates must come from our licensed local
+            # Network Rail data.  Do not return a generic POI that cannot open a
+            # real board.
+            matches = self.search_places(name, limit=8)
+            rail_matches = [x for x in matches if x.get("place_type") == "rail_station" and x.get("crs")]
+            if not rail_matches:
                 continue
+            try:
+                plat=float(pos.get('lat')); plon=float(pos.get('lon'))
+                resolved=min(
+                    rail_matches,
+                    key=lambda x: _distance_km(plat, plon, float(x['lat']), float(x['lon'])),
+                )
+                crs=str(resolved.get('crs') or '').strip().upper()
+                rlat=float(resolved['lat']); rlon=float(resolved['lon'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            row={
+                "id":f"rail-station:{crs}","kind":"place","place_type":"rail_station",
+                "name":str(resolved.get('name') or name).strip(),"subtitle":crs,
+                "lat":rlat,"lon":rlon,"crs":crs,
+                "source":"Network Rail SCHEDULE (TomTom-assisted search)",
+                "distance_km":round(_distance_km(lat,lon,rlat,rlon),1),
+            }
+            with self._lock:
+                self._rail=[p for p in self._rail if str(p.get('crs') or '').upper()!=crs]
+                self._rail.append(dict(row))
+            return row
         return None
 
     def bus_places(self, bbox: tuple[float,float,float,float], limit: int=1000) -> list[dict]:
@@ -372,6 +447,23 @@ class SmartPlacesService:
             return [{"id":f"bus-stop:{r['atco_code']}","kind":"place","place_type":"bus_stop","name":r['name'],"subtitle":r['indicator'] or r['naptan_code'] or r['atco_code'],"lat":r['lat'],"lon":r['lon'],"atco_code":r['atco_code'],"naptan_code":r['naptan_code'],"source":"DfT NaPTAN"} for r in rows]
         except sqlite3.Error:
             return []
+
+    def nearest_bus_stop(self, lat: float, lon: float) -> dict | None:
+        """Return the nearest cached NaPTAN bus stop to a UK map point."""
+        if not self.stop_db.exists():
+            return None
+        lat=float(lat); lon=float(lon)
+        # Expand from a genuinely local search to a rural fallback. The final
+        # choice is always based on distance, not database row order.
+        for pad in (0.03, 0.08, 0.2, 0.5):
+            rows=self.bus_places((lon-pad,lat-pad,lon+pad,lat+pad),3000)
+            if not rows:
+                continue
+            row=min(rows,key=lambda p:_distance_km(lat,lon,float(p['lat']),float(p['lon'])))
+            result=dict(row)
+            result['distance_km']=round(_distance_km(lat,lon,float(row['lat']),float(row['lon'])),2)
+            return result
+        return None
 
     def list_places(self, bbox: tuple[float,float,float,float], zoom: float, mode: str="all") -> list[dict]:
         west,south,east,north=bbox
@@ -402,7 +494,7 @@ class SmartPlacesService:
                         AND (UPPER(crs)=? OR UPPER(description) LIKE ? OR UPPER(tiploc) LIKE ?)
                       GROUP BY crs ORDER BY CASE WHEN UPPER(crs)=? THEN 0 ELSE 1 END, description LIMIT ?""",
                       (q.upper(),like,like,q.upper(),limit)).fetchall()
-                out.extend({"kind":"place","id":f"rail-station:{r['crs']}","place_type":"rail_station","type":"place","name":r['description'] or r['crs'],"subtitle":f"Rail station • {r['crs']}","lat":r['lat'],"lon":r['lon'],"source":"Network Rail SCHEDULE"} for r in rows)
+                out.extend({"kind":"place","id":f"rail-station:{r['crs']}","place_type":"rail_station","type":"place","name":r['description'] or r['crs'],"subtitle":f"Rail station • {r['crs']}","lat":r['lat'],"lon":r['lon'],"crs":r['crs'],"tiploc":r['tiploc'],"source":"Network Rail SCHEDULE"} for r in rows)
             except sqlite3.Error: pass
         if len(out)<limit:
             needle=q.casefold()
@@ -454,15 +546,30 @@ class SmartPlacesService:
             if not tiplocs:
                 return {"departures":[],"arrivals":[]}
             rows=[]
-            for tip in tiplocs[:6]:
-                rows.extend(con.execute("""SELECT train_uid,start_date,end_date,days_runs,stp_indicator,atoc_code,signalling_id,origin_name,destination_name,locations_json
-                    FROM schedules WHERE start_date<=? AND end_date>=? AND locations_json LIKE ? LIMIT 2200""",(today,today,f'%"tiploc_code":"{tip}"%')).fetchall())
+            indexed=self.schedules.call_index_ready()
+            if indexed:
+                placeholders=','.join('?' for _ in tiplocs[:6])
+                rows=con.execute(f"""SELECT s.train_uid,s.start_date,s.end_date,s.days_runs,s.stp_indicator,s.atoc_code,s.signalling_id,s.origin_name,s.destination_name,
+                           c.tiploc AS call_tiploc,c.scheduled_arrival,c.scheduled_departure,c.public_arrival,c.public_departure,c.platform
+                    FROM schedule_calls c JOIN schedules s ON s.id=c.schedule_id
+                    WHERE c.tiploc IN ({placeholders}) AND s.start_date<=? AND s.end_date>=? LIMIT 5000""",(*tiplocs[:6],today,today)).fetchall()
+            else:
+                for tip in tiplocs[:6]:
+                    rows.extend(con.execute("""SELECT train_uid,start_date,end_date,days_runs,stp_indicator,atoc_code,signalling_id,origin_name,destination_name,locations_json
+                        FROM schedules WHERE start_date<=? AND end_date>=? AND locations_json LIKE ? LIMIT 2200""",(today,today,f'%"tiploc_code":"{tip}"%')).fetchall())
         dep=[]; arr=[]; seen=set()
         for row in rows:
             if not _day_runs(row['days_runs'],now):
                 continue
-            try: locs=json.loads(row['locations_json'] or '[]')
-            except Exception: continue
+            if indexed:
+                locs=[{
+                    'tiploc_code':row['call_tiploc'],'scheduled_arrival':row['scheduled_arrival'],
+                    'scheduled_departure':row['scheduled_departure'],'public_arrival':row['public_arrival'],
+                    'public_departure':row['public_departure'],'platform':row['platform'],
+                }]
+            else:
+                try: locs=json.loads(row['locations_json'] or '[]')
+                except Exception: continue
             for loc in locs:
                 if str(loc.get('tiploc_code') or '').upper() not in tiplocs:
                     continue
@@ -478,63 +585,230 @@ class SmartPlacesService:
                     key=(row['train_uid'],kind,clock)
                     if key in seen: continue
                     seen.add(key)
-                    item={**common,"scheduled":clock,"expected":clock,"minutes":delta,"status":"Scheduled"}
-                    live_id=self._match_live_train(row['signalling_id'],row['train_uid'])
-                    if live_id:
-                        item['live_train_id']=live_id
-                        live=self.state.get(live_id) if hasattr(self.state,'get') else None
-                        if live is not None:
-                            delay=getattr(live,'delay_minutes',None)
-                            live_status=str(getattr(live,'status',None) or '').strip()
-                            if delay is not None:
-                                expected_abs=(scheduled_abs+int(delay))%1440
-                                item['expected']=f"{expected_abs//60:02d}:{expected_abs%60:02d}"
-                                item['delay_minutes']=int(delay)
-                                item['status']='On time' if int(delay)==0 else f"{int(delay):+d} min"
-                            elif live_status:
-                                item['status']=live_status
+                    item={**common,"scheduled":clock,"expected":clock,"minutes":delta,"status":"Scheduled","_scheduled_abs":scheduled_abs}
                     bucket.append(item)
         dep.sort(key=lambda x:x['minutes']); arr.sort(key=lambda x:x['minutes'])
-        return {"departures":dep[:limit],"arrivals":arr[:limit]}
+        dep=dep[:limit]; arr=arr[:limit]
+        wanted_uids={str(item.get('train_uid') or '').strip() for item in [*dep,*arr]}
+        if hasattr(self.state,'trains_by_uids'):
+            live_by_uid=self.state.trains_by_uids(wanted_uids)
+        else:
+            live_by_uid={}
+            for uid in wanted_uids:
+                fallback_id=self._match_live_train(None,uid)
+                if fallback_id and hasattr(self.state,'get'):
+                    live_by_uid[uid]=self.state.get(fallback_id)
+        for item in [*dep,*arr]:
+            live=live_by_uid.get(str(item.get('train_uid') or '').strip())
+            if live is not None:
+                item['live_train_id']=live.id
+                delay=getattr(live,'delay_minutes',None)
+                live_status=str(getattr(live,'status',None) or '').strip()
+                if delay is not None:
+                    expected_abs=(item['_scheduled_abs']+int(delay))%1440
+                    item['expected']=f"{expected_abs//60:02d}:{expected_abs%60:02d}"
+                    item['delay_minutes']=int(delay)
+                    item['status']='On time' if int(delay)==0 else f"{int(delay):+d} min"
+                elif live_status:
+                    item['status']=live_status
+            item.pop('_scheduled_abs',None)
+        return {"departures":dep,"arrivals":arr}
 
     def rail_board(self, crs: str, limit: int=10) -> dict:
         crs=str(crs or '').strip().upper()
+        cache_key=(crs,int(limit))
+        with self._lock:
+            cached=self._rail_board_cache.get(cache_key)
+            if cached and time.monotonic()-cached[0] < 15:
+                return json.loads(json.dumps(cached[1]))
+        local_ready=self.schedules.ready()
         if self.schedules.ready():
             local=self._scheduled_station_calls(crs,limit)
-            payload={"mode":"network_rail","source":"Network Rail SCHEDULE/VSTP + TRUST","departures":local.get('departures',[]),"arrivals":local.get('arrivals',[]),"recent":[],"note":"Published calling times come from the local Network Rail schedule index; TRUST overlays live delay/status only when the exact service can be matched."}
-            payload['next_live_id']=next((x.get('live_train_id') for x in payload['departures'] if x.get('live_train_id')),None)
-            return payload
+            payload={"mode":"network_rail","source":"Network Rail timetable and live movements","departures":local.get('departures',[]),"arrivals":local.get('arrivals',[]),"recent":[],"note":"Published calling times are combined with live delay and status only when the exact service can be matched."}
+            payload['next_live_id']=next((
+                x.get('live_train_id')
+                for x in [*payload['departures'], *payload['arrivals']]
+                if x.get('live_train_id')
+            ),None)
+            # A small VSTP-only cache is technically "ready" but does not hold
+            # the national base timetable.  An empty local board must therefore
+            # fall through to the public live board instead of showing a broken
+            # blank departures/arrivals panel indefinitely.
+            if payload['departures'] or payload['arrivals']:
+                with self._lock:
+                    self._rail_board_cache[cache_key]=(time.monotonic(),payload)
+                return payload
 
-        # Temporary fallback while the first Network Rail SCHEDULE index is still
-        # building. It never overrides a ready local Network Rail board.
-        payload={"mode":"public_fallback","source":"Public station-board fallback","departures":[],"arrivals":[],"recent":[],"recent_arrivals":[],"note":"The full Network Rail SCHEDULE index is not ready yet. Showing a temporary public board; live train links only appear where identifiers agree."}
-        try:
-            r=self._session.get(f"{TRAINIAC_BASE}/api/departures/{quote(crs)}",params={"limit":limit},timeout=(5,12)); r.raise_for_status(); body=r.json()
-            for d in body.get('results',[]):
-                dest=d.get('destination') or {}; origin=d.get('origin') or {}
-                live_id=self._match_live_train(d.get('headcode'),d.get('train_uid'),d.get('train_id'))
-                payload['departures'].append({"scheduled":_iso_clock(d.get('departs')),"expected":_iso_clock(d.get('expected_departs')),"status":d.get('status_text') or d.get('status'),"platform":d.get('platform'),"headcode":d.get('headcode'),"operator":d.get('operator'),"origin":origin.get('name') if isinstance(origin,dict) else origin,"destination":dest.get('name') if isinstance(dest,dict) else dest,"train_uid":d.get('train_uid'),"train_id":d.get('train_id'),"live_train_id":live_id})
-            payload['next_live_id']=next((x.get('live_train_id') for x in payload['departures'] if x.get('live_train_id')),None)
-        except Exception as exc:
-            payload['mode']='schedule_sync'
-            payload['note']=f"Station board is waiting for the local Network Rail SCHEDULE index ({type(exc).__name__} on the temporary public fallback)."
-        try:
-            r=self._session.get(f"{TRAINIAC_BASE}/api/stations/{quote(crs)}/activity",params={"limit":limit},timeout=(5,12)); r.raise_for_status()
-            payload['recent']=r.json().get('results',[]) or []
-            payload['recent_arrivals']=[{
-                'scheduled':_iso_clock(x.get('planned')),
-                'expected':_iso_clock(x.get('actual')),
-                'status':str(x.get('variation_status') or 'Actual').replace('_',' ').title(),
-                'platform':x.get('platform'),
-                'headcode':x.get('headcode'),
-                'train_id':x.get('train_id'),
-                'origin':x.get('location') or 'Arrival',
-                'destination':'Arrived',
-                'live_train_id':self._match_live_train(x.get('headcode'),None,x.get('train_id')),
-            } for x in payload['recent'] if str(x.get('event_type') or '').upper()=='ARRIVAL'][:limit]
-        except Exception:
-            pass
+        fallback_reason=(
+            "The local Network Rail index has no calls for this station yet."
+            if local_ready else
+            "The full Network Rail SCHEDULE index is still syncing."
+        )
+        payload = {
+            "mode":"schedule_sync", "source":"Published railway timetable",
+            "departures":[], "arrivals":[], "recent":[], "recent_arrivals":[],
+            "next_live_id":None,
+            "note":fallback_reason + " Refresh shortly; no personal-use or scraped fallback is used on the commercial site.",
+        }
+        with self._lock:
+            self._rail_board_cache[cache_key]=(time.monotonic(),payload)
         return payload
+
+    def train_vehicle_detail(self, vehicle) -> dict:
+        """Return commercial-safe rail context from the authoritative live item."""
+        exact_id = str(getattr(vehicle, 'id', '') or '').removeprefix('nr:').strip()
+        headcode = str(getattr(vehicle, 'headcode', '') or '').strip()
+        run = {
+            "train_id": exact_id or None,
+            "headcode": headcode or None,
+            "train_uid": getattr(vehicle, 'train_uid', None),
+            "operator": getattr(vehicle, 'operator', None),
+            "origin": getattr(vehicle, 'origin', None),
+            "destination": getattr(vehicle, 'destination', None),
+            "next_location": getattr(vehicle, 'next_location', None),
+            "status": getattr(vehicle, 'status', None),
+            "delay_minutes": getattr(vehicle, 'delay_minutes', None),
+            "position_label": getattr(vehicle, 'position_label', None),
+            "service_label": (
+                "Railtour / charter special"
+                if getattr(vehicle, 'cool_subtype', None) == 'railtour-special'
+                else "Special passenger service"
+                if headcode.upper().startswith('1Z')
+                else "Freight working"
+                if getattr(vehicle, 'cool_subtype', None) == 'freight'
+                else "Special railway movement"
+                if getattr(vehicle, 'cool_candidate', False)
+                else None
+            ),
+        }
+        uid = str(getattr(vehicle, 'train_uid', '') or '').strip()
+        if not uid and headcode and self.schedules.ready():
+            try:
+                matched = self.schedules.lookup_headcode(headcode)
+            except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
+                matched = None
+            if matched:
+                uid = matched.train_uid
+                run.update({
+                    "train_uid": matched.train_uid,
+                    "origin": matched.origin or run["origin"],
+                    "destination": matched.destination or run["destination"],
+                    "operator_code": matched.atoc_code,
+                    "operator": operator_name(matched.atoc_code, run["operator"]),
+                    "service_code": matched.service_code,
+                    "train_category_code": matched.train_category,
+                    "power_type_code": matched.power_type,
+                    "timing_load": matched.timing_load,
+                    "booked_speed_mph": matched.booked_speed,
+                    "operating_characteristics": matched.operating_characteristics,
+                })
+        if uid and self.schedules.db_path.exists():
+            try:
+                now = datetime.now(london_tz())
+                today = now.date().isoformat()
+                with sqlite3.connect(self.schedules.db_path) as con:
+                    con.row_factory = sqlite3.Row
+                    rows = con.execute(
+                        """SELECT * FROM schedules
+                           WHERE train_uid=?
+                             AND (start_date IS NULL OR start_date='' OR start_date<=?)
+                             AND (end_date IS NULL OR end_date='' OR end_date>=?)
+                             AND COALESCE(stp_indicator,'')<>'C'
+                           ORDER BY CASE source WHEN 'VSTP' THEN 0 ELSE 1 END, id DESC
+                           LIMIT 16""",
+                        (uid, today, today),
+                    ).fetchall()
+                    row = next((candidate for candidate in rows if _day_runs(candidate['days_runs'], now)), None)
+                    if row:
+                        locations = json.loads(row['locations_json'] or '[]')
+                        codes = sorted({str(item.get('tiploc_code') or '').strip() for item in locations if isinstance(item, dict) and item.get('tiploc_code')})
+                        names = {}
+                        if codes:
+                            placeholders = ','.join('?' for _ in codes)
+                            names = {r['tiploc']: (r['description'] or r['tiploc']) for r in con.execute(f"SELECT tiploc,description FROM tiplocs WHERE tiploc IN ({placeholders})", codes)}
+                        calls = []
+                        for item in locations[:40]:
+                            if not isinstance(item, dict):
+                                continue
+                            code = str(item.get('tiploc_code') or '').strip()
+                            clock = _clean_time(item.get('public_departure') or item.get('public_arrival') or item.get('scheduled_departure') or item.get('scheduled_arrival'))
+                            if not code:
+                                continue
+                            calls.append({
+                                "name": names.get(code, code),
+                                "scheduled": clock,
+                                "event": "Calls" if item.get('scheduled_arrival') and item.get('scheduled_departure') else "Passes",
+                            })
+                        run.update({
+                            "origin": row['origin_name'] or run['origin'],
+                            "destination": row['destination_name'] or run['destination'],
+                            "operator_code": row['atoc_code'],
+                            "operator": operator_name(row['atoc_code'], run['operator']),
+                            "service_code": row['service_code'],
+                            "train_category_code": row['train_category'],
+                            "power_type_code": row['power_type'],
+                            "power_type": power_type_name(row['power_type']),
+                            "timing_load": row['timing_load'],
+                            "booked_speed_mph": row['booked_speed'],
+                            "operating_characteristics": row['operating_characteristics'],
+                            "schedule_source": row['source'],
+                            "calling_points": calls,
+                        })
+                        if headcode.upper().startswith('1Z'):
+                            run["service_label"] = (
+                                "Railtour / charter special" if is_charter_operator(row['atoc_code'])
+                                else "Special passenger service"
+                            )
+                        likely = infer_train_family(
+                            operator_code=row['atoc_code'], power_type=row['power_type'],
+                            origin=run['origin'], destination=run['destination'],
+                        )
+                        if likely:
+                            run["likely_train"] = likely
+            except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
+                pass
+        return {
+            "available": True, "mode": "network_rail", "source": "Live railway and timetable data",
+            "runs": [run],
+            "note": "The route and calling points come from today's published timetable. The marker remains at the last confirmed railway report.",
+        }
+
+    def scheduled_train_detail(self, train_uid: str, headcode: str | None = None) -> dict:
+        """Return the published route for a board service with no live marker."""
+        uid = str(train_uid or '').strip()
+        code = str(headcode or '').strip()
+        if not uid:
+            return {
+                "available": False,
+                "mode": "published_schedule",
+                "source": "Published railway timetable",
+                "runs": [],
+                "note": "No published train identifier was supplied for this service.",
+            }
+        vehicle = SimpleNamespace(
+            id=f"schedule:{uid}",
+            type="train",
+            name=code or uid,
+            headcode=code or None,
+            train_uid=uid,
+            operator=None,
+            origin=None,
+            destination=None,
+            next_location=None,
+            status="Scheduled",
+            delay_minutes=None,
+            position_label="Published Network Rail schedule",
+            cool_subtype=None,
+            cool_candidate=False,
+        )
+        detail = self.train_vehicle_detail(vehicle)
+        detail.update({
+            "mode": "published_schedule",
+            "source": "Published railway timetable",
+            "live_marker": False,
+            "note": "Published route only. A matching live position is not available right now.",
+        })
+        return detail
 
     def _match_live_train(self, headcode: str | None, train_uid: str | None=None, train_id: str | None=None) -> str | None:
         exact=str(train_id or '').strip()
@@ -548,6 +822,11 @@ class SmartPlacesService:
             return None
         live=self.state.find_train_by_headcode(headcode or '') if hasattr(self.state,'find_train_by_headcode') else None
         return live.id if live else None
+
+    def locate_live_train(self, headcode: str | None, train_uid: str | None=None) -> object | None:
+        """Resolve a board service against the current national TRUST state."""
+        live_id=self._match_live_train(headcode,train_uid)
+        return self.state.get(live_id) if live_id and hasattr(self.state,'get') else None
 
     def _match_live_bus(self, vehicle_ref: str | None) -> str | None:
         ref=str(vehicle_ref or '').strip()
@@ -621,24 +900,57 @@ class SmartPlacesService:
         if timetable and timetable.get('note'): note += " " + str(timetable['note'])
         return {"mode":"no_due_predictions","source":"DfT BODS","rows":[],"note":note}
 
+    def bus_vehicle_journey(self, vehicle, limit: int = 12) -> dict:
+        """Combine one live bus with its official trip and exact stop prediction."""
+        payload = self.bus_timetables.journey_for_vehicle(vehicle, limit=limit)
+        collector = self._bods_collector_getter()
+        stop_ref = str(getattr(vehicle, 'next_location', None) or '').strip()
+        if collector is None or not stop_ref or not hasattr(collector, 'predictions_for_stop'):
+            return payload
+        predictions = collector.predictions_for_stop(stop_ref, limit=25)
+        vehicle_ref = str(getattr(vehicle, 'vehicle_ref', None) or '').strip()
+        journey_ref = str(getattr(vehicle, 'journey_ref', None) or '').strip()
+        exact = next((row for row in predictions if (
+            (vehicle_ref and str(row.get('vehicle_ref') or '').strip() == vehicle_ref)
+            or (journey_ref and str(row.get('journey_ref') or '').strip() == journey_ref)
+        )), None)
+        if exact:
+            payload = dict(payload)
+            payload['live_prediction'] = dict(exact)
+            payload['note'] = (
+                "The next-stop time is an operator-published live BODS prediction. "
+                "Later stops remain published timetable times."
+            )
+        return payload
+
     def ferry_board(self, place: dict, limit: int=12) -> dict:
         rows=[]
         plat,plon=float(place['lat']),float(place['lon'])
         for v in self.state.all(include_vessels=True,vessel_limit=None):
             if v.type!='vessel': continue
             km=_distance_km(plat,plon,v.lat,v.lon)
-            if km>50: continue
+            # A vessel tens of kilometres away is not useful terminal context.
+            # Keep a modest approach radius and an intentionally tight harbour
+            # radius for vessels that are not demonstrably heading here.
+            if km>20: continue
             speed=float(v.speed or 0)
             course=float(v.bearing) if v.bearing is not None else None
             target=_bearing_to(v.lat,v.lon,plat,plon)
             diff=_angle_diff(course,target) if course is not None else None
-            inbound=bool(speed>=1.5 and diff is not None and diff<=45)
+            inbound=bool(speed>=1.5 and diff is not None and diff<=35)
+            if not inbound and km>5: continue
             eta_minutes=round((km/(speed*1.852))*60) if inbound and speed>0 else None
             rows.append({"name":v.name,"distance_km":round(km,1),"speed":v.speed,"speed_unit":v.speed_unit,"bearing":v.bearing,"vehicle_ref":v.vehicle_ref,"live_vehicle_id":v.id,"inbound":inbound,"eta_minutes":eta_minutes,"heading_error":round(diff) if diff is not None else None})
         rows.sort(key=lambda x:(0 if x['inbound'] else 1, x['eta_minutes'] if x['eta_minutes'] is not None else 99999, x['distance_km']))
         inbound=[x for x in rows if x['inbound']]
         shown=(inbound or rows)[:limit]
-        return {"mode":"inbound_ais" if inbound else "live_harbour_activity","source":"AISStream","rows":shown,"next_live_id":shown[0].get('live_vehicle_id') if shown else None,"website":place.get('website'),"operator":place.get('operator'),"note":"Inbound vessels are ranked by live AIS course, speed and straight-line ETA to this terminal. If none are heading toward it, the closest live AIS vessels are shown and clearly labelled as nearby only."}
+        mode="inbound_ais" if inbound else ("live_harbour_activity" if shown else "no_nearby_ais")
+        note=(
+            "AIS suggests these vessels are approaching within 20 km, based on course and speed. This is movement context, not a confirmed ferry timetable."
+            if inbound else
+            "Only AIS vessels within 5 km of the terminal are shown. This is harbour context, not a confirmed arrival or sailing."
+        )
+        return {"mode":mode,"source":"AISStream","rows":shown,"next_live_id":shown[0].get('live_vehicle_id') if shown else None,"website":place.get('website'),"operator":place.get('operator'),"note":note}
 
     def rain_board(self, place: dict) -> dict:
         ref=place.get('station_ref')

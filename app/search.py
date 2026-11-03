@@ -139,7 +139,7 @@ class ActivitySearch:
                 "key": self.tomtom_api_key, "countrySet": "GB", "limit": 1,
                 "idxSet": "POI,PAD,Str,Xstr,Geo,Addr,EPP", "language": "en-GB",
             },
-            timeout=8,
+            timeout=(1.5, 3.5),
         )
         response.raise_for_status()
         rows = response.json().get("results") or []
@@ -195,7 +195,7 @@ class ActivitySearch:
         response = self._session.get(
             self.nominatim_url,
             params={"q": normal, "format": "jsonv2", "limit": 1, "countrycodes": "gb", "addressdetails": 1},
-            timeout=10,
+            timeout=(1.5, 4.0),
         )
         response.raise_for_status()
         payload = response.json()

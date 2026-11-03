@@ -8,15 +8,19 @@ from threading import RLock
 
 from ..config import Settings
 from ..models import SourceStatus, Vehicle
+from ..schedule_store import ScheduleStore
 from ..state import LiveState
+from ..timeutils import london_tz
+from ..train_identity import operator_name
 from .stomp_client import StompFeed
 
 
 class TDCollector(StompFeed):
-    def __init__(self, settings: Settings, state: LiveState, station_file: Path, smart_file: Path) -> None:
+    def __init__(self, settings: Settings, state: LiveState, station_file: Path, smart_file: Path, schedules: ScheduleStore | None = None) -> None:
         super().__init__(settings, state, name="td", topic=settings.td_topic)
         self.station_file = station_file
         self.smart_file = smart_file
+        self.schedules = schedules
         self.stations: dict[str, dict] = {}
         self.exact: dict[tuple[str, str, str], dict] = {}
         self.by_from: dict[tuple[str, str], dict] = {}
@@ -94,6 +98,17 @@ class TDCollector(StompFeed):
         lat, lon = float(station["lat"]), float(station["lon"])
         existing = self.state.find_train_by_headcode(descr, lat, lon)
         location_name = station.get("name") or str((row or {}).get("STANME") or "TD location")
+        schedule = None
+        if self.schedules is not None and self.schedules.ready():
+            try:
+                schedule = self.schedules.lookup_headcode(
+                    descr,
+                    running_date=event_time.astimezone(london_tz()).date(),
+                    at_time=event_time,
+                    tiploc=station.get("tiploc"),
+                )
+            except Exception:
+                schedule = None
         if existing:
             existing.lat = lat; existing.lon = lon
             existing.reported_lat = lat; existing.reported_lon = lon
@@ -103,12 +118,35 @@ class TDCollector(StompFeed):
             existing.position_method = "network_report"
             existing.position_label = f"TD berth report • {area} {fr or '—'}→{to or '—'} • {location_name}"
             existing.source = "Network Rail TD"
+            if schedule:
+                existing.train_uid = schedule.train_uid
+                existing.origin = schedule.origin or existing.origin
+                existing.destination = schedule.destination or existing.destination
+                existing.operator = operator_name(schedule.atoc_code, existing.operator)
+                existing.train_category = schedule.train_category
+                existing.power_type = schedule.power_type
+                existing.timing_load = schedule.timing_load
+                existing.booked_speed = schedule.booked_speed
+                existing.operating_characteristics = schedule.operating_characteristics
             self.state.upsert(existing)
         else:
             self.state.upsert(Vehicle(
                 id=f"td:{area}:{descr}", type="train", name=descr,
-                subtitle=f"Train describer • {location_name}", lat=lat, lon=lon,
+                subtitle=(
+                    f"{schedule.origin} → {schedule.destination}"
+                    if schedule and schedule.origin and schedule.destination
+                    else f"Train describer • {location_name}"
+                ), lat=lat, lon=lon,
+                operator=operator_name(schedule.atoc_code) if schedule else None,
+                origin=schedule.origin if schedule else None,
+                destination=schedule.destination if schedule else None,
                 headcode=descr, status="TD live", position_method="network_report",
+                train_uid=schedule.train_uid if schedule else None,
+                train_category=schedule.train_category if schedule else None,
+                power_type=schedule.power_type if schedule else None,
+                timing_load=schedule.timing_load if schedule else None,
+                booked_speed=schedule.booked_speed if schedule else None,
+                operating_characteristics=schedule.operating_characteristics if schedule else None,
                 position_label=f"TD berth report • {area} {fr or '—'}→{to or '—'}",
                 source="Network Rail TD", source_id=f"{area}:{to or fr}", last_updated=event_time,
             ))

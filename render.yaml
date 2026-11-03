@@ -1,0 +1,135 @@
+services:
+  - type: web
+    name: uk-activity-radar
+    runtime: python
+    region: frankfurt
+    plan: 1c-2g
+    numInstances: 1
+    buildCommand: python -m pip install --upgrade pip && python -m pip install -r requirements.txt && python -m compileall -q app
+    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers --timeout-keep-alive 10
+    healthCheckPath: /api/health
+    autoDeployTrigger: checksPass
+    disk:
+      name: radar-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 10
+    envVars:
+      - key: DEMO_MODE
+        value: "false"
+      - key: PUBLIC_DEPLOYMENT
+        value: "true"
+      - key: COMMERCIAL_MODE
+        value: "true"
+      - key: RADAR_DATA_DIR
+        value: "/opt/render/project/src/data"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: BODS_POLL_SECONDS
+        value: "15"
+      - key: WEBSOCKET_REFRESH_SECONDS
+        value: "1"
+      - key: PUBLIC_TILE_REQUESTS_PER_MINUTE
+        value: "240"
+      - key: PUBLIC_TILE_GLOBAL_PER_MINUTE
+        value: "1200"
+      - key: MAP_TILE_CACHE_MAX_TILES
+        value: "2048"
+      - key: PUBLIC_LOOKUP_REQUESTS_PER_MINUTE
+        value: "60"
+      - key: PUBLIC_LOOKUP_GLOBAL_PER_MINUTE
+        value: "300"
+      - key: PRODUCT_ANALYTICS_ENABLED
+        value: "false"
+      - key: BILLING_ENABLED
+        value: "true"
+      - key: RADAR_PLUS_PRICE_DISPLAY
+        value: "£3.99/month"
+      - key: SELLER_LEGAL_NAME
+        sync: false
+      - key: SUPPORT_EMAIL
+        sync: false
+      - key: MIN_FREE_DISK_MB
+        value: "1024"
+      - key: PUSH_ALERTS_ENABLED
+        value: "false"
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+      - key: PUSH_POLL_SECONDS
+        value: "90"
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PLUS_PRICE_ID
+        sync: false
+      - key: BILLING_TOKEN_PEPPER
+        sync: false
+      # Sources without an explicit commercial redistribution basis stay off.
+      - key: AISSTREAM_ENABLED
+        value: "false"
+      - key: RNLI_ENABLED
+        value: "false"
+      - key: LONDON_FIRE_ENABLED
+        value: "false"
+      - key: MET_OFFICE_ENABLED
+        value: "false"
+      - key: NOMINATIM_ENABLED
+        value: "false"
+      - key: COVERAGE_ENABLED
+        value: "false"
+      - key: BGS_EARTHQUAKES_ENABLED
+        value: "false"
+      - key: WAVENET_ENABLED
+        value: "false"
+      - key: UK_AIR_ENABLED
+        value: "false"
+      - key: TFL_LIVE_ENABLED
+        value: "false"
+      - key: GBFS_ENABLED
+        value: "false"
+      - key: ISS_ENABLED
+        value: "false"
+      - key: POWER_OUTAGES_ENABLED
+        value: "false"
+      - key: GRITTER_ENABLED
+        value: "false"
+      - key: STREET_MANAGER_ENABLED
+        value: "false"
+      - key: STREET_MANAGER_AUTO_CONFIRM
+        value: "true"
+      - key: NATIONAL_HIGHWAYS_VMS_ENABLED
+        value: "false"
+      - key: NATIONAL_HIGHWAYS_SPEED_ENABLED
+        value: "false"
+      - key: NATIONAL_HIGHWAYS_SPEED_URL
+        value: "https://api.data.nationalhighways.co.uk/sma/v1.0/speedManagedAreas"
+      - key: NATIONAL_HIGHWAYS_FEATURES_ENABLED
+        value: "false"
+      - key: NATIONAL_HIGHWAYS_FEATURES_URL
+        value: "https://api.data.nationalhighways.co.uk/rlf/v1.0/roadLimitsAndFeatures"
+      - key: NATIONAL_HIGHWAYS_FEATURE_TYPES
+        value: "emergencyTelephone,busStop"
+      - key: AUTO_SYNC_SCHEDULE
+        value: "true"
+      - key: AUTO_SYNC_REFERENCE
+        value: "true"
+      - key: NETWORK_RAIL_USERNAME
+        sync: false
+      - key: NETWORK_RAIL_PASSWORD
+        sync: false
+      - key: BODS_API_KEY
+        sync: false
+      - key: NATIONAL_HIGHWAYS_API_KEY
+        sync: false
+      - key: NATIONAL_HIGHWAYS_VMS_URL
+        sync: false
+      - key: TOMTOM_TRAFFIC_API_KEY
+        sync: false

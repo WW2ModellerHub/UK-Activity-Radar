@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 from bs4 import BeautifulSoup
@@ -12,6 +12,7 @@ from ..models import Event, SourceStatus
 from ..timeutils import london_tz
 
 LFB_INCIDENTS = "https://www.london-fire.gov.uk/incidents/"
+MAX_PUBLIC_INCIDENT_AGE = timedelta(hours=18)
 
 # Borough-centre fallback coordinates. Incident cards are public but do not
 # consistently expose machine-readable lat/lon; we deliberately label these as
@@ -78,7 +79,12 @@ def parse_lfb_incidents(html: str) -> list[Event]:
         if not borough:
             continue
         lat, lon = BOROUGH_CENTRES[borough]
-        started = _parse_dt(context) or now
+        started = _parse_dt(context)
+        # The LFB page is a recent-incident archive, not an active dispatch
+        # stream. Cards can remain published for days, so never keep an old
+        # house fire on the live map simply because it is still on the page.
+        if started is None or started < now - MAX_PUBLIC_INCIDENT_AGE or started > now + timedelta(minutes=15):
+            continue
         absolute = href if href.startswith("http") else "https://www.london-fire.gov.uk" + (href if href.startswith("/") else "/" + href)
         source_id = hashlib.sha1(absolute.encode()).hexdigest()[:16]
         category = "Fire / rescue incident"
@@ -92,7 +98,7 @@ def parse_lfb_incidents(html: str) -> list[Event]:
             summary = summary[:257] + "…"
         events[source_id] = Event(
             id=f"lfb:{source_id}", type="incident", name=title, subtitle=f"London Fire Brigade • {borough.title()}",
-            lat=lat, lon=lon, category=category, status="Published", reason=summary,
+            lat=lat, lon=lon, category=category, status="Recent public report", reason=summary,
             start_time=started, position_method="static", position_label=f"Approximate borough location ({borough.title()})",
             source="London Fire Brigade", source_id=source_id, official_url=absolute,
             news_query=f'"{title}" London fire', social_query=f'"{title}" LFB',

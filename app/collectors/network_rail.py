@@ -11,6 +11,7 @@ from ..config import Settings
 from ..models import SourceStatus, Vehicle
 from ..schedule_store import ScheduleInfo, ScheduleStore
 from ..state import LiveState
+from ..train_identity import operator_name, trust_operator_name
 from .stomp_client import StompFeed
 
 
@@ -125,7 +126,13 @@ class TrustCollector(StompFeed):
             "origin": schedule.origin if schedule else None,
             "destination": schedule.destination if schedule else None,
             "atoc_code": schedule.atoc_code if schedule else None,
+            "trust_operator": trust_operator_name(body.get("toc_id")),
             "service_code": (schedule.service_code if schedule else None) or body.get("train_service_code"),
+            "train_category": schedule.train_category if schedule else None,
+            "power_type": schedule.power_type if schedule else None,
+            "timing_load": schedule.timing_load if schedule else None,
+            "booked_speed": schedule.booked_speed if schedule else None,
+            "operating_characteristics": schedule.operating_characteristics if schedule else None,
             "schedule_source": body.get("schedule_source"),
         }
 
@@ -186,11 +193,13 @@ class TrustCollector(StompFeed):
 
         operator = activation.get("atoc_code")
         if operator:
-            operator = f"ATOC {operator}"
-        elif body.get("toc_id"):
-            operator = f"TOC {body.get('toc_id')}"
+            operator = operator_name(operator)
         else:
-            operator = "Network Rail"
+            operator = (
+                activation.get("trust_operator")
+                or trust_operator_name(body.get("toc_id"))
+                or "Rail operator"
+            )
 
         name = headcode or identity
         position_label = f"Confirmed report at {location_name}"
@@ -206,6 +215,11 @@ class TrustCollector(StompFeed):
             destination=activation.get("destination"),
             headcode=headcode,
             train_uid=activation.get("train_uid"),
+            train_category=activation.get("train_category"),
+            power_type=activation.get("power_type"),
+            timing_load=activation.get("timing_load"),
+            booked_speed=activation.get("booked_speed"),
+            operating_characteristics=activation.get("operating_characteristics"),
             next_location=next_name,
             status=variation_status if str(body.get("train_terminated", "false")).lower() != "true" else "Terminated",
             delay_minutes=delay,

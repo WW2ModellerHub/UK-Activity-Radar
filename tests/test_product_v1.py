@@ -10,17 +10,19 @@ def test_product_analytics_only_accepts_whitelist(tmp_path: Path):
     store = ProductAnalytics(tmp_path / "product.sqlite")
     assert store.record("session-1", "app_open", "web") is True
     assert store.record("session-1", "pricing_interest", "plus") is True
+    assert store.record("session-1", "discovery_claimed", "rail") is True
     assert store.record("session-1", "steal_password", "x") is False
     summary = store.summary()
     assert summary["anonymous_sessions"] == 1
     assert summary["events"]["app_open"] == 1
+    assert summary["events"]["discovery_claimed"] == 1
     assert summary["pricing_interest"]["plus"] == 1
 
 
 def test_plan_prices_are_hypotheses_not_payments():
     payload = product_plans()
     assert payload["payments_enabled"] is False
-    assert {p["id"] for p in payload["plans"]} == {"free", "plus", "enthusiast"}
+    assert {p["id"] for p in payload["plans"]} == {"free", "plus"}
 
 
 def test_live_tracking_count_can_be_updated_without_changing_source_time():

@@ -1,11 +1,12 @@
 {
   "name": "uk-activity-radar",
-  "version": "1.2.1",
+  "version": "1.5.0",
   "private": true,
   "scripts": {
-    "check:js": "node --check app/static/app.js && node --check app/static/service-worker.js",
+    "check:js": "node --check app/static/app.js && node --check app/static/movement-history.js && node --check app/static/service-worker.js",
     "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "test:hosted": "playwright test --config playwright.hosted.config.js"
   },
   "devDependencies": {
     "@playwright/test": "1.55.1"

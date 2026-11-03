@@ -1,5 +1,5 @@
-const CACHE = 'uk-activity-radar-shell-v1.2.1';
-const SHELL = ['/', '/static/styles.css', '/static/app.js', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png'];
+const CACHE = 'uk-activity-radar-shell-v1.5.0-r17';
+const SHELL = ['/', '/terms', '/privacy', '/data-licences', '/static/styles.css', '/static/refinements.css', '/static/app.js', '/static/share.html', '/static/share.css', '/static/share.js', '/static/legal.css', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).catch(() => null));
   self.skipWaiting();
@@ -12,7 +12,34 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.pathname === '/ws') return;
   if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/static/')) {
+    event.respondWith(caches.match(event.request).then(hit => {
+      const refresh = fetch(event.request).then(response => {
+        if (response.ok) caches.open(CACHE).then(cache => cache.put(event.request, response.clone()));
+        return response;
+      });
+      return hit || refresh;
+    }));
+    return;
+  }
   event.respondWith(fetch(event.request).then(response => {
     const copy = response.clone(); caches.open(CACHE).then(cache => cache.put(event.request, copy)); return response;
   }).catch(() => caches.match(event.request).then(hit => hit || caches.match('/'))));
+});
+self.addEventListener('push', event => {
+  let payload={title:'UK Activity Radar',body:'There is a new travel update.',url:'/',tag:'radar-travel'};
+  try { payload={...payload,...event.data.json()}; } catch {}
+  event.waitUntil(self.registration.showNotification(payload.title, {
+    body:payload.body, icon:'/static/icon-192.png', badge:'/static/icon-192.png',
+    tag:payload.tag, renotify:false, data:{url:payload.url || '/'},
+  }));
+});
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const target=event.notification.data?.url || '/';
+  event.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(windows=>{
+    const existing=windows.find(client=>new URL(client.url).origin===self.location.origin);
+    if(existing){existing.navigate(target);return existing.focus();}
+    return clients.openWindow(target);
+  }));
 });

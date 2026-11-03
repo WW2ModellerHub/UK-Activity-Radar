@@ -7,3 +7,6 @@ websockets>=13,<17
 tzdata>=2025.2
 beautifulsoup4>=4.12
 sgp4>=2.24,<3.0
+cryptography>=47,<49
+stripe==16.1.0
+pywebpush==2.5.0

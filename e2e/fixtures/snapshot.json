@@ -10,7 +10,7 @@
     },
     {
       "id": "bus-live-7", "kind": "vehicle", "type": "bus", "name": "Bus 7",
-      "route": "7", "operator": "Fixture Buses", "status": "In service", "position_label": "High Street",
+      "route": "7", "operator": "Arriva Midlands", "vehicle_ref": "4201", "status": "In service", "position_label": "High Street",
       "lat": 52.041, "lon": -0.751, "speed": 18, "speed_unit": "mph", "bearing": 90,
       "position_method": "gps", "last_updated": "2026-10-05T10:00:00Z", "source": "Recorded BODS"
     },
@@ -19,20 +19,56 @@
       "route": "York – Edinburgh", "headcode": "1Z45", "operator": "Heritage Rail", "status": "Running",
       "position_label": "North of York", "lat": 54.12, "lon": -1.08, "speed": 55, "speed_unit": "mph",
       "position_method": "report", "interesting": true, "last_updated": "2026-10-05T10:00:00Z",
-      "source": "Recorded TRUST"
+      "source": "Recorded TRUST", "cool_category": "rail", "cool_subtype": "steam", "cool_score": 100,
+      "cool_explanation": "Steam-hauled movement.", "cool_badge": "STEAM", "cool_theme": "steam", "cool_icon": "♨", "cool_candidate": true
     },
     {
       "id": "vessel-live-1", "kind": "vehicle", "type": "vessel", "name": "HMS TESTER",
       "vehicle_ref": "235000001", "status": "Under way", "position_label": "Portsmouth approaches",
       "lat": 50.78, "lon": -1.05, "speed": 14, "speed_unit": "kn", "bearing": 180,
       "position_method": "gps", "interesting": true, "last_updated": "2026-10-05T10:00:00Z",
-      "source": "Recorded AIS"
+      "source": "Recorded AIS", "cool_category": "sea", "cool_subtype": "naval", "cool_score": 98,
+      "cool_explanation": "Military / naval vessel.", "cool_badge": "NAVAL", "cool_theme": "naval", "cool_icon": "⚓", "cool_candidate": true
+    },
+    {
+      "id": "aircraft-live-1", "kind": "vehicle", "type": "aircraft", "name": "RAF TYPHOON RAZOR11",
+      "vehicle_ref": "ZK001", "source_id": "43C001", "aircraft_model": "Eurofighter Typhoon",
+      "status": "Airborne", "position_label": "North-west England", "lat": 54.11, "lon": -2.45,
+      "speed": 420, "speed_unit": "kt", "bearing": 95, "altitude_ft": 18000,
+      "position_method": "gps", "interesting": true, "last_updated": "2026-10-05T10:00:00Z",
+      "source": "Recorded ADS-B", "cool_category": "air", "cool_subtype": "combat-aircraft", "cool_score": 100,
+      "cool_explanation": "Identified high-performance combat aircraft.", "cool_badge": "FAST JET", "cool_theme": "air", "cool_icon": "▲", "cool_candidate": true
+    },
+    {
+      "id": "aircraft-live-2", "kind": "vehicle", "type": "aircraft", "name": "RAF VOYAGER TARTAN21",
+      "vehicle_ref": "ZZ330", "source_id": "43C002", "aircraft_model": "Airbus Voyager KC2",
+      "status": "Airborne", "position_label": "North-west England", "lat": 54.12, "lon": -2.46,
+      "speed": 360, "speed_unit": "kt", "bearing": 120, "altitude_ft": 22000,
+      "position_method": "gps", "interesting": true, "last_updated": "2026-10-05T10:00:00Z",
+      "source": "Recorded ADS-B", "cool_category": "air", "cool_subtype": "military-tanker", "cool_score": 94,
+      "cool_explanation": "Identified military aerial-refuelling aircraft.", "cool_badge": "TANKER", "cool_theme": "air", "cool_icon": "▲", "cool_candidate": true
+    },
+    {
+      "id": "aircraft-live-3", "kind": "vehicle", "type": "aircraft", "name": "RYR1YY",
+      "operator": "Ryanair", "vehicle_ref": "EI-IGJ", "source_id": "4CA123", "aircraft_type_code": "B38M", "aircraft_model": "Boeing 737-8200",
+      "status": "Airborne", "position_label": "Central England", "lat": 52.64, "lon": -1.14,
+      "speed": 258, "speed_unit": "kt", "bearing": 155, "altitude_ft": 7350,
+      "position_method": "gps", "last_updated": "2026-10-05T10:00:00Z", "source": "Recorded ADS-B",
+      "cool_score": 0, "cool_candidate": false
+    },
+    {
+      "id": "incident-live-1", "kind": "event", "type": "incident", "name": "M1 collision near Junction 14",
+      "subtitle": "Two lanes closed", "category": "Road incident", "road": "M1", "status": "Active",
+      "lat": 52.047, "lon": -0.754, "position_method": "static", "position_label": "Official incident location",
+      "interesting": true, "last_updated": "2026-10-05T10:00:00Z", "source": "National Highways",
+      "official_url": "https://nationalhighways.co.uk/roads-and-travel/"
     }
   ],
   "stream": { "mode": "fixture", "zoom": 6 },
   "sources": [
     { "name": "network_rail", "enabled": true, "connected": true, "mode": "live", "health": "live", "message": "Recorded fixture", "messages_seen": 2, "age_seconds": 2 },
     { "name": "bods", "enabled": true, "connected": true, "mode": "live", "health": "live", "message": "Recorded fixture", "messages_seen": 1, "age_seconds": 2 },
-    { "name": "aisstream", "enabled": true, "connected": true, "mode": "live", "health": "live", "message": "Recorded fixture", "messages_seen": 1, "age_seconds": 2 }
+    { "name": "aisstream", "enabled": true, "connected": true, "mode": "live", "health": "live", "message": "Recorded fixture", "messages_seen": 1, "age_seconds": 2 },
+    { "name": "adsb_sar", "enabled": true, "connected": true, "mode": "live", "health": "live", "message": "Recorded fixture", "messages_seen": 2, "age_seconds": 2 }
   ]
 }

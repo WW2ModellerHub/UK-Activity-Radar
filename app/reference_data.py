@@ -4,6 +4,7 @@ import csv
 import gzip
 import io
 import json
+import os
 import shutil
 import tempfile
 import time
@@ -38,6 +39,38 @@ _STATION_FILE_LOCK = Lock()
 
 class FeedDownloadError(RuntimeError):
     pass
+
+
+def _write_json_atomically(path: Path, payload: Any, *, indent: int | None = None) -> None:
+    """Publish JSON without exposing readers to a partially-written file.
+
+    A unique temporary name matters on Windows.  The application can briefly
+    have more than one process alive during a restart, and the old fixed
+    ``stations.json.tmp`` name let those processes contend for the same file.
+    The temporary file is always removed when publication fails, while the
+    previous cache remains untouched.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    os.close(descriptor)
+    temporary_path = Path(temporary_name)
+    try:
+        temporary_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=indent),
+            encoding="utf-8",
+        )
+        os.replace(temporary_path, path)
+    finally:
+        try:
+            temporary_path.unlink(missing_ok=True)
+        except OSError:
+            # Cleanup failure must not replace the original publication error.
+            # The uniquely-named file is harmless and can be removed later.
+            pass
 
 
 def _nr_get(url: str, username: str, password: str, *, timeout: int = 180, stream: bool = False) -> requests.Response:
@@ -213,9 +246,13 @@ def ensure_naptan_cache(cache_file: Path, *, max_age_days: int = 14, force: bool
             by_tiploc, by_crs = _parse_naptan_xml(xml_path)
 
         payload = {"by_tiploc": by_tiploc, "by_crs": by_crs}
-        tmp = cache_file.with_suffix(cache_file.suffix + ".tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(cache_file)
+        try:
+            _write_json_atomically(cache_file, payload)
+        except PermissionError:
+            # A read-only/locked cache must not discard freshly parsed station
+            # metadata for the current process.  It can still serve this result
+            # in memory and retry persistence on the next refresh.
+            pass
         return payload
 
 
@@ -286,9 +323,12 @@ def ensure_public_rail_geo_cache(cache_file: Path, *, max_age_days: int = 14, fo
                 r.raise_for_status()
                 parsed = _parse_public_rail_geo_csv(r.content.decode("utf-8-sig", errors="replace"))
                 parsed["download_url"] = url
-                tmp = cache_file.with_suffix(cache_file.suffix + ".tmp")
-                tmp.write_text(json.dumps(parsed, ensure_ascii=False), encoding="utf-8")
-                tmp.replace(cache_file)
+                try:
+                    _write_json_atomically(cache_file, parsed)
+                except PermissionError:
+                    # Keep serving the downloaded geography in memory.  An
+                    # existing last-known-good cache, if any, is left intact.
+                    pass
                 return parsed
             except Exception as exc:
                 errors.append(f"{url}: {type(exc).__name__}: {exc}")
@@ -333,12 +373,18 @@ def merge_station_file(station_file: Path, additions: dict[str, dict]) -> int:
                     current = loaded
             except Exception:
                 pass
-        current.update(additions)
-        station_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp = station_file.with_suffix(station_file.suffix + ".tmp")
-        tmp.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(station_file)
-        return len(current)
+        merged = {**current, **additions}
+        try:
+            _write_json_atomically(station_file, merged, indent=2)
+            return len(merged)
+        except PermissionError:
+            # Windows can deny replacement while another process, antivirus or
+            # a restricted launcher holds the destination.  The atomic write
+            # has not modified the old file, so retain that usable geography
+            # rather than turning an otherwise-live rail feed into an error.
+            if current:
+                return len(current)
+            raise
 
 
 def sync_public_geography(data_dir: Path, *, force: bool = False) -> dict[str, Any]:

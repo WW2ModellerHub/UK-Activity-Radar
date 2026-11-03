@@ -1,7 +1,7 @@
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 
-from app.collectors.adsb_lol import parse_adsb_response
-from app.collectors.london_fire import _parse_dt
+from app.collectors.adsb_lol import parse_adsb_response, parse_nearby_aircraft_response
+from app.collectors.london_fire import _parse_dt, parse_lfb_incidents
 from app.collectors.met_office import parse_warning_geojson, parse_warning_rss
 from app.collectors.rnli import parse_rnli_page
 from app.config import Settings
@@ -42,10 +42,62 @@ def test_adsb_recognises_coastguard_registration_even_with_srd_callsign():
     assert rows[0].altitude_ft == 1750
 
 
+def test_nearby_aircraft_includes_ordinary_and_special_aircraft():
+    rows, total = parse_nearby_aircraft_response({"ac": [
+        {"hex": "400001", "flight": "BAW123", "r": "G-ABCD", "lat": 52.1, "lon": -1.3, "t": "A320", "gs": 410, "track": 90},
+        {"hex": "400002", "flight": "RRR01", "lat": 52.2, "lon": -1.2, "t": "H47", "dbFlags": 1},
+    ]})
+    assert total == 2
+    assert {row.id for row in rows} == {"aircraft:400001", "aircraft:400002"}
+    ordinary = next(row for row in rows if row.id == "aircraft:400001")
+    military = next(row for row in rows if row.id == "aircraft:400002")
+    assert ordinary.interesting is False
+    assert military.interesting is True
+    assert military.aircraft_model == "Boeing CH-47 Chinook"
+
+
+def test_nearby_ryanair_b38m_is_named_immediately_without_route_guessing():
+    rows, _ = parse_nearby_aircraft_response({"ac": [{
+        "hex": "4cadbc", "flight": "RYR1YY", "r": "EI-IGJ",
+        "lat": 52.516, "lon": -1.547, "t": "B38M", "gs": 257.5, "track": 100.7,
+    }]})
+    aircraft = rows[0]
+    assert aircraft.aircraft_model == "Boeing 737 MAX 8"
+    assert aircraft.operator == "Ryanair"
+    assert aircraft.origin is None and aircraft.destination is None
+
+
+def test_common_military_training_and_tanker_types_are_named():
+    rows, _ = parse_nearby_aircraft_response({"ac": [
+        {"hex": "43c8d0", "flight": "VYT61", "r": "ZM329", "lat": 52.0, "lon": -1.0, "t": "TEX2", "dbFlags": 1},
+        {"hex": "43c8d8", "flight": "CWL45", "r": "ZM337", "lat": 52.1, "lon": -1.1, "t": "E50P", "dbFlags": 1},
+        {"hex": "ae026d", "flight": "QID12", "r": "62-3576", "lat": 52.2, "lon": -1.2, "t": "K35R", "dbFlags": 1},
+    ]})
+
+    assert [item.aircraft_model for item in rows] == [
+        "Beechcraft T-6 Texan II",
+        "Embraer Phenom 100",
+        "Boeing KC-135R Stratotanker",
+    ]
+
+
 def test_london_fire_time_parser_has_timezone_on_windows_safe_path():
     dt = _parse_dt("04/10/2026 8:15 PM")
     assert dt is not None
     assert dt.tzinfo == timezone.utc
+
+
+def test_london_fire_map_excludes_three_day_old_archive_cards():
+    old = (datetime.now(timezone.utc) - timedelta(days=3)).astimezone()
+    current = (datetime.now(timezone.utc) - timedelta(minutes=20)).astimezone()
+    stamp = lambda value: value.strftime("%d/%m/%Y %I:%M %p")
+    html = f"""<main>
+      <article><a href='/incidents/old-fire'>House fire in Camden</a><p>Camden {stamp(old)}</p></article>
+      <article><a href='/incidents/current-fire'>Shed fire in Camden</a><p>Camden {stamp(current)}</p></article>
+    </main>"""
+    rows = parse_lfb_incidents(html)
+    assert [row.name for row in rows] == ["Shed fire in Camden"]
+    assert rows[0].status == "Recent public report"
 
 
 def test_road_shorthand_normalisation():

@@ -246,7 +246,7 @@ class MetOfficeWarningCollector:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._session = requests.Session()
-        self._session.headers.update({"User-Agent": "UKActivityRadar/1.2.1 (weather warnings consumer)"})
+        self._session.headers.update({"User-Agent": "UKActivityRadar/1.4.0 (weather warnings consumer)"})
         self._layer_url: str | None = None
 
     def start(self) -> None:

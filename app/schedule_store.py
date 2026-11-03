@@ -14,12 +14,13 @@ from typing import Any, Iterable, Callable
 import requests
 
 from .reference_data import FeedDownloadError, ensure_naptan_cache, merge_station_file
+from .timeutils import london_tz
 
 SCHEDULE_URLS = [
     "https://publicdatafeeds.networkrail.co.uk/ntrod/CifFileAuthenticate?type=CIF_ALL_FULL_DAILY&day=toc-full",
     "https://datafeeds.networkrail.co.uk/ntrod/CifFileAuthenticate?type=CIF_ALL_FULL_DAILY&day=toc-full",
 ]
-USER_AGENT = "UKActivityRadar/0.7.2"
+USER_AGENT = "UKActivityRadar/1.4.0"
 
 
 @dataclass
@@ -32,6 +33,11 @@ class ScheduleInfo:
     destination: str | None = None
     origin_tiploc: str | None = None
     destination_tiploc: str | None = None
+    train_category: str | None = None
+    power_type: str | None = None
+    timing_load: str | None = None
+    booked_speed: str | None = None
+    operating_characteristics: str | None = None
 
 
 class ScheduleStore:
@@ -76,12 +82,72 @@ class ScheduleStore:
                     origin_name TEXT,
                     destination_name TEXT,
                     locations_json TEXT,
+                    train_category TEXT,
+                    power_type TEXT,
+                    timing_load TEXT,
+                    booked_speed TEXT,
+                    operating_characteristics TEXT,
                     source TEXT DEFAULT 'SCHEDULE'
                 );
                 CREATE INDEX IF NOT EXISTS idx_sched_uid ON schedules(train_uid);
                 CREATE INDEX IF NOT EXISTS idx_sched_dates ON schedules(train_uid,start_date,end_date);
+                CREATE INDEX IF NOT EXISTS idx_sched_active_dates ON schedules(start_date,end_date);
+                CREATE TABLE IF NOT EXISTS schedule_calls(
+                    id INTEGER PRIMARY KEY,
+                    schedule_id INTEGER NOT NULL,
+                    tiploc TEXT NOT NULL,
+                    scheduled_arrival TEXT,
+                    scheduled_departure TEXT,
+                    public_arrival TEXT,
+                    public_departure TEXT,
+                    platform TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_schedule_calls_tiploc ON schedule_calls(tiploc,schedule_id);
                 """
             )
+            existing = {row[1] for row in conn.execute("PRAGMA table_info(schedules)")}
+            for column in ("train_category", "power_type", "timing_load", "booked_speed", "operating_characteristics"):
+                if column not in existing:
+                    conn.execute(f"ALTER TABLE schedules ADD COLUMN {column} TEXT")
+
+    def call_index_ready(self) -> bool:
+        try:
+            with self._connect() as conn:
+                row=conn.execute("SELECT value FROM meta WHERE key='schedule_calls_date'").fetchone()
+            return bool(row and row[0] == date.today().isoformat())
+        except sqlite3.Error:
+            return False
+
+    @staticmethod
+    def _rebuild_call_index_on(conn: sqlite3.Connection, active_date: str | None = None) -> int:
+        active_date=active_date or date.today().isoformat()
+        conn.execute("DELETE FROM schedule_calls")
+        conn.execute(
+            """INSERT INTO schedule_calls(schedule_id,tiploc,scheduled_arrival,scheduled_departure,public_arrival,public_departure,platform)
+               SELECT s.id,
+                      UPPER(TRIM(json_extract(j.value,'$.tiploc_code'))),
+                      json_extract(j.value,'$.scheduled_arrival'),
+                      json_extract(j.value,'$.scheduled_departure'),
+                      json_extract(j.value,'$.public_arrival'),
+                      json_extract(j.value,'$.public_departure'),
+                      json_extract(j.value,'$.platform')
+               FROM schedules AS s, json_each(s.locations_json) AS j
+               WHERE s.start_date<=? AND s.end_date>=?
+                 AND json_extract(j.value,'$.tiploc_code') IS NOT NULL""",
+            (active_date,active_date),
+        )
+        count=int(conn.execute("SELECT COUNT(*) FROM schedule_calls").fetchone()[0])
+        conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('schedule_calls_version','1')")
+        conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('schedule_calls_date',?)",(active_date,))
+        conn.commit()
+        return count
+
+    def ensure_call_index(self) -> int:
+        if self.call_index_ready():
+            return 0
+        with self._connect() as conn:
+            conn.execute("PRAGMA busy_timeout=60000")
+            return self._rebuild_call_index_on(conn)
 
     def ready(self) -> bool:
         if not self.db_path.exists():
@@ -142,7 +208,121 @@ class ScheduleStore:
             destination=row["destination_name"],
             origin_tiploc=row["origin_tiploc"],
             destination_tiploc=row["destination_tiploc"],
+            train_category=row["train_category"],
+            power_type=row["power_type"],
+            timing_load=row["timing_load"],
+            booked_speed=row["booked_speed"],
+            operating_characteristics=row["operating_characteristics"],
         )
+
+    @staticmethod
+    def _runs_on(row: sqlite3.Row, running_date: date) -> bool:
+        days = str(row["days_runs"] or "").strip()
+        return not days or len(days) < 7 or days[running_date.weekday()] == "1"
+
+    @staticmethod
+    def _clock_distance(locations: list[dict], at_time: datetime) -> int:
+        """Return distance in minutes from the closest published call time."""
+        now_minutes = at_time.hour * 60 + at_time.minute
+        distances: list[int] = []
+        for location in locations:
+            if not isinstance(location, dict):
+                continue
+            for key in (
+                "public_arrival", "public_departure",
+                "scheduled_arrival", "scheduled_departure", "scheduled_pass",
+            ):
+                raw = "".join(ch for ch in str(location.get(key) or "") if ch.isdigit())
+                if len(raw) == 3:
+                    raw = "0" + raw
+                if len(raw) < 4:
+                    continue
+                try:
+                    minutes = int(raw[:2]) * 60 + int(raw[2:4])
+                except ValueError:
+                    continue
+                delta = abs(minutes - now_minutes)
+                distances.append(min(delta, 1440 - delta))
+        return min(distances) if distances else 720
+
+    @staticmethod
+    def _info_from_row(row: sqlite3.Row) -> ScheduleInfo:
+        return ScheduleInfo(
+            train_uid=row["train_uid"],
+            signalling_id=row["signalling_id"],
+            atoc_code=row["atoc_code"],
+            service_code=row["service_code"],
+            origin=row["origin_name"],
+            destination=row["destination_name"],
+            origin_tiploc=row["origin_tiploc"],
+            destination_tiploc=row["destination_tiploc"],
+            train_category=row["train_category"],
+            power_type=row["power_type"],
+            timing_load=row["timing_load"],
+            booked_speed=row["booked_speed"],
+            operating_characteristics=row["operating_characteristics"],
+        )
+
+    def lookup_headcode(
+        self,
+        headcode: str,
+        *,
+        running_date: date | None = None,
+        at_time: datetime | None = None,
+        tiploc: str | None = None,
+    ) -> ScheduleInfo | None:
+        """Resolve a live TD describer to today's most plausible schedule.
+
+        TD messages do not contain the TRUST train UID.  The current railway
+        location is therefore the strongest discriminator, followed by the
+        closest published call time.  This avoids attaching an arbitrary old
+        service merely because it reused the same four-character headcode.
+        """
+        code = str(headcode or "").strip().upper()
+        if not code:
+            return None
+        now = at_time or datetime.now(london_tz())
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=london_tz())
+        else:
+            now = now.astimezone(london_tz())
+        service_date = running_date or now.date()
+        location = str(tiploc or "").strip().upper()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM schedules
+                   WHERE UPPER(TRIM(signalling_id))=?
+                     AND (start_date IS NULL OR start_date='' OR start_date<=?)
+                     AND (end_date IS NULL OR end_date='' OR end_date>=?)
+                     AND COALESCE(stp_indicator,'')<>'C'
+                   ORDER BY CASE source WHEN 'VSTP' THEN 0 ELSE 1 END, id DESC
+                   LIMIT 64""",
+                (code, service_date.isoformat(), service_date.isoformat()),
+            ).fetchall()
+        ranked: list[tuple[tuple[int, int, int, int], sqlite3.Row]] = []
+        for row in rows:
+            if not self._runs_on(row, service_date):
+                continue
+            try:
+                locations = json.loads(row["locations_json"] or "[]")
+            except (TypeError, json.JSONDecodeError):
+                locations = []
+            if not isinstance(locations, list):
+                locations = []
+            codes = {
+                str(item.get("tiploc_code") or "").strip().upper()
+                for item in locations if isinstance(item, dict)
+            }
+            location_rank = 0 if location and location in codes else 1
+            if location and location_rank:
+                continue
+            time_rank = self._clock_distance(locations, now)
+            source_rank = 0 if row["source"] == "VSTP" else 1
+            ranked.append(((location_rank, time_rank, source_rank, -int(row["id"])), row))
+        if not ranked:
+            return None
+        ranked.sort(key=lambda item: item[0])
+        return self._info_from_row(ranked[0][1])
 
     def upsert_vstp(self, schedule: dict) -> None:
         # VSTP schema varies slightly from the overnight JSON; normalize the
@@ -150,20 +330,25 @@ class ScheduleStore:
         uid = str(schedule.get("CIF_train_uid") or schedule.get("train_uid") or schedule.get("schedule_id") or "").strip()
         if not uid:
             return
-        locations = schedule.get("schedule_location") or schedule.get("locations") or []
+        segment = schedule.get("schedule_segment") if isinstance(schedule.get("schedule_segment"), dict) else schedule
+        locations = schedule.get("schedule_location") or segment.get("schedule_location") or schedule.get("locations") or []
         if not isinstance(locations, list):
             locations = []
         origin = locations[0] if locations else {}
         dest = locations[-1] if locations else {}
         with self._connect() as conn:
+            old_ids=[row[0] for row in conn.execute("SELECT id FROM schedules WHERE source='VSTP' AND train_uid=?",(uid,)).fetchall()]
+            if old_ids:
+                conn.executemany("DELETE FROM schedule_calls WHERE schedule_id=?",((row_id,) for row_id in old_ids))
             conn.execute(
                 "DELETE FROM schedules WHERE source='VSTP' AND train_uid=?",
                 (uid,),
             )
-            conn.execute(
+            cursor=conn.execute(
                 """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,atoc_code,signalling_id,service_code,
-                   origin_tiploc,destination_tiploc,origin_name,destination_name,locations_json,source)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?, 'VSTP')""",
+                   origin_tiploc,destination_tiploc,origin_name,destination_name,locations_json,train_category,power_type,
+                   timing_load,booked_speed,operating_characteristics,source)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'VSTP')""",
                 (
                     uid,
                     schedule.get("schedule_start_date"), schedule.get("schedule_end_date"), schedule.get("schedule_days_runs"),
@@ -171,7 +356,19 @@ class ScheduleStore:
                     schedule.get("signalling_id") or schedule.get("CIF_headcode"), schedule.get("CIF_train_service_code"),
                     origin.get("tiploc_code"), dest.get("tiploc_code"), origin.get("tiploc_code"), dest.get("tiploc_code"),
                     json.dumps(locations, separators=(",", ":")),
+                    segment.get("CIF_train_category"), segment.get("CIF_power_type"), segment.get("CIF_timing_load"),
+                    segment.get("CIF_speed"), segment.get("CIF_operating_characteristics"),
                 ),
+            )
+            schedule_id=cursor.lastrowid
+            conn.executemany(
+                """INSERT INTO schedule_calls(schedule_id,tiploc,scheduled_arrival,scheduled_departure,public_arrival,public_departure,platform)
+                   VALUES(?,?,?,?,?,?,?)""",
+                [(
+                    schedule_id, str(loc.get('tiploc_code') or '').strip().upper(),
+                    loc.get('scheduled_arrival'),loc.get('scheduled_departure'),
+                    loc.get('public_arrival'),loc.get('public_departure'),loc.get('platform'),
+                ) for loc in locations if str(loc.get('tiploc_code') or '').strip()]
             )
 
 
@@ -250,9 +447,41 @@ def _display_name(tiploc: str | None, names: dict[str, str]) -> str | None:
     return names.get(tiploc) or tiploc
 
 
+def _remove_build_sidecars(db_path: Path, *, attempts: int = 1) -> bool:
+    """Remove disposable SQLite journals without failing a completed build.
+
+    A virus scanner or short-lived diagnostic reader can retain a Windows file
+    handle after SQLite has checkpointed and closed the build database. Once
+    journal_mode has returned to DELETE, these sidecars contain no required
+    data and can safely be left for the next maintenance pass.
+    """
+    all_removed = True
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(str(db_path) + suffix)
+        for attempt in range(max(1, attempts)):
+            try:
+                sidecar.unlink(missing_ok=True)
+                break
+            except OSError:
+                if attempt + 1 < attempts:
+                    time.sleep(0.1)
+        if sidecar.exists():
+            all_removed = False
+    return all_removed
+
+
 def ingest_schedule_file(schedule_path: Path, store: ScheduleStore, naptan: dict, station_file: Path, progress: Callable[[str, dict], None] | None = None) -> dict:
     tmp_db = store.db_path.with_suffix(".building.sqlite")
-    tmp_db.unlink(missing_ok=True)
+    if not _remove_build_sidecars(tmp_db, attempts=30):
+        raise PermissionError(f"A previous schedule build journal is still locked: {tmp_db}")
+    for attempt in range(30):
+        try:
+            tmp_db.unlink(missing_ok=True)
+            break
+        except PermissionError:
+            if attempt == 29:
+                raise
+            time.sleep(0.1)
     build = ScheduleStore(tmp_db)
 
     tiploc_rows: dict[str, dict] = {}
@@ -313,19 +542,23 @@ def ingest_schedule_file(schedule_path: Path, store: ScheduleStore, naptan: dict
                 origin_tiploc, destination_tiploc,
                 origin_tiploc, destination_tiploc,
                 json.dumps(locs, separators=(",", ":")),
+                segment.get("CIF_train_category"), segment.get("CIF_power_type"), segment.get("CIF_timing_load"),
+                segment.get("CIF_speed"), segment.get("CIF_operating_characteristics"),
             ))
             schedule_count += 1
             if len(schedules_buffer) >= 4000:
                 conn.executemany(
                     """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,atoc_code,signalling_id,service_code,
-                       origin_tiploc,destination_tiploc,origin_name,destination_name,locations_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       origin_tiploc,destination_tiploc,origin_name,destination_name,locations_json,train_category,power_type,
+                       timing_load,booked_speed,operating_characteristics) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     schedules_buffer,
                 )
                 schedules_buffer.clear()
         if schedules_buffer:
             conn.executemany(
                 """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,atoc_code,signalling_id,service_code,
-                   origin_tiploc,destination_tiploc,origin_name,destination_name,locations_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   origin_tiploc,destination_tiploc,origin_name,destination_name,locations_json,train_category,power_type,
+                   timing_load,booked_speed,operating_characteristics) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 schedules_buffer,
             )
 
@@ -358,8 +591,25 @@ def ingest_schedule_file(schedule_path: Path, store: ScheduleStore, naptan: dict
                destination_name=COALESCE((SELECT description FROM tiplocs WHERE tiploc=schedules.destination_tiploc), destination_tiploc)"""
         )
         conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('last_sync',?)", (datetime.utcnow().isoformat() + "Z",))
+        ScheduleStore._rebuild_call_index_on(conn)
         conn.commit()
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        # Make the completed build self-contained before its atomic handoff.
+        # Switching back to DELETE also removes WAL dependence; retry briefly
+        # for Windows scanners/readers that may have opened the disposable DB.
+        journal_ready = False
+        journal_error: Exception | None = None
+        for _ in range(30):
+            try:
+                checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+                mode = conn.execute("PRAGMA journal_mode=DELETE").fetchone()
+                if (not checkpoint or int(checkpoint[0]) == 0) and mode and str(mode[0]).lower() == "delete":
+                    journal_ready = True
+                    break
+            except sqlite3.Error as exc:
+                journal_error = exc
+            time.sleep(0.25)
+        if not journal_ready:
+            raise RuntimeError(f"Could not finalise the schedule build journal: {journal_error or 'database remained busy'}")
 
     if schedule_count == 0:
         tmp_db.unlink(missing_ok=True)
@@ -368,8 +618,7 @@ def ingest_schedule_file(schedule_path: Path, store: ScheduleStore, naptan: dict
     # Replace the old database only after a successful full ingest. On Windows a
     # short-lived reader may briefly hold the old SQLite file, so retry instead
     # of destroying a good existing index.
-    for suffix in ("-wal", "-shm"):
-        Path(str(tmp_db) + suffix).unlink(missing_ok=True)
+    _remove_build_sidecars(tmp_db)
     last_error = None
     for _ in range(30):
         try:
@@ -397,12 +646,16 @@ def sync_schedule_data(username: str, password: str, data_dir: Path, *, force: b
     schedule_path = data_dir / "schedule-full.dat"
 
     # Daily schedule file; avoid a huge download on every launch.
-    if store.ready() and not force:
+    # VSTP writes short-notice schedules into the same database.  Those rows
+    # make ``ready()`` true, but they are not the national daily timetable.
+    # Only a completed full ingest writes ``last_sync``.
+    full_sync = store.last_sync()
+    if store.ready() and full_sync and not force:
         age = time.time() - store.db_path.stat().st_mtime
         if age < 20 * 3600:
             if progress:
                 progress("cached", {"schedules": store.count()})
-            return {"cached": True, "schedules": store.count(), "last_sync": store.last_sync()}
+            return {"cached": True, "schedules": store.count(), "last_sync": full_sync}
 
     # If a previous build finished downloading the large daily file but was
     # closed during indexing, reuse the complete file instead of downloading it

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#091018">
+  <title>UK Activity Radar — Privacy</title>
+  <style>
+    body{margin:0;background:#091018;color:#f6f9fb;font-family:Inter,system-ui,sans-serif}
+    main{max-width:760px;margin:auto;padding:32px 20px 60px}
+    a{color:#9bc8ff}h1{font-size:28px}h2{margin-top:28px;font-size:17px}
+    p,li{color:#b7c5d1;line-height:1.6}code{background:#14212d;padding:2px 5px;border-radius:5px}
+  </style>
+</head>
+<body>
+  <main>
+    <a href="/">← Back to radar</a>
+    <h1>Privacy &amp; product data</h1>
+    <p>UK Activity Radar v1.5.0 does not require an account for its free map. The public service is operated by <strong>{{SELLER_LEGAL_NAME}}</strong> as a WW2ModellerHub project. Privacy questions can be sent to <a href="mailto:{{SUPPORT_EMAIL_URL}}">{{SUPPORT_EMAIL}}</a>.</p>
+    <h2>Radar+ subscriptions and Stripe</h2>
+    <p>If you buy Radar+, Stripe processes the checkout and card details. UK Activity Radar stores Stripe customer and subscription identifiers, subscription status, the purchased plan and Price ID, checkout references, timestamps and—when Stripe supplies it—the billing email needed to recover access. Full card numbers and security codes are not received or stored by UK Activity Radar.</p>
+    <p>Two secure, HTTP-only cookies bind an in-progress checkout and an active subscriber session to this browser. They are used for payment integrity and access control, not advertising. Checkout state expires after about 20 minutes; browser access tokens expire and can be revoked, while essential subscription and webhook records are retained for billing, fraud prevention, support and legal accounting needs. Stripe applies its own privacy terms to data it processes.</p>
+    <h2>Optional travel alerts</h2>
+    <p>If you explicitly enable travel alerts, the service stores your browser's private push endpoint, a random device identifier, the saved alert area and travel mode. These are used only to deliver the alerts you requested. Turning alerts off deactivates that subscription. Exact push endpoints are never exposed publicly.</p>
+
+    <h2>Saved in your browser</h2>
+    <p>Map style, watch zones, followed activity IDs, discovery interests, the private Field Guide collection, mission progress and an anonymous random session token are stored in browser local storage. Live map layers start off on each launch. Watch-zone coordinates and Field Guide records stay in the browser unless you explicitly use the browser's share or copy control.</p>
+
+    <h2>Used while the map is open</h2>
+    <p>To return live activity in the area on screen, the browser sends the current map bounds, zoom and selected layer types to the service. If you choose <strong>Use my location</strong>, that location moves the map and therefore becomes part of the current map bounds. UK Activity Radar does not add those bounds or that location to the discovery record or product-analytics database. The hosting provider can still process ordinary connection data, including an IP address, for delivery, security and operational logs.</p>
+
+    <h2>Discovery claims</h2>
+    <p>When you choose to log a discovery, the browser sends the selected live activity ID to the service. The service checks that the item is fresh, live, collectible and safe, then returns a non-persistent discovery record. It does not store a user collection, precise viewing location, GPS proof or uploaded photograph. Demo, replay and active rescue/emergency records cannot unlock discoveries.</p>
+
+    <h2>Product analytics</h2>
+    <p>The supplied public Render configuration disables optional product analytics, so browser event messages are accepted as no-ops and no analytics database is created. A self-hosted operator can enable a small whitelist of pseudonymous events such as “search used” or “follow action”. Even when enabled, it stores only the random session token, event name and a coarse feature label—not search text, precise location, watch-zone coordinates, activity IDs, discovery collections, email addresses or payment information.</p>
+
+    <h2>External data and media</h2>
+    <p>The backend calls configured transport, weather and incident providers. Map tiles and live-data requests are proxied through UK Activity Radar so provider API keys stay server-side. When you open a commercially reusable Wikimedia reference image or an external source link, that provider receives normal web-request information such as your IP address and browser headers.</p>
+
+    <h2>Your choices and contact</h2>
+    <p>You can cancel renewal from the Radar+ customer portal, sign this browser out from the site, turn off travel alerts and clear local browser data. For access, correction, deletion or other privacy requests, contact <a href="mailto:{{SUPPORT_EMAIL_URL}}">{{SUPPORT_EMAIL}}</a>. Public software issues may be raised through the <a href="https://github.com/WW2ModellerHub/UK-Activity-Radar/issues" rel="noopener">UK Activity Radar GitHub issues page</a>. Public operation remains subject to the licences, attribution rules and availability of each named upstream provider.</p>
+  </main>
+</body>
+</html>

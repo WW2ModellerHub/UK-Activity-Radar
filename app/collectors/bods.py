@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 import struct
 import threading
 import time
@@ -48,6 +49,26 @@ def _parse_time(value: str | None) -> datetime:
         return datetime.now(timezone.utc)
 
 
+def _display_place_name(value: str | None) -> str | None:
+    """Turn common machine-style SIRI place labels into readable names."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    text = re.sub(r"_s(?=_|$)", "'s", text, flags=re.I)
+    text = re.sub(r"[_\s]+", " ", text).strip()
+    return text or None
+
+
+def _journey_reference(node: ET.Element) -> str | None:
+    # Publishers do not all use the same SIRI profile. DatedVehicleJourneyRef
+    # is frequently the value that corresponds to a BODS GTFS trip_id.
+    return (
+        _first_text(node, "DatedVehicleJourneyRef")
+        or _first_text(node, "VehicleJourneyRef")
+        or _first_text(node, "JourneyRef")
+    )
+
+
 def parse_siri_vm(xml_bytes: bytes) -> list[Vehicle]:
     """Parse one SIRI-VM document into common Vehicle objects."""
     root = ET.fromstring(xml_bytes)
@@ -75,10 +96,10 @@ def parse_siri_vm(xml_bytes: bytes) -> list[Vehicle]:
 
         operator = _first_text(journey, "OperatorRef") or "Unknown operator"
         line = _first_text(journey, "PublishedLineName") or _first_text(journey, "LineRef") or "Bus"
-        vehicle_ref = _first_text(journey, "VehicleRef") or item_id or _first_text(journey, "VehicleJourneyRef") or "unknown"
-        journey_ref = _first_text(journey, "VehicleJourneyRef")
-        origin = _first_text(journey, "OriginName")
-        destination = _first_text(journey, "DestinationName")
+        journey_ref = _journey_reference(journey)
+        vehicle_ref = _first_text(journey, "VehicleRef") or item_id or journey_ref or "unknown"
+        origin = _display_place_name(_first_text(journey, "OriginName"))
+        destination = _display_place_name(_first_text(journey, "DestinationName"))
         bearing = _parse_float(_first_text(journey, "Bearing"))
         velocity = _parse_float(_first_text(journey, "Velocity"))
         occupancy = _first_text(journey, "Occupancy")
@@ -153,26 +174,45 @@ def parse_siri_stop_predictions(xml_bytes: bytes) -> list[dict]:
         if journey is None:
             continue
         route = _first_text(journey, "PublishedLineName") or _first_text(journey, "LineRef")
-        destination = _first_text(journey, "DestinationName")
+        destination = _display_place_name(_first_text(journey, "DestinationName"))
         operator = _first_text(journey, "OperatorRef")
         vehicle_ref = _first_text(journey, "VehicleRef")
-        journey_ref = _first_text(journey, "VehicleJourneyRef")
+        journey_ref = _journey_reference(journey)
         for call in journey.iter():
             if _local(call.tag) not in {"MonitoredCall", "OnwardCall"}:
                 continue
             stop_ref = _first_text(call, "StopPointRef")
             if not stop_ref:
                 continue
-            expected = (_prediction_time(_first_text(call, "ExpectedArrivalTime")) or
-                        _prediction_time(_first_text(call, "ExpectedDepartureTime")) or
-                        _prediction_time(_first_text(call, "AimedArrivalTime")) or
-                        _prediction_time(_first_text(call, "AimedDepartureTime")))
+            aimed = (_prediction_time(_first_text(call, "AimedArrivalTime")) or
+                     _prediction_time(_first_text(call, "AimedDepartureTime")))
+            predicted = (_prediction_time(_first_text(call, "ExpectedArrivalTime")) or
+                         _prediction_time(_first_text(call, "ExpectedDepartureTime")))
+            expected = predicted or aimed
             if expected is None or expected < now - timedelta(minutes=2) or expected > now + timedelta(hours=3):
                 continue
+            delay_minutes = None
+            if predicted is not None and aimed is not None:
+                delay_minutes = round((predicted - aimed).total_seconds() / 60)
+            if predicted is not None:
+                if delay_minutes is None:
+                    status = "Live prediction"
+                elif delay_minutes > 0:
+                    status = f"Live • {delay_minutes} min late"
+                elif delay_minutes < 0:
+                    status = f"Live • {abs(delay_minutes)} min early"
+                else:
+                    status = "Live • on time"
+            else:
+                status = "Scheduled"
             out.append({
                 "stop_ref": stop_ref, "route": route, "destination": destination,
                 "operator": operator, "vehicle_ref": vehicle_ref, "journey_ref": journey_ref,
                 "expected": expected.isoformat(),
+                "aimed": aimed.isoformat() if aimed is not None else None,
+                "delay_minutes": delay_minutes,
+                "prediction_confidence": "operator_live" if predicted is not None else "timetable_only",
+                "status": status,
                 "minutes": max(0, int((expected-now).total_seconds()//60)),
             })
     return out

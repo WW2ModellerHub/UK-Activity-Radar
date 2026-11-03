@@ -28,6 +28,20 @@ def test_public_error_redacts_generic_key_and_authorization_values():
     assert result.startswith("RuntimeError:")
 
 
+def test_public_error_replaces_proxy_details_with_actionable_safe_copy():
+    error = requests.exceptions.ProxyError(
+        "HTTPSConnectionPool: proxy https://proxy-user:proxy-password@127.0.0.1:9 failed"
+    )
+
+    result = public_error(error)
+
+    assert result.startswith("ProxyError:")
+    assert "outbound proxy could not be reached" in result
+    assert "proxy-user" not in result
+    assert "proxy-password" not in result
+    assert "127.0.0.1" not in result
+
+
 def test_websocket_origin_must_match_request_host():
     assert same_origin_websocket("http://127.0.0.1:8000", "127.0.0.1:8000")
     assert same_origin_websocket("https://radar.example", "radar.example")
