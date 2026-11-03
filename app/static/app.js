@@ -1788,7 +1788,7 @@
       box.innerHTML=a.type==='train' ? renderRailIntelligence(detail) : renderBusIntelligence(detail);
     } catch {
       if(requestId!==intelligenceRequest || selectedId!==a.id)return;
-      box.innerHTML=`<small>${a.type==='train'?'LIVE TRAIN JOURNEY':'LIVE BUS JOURNEY'}</small><div class="transport-unavailable"><strong>Route unavailable</strong><span>The live position remains valid.</span></div>`;
+      box.innerHTML=`<small>${a.type==='train'?'LIVE TRAIN JOURNEY':'LIVE BUS JOURNEY'}</small><div class="transport-unavailable"><strong>Route details not available yet</strong><span>Live position shown on the map.</span></div>`;
     }
   }
 
@@ -1988,7 +1988,21 @@
     toast.textContent = text;
     toast.classList.remove('hidden');
     clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(()=>toast.classList.add('hidden'), 6500);
+    showToast.timer = setTimeout(()=>toast.classList.add('hidden'), 4000);
+  }
+
+  function setWorkspaceCollapsed(collapsed) {
+    const shell=$('workspace-shell'),button=$('workspace-collapse');
+    if(!shell||!button)return;
+    shell.classList.toggle('collapsed',Boolean(collapsed));
+    button.setAttribute('aria-expanded',String(!collapsed));
+    button.title=collapsed?'Open controls':'Collapse controls';
+    button.childNodes[0].nodeValue=collapsed?'›':'‹';
+    setTimeout(()=>map.invalidateSize(),190);
+  }
+
+  function collapseWorkspaceOnPhone() {
+    if(window.matchMedia('(max-width: 560px)').matches)setWorkspaceCollapsed(true);
   }
 
   function renderNearbyOverlay() {
@@ -3187,6 +3201,7 @@
       placeMode='bus';if($('place-mode'))$('place-mode').value='bus';
       enabledActivityTypes.add('bus');updateLayerToggleUi();setNearby(lat,lon,'device');
       map.setView([lat,lon],15,{animate:true});trackProduct('nearby_used','nearest-bus');
+      collapseWorkspaceOnPhone();
       try {
         const response=await fetch(`/api/places/nearest-bus?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`,{cache:'no-store'});
         const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.detail||'No nearby stop is ready');
@@ -3218,6 +3233,7 @@
       document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x.dataset.type==='cool-air'));
       setNearby(pos.coords.latitude,pos.coords.longitude,'device');
       map.setView([pos.coords.latitude,pos.coords.longitude],9,{animate:true});
+      collapseWorkspaceOnPhone();
       try{
         const response=await fetch(`/api/aircraft/nearby?lat=${encodeURIComponent(pos.coords.latitude)}&lon=${encodeURIComponent(pos.coords.longitude)}&radius_miles=50`,{cache:'no-store'});
         const payload=await response.json().catch(()=>({}));
@@ -3282,7 +3298,7 @@
   $('commute-alert-disable')?.addEventListener('click',disableCommuteAlerts);
 
   document.querySelectorAll('.workspace-tab[data-workspace]').forEach(btn=>btn.addEventListener('click',()=>activateWorkspace(btn.dataset.workspace,true)));
-  $('workspace-collapse')?.addEventListener('click',()=>{ $('workspace-shell')?.classList.toggle('collapsed'); setTimeout(()=>map.invalidateSize(),190); });
+  $('workspace-collapse')?.addEventListener('click',()=>setWorkspaceCollapsed(!$('workspace-shell')?.classList.contains('collapsed')));
   const setFocusMode=(active)=>{
     const layout=document.querySelector('.v12-layout'),button=$('focus-map');
     if(!layout||!button)return;

@@ -464,3 +464,10 @@ See `AUDIT_REPORT.md` for the prioritized remaining risks. The highest prioritie
 - Turned exact UK Train Dataset number matches into livery-themed train cards.
 - Added class, individual number, name, operator/owner, formation, depot, build year, works number, pool and preservation/storage details when present.
 - Kept TRUST headcodes and train UIDs out of rolling-stock matching so a service such as `1Z66` cannot be mistaken for a locomotive number.
+# 2026-11-03 — Mobile map controls and toast repair
+
+- Replaced the tall phone navigation rail with a compact bottom-sheet layout.
+- Collapsed location actions after use on phones so aircraft and bus results are
+  immediately visible on the map, with a small one-tap control to reopen it.
+- Fixed status toasts stretching between top and bottom edges in mobile Safari.
+- Shortened route-detail failure copy and removed the misleading validity claim.

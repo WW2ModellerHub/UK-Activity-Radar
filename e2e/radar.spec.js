@@ -778,3 +778,19 @@ test('mobile first visit can find a bus, save the stop, and reach simple alerts'
   await expect(page.locator('.alert-options')).not.toHaveAttribute('open','');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true);
 });
+
+test('mobile nearby aircraft leaves the map visible and uses a compact toast', async ({ page }) => {
+  await page.setViewportSize({ width:390, height:844 });
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
+  await page.locator('#overhead-now').click();
+  await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
+  await expect(page.locator('#watch-toast')).toContainText('positioned aircraft');
+  const toast=await page.locator('#watch-toast').boundingBox();
+  expect(toast.width).toBeLessThanOrEqual(370);
+  expect(toast.height).toBeLessThan(90);
+  const shell=await page.locator('#workspace-shell').boundingBox();
+  expect(shell.width).toBeLessThanOrEqual(50);
+  expect(shell.height).toBeLessThanOrEqual(50);
+  await page.locator('#workspace-collapse').click();
+  await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
+});
