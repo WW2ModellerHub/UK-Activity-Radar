@@ -163,6 +163,7 @@ async function installAppFixture(page) {
       if (pathname === '/api/search') {
         const q=(url.searchParams.get('q') || '').toLowerCase();
         if(q.includes('ryanair') || q.includes('ryr1yy')) return route.fulfill({json:{matches:[snapshot.activities.find(row=>row.id==='aircraft-live-3')],location:null}});
+        if(q.includes('chinook') || q.includes('shf475')) return route.fulfill({json:{matches:[snapshot.activities.find(row=>row.id==='aircraft-live-2')],location:null}});
         const match=q.includes('london')
           ? { id:'rail-station:EUS', name:'London Euston', subtitle:'Rail station • EUS', lat:51.528, lon:-0.134 }
           : { id:'rail-station:MKC', name:'Milton Keynes Central', subtitle:'Rail station • MKC', lat:52.034, lon:-0.774 };

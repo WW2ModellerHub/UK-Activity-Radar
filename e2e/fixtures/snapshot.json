@@ -40,13 +40,13 @@
       "cool_explanation": "Identified high-performance combat aircraft.", "cool_badge": "FAST JET", "cool_theme": "air", "cool_icon": "▲", "cool_candidate": true
     },
     {
-      "id": "aircraft-live-2", "kind": "vehicle", "type": "aircraft", "name": "RAF VOYAGER TARTAN21",
-      "vehicle_ref": "ZZ330", "source_id": "43C002", "aircraft_model": "Airbus Voyager KC2",
+      "id": "aircraft-live-2", "kind": "vehicle", "type": "aircraft", "name": "SHF475",
+      "vehicle_ref": "ZH900", "source_id": "43C002", "aircraft_type_code": "H47", "aircraft_model": "Boeing CH-47 Chinook",
       "status": "Airborne", "position_label": "North-west England", "lat": 54.12, "lon": -2.46,
       "speed": 360, "speed_unit": "kt", "bearing": 120, "altitude_ft": 22000,
       "position_method": "gps", "interesting": true, "last_updated": "2026-10-05T10:00:00Z",
-      "source": "Recorded ADS-B", "cool_category": "air", "cool_subtype": "military-tanker", "cool_score": 94,
-      "cool_explanation": "Identified military aerial-refuelling aircraft.", "cool_badge": "TANKER", "cool_theme": "air", "cool_icon": "▲", "cool_candidate": true
+      "source": "Recorded ADS-B", "cool_category": "air", "cool_subtype": "military-transport", "cool_score": 94,
+      "cool_explanation": "Identified military heavy-lift helicopter.", "cool_badge": "CHINOOK", "cool_theme": "air", "cool_icon": "▲", "cool_candidate": true
     },
     {
       "id": "aircraft-live-3", "kind": "vehicle", "type": "aircraft", "name": "RYR1YY",
