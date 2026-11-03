@@ -60,11 +60,13 @@ exists.
 
 ## Radar+ activation
 
-The production Blueprint now arms Radar+ with `BILLING_ENABLED=true` and a
-public price of `£3.99/month`. Billing remains fail-closed: Render cannot start
-the service until every required secret below is present and valid.
+The first production Blueprint launches with `BILLING_ENABLED=false` and keeps
+the intended public price at `£3.99/month`. This allows the real HTTPS service
+and webhook origin to be proven before Stripe is configured. Billing remains
+fail-closed: change the flag to `true` only after every required secret below is
+present and valid.
 
-Before deploying the armed profile:
+Before enabling the paid profile:
 
 1. Create one recurring Stripe Price for Radar+.
 2. Set `PUBLIC_BASE_URL` to the final HTTPS origin.

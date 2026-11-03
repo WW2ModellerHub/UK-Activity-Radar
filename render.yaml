@@ -43,7 +43,7 @@ services:
       - key: PRODUCT_ANALYTICS_ENABLED
         value: "false"
       - key: BILLING_ENABLED
-        value: "true"
+        value: "false"
       - key: RADAR_PLUS_PRICE_DISPLAY
         value: "£3.99/month"
       - key: SELLER_LEGAL_NAME
@@ -63,7 +63,7 @@ services:
       - key: PUSH_POLL_SECONDS
         value: "90"
       - key: PUBLIC_BASE_URL
-        sync: false
+        value: "https://uk-activity-radar.onrender.com"
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET

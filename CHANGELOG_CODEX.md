@@ -1,5 +1,13 @@
 # Codex stabilization changelog
 
+## 2026-11-03 — safe first Render deployment
+
+- Staged Radar+ behind `BILLING_ENABLED=false` for the first hosted launch so
+  missing Stripe credentials cannot abort application startup.
+- Pinned the confirmed first-party origin to
+  `https://uk-activity-radar.onrender.com`; Stripe remains fail-closed and is
+  enabled only after the hosted URL, product, price and webhook are tested.
+
 ## 2026-11-03 — mobile location and My Places launch flow
 
 - Removed weekly Missions from the public Discover interface and stopped the
