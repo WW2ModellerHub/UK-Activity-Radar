@@ -2820,6 +2820,8 @@
     document.querySelectorAll('.workspace-tab[data-workspace]').forEach(b=>b.classList.toggle('active',b.dataset.workspace===name));
     document.querySelectorAll('[data-workspace-panel]').forEach(p=>p.classList.toggle('active',p.dataset.workspacePanel===name));
     $('workspace-shell')?.classList.remove('collapsed');
+    const workspaceDrawer=document.querySelector('.workspace-drawer');
+    if(workspaceDrawer)workspaceDrawer.scrollTop=0;
     if (autoSelect) {
       const defaults={useful:'useful',cool:'cool',live:'useful',settings:'useful'};
       if(defaults[name]){

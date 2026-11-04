@@ -795,8 +795,13 @@ test('mobile first visit can find a bus, save the stop, and reach simple alerts'
   for (const selector of ['#near-me','#overhead-now']) {
     const box=await page.locator(selector).boundingBox();
     expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeLessThanOrEqual(66);
     expect(box.x+box.width).toBeLessThanOrEqual(390);
   }
+  const shortcutStack=await page.locator('.location-quick-actions').boundingBox();
+  expect(shortcutStack.height).toBeLessThanOrEqual(140);
+  const openWorkspace=await page.locator('#workspace-shell').boundingBox();
+  expect(openWorkspace.height).toBeLessThanOrEqual(540);
   await page.locator('#near-me').click();
   await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');
   await expect(page.locator('#detail-placeboard')).toContainText('City Centre');
