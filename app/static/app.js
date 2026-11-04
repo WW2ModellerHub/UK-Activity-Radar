@@ -103,6 +103,7 @@
   let activitiesById = new Map();
   let globalCoolActivities = [];
   let globalCoolById = new Map();
+  let globalCoolRevision = 0;
   let globalCoolRequest = 0;
   let globalCoolLoadedAt = 0;
   let globalCoolRefreshTimer = null;
@@ -280,6 +281,7 @@
     $('radar-plus-checkout')?.classList.toggle('hidden',plus||!billingState.enabled);
     $('radar-plus-portal')?.classList.toggle('hidden',!plus);
     $('radar-plus-logout')?.classList.toggle('hidden',!plus);
+    $('radar-plus-preview')?.classList.toggle('hidden',plus||!billingState.preview_available);
     const top=$('radar-plus'); if(top)top.textContent=plus?'Radar+ ✓':'Radar+';
   }
 
@@ -679,10 +681,19 @@
       licence: 'https://www.nationalarchives.gov.uk/doc/open-government-licence/version/1/',
       credit: 'Ministry of Defence / Crown copyright • OGL v1.0',
     },
+    kc135: {
+      src: '/static/assets/aircraft/kc135-usaf.jpg',
+      title: 'USAF Boeing KC-135 Stratotanker',
+      page: 'https://commons.wikimedia.org/wiki/File:2022_Milwaukee_Air_%26_Water_Show_085_(Wisconsin_Air_National_Guard_Boeing_KC-135_Stratotanker).jpg',
+      licence: 'https://creativecommons.org/licenses/by-sa/4.0/',
+      credit: 'Michael Barera • CC BY-SA 4.0 • Wikimedia Commons',
+    },
   };
 
   function aircraftTypePhoto(a) {
-    const media=AIRCRAFT_TYPE_PHOTOS[aircraftMapShape(a).kind];
+    const text=[a.aircraft_model,a.aircraft_type_code,a.subtitle,a.name].filter(Boolean).join(' ').toUpperCase();
+    const kind=/KC-?135|K35R|STRATOTANKER/.test(text)?'kc135':aircraftMapShape(a).kind;
+    const media=AIRCRAFT_TYPE_PHOTOS[kind];
     if(!media)return null;
     return {
       ...media,
@@ -796,7 +807,7 @@
       const payload=await response.json();
       if(requestId!==cameraDetailRequest || selectedId!==a.id)return;
       const camera=payload.camera;
-      if(!camera){box.innerHTML=`<div class="camera-unavailable"><strong>No verified nearby camera</strong><span>${esc(payload.note || 'No licensed mapped traffic camera was found within 25 km.')}</span></div>`;return;}
+      if(!camera){box.classList.add('hidden');box.innerHTML='';return;}
       box.innerHTML=`${cameraMediaHtml(camera)}<div class="detail-photo-copy"><strong>Nearest live camera • ${esc(camera.distance_km)} km</strong><span>${esc([camera.name,camera.view,camera.source].filter(Boolean).join(' • '))}</span><button class="mini-button show-nearest-camera" type="button">Show camera on map</button></div>`;
       box.querySelector('.show-nearest-camera')?.addEventListener('click',()=>{
         if(!cameras.some(row=>row.id===camera.id))cameras.push(camera);
@@ -804,7 +815,7 @@
       });
     } catch {
       if(requestId!==cameraDetailRequest || selectedId!==a.id)return;
-      box.innerHTML='<div class="camera-unavailable"><strong>Camera lookup unavailable</strong><span>The traffic incident remains live; no unverified camera is substituted.</span></div>';
+      box.classList.add('hidden');box.innerHTML='';
     }
   }
 
@@ -1035,7 +1046,7 @@
       status?`data-status="${esc(status)}"`:'',
       `data-activity-type="${kind==='bus'?'bus':'train'}"`,
     ].filter(Boolean).join(' ');
-    const liveHint=live?'<em class="board-live-link">View live ›</em>':(row.train_uid?'<em class="board-live-link">View route ›</em>':'');
+    const liveHint=live?'<em class="board-live-link">View live train ›</em>':(row.train_uid?'<em class="board-live-link">View route ›</em>':(kind!=='bus'&&row.headcode?'<em class="board-live-link">Find train ›</em>':''));
     return `<button type="button" class="board-row board-${kind}${serviceRef?' board-clickable':''}" ${attrs}><span class="board-time">${esc(clock || (row.minutes!=null?`${row.minutes}m`:'—'))}</span><span class="board-main"><strong>${esc(humanTransitLabel(place || row.route || row.name || 'Service'))}</strong><span>${esc([row.headcode,humanTransitLabel(row.route),humanTransitLabel(row.operator)].filter(Boolean).join(' • '))}${liveHint}</span></span><span class="board-status">${esc([status,platform].filter(Boolean).join(' • '))}</span></button>`;
   }
 
@@ -1276,8 +1287,12 @@
       const rows = Array.isArray(payload.activities) ? payload.activities : [];
       globalCoolActivities = rows;
       globalCoolById = new Map(rows.map(activity => [activity.id, activity]));
+      globalCoolRevision += 1;
+      filteredCacheKey = '';
       globalCoolLoadedAt = Date.now();
       if (currentWorkspace === 'cool') {
+        renderMap();
+        renderStats();
         renderRanking();
         renderCoolSummary();
         renderLiveTicker();
@@ -1298,6 +1313,7 @@
       : 'off';
     const cacheKey = [
       activityRevision,
+      globalCoolRevision,
       selectedType,
       selectedRailSubtype,
       searchText,
@@ -1306,7 +1322,8 @@
       [...enabledActivityTypes].sort().join(','),
     ].join('|');
     if (cacheKey === filteredCacheKey) return filteredCacheRows;
-    filteredCacheRows = activities.filter(a => {
+    const source=currentWorkspace==='cool'&&globalCoolActivities.length ? globalCoolRows() : activities;
+    filteredCacheRows = source.filter(a => {
       if (!layerTypeMatch(a, selectedType)) return false;
       if (!operatorMatches(a)) return false;
       if (!inNearby(a)) return false;
@@ -1516,7 +1533,7 @@
 
   function field(label, value) {
     if (value === undefined || value === null || value === '') return '';
-    const technical = new Set(['Source','ICAO / source ref','Latitude','Longitude','Train UID','Journey ref','Tracking','Bearing','Code','Type','Registration','MMSI','Identified as','Identity confidence','Position']);
+    const technical = new Set(['Source','ICAO / source ref','Latitude','Longitude','Train UID','Headcode','Journey ref','Tracking','Bearing','Code','Type','Registration','MMSI','Identified as','Identity confidence','Position','Operator']);
     return `<div class="detail-field${technical.has(label) ? ' is-technical' : ''}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
   }
 
@@ -1572,6 +1589,7 @@
       box.innerHTML=`<small>LIVE MANAGED SPEED</small><div class="uk-speed-roundel" aria-label="${esc(speed)} miles per hour">${esc(speed)}</div><strong>${esc([a.road,a.direction].filter(Boolean).join(' • ')||'National Highways')}</strong><span>${esc(a.reason||'Temporary speed restriction')}</span>`;
       return;
     }
+    if(a.type==='train'){box.classList.add('hidden');box.innerHTML='';return;}
     const info = currentWorkspace==='cool' ? coolInfo(a) : interestInfo(a);
     if (info.score < (currentWorkspace==='cool'?45:10)) { box.classList.add('hidden'); box.innerHTML=''; return; }
     box.classList.remove('hidden');
@@ -1705,13 +1723,11 @@
   function renderRailRun(run, index) {
     const train=run?.train && typeof run.train==='object' ? run.train : {};
     const progress=run?.progress && typeof run.progress==='object' ? run.progress : {};
-    const headcode=train.headcode || run?.headcode || train.id || run?.id || `Matched run ${index+1}`;
     const origin=providerName(run?.origin || train.origin);
     const destination=providerName(run?.destination || train.destination);
     const status=providerName(progress.type || progress.status || run?.status || train.status);
     const position=providerName(progress.location || progress.current_location || run?.current_location || run?.location);
     const next=providerName(progress.next_location || progress.next || run?.next_location);
-    const operator=providerName(train.operator || run?.operator || run?.operator_code);
     const serviceLabel=providerName(run?.service_name || run?.service_label);
     const likely=run?.likely_train && typeof run.likely_train==='object' ? run.likely_train : null;
     const power=providerName(run?.power_type);
@@ -1725,13 +1741,14 @@
       return `<li><i></i><span><strong>${esc(name || `Call ${pointIndex+1}`)}</strong><small>${esc(pointStatus)}</small></span><b>${esc(clock)}</b></li>`;
     }).filter(Boolean).join('');
     const route=origin||destination ? `${origin || 'Origin not supplied'} → ${destination || 'Destination not supplied'}` : '';
-    const pills=[serviceLabel,status,position?`At ${position}`:null,next?`Next ${next}`:null,platform?`Platform ${platform}`:null,power,bookedSpeed].filter(Boolean);
+    const pills=[status,position?`At ${position}`:null,next?`Next ${next}`:null,platform?`Platform ${platform}`:null,power,bookedSpeed].filter(Boolean);
     const hasFacts=route || pills.length || points;
-    const unknown=!route&&!points ? '<p class="transport-empty">The live railway feed identifies this special path, but has not supplied its passenger route or rolling stock.</p>' : '';
-    const identity=operator||likely ? `<div class="train-service-identity">${operator?`<small>OPERATED BY</small><strong>${esc(operator)}</strong>`:''}${likely?`<div><b>${esc(String(likely.confidence||'possible').toUpperCase())}</b><span>${esc(likely.label)}</span><p>${esc(likely.explanation)}</p></div>`:''}</div>` : '';
+    const unknown=!route&&!points ? '<p class="transport-empty">Route not published for this live service.</p>' : '';
+    const identity=likely ? `<div class="train-service-identity"><div><b>${esc(String(likely.confidence||'possible').toUpperCase())}</b><span>${esc(likely.label)}</span><p>${esc(likely.explanation)}</p></div></div>` : '';
+    const operator=providerName(train.operator || run?.operator || run?.operator_code);
     const operatorTheme=trainLiveryTheme('',operator);
     const operatorStyle=operatorTheme.key!=='reference' ? ` style="--train-primary:${operatorTheme.primary};--train-secondary:${operatorTheme.secondary};--train-accent:${operatorTheme.accent};--train-ink:${operatorTheme.ink}"` : '';
-    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}><div class="transport-run-head"><strong>${esc(headcode)}</strong>${status?`<span>${esc(status.replaceAll('_',' '))}</span>`:''}</div>${serviceLabel?`<h4>${esc(serviceLabel)}</h4>`:''}${identity}${route?`<p>${esc(route)}</p>`:''}${pills.length?`<div class="transport-facts">${pills.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points?`<ol class="transport-stops train-full-route">${points}</ol>`:''}${unknown}${!hasFacts?'<p class="transport-empty">No further live details were published.</p>':''}</article>`;
+    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${route?`<p class="transport-route"><strong>${esc(route)}</strong></p>`:''}${serviceLabel&&route?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${identity}${pills.length?`<div class="transport-facts">${pills.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points?`<ol class="transport-stops train-full-route">${points}</ol>`:''}${unknown}${!hasFacts?'<p class="transport-empty">No further journey details are available.</p>':''}</article>`;
   }
 
   function trainLiveryTheme(livery, operator) {
@@ -1802,7 +1819,7 @@
     const source=detail?.source || 'Rail data';
     const terms=detail?.terms_url ? safeUrl(detail.terms_url) : null;
     const cards=runs.slice(0,3).map(renderRailRun).join('');
-    const message=detail?.available===false ? 'The live map report remains valid, but no route was returned.' : 'No additional route was returned.';
+    const message='Live position available; route not published.';
     const stock=detail?.rolling_stock;
     const stockUrl=stock?.source_url ? safeUrl(stock.source_url) : null;
     const livery=stock?.matched ? trainLiveryStyle(stock) : null;
@@ -1814,7 +1831,7 @@
     ].filter(([,value])=>value) : [];
     const stockCard=stock?.matched ? `<article class="rolling-stock-card" data-livery-theme="${esc(livery.key)}" style="${livery.css}"><div class="rolling-stock-stripe" aria-hidden="true"><i></i><i></i><i></i></div><small>IDENTIFIED ROLLING STOCK</small><strong>${esc(stockTitle)}</strong>${stock.livery?`<b class="rolling-stock-livery">${esc(stock.livery)}</b>`:''}${stockFacts.length?`<dl>${stockFacts.map(([label,value])=>`<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`:''}<p>Reference details, not a live allocation guarantee.</p>${stockUrl?`<a target="_blank" rel="noopener" href="${esc(stockUrl)}">${esc(stock.source || 'reference source')} ↗</a>`:''}</article>` : '';
     const liveState=detail?.live_marker===false?'<p class="transport-note">Published timetable • no live map position</p>':'';
-    return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}><small>LIVE TRAIN JOURNEY</small>${stockCard}${cards || `<div class="transport-unavailable"><strong>${detail?.available===false?'Live position only':'Route not published'}</strong><span>${esc(message)}</span></div>`}${liveState}<p class="transport-source">${esc(source)}${terms?` • <a target="_blank" rel="noopener" href="${esc(terms)}">terms ↗</a>`:''}</p></div>`;
+    return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}><small>JOURNEY</small>${stockCard}${cards || `<div class="transport-unavailable"><strong>Route not published</strong><span>${esc(message)}</span></div>`}${liveState}<p class="transport-source">${esc(source)}${terms?` • <a target="_blank" rel="noopener" href="${esc(terms)}">terms ↗</a>`:''}</p></div>`;
   }
 
   function renderBusIntelligence(detail) {
@@ -2355,8 +2372,14 @@
       box.innerHTML='<div class="discovery-truth-row"><b class="identity-pill context">LIVE CONTEXT ONLY</b><span>Rescue and emergency activity is never collectible.</span></div><small>Use the official information responsibly. Never travel towards an active response.</small>';
       save.classList.add('hidden');share.classList.add('hidden');return;
     }
-    const plainIdentity=a.type==='train'&&identity.level==='type'?'Locomotive not identified':identity.label;
-    box.innerHTML=`<div class="discovery-truth-row"><b class="identity-pill ${identity.level}">${esc(plainIdentity)}</b><span>Updated ${esc(freshness)}</span></div>${a.type==='train'&&identity.level==='type'?'<small>Network Rail identifies the special service, but does not publish its locomotive or formation here.</small>':(identity.level==='type'?`<small>${esc(identity.note)}</small>`:'')}`;
+    if(a.type==='train'&&identity.level==='type'){
+      box.classList.add('hidden');box.innerHTML='';
+      save.classList.remove('hidden');share.classList.remove('hidden');
+      save.disabled=discoveryClaimPending;save.textContent=record?'Field Guide ✓':'◇ Save discovery';
+      return;
+    }
+    const plainIdentity=identity.label;
+    box.innerHTML=`<div class="discovery-truth-row"><b class="identity-pill ${identity.level}">${esc(plainIdentity)}</b><span>Updated ${esc(freshness)}</span></div>${identity.level==='type'?`<small>${esc(identity.note)}</small>`:''}`;
     save.classList.remove('hidden');share.classList.remove('hidden');
     save.disabled=discoveryClaimPending;
     save.textContent=record?'Field Guide ✓':'◇ Save discovery';
@@ -3404,6 +3427,20 @@
   $('radar-plus-checkout')?.addEventListener('click',async()=>{const button=$('radar-plus-checkout');try{button.disabled=true;button.textContent='Opening secure checkout…';const payload=await postBilling('/api/billing/checkout');location.assign(payload.checkout_url);}catch(error){showToast(error.message);}finally{button.disabled=false;button.textContent='Get Radar+';}});
   $('radar-plus-portal')?.addEventListener('click',async()=>{try{const payload=await postBilling('/api/billing/portal');location.assign(payload.portal_url);}catch(error){showToast(error.message);}});
   $('radar-plus-logout')?.addEventListener('click',async()=>{try{await fetch('/api/billing/logout',{method:'POST'});await loadBillingStatus();showToast('Radar+ access was signed out on this device.');}catch{showToast('Could not sign out right now.');}});
+  $('radar-plus-preview')?.addEventListener('submit',async event=>{
+    event.preventDefault();
+    const input=$('radar-plus-preview-code'),button=event.currentTarget.querySelector('button');
+    const code=String(input?.value||'').trim();if(!code)return;
+    try{
+      button.disabled=true;button.textContent='Checking…';
+      const response=await fetch('/api/billing/preview',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({code})});
+      const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.detail||'Preview code not recognised');
+      if(input)input.value='';await loadBillingStatus();
+      if(socket){socket.onclose=null;socket.close();}connect();
+      showToast('Radar+ preview is active on this device.');
+    }catch(error){showToast(error?.message||'Could not unlock preview access.');}
+    finally{button.disabled=false;button.textContent='Unlock';}
+  });
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstallPrompt=e; $('install-app')?.classList.remove('hidden'); trackProduct('pwa_install_prompted','pwa'); });
   $('install-app')?.addEventListener('click', async()=>{ if(!deferredInstallPrompt)return; deferredInstallPrompt.prompt(); try { await deferredInstallPrompt.userChoice; } catch {} deferredInstallPrompt=null; $('install-app')?.classList.add('hidden'); });
   window.addEventListener('appinstalled',()=>trackProduct('pwa_installed','pwa'));

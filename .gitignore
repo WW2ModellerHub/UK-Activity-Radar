@@ -6,6 +6,7 @@ node_modules/
 work/
 .pytest_cache/
 pytest-cache-files-*/
+pytest-*/
 pytest-local-turn/
 test-run-*/
 test-results/

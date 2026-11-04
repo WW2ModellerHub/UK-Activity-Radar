@@ -631,7 +631,15 @@ class NationalHighwaysCollector:
         rows = self._get("unplanned")
         if self.settings.national_highways_include_planned:
             rows.extend(self._get("planned"))
-        return list({row.id: row for row in rows}.values())
+        # The provider can return the same record in both queries. Preserve the
+        # unplanned/incident interpretation instead of letting the later
+        # planned response silently turn live incidents into roadworks.
+        by_id: dict[str, Event] = {}
+        for row in rows:
+            existing = by_id.get(row.id)
+            if existing is None or (row.type == "incident" and existing.type != "incident"):
+                by_id[row.id] = row
+        return list(by_id.values())
 
     def _run(self) -> None:
         if not self.settings.national_highways_api_key:

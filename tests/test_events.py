@@ -1,4 +1,6 @@
-from app.collectors.national_highways import parse_closure_payload
+from types import SimpleNamespace
+
+from app.collectors.national_highways import NationalHighwaysCollector, parse_closure_payload
 from app.models import Event
 from app.state import LiveState
 
@@ -77,3 +79,15 @@ def test_national_highways_layers_are_non_overlapping():
     }
     assert parse_closure_payload(record, "planned")[0].type == "road"
     assert parse_closure_payload(record, "unplanned")[0].type == "incident"
+
+
+def test_duplicate_highways_record_keeps_incident_precedence(monkeypatch):
+    incident = Event(id="nh:same", type="incident", name="Live incident", lat=52.5, lon=-1.5, source="National Highways")
+    planned = incident.model_copy(update={"type": "road", "name": "Planned closure"})
+    collector = NationalHighwaysCollector(SimpleNamespace(national_highways_include_planned=True), LiveState())
+    monkeypatch.setattr(collector, "_get", lambda kind: [incident] if kind == "unplanned" else [planned])
+
+    rows = collector.fetch_once()
+
+    assert len(rows) == 1
+    assert rows[0].type == "incident"

@@ -46,6 +46,8 @@ services:
         value: "false"
       - key: RADAR_PLUS_PRICE_DISPLAY
         value: "£3.99/month"
+      - key: RADAR_PLUS_PREVIEW_KEY
+        sync: false
       - key: SELLER_LEGAL_NAME
         sync: false
       - key: SUPPORT_EMAIL

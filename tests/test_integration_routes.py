@@ -109,3 +109,16 @@ def test_activity_intelligence_routes_require_matching_live_type(monkeypatch):
     located = main.locate_rail_service(_request(), train_uid="C12345", headcode="1A01")
     assert located["live"] is True
     assert located["activity"]["id"] == "nr:1"
+
+
+def test_launch_preview_grants_plus_without_stripe(monkeypatch):
+    code = "launch-preview-code-that-is-long-enough"
+    monkeypatch.setattr(main, "settings", _settings(radar_plus_preview_key=code))
+
+    response = main.billing_preview(main.RadarPlusPreviewIn(code=code), _request("POST"))
+    cookie = response.headers["set-cookie"]
+
+    assert response.status_code == 200
+    assert main.PREVIEW_COOKIE in cookie
+    assert "HttpOnly" in cookie
+    assert main._preview_context(main._preview_cookie_value()).plus is True

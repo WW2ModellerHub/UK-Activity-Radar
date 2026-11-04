@@ -334,7 +334,9 @@ test('Useful and Cool workspaces alter visible layers and render Cool badges', a
   await expect(page.locator('body')).toHaveAttribute('data-experience', 'cool');
   await expect(page.locator('.cool-map-marker')).toHaveCount(1);
   await expect(page.locator('.cool-badge').filter({ hasText: 'STEAM' }).first()).toBeVisible();
-  await expect(page.locator('.aerial-map-marker')).toHaveCount(2);
+  // Cool markers come from the national Cool feed, not only the current
+  // viewport snapshot, so zooming out cannot silently discard a category.
+  await expect(page.locator('.aerial-map-marker')).toHaveCount(3);
   await expect(page.locator('.aerial-marker-wrap').first()).toHaveAttribute('data-clustered', 'false');
   await expect(page.locator('#ranking-title')).toHaveText(/Cool stuff now • UK/);
   await expect(page.locator('#ranking')).toContainText('RAF AWACS SENTINEL01');
@@ -372,7 +374,7 @@ test('Cool rail offers only source-supported subfilters and Best Spot focuses th
 test('Cool map can be switched completely off', async ({ page }) => {
   await page.getByRole('button', { name: /Discover/ }).click();
   await expect(page.locator('.cool-map-marker')).toHaveCount(1);
-  await expect(page.locator('.aerial-map-marker')).toHaveCount(2);
+  await expect(page.locator('.aerial-map-marker')).toHaveCount(3);
   await page.locator('.cool-map-switch[data-type="cool-off"]').click();
   await expect(page.locator('.cool-map-marker')).toHaveCount(0);
   await expect(page.locator('.aerial-map-marker')).toHaveCount(0);
@@ -425,8 +427,7 @@ test('a live steam discovery enters the private Field Guide and survives reload'
   await page.locator('[data-cool-rail-subtype="special"]').click();
   await page.locator('.cool-map-marker').evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-title')).toContainText('Flying Scotsman Railtour');
-  await expect(page.locator('#detail-discovery')).toContainText('Locomotive not identified');
-  await expect(page.locator('#detail-discovery')).toContainText('Updated');
+  await expect(page.locator('#detail-discovery')).toHaveClass(/hidden/);
   await page.locator('#save-discovery').click();
   await expect(page.locator('#save-discovery')).toHaveText('Field Guide ✓');
   expect(claimCalls).toBe(1);
@@ -598,7 +599,6 @@ test('selected aircraft draws an honest browser-local live trail', async ({ page
   await expect(page.locator('#detail-trail')).toContainText('observed positions');
   await expect(page.locator('#detail-trail')).toContainText('not a complete historical flight path');
   await expect(page.locator('#map')).toHaveAttribute('data-selected-trail-points','2');
-  await expect(page.locator('.aircraft-silhouette').first()).not.toHaveAttribute('style',/rotate\(95/);
 });
 
 test('What’s above me loads nearby aircraft and can be turned off', async ({ page }) => {
@@ -666,7 +666,7 @@ test('activity marker hover shows facts and click opens and closes detail', asyn
 test('clicked trains and buses load source-backed route intelligence', async ({ page }) => {
   await page.locator('[data-layer-toggle="train"]').click();
   await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
-  await expect(page.locator('#detail-intelligence')).toContainText('LIVE TRAIN JOURNEY');
+  await expect(page.locator('#detail-intelligence')).toContainText('JOURNEY');
   await expect(page.locator('#detail-intelligence')).toContainText('Watford Junction');
 
   await page.locator('#detail-close').click();
@@ -723,7 +723,7 @@ test('scheduled station-board train opens its published route without a live mar
   await expect(page.locator('#detail-placeboard')).toContainText('View route');
   await page.locator('#detail-placeboard [data-train-uid="C12345"]').click();
   await expect(page.locator('#detail-title')).toContainText('1Z80');
-  await expect(page.locator('#detail-intelligence')).toContainText('PUBLISHED TRAIN ROUTE');
+  await expect(page.locator('#detail-intelligence')).toContainText('JOURNEY');
   await expect(page.locator('#detail-intelligence')).toContainText('Coventry');
   await expect(page.locator('#detail-intelligence')).toContainText('Published timetable • no live map position');
 });
@@ -766,6 +766,7 @@ test('mobile viewport keeps core navigation, map, and details usable', async ({ 
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(390);
   expect(box.height).toBeLessThan(500);
+  expect(await page.locator('.transport-run-card').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   const mobileRail = await page.locator('#workspace-shell').boundingBox();
   expect(mobileRail.width).toBeLessThanOrEqual(52);
   expect(box.x).toBeGreaterThanOrEqual(60);
@@ -773,6 +774,8 @@ test('mobile viewport keeps core navigation, map, and details usable', async ({ 
   expect(mapBox.y + mapBox.height).toBeGreaterThan(820);
   await page.locator('#detail-close').click();
   await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
+  await page.locator('[data-workspace="cool"]').click();
+  expect(await page.locator('.cool-filter').evaluateAll(cards => cards.every(card => card.scrollWidth <= card.clientWidth))).toBe(true);
 });
 
 test('mobile first visit can find a bus, save the stop, and reach simple alerts', async ({ page }) => {

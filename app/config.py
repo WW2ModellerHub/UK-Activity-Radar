@@ -66,6 +66,10 @@ class Settings:
     billing_token_pepper: str = os.getenv("BILLING_TOKEN_PEPPER", "").strip()
     billing_cookie_secure: bool = _bool("BILLING_COOKIE_SECURE", True)
     radar_plus_price_display: str = os.getenv("RADAR_PLUS_PRICE_DISPLAY", "£3.99/month").strip()
+    # A strong, private launch-preview code can grant this browser Radar+
+    # without creating a Stripe customer. It is deliberately separate from
+    # billing and should be removed once launch testing is complete.
+    radar_plus_preview_key: str = os.getenv("RADAR_PLUS_PREVIEW_KEY", "").strip()
     seller_legal_name: str = os.getenv("SELLER_LEGAL_NAME", "").strip()
     support_email: str = os.getenv("SUPPORT_EMAIL", "").strip()
     min_free_disk_mb: int = max(256, int(os.getenv("MIN_FREE_DISK_MB", "1024")))

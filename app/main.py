@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import math
 import os
@@ -106,6 +107,7 @@ UK_TRAIN_DATASET = BASE_DIR / "app" / "vendor" / "uk_train_dataset" / "trains.cs
 APP_VERSION = "1.5.0"
 ACCESS_COOKIE = "__Host-radar_access"
 CHECKOUT_COOKIE = "__Host-radar_checkout"
+PREVIEW_COOKIE = "__Host-radar_preview"
 
 schedules = ScheduleStore(SCHEDULE_DB)
 train_reference = UKTrainReference(UK_TRAIN_DATASET)
@@ -173,6 +175,10 @@ class ProductEventIn(BaseModel):
 
 class DiscoveryClaimIn(BaseModel):
     activity_id: str
+
+
+class RadarPlusPreviewIn(BaseModel):
+    code: str
 
 
 class JourneyPlanIn(BaseModel):
@@ -859,9 +865,30 @@ def _billing_context(request: Request) -> AccessContext:
             subscription_status="active",
             features=PLUS_FEATURES,
         )
+    preview = _preview_context(request.cookies.get(PREVIEW_COOKIE))
+    if preview.plus:
+        return preview
     if billing_store is None:
         return AccessContext()
     return billing_store.access_context(request.cookies.get(ACCESS_COOKIE))
+
+
+def _preview_cookie_value() -> str:
+    secret = settings.radar_plus_preview_key
+    return hmac.new(secret.encode("utf-8"), b"radar-plus-launch-preview", hashlib.sha256).hexdigest() if secret else ""
+
+
+def _preview_context(cookie: str | None) -> AccessContext:
+    expected = _preview_cookie_value()
+    if not expected or not cookie or not hmac.compare_digest(cookie, expected):
+        return AccessContext()
+    return AccessContext(
+        token_valid=True,
+        customer_id="launch-preview",
+        plan="plus",
+        subscription_status="active",
+        features=PLUS_FEATURES,
+    )
 
 
 def _require_plus(request: Request, feature: str) -> AccessContext:
@@ -937,9 +964,32 @@ def billing_status(request: Request, response: Response):
         "subscription_status": context.subscription_status,
         "features": sorted(context.features),
         "price_display": settings.radar_plus_price_display,
+        "preview_available": len(settings.radar_plus_preview_key) >= 24,
         "free_features": ["live_map", "core_layers", "basic_cool", "field_guide", "basic_my_radar"],
         "plus_features": sorted(PLUS_FEATURES),
     }
+
+
+@app.post("/api/billing/preview")
+def billing_preview(payload: RadarPlusPreviewIn, request: Request):
+    """Grant an HTTP-only owner preview cookie without requiring Stripe."""
+    _require_same_origin_post(request)
+    _enforce_public_budget(request, lookup_request_budget)
+    secret = settings.radar_plus_preview_key
+    if len(secret) < 24 or not hmac.compare_digest(payload.code.strip(), secret):
+        raise HTTPException(status_code=403, detail="Preview code not recognised")
+    response = JSONResponse({"ok": True, "plus": True})
+    response.set_cookie(
+        PREVIEW_COOKIE,
+        _preview_cookie_value(),
+        max_age=60 * 60 * 24 * 14,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @app.get("/api/alerts/status")
@@ -1048,6 +1098,7 @@ def billing_logout(request: Request):
         billing_store.revoke_access_token(token)
     response = Response(status_code=204)
     response.delete_cookie(ACCESS_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+    response.delete_cookie(PREVIEW_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
     response.headers["Cache-Control"] = "private, no-store"
     return response
 
@@ -1639,7 +1690,6 @@ def rail_schedule(request: Request, train_uid: str, headcode: str | None = None)
 def locate_rail_service(request: Request, train_uid: str | None = None, headcode: str | None = None):
     """Locate a station-board service even when its layer is not streamed."""
     _enforce_public_budget(request, lookup_request_budget)
-    _require_plus(request, "advanced_transport")
     if smart_places is None:
         raise HTTPException(status_code=503, detail="Rail intelligence is not ready")
     item = smart_places.locate_live_train(headcode, train_uid)
@@ -1822,6 +1872,8 @@ async def websocket_updates(websocket: WebSocket):
             token_valid=True, customer_id="local-development", plan="plus",
             subscription_status="active", features=PLUS_FEATURES,
         )
+    elif _preview_context(websocket.cookies.get(PREVIEW_COOKIE)).plus:
+        websocket_access = _preview_context(websocket.cookies.get(PREVIEW_COOKIE))
     elif billing_store is not None:
         websocket_access = billing_store.access_context(websocket.cookies.get(ACCESS_COOKIE))
     else:

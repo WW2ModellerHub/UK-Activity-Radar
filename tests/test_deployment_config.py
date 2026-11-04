@@ -111,7 +111,7 @@ def test_basic_train_route_details_are_not_hidden_behind_subscription():
     assert '_require_plus(request, "advanced_transport")' not in activity_route
     assert '_require_plus(request, "advanced_transport")' not in schedule_route
     locate_route = source[source.index("def locate_rail_service("):source.index("def activity_bus(")]
-    assert '_require_plus(request, "advanced_transport")' in locate_route
+    assert '_require_plus(request, "advanced_transport")' not in locate_route
     bus_route = source[source.index("def activity_bus("):source.index("def activity_detail(")]
     assert '_require_plus(request, "advanced_transport")' not in bus_route
 
