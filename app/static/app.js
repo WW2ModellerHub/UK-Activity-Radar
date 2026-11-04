@@ -27,7 +27,9 @@
   async function configureBaseMap() {
     let config=null;
     try {
-      const response=await fetch('/api/map/config',{cache:'force-cache'});
+      // Map provider credentials can be enabled after a deployment. Never keep
+      // the earlier "not configured" response in a visitor's browser cache.
+      const response=await fetch('/api/map/config',{cache:'no-store'});
       if(response.ok)config=await response.json();
     } catch {}
     tileSets.standard=baseTileLayer(config);

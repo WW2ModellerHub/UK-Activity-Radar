@@ -193,10 +193,10 @@ def test_long_lived_service_rechecks_schedule_and_reference_data():
 def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
-    assert "/static/styles.css?v=15123" in index
-    assert "/static/app.js?v=15123" in index
+    assert "/static/styles.css?v=15124" in index
+    assert "/static/app.js?v=15124" in index
     assert "NETWORK_FIRST_ASSETS" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r23" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r24" in worker
 
 
 def test_paid_transport_detail_is_labelled_as_radar_plus():
@@ -204,3 +204,12 @@ def test_paid_transport_detail_is_labelled_as_radar_plus():
 
     assert "response.status===402" in app_js
     assert "Available with Radar+" in app_js
+
+
+def test_map_provider_configuration_cannot_pin_the_old_fallback_in_cache():
+    app_js = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+    main = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
+    map_route = main[main.index("def map_config("):main.index("def map_tile(")]
+
+    assert "fetch('/api/map/config',{cache:'no-store'})" in app_js
+    assert '"Cache-Control": "no-store"' in map_route

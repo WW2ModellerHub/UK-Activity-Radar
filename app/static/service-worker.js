@@ -1,5 +1,5 @@
-const CACHE = 'uk-activity-radar-shell-v1.5.0-r23';
-const SHELL = ['/', '/terms', '/privacy', '/data-licences', '/static/styles.css?v=15123', '/static/refinements.css?v=15123', '/static/app.js?v=15123', '/static/assets/aircraft/chinook-raf.jpg', '/static/assets/aircraft/apache-army.jpg', '/static/share.html', '/static/share.css', '/static/share.js', '/static/legal.css', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png'];
+const CACHE = 'uk-activity-radar-shell-v1.5.0-r24';
+const SHELL = ['/', '/terms', '/privacy', '/data-licences', '/static/styles.css?v=15124', '/static/refinements.css?v=15124', '/static/app.js?v=15124', '/static/assets/aircraft/chinook-raf.jpg', '/static/assets/aircraft/apache-army.jpg', '/static/share.html', '/static/share.css', '/static/share.js', '/static/legal.css', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png'];
 const NETWORK_FIRST_ASSETS = new Set(['/static/styles.css', '/static/refinements.css', '/static/movement-history.css', '/static/app.js', '/static/movement-history.js']);
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).catch(() => null));

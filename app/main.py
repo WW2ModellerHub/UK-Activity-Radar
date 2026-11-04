@@ -1453,7 +1453,9 @@ def map_config():
         ),
         "message": None if configured else "Add MAPBOX_PUBLIC_TOKEN to enable the commercial basemap.",
     }
-    return JSONResponse(payload, headers={"Cache-Control": "public, max-age=300"})
+    # A visitor may have opened the site before the production token was added.
+    # Prevent that old fallback configuration from pinning them to TomTom.
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/map/tile/{z}/{x}/{y}.png")
