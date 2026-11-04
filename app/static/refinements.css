@@ -2,7 +2,7 @@
 .workspace-drawer{font-size:11px}.workspace-drawer p,.workspace-drawer small{line-height:1.4}
 .workspace-drawer .left-empty,.workspace-drawer .my-radar-empty{font-size:10px;line-height:1.45}
 .workspace-drawer button,.workspace-drawer select,.workspace-drawer input{font-family:inherit}
-.workspace-head h2,.experience-hero h2{font-size:17px;line-height:1.18}.workspace-head p,.experience-hero p{font-size:10px;line-height:1.45}
+.workspace-head h2,.experience-hero h1,.experience-hero h2{font-size:17px;line-height:1.18}.workspace-head p,.experience-hero p{font-size:10px;line-height:1.45}
 .cool-filter-grid{grid-template-columns:1fr 1fr}.cool-filter:first-child{grid-column:1/-1}.cool-off-filter{grid-column:1/-1;min-height:44px!important}.cool-filter-icon.off{color:#a9b6bf;background:rgba(255,255,255,.055)}
 .v12-leftbar .cool-rank-item{grid-template-columns:minmax(0,1fr) auto!important;grid-template-rows:auto auto;gap:6px 8px;align-items:start;min-height:68px;padding:9px}
 .cool-rank-item>.cool-badge{grid-column:1;grid-row:1;max-width:max-content}.cool-rank-item>.rank-copy{grid-column:1/-1;grid-row:2;min-width:0}.cool-rank-item>.rank-count{grid-column:2;grid-row:1;align-self:center;font-size:8px}

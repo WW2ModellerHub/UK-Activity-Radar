@@ -53,6 +53,11 @@ class Settings:
     # deployments should leave this disabled until there is an explicit consent
     # flow and a protected operator-only reporting path.
     product_analytics_enabled: bool = _bool("PRODUCT_ANALYTICS_ENABLED", False)
+    # Optional public search/measurement integrations. GA4 remains fail-closed
+    # and the browser does not load Google's tag until the visitor consents.
+    google_site_verification: str = os.getenv("GOOGLE_SITE_VERIFICATION", "").strip()
+    ga4_enabled: bool = _bool("GA4_ENABLED", False)
+    ga4_measurement_id: str = os.getenv("GA4_MEASUREMENT_ID", "").strip().upper()
     websocket_refresh_seconds: float = max(0.5, float(os.getenv("WEBSOCKET_REFRESH_SECONDS", "1.0")))
 
     # Radar+ is fail-closed. Enabling it without every required Stripe secret,

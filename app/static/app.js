@@ -255,7 +255,57 @@
     if (s < 3600) return `${Math.floor(s/60)}m ago`;
     return `${Math.floor(s/3600)}h ago`;
   };
+  const analyticsConsentKey='ukRadarAnalyticsConsentV1';
+  const ga4MeasurementId=String(document.body?.dataset.ga4MeasurementId||'').trim().toUpperCase();
+  const ga4Configured=/^G-[A-Z0-9]{6,20}$/.test(ga4MeasurementId);
+  let ga4Loaded=false;
+
+  function loadGoogleAnalytics() {
+    if(!ga4Configured||ga4Loaded)return;
+    ga4Loaded=true;
+    window.dataLayer=window.dataLayer||[];
+    window.gtag=window.gtag||function(){window.dataLayer.push(arguments);};
+    window.gtag('js',new Date());
+    window.gtag('config',ga4MeasurementId,{
+      anonymize_ip:true,
+      allow_google_signals:false,
+      allow_ad_personalization_signals:false,
+    });
+    const script=document.createElement('script');
+    script.async=true;
+    script.src=`https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(ga4MeasurementId)}`;
+    document.head.appendChild(script);
+  }
+
+  function analyticsChoice() {
+    try{return localStorage.getItem(analyticsConsentKey)||'';}catch{return '';}
+  }
+
+  function setAnalyticsChoice(choice) {
+    try{localStorage.setItem(analyticsConsentKey,choice);}catch{}
+    $('analytics-consent')?.classList.add('hidden');
+    if(choice==='granted')loadGoogleAnalytics();
+    else if(typeof window.gtag==='function'){
+      window.gtag('consent','update',{analytics_storage:'denied'});
+      document.cookie.split(';').map(row=>row.trim().split('=')[0]).filter(name=>name.startsWith('_ga')).forEach(name=>{document.cookie=`${name}=; Max-Age=0; path=/; SameSite=Lax`;});
+    }
+  }
+
+  function initAnalyticsConsent() {
+    if(!ga4Configured)return;
+    $('analytics-preferences')?.classList.remove('hidden');
+    const choice=analyticsChoice();
+    if(choice==='granted')loadGoogleAnalytics();
+    else if(choice!=='denied')$('analytics-consent')?.classList.remove('hidden');
+    $('analytics-accept')?.addEventListener('click',()=>setAnalyticsChoice('granted'));
+    $('analytics-decline')?.addEventListener('click',()=>setAnalyticsChoice('denied'));
+    $('analytics-settings')?.addEventListener('click',()=>$('analytics-consent')?.classList.remove('hidden'));
+  }
+
   async function trackProduct(eventName, feature='') {
+    if(analyticsChoice()==='granted'&&typeof window.gtag==='function'){
+      window.gtag('event',eventName,{feature_label:String(feature||'').slice(0,64),event_category:'product'});
+    }
     try {
       await fetch('/api/product/event', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,event_name:eventName,feature})});
     } catch {}
@@ -3564,6 +3614,7 @@
   $('install-app')?.addEventListener('click', async()=>{ if(!deferredInstallPrompt)return; deferredInstallPrompt.prompt(); try { await deferredInstallPrompt.userChoice; } catch {} deferredInstallPrompt=null; $('install-app')?.classList.add('hidden'); });
   window.addEventListener('appinstalled',()=>trackProduct('pwa_installed','pwa'));
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/service-worker.js').catch(()=>{});
+  initAnalyticsConsent();
   trackProduct('app_open','web');
 
   loadFollowed();

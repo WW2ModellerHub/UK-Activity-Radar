@@ -6,6 +6,7 @@ import hmac
 import json
 import math
 import os
+import re
 import shutil
 import time
 
@@ -13,7 +14,7 @@ import requests
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from datetime import datetime, timezone
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from html import escape as html_escape
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -806,6 +807,36 @@ app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+def _valid_ga4_measurement_id(value: str) -> bool:
+    return bool(re.fullmatch(r"G-[A-Z0-9]{6,20}", value or ""))
+
+
+def _site_origin(request: Request | None = None) -> str:
+    configured = getattr(settings, "public_base_url", "").strip().rstrip("/")
+    parsed = urlsplit(configured)
+    if parsed.scheme in {"http", "https"} and parsed.netloc and not parsed.path:
+        return configured
+    if request is not None:
+        return str(request.base_url).rstrip("/")
+    return "https://uk-activity-radar.onrender.com"
+
+
+def _render_public_html(filename: str, request: Request) -> Response:
+    page = (STATIC_DIR / filename).read_text(encoding="utf-8")
+    origin = _site_origin(request)
+    verification = getattr(settings, "google_site_verification", "").strip()
+    measurement_id = getattr(settings, "ga4_measurement_id", "").strip().upper()
+    ga4_active = bool(getattr(settings, "ga4_enabled", False) and _valid_ga4_measurement_id(measurement_id))
+    verification_meta = (
+        f'<meta name="google-site-verification" content="{html_escape(verification, quote=True)}">'
+        if verification else ""
+    )
+    page = page.replace("{{PUBLIC_BASE_URL}}", html_escape(origin, quote=True))
+    page = page.replace("{{GOOGLE_SITE_VERIFICATION_META}}", verification_meta)
+    page = page.replace("{{GA4_MEASUREMENT_ID}}", html_escape(measurement_id, quote=True) if ga4_active else "")
+    return Response(page, media_type="text/html", headers={"Cache-Control": "no-cache"})
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -817,10 +848,16 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
     if settings.public_deployment:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        ga4_active = bool(
+            getattr(settings, "ga4_enabled", False)
+            and _valid_ga4_measurement_id(getattr(settings, "ga4_measurement_id", ""))
+        )
+        script_sources = "'self' https://www.googletagmanager.com" if ga4_active else "'self'"
+        connect_sources = "'self' wss: https://www.google-analytics.com https://region1.google-analytics.com" if ga4_active else "'self' wss:"
         response.headers.setdefault(
             "Content-Security-Policy",
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: https:; media-src 'self' https:; connect-src 'self' wss:; "
+            f"default-src 'self'; script-src {script_sources}; style-src 'self' 'unsafe-inline'; "
+            f"img-src 'self' data: https:; media-src 'self' https:; connect-src {connect_sources}; "
             "font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
         )
     path = request.url.path
@@ -828,6 +865,9 @@ async def security_headers(request: Request, call_next):
         # Live positions, entitlements and account state must never be cached by
         # a shared proxy. Tile routes set their own safe public cache policy.
         response.headers.setdefault("Cache-Control", "private, no-store")
+        response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
+    elif path.startswith("/live/") or path.startswith("/billing/"):
+        response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
     elif path.startswith("/static/"):
         if path.endswith((".png", ".ico", ".webp", ".woff2")) or "/vendor/" in path:
             response.headers.setdefault("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
@@ -914,22 +954,51 @@ def _require_same_origin_post(request: Request) -> None:
 
 
 @app.get("/", include_in_schema=False)
-def home():
-    return FileResponse(STATIC_DIR / "index.html")
+def home(request: Request):
+    return _render_public_html("index.html", request)
+
+
+@app.get("/about", include_in_schema=False)
+def about(request: Request):
+    return _render_public_html("about.html", request)
+
+
+@app.get("/robots.txt", include_in_schema=False)
+def robots(request: Request):
+    origin = _site_origin(request)
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /api/\n"
+        "Disallow: /billing/\n"
+        "Disallow: /live/\n"
+        f"Sitemap: {origin}/sitemap.xml\n"
+    )
+    return Response(body, media_type="text/plain", headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+def sitemap(request: Request):
+    origin = html_escape(_site_origin(request), quote=True)
+    urls = ("/", "/about", "/privacy", "/terms", "/data-licences")
+    entries = "".join(f"<url><loc>{origin}{path}</loc></url>" for path in urls)
+    body = f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{entries}</urlset>'
+    return Response(body, media_type="application/xml", headers={"Cache-Control": "public, max-age=3600"})
 
 
 @app.get("/data-licences", include_in_schema=False)
-def data_licences():
-    return FileResponse(STATIC_DIR / "data-licences.html")
+def data_licences(request: Request):
+    return _render_public_html("data-licences.html", request)
 
 
-def _legal_page(filename: str) -> Response:
+def _legal_page(filename: str, request: Request) -> Response:
     page = (LEGAL_DIR / filename).read_text(encoding="utf-8")
     seller = settings.seller_legal_name or "Seller details pending"
     email = settings.support_email or "Support contact pending"
     page = page.replace("{{SELLER_LEGAL_NAME}}", html_escape(seller))
     page = page.replace("{{SUPPORT_EMAIL}}", html_escape(email))
     page = page.replace("{{SUPPORT_EMAIL_URL}}", quote(email, safe="@.+-_"))
+    page = page.replace("{{PUBLIC_BASE_URL}}", html_escape(_site_origin(request), quote=True))
     return Response(
         page,
         media_type="text/html",
@@ -938,13 +1007,13 @@ def _legal_page(filename: str) -> Response:
 
 
 @app.get("/terms", include_in_schema=False)
-def service_terms():
-    return _legal_page("terms.html")
+def service_terms(request: Request):
+    return _legal_page("terms.html", request)
 
 
 @app.get("/privacy", include_in_schema=False)
-def privacy_notice():
-    return _legal_page("privacy.html")
+def privacy_notice(request: Request):
+    return _legal_page("privacy.html", request)
 
 
 @app.get("/live/{activity_id:path}", include_in_schema=False)

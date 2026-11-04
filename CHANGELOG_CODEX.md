@@ -1,5 +1,18 @@
 # Codex stabilization changelog
 
+## 2026-11-04 — technical SEO and consent-gated site analytics
+
+- Added canonical, description, social-card and WebSite/WebApplication
+  structured metadata to the public radar.
+- Added a crawlable About page, XML sitemap and robots policy while keeping
+  private API, billing and temporary shared-live URLs out of search results.
+- Added environment-driven Search Console verification.
+- Added optional GA4 measurement that remains completely unloaded until a
+  visitor explicitly opts in, with a persistent decline choice and a control
+  to revisit the decision from Network settings.
+- Updated the privacy notice and deployment guide for Search Console, sitemap
+  submission, GA4 configuration and consent verification.
+
 ## 2026-11-04 — distinct aircraft and bus-stop map symbols
 
 - Replaced the shared aircraft outline with recognisable top-down airliner,

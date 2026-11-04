@@ -42,6 +42,12 @@ services:
         value: "300"
       - key: PRODUCT_ANALYTICS_ENABLED
         value: "false"
+      - key: GOOGLE_SITE_VERIFICATION
+        sync: false
+      - key: GA4_ENABLED
+        value: "false"
+      - key: GA4_MEASUREMENT_ID
+        sync: false
       - key: BILLING_ENABLED
         value: "false"
       - key: RADAR_PLUS_PRICE_DISPLAY

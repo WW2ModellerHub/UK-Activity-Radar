@@ -165,6 +165,29 @@ Readiness exposes only aggregate quota counters, disk capacity and redacted
 source health. It never returns client addresses, API credentials, billing
 tokens or Stripe secrets.
 
+## Google Search and consent-gated analytics
+
+The public service exposes `/robots.txt`, `/sitemap.xml`, canonical links,
+social metadata, structured data and a crawlable `/about` page. After the final
+domain is stable:
+
+1. Add the HTTPS URL-prefix property in Google Search Console.
+2. Choose HTML-tag verification and copy only the token from the tag into the
+   Render environment variable `GOOGLE_SITE_VERIFICATION`, then redeploy and
+   click Verify.
+3. Submit `https://your-domain/sitemap.xml` in Search Console and inspect `/`
+   and `/about`. A sitemap helps discovery but does not guarantee rankings.
+4. In Google Analytics, create a GA4 web stream. Put its public `G-...` ID in
+   `GA4_MEASUREMENT_ID`, set `GA4_ENABLED=true`, and redeploy.
+5. Test both choices in a private browser window. No request to
+   `googletagmanager.com` may occur before **Allow analytics** is clicked.
+   Visitors can change the choice under Network → Site analytics.
+
+Search Console and GA4 identifiers are public integration identifiers, not API
+secrets, but they remain deployment configuration so one checkout cannot
+silently send measurement to another operator's property. Do not enable GA4
+without preserving the consent control and current privacy notice.
+
 ## Commercial-source policy
 
 The live `/data-licences` register is the operational source of attributions.

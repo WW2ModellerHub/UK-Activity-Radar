@@ -99,6 +99,15 @@ def test_product_analytics_is_opt_in_by_default(monkeypatch):
     assert Settings().product_analytics_enabled is False
 
 
+def test_google_analytics_is_consent_gated_and_opt_in_by_default(monkeypatch):
+    monkeypatch.delenv("GA4_ENABLED", raising=False)
+    assert Settings().ga4_enabled is False
+    source = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+    assert "loadGoogleAnalytics" in source
+    assert "analyticsChoice()==='granted'" in source
+    assert "googletagmanager.com/gtag/js" in source
+
+
 def test_public_deployment_mode_is_opt_in_for_local_installs(monkeypatch):
     monkeypatch.delenv("PUBLIC_DEPLOYMENT", raising=False)
     assert Settings().public_deployment is False
@@ -193,10 +202,10 @@ def test_long_lived_service_rechecks_schedule_and_reference_data():
 def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
-    assert "/static/styles.css?v=15133" in index
-    assert "/static/app.js?v=15133" in index
+    assert "/static/styles.css?v=15134" in index
+    assert "/static/app.js?v=15134" in index
     assert "NETWORK_FIRST_ASSETS" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r33" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r34" in worker
 
 
 def test_paid_transport_detail_is_labelled_as_radar_plus():

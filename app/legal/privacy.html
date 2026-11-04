@@ -1,10 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-GB">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#091018">
   <title>UK Activity Radar — Privacy</title>
+  <meta name="description" content="How UK Activity Radar handles map activity, saved places, optional analytics, alerts and Radar+ billing data.">
+  <link rel="canonical" href="{{PUBLIC_BASE_URL}}/privacy">
   <style>
     body{margin:0;background:#091018;color:#f6f9fb;font-family:Inter,system-ui,sans-serif}
     main{max-width:760px;margin:auto;padding:32px 20px 60px}
@@ -33,7 +35,7 @@
     <p>When you choose to log a discovery, the browser sends the selected live activity ID to the service. The service checks that the item is fresh, live, collectible and safe, then returns a non-persistent discovery record. It does not store a user collection, precise viewing location, GPS proof or uploaded photograph. Demo, replay and active rescue/emergency records cannot unlock discoveries.</p>
 
     <h2>Product analytics</h2>
-    <p>The supplied public Render configuration disables optional product analytics, so browser event messages are accepted as no-ops and no analytics database is created. A self-hosted operator can enable a small whitelist of pseudonymous events such as “search used” or “follow action”. Even when enabled, it stores only the random session token, event name and a coarse feature label—not search text, precise location, watch-zone coordinates, activity IDs, discovery collections, email addresses or payment information.</p>
+    <p>The site's small first-party product-event store is disabled on the supplied public Render configuration, so those event messages are accepted as no-ops and no product-analytics database is created. Google Analytics may be configured separately to measure page visits and coarse feature use. Google's tag is not loaded until you choose <strong>Allow analytics</strong>; declining sends nothing to Google. Analytics never receives search text, precise location, watch-zone coordinates, activity IDs, discovery collections, email addresses or payment information. Your choice is stored in this browser and can be changed from <strong>Network → Site analytics</strong>.</p>
 
     <h2>External data and media</h2>
     <p>The backend calls configured transport, weather and incident providers. Map tiles and live-data requests are proxied through UK Activity Radar so provider API keys stay server-side. When you open a commercially reusable Wikimedia reference image or an external source link, that provider receives normal web-request information such as your IP address and browser headers.</p>
