@@ -1554,7 +1554,8 @@ def traffic_tile(request: Request, z: int, x: int, y: int, style: str = "relativ
 @app.get("/api/traffic/incidents/tile/{z}/{x}/{y}.png")
 def traffic_incident_tile(request: Request, z: int, x: int, y: int):
     _enforce_public_budget(request, tile_request_budget)
-    _require_plus(request, "traffic_pro")
+    # Current incident awareness is a core safety layer. Radar+ continues to
+    # unlock flow speeds, delay inspection and the combined traffic view.
     if traffic_flow_service is None or not traffic_flow_service.ready:
         raise HTTPException(status_code=503, detail="Live traffic incidents are not configured. Run configure_traffic.bat.")
     try:
@@ -1631,7 +1632,10 @@ def nearest_camera(request: Request, lat: float, lon: float, max_km: float = 25.
 @app.get("/api/activity/{activity_id:path}/media")
 def activity_media(request: Request, activity_id: str):
     _enforce_public_budget(request, lookup_request_budget)
-    _require_plus(request, "advanced_identity")
+    # A photograph is part of the core identification experience, not an
+    # advanced-analysis feature. Keep the lookup rate limited, but available
+    # to every visitor so the detail panel never turns into a paywall-shaped
+    # blank space.
     item = state.get(activity_id)
     if not item:
         raise HTTPException(status_code=404, detail="Activity not found")

@@ -333,6 +333,7 @@ test('Useful and Cool workspaces alter visible layers and render Cool badges', a
   await page.getByRole('button', { name: /Discover/ }).click();
   await expect(page.locator('body')).toHaveAttribute('data-experience', 'cool');
   await expect(page.locator('.cool-map-marker')).toHaveCount(1);
+  await expect(page.locator('.cool-marker-wrap').first()).toHaveAttribute('data-clustered','false');
   await expect(page.locator('.cool-badge').filter({ hasText: 'STEAM' }).first()).toBeVisible();
   // Cool markers come from the national Cool feed, not only the current
   // viewport snapshot, so zooming out cannot silently discard a category.
@@ -577,6 +578,8 @@ test('known military helicopters show a bundled real photograph when live image 
   await page.locator('[data-layer-toggle="aircraft"]').click();
   const marker=page.locator('.aircraft-shape-chinook').first();
   await expect(marker).toBeVisible();
+  await expect(marker.locator('.rotorcraft-glyph')).toContainText('🚁');
+  await expect(marker.locator('svg')).toHaveCount(0);
   await marker.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-photo img')).toHaveAttribute('src','/static/assets/aircraft/chinook-raf.jpg');
   await expect(page.locator('#detail-photo')).toContainText('Reference photo of this aircraft type');
@@ -753,6 +756,13 @@ test('TomTom flow toggle exposes active map state', async ({ page }) => {
   await expect(page.locator('#traffic-style')).toHaveValue('combined');
   await expect(page.locator('#map')).toHaveAttribute('data-traffic', 'combined');
   await expect(page.locator('#traffic-legend')).not.toHaveClass(/hidden/);
+});
+
+test('Incidents enables the live local incident overlay without unlocking Radar+ flow', async ({ page }) => {
+  await page.locator('[data-layer-toggle="incident"]').click();
+  await expect(page.locator('[data-layer-toggle="incident"]')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('#map')).toHaveAttribute('data-traffic','incidents');
+  await expect(page.locator('#traffic-style')).toHaveValue('incidents');
 });
 
 test('mobile viewport keeps core navigation, map, and details usable', async ({ page }) => {

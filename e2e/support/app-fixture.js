@@ -230,7 +230,10 @@ async function installAppFixture(page) {
     }
     if (url.hostname === 'unpkg.com' && pathname.endsWith('.js')) return route.fulfill({ contentType:'text/javascript', body:read('e2e/support/leaflet-stub.js') });
     if (url.hostname === 'unpkg.com') return route.fulfill({ contentType:'text/css', body:'' });
-    if (url.hostname === 'jamcams.tfl.gov.uk' || url.hostname === 'upload.wikimedia.org') return route.fulfill({ contentType:'image/png', body:Buffer.alloc(0) });
+    if (url.hostname === 'jamcams.tfl.gov.uk' || url.hostname === 'upload.wikimedia.org') return route.fulfill({
+      contentType:'image/png',
+      body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64')
+    });
     return route.abort();
   });
 }

@@ -3,6 +3,9 @@
   // basemap is attached asynchronously, so it cannot be the first component
   // to supply this value.
   const map = L.map('map', { zoomControl: true, preferCanvas: true, maxZoom: 20 }).setView([54.1, -2.5], 6);
+  // The navigation drawer owns the left edge of the map on every breakpoint.
+  // Keep Leaflet's controls on the opposite edge so they can never sit over it.
+  map.zoomControl?.setPosition?.('topright');
 
   const tileSets = {standard:null};
   let currentBase = null;
@@ -688,11 +691,44 @@
       licence: 'https://creativecommons.org/licenses/by-sa/4.0/',
       credit: 'Michael Barera • CC BY-SA 4.0 • Wikimedia Commons',
     },
+    typhoon: {
+      src: '/static/assets/aircraft/typhoon-raf.jpg',
+      title: 'Royal Air Force Eurofighter Typhoon',
+      page: 'https://commons.wikimedia.org/wiki/File:Typhoon.f2.zj922.ff2006.arp.jpg',
+      licence: 'https://commons.wikimedia.org/wiki/File:Typhoon.f2.zj922.ff2006.arp.jpg#Licensing',
+      credit: 'Adrian Pingstone • Public domain • Wikimedia Commons',
+    },
+    a400m: {
+      src: '/static/assets/aircraft/a400m-raf.jpg',
+      title: 'Royal Air Force Airbus A400M Atlas',
+      page: 'https://commons.wikimedia.org/wiki/File:RAF_A400M_Atlas_Aircraft_MOD_45158356.jpg',
+      licence: 'https://www.nationalarchives.gov.uk/doc/open-government-licence/version/1/',
+      credit: 'Andrew Linnett / Ministry of Defence • OGL v1.0',
+    },
+    c17: {
+      src: '/static/assets/aircraft/c17-raf.jpg',
+      title: 'Royal Air Force Boeing C-17 Globemaster III',
+      page: 'https://commons.wikimedia.org/wiki/File:RAF_C17_Aircraft_in_Afghanistan_MOD_45157241.jpg',
+      licence: 'https://www.nationalarchives.gov.uk/doc/open-government-licence/version/1/',
+      credit: 'Ministry of Defence • OGL v1.0',
+    },
+    coastguard: {
+      src: '/static/assets/aircraft/s92-coastguard.jpg',
+      title: 'UK Coastguard Sikorsky S-92',
+      page: 'https://commons.wikimedia.org/wiki/File:Stornoway_Coastguard_S92_Helicopter.jpg',
+      licence: 'https://creativecommons.org/publicdomain/zero/1.0/',
+      credit: 'Edinburgh838 • CC0 • Wikimedia Commons',
+    },
   };
 
   function aircraftTypePhoto(a) {
     const text=[a.aircraft_model,a.aircraft_type_code,a.subtitle,a.name].filter(Boolean).join(' ').toUpperCase();
-    const kind=/KC-?135|K35R|STRATOTANKER/.test(text)?'kc135':aircraftMapShape(a).kind;
+    const kind=/KC-?135|K35R|STRATOTANKER/.test(text)?'kc135'
+      : /EUROFIGHTER|TYPHOON|\bEF2000\b/.test(text)?'typhoon'
+      : /A400M|ATLAS C?\.?1|\bA4M\b/.test(text)?'a400m'
+      : /C-?17|GLOBEMASTER|\bC17\b/.test(text)?'c17'
+      : /COASTGUARD|SIKORSKY S-?92|\bS92\b/.test(text)?'coastguard'
+      : aircraftMapShape(a).kind;
     const media=AIRCRAFT_TYPE_PHOTOS[kind];
     if(!media)return null;
     return {
@@ -782,6 +818,12 @@
       const visibleTruth=imageTruth || fallback?.truth;
       if(!image && !fallbackVisual){box.classList.add('hidden');box.innerHTML='';return;}
       box.innerHTML = `${image || fallbackVisual}<div class="detail-photo-copy"><strong>${esc(referenceImage ? (model || a.aircraft_model || a.aircraft_type_code || 'Aircraft type not resolved') : fallback.title)}</strong><span>${esc(identity || a.name)}</span>${visibleTruth?`<b class="image-truth">${esc(visibleTruth)}</b>`:''}<span>${esc(imageCredit || 'Licensed aircraft reference')}${!referenceImage && fallback ? ` • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a>` : ''}${links ? ` • ${links}` : ''}</span></div>`;
+      const remoteImage=referenceImage ? box.querySelector('img') : null;
+      remoteImage?.addEventListener('error',()=>{
+        if(requestId!==mediaRequest || selectedId!==a.id)return;
+        if(!fallback){box.classList.add('hidden');box.innerHTML='';return;}
+        box.innerHTML=`${fallbackVisual}<div class="detail-photo-copy aircraft-known"><strong>${esc(fallback.title)}</strong><span>${esc(identity || a.name)}</span><b class="image-truth">${esc(fallback.truth)}</b><span>${esc(fallback.credit)} • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a></span></div>`;
+      },{once:true});
     } catch {
       if (requestId !== mediaRequest) return;
       if (knownIdentity && fallback) {
@@ -836,10 +878,12 @@
 
   function aircraftMapShape(v) {
     const text=[v.aircraft_model,v.aircraft_type_code,v.subtitle].filter(Boolean).join(' ').toUpperCase();
-    if(/CHINOOK|CH-?47|\bH47\b/.test(text)) return {kind:'chinook',svg:'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M25 6h14l5 11-3 30-6 11h-6l-6-11-3-30 5-11Zm-9 23 8-4h16l8 4-8 5H24l-8-5Z"/><path class="rotor" d="M6 15h52M32 5v20M4 49h56M32 39v20"/></svg>'};
-    if(/APACHE|AH-?64/.test(text)) return {kind:'apache',svg:'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M28 5h8l4 18 10 8-3 5-9-3-2 17 7 7-3 3-8-5-8 5-3-3 7-7-2-17-9 3-3-5 10-8 4-18Z"/><path class="rotor" d="M5 27h54M32 8v42"/></svg>'};
-    if(v.type==='sar' || /HELICOPTER|SIKORSKY|AW1|EC1|H135|H145|DAUPHIN/.test(text)) return {kind:'helicopter',svg:'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M27 5h10l5 21 9 7-4 5-8-4-3 17 7 7-4 3-7-6-7 6-4-3 7-7-3-17-8 4-4-5 9-7 5-21Z"/><path class="rotor" d="M5 27h54M32 8v40"/></svg>'};
-    return {kind:'plane',svg:'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M30 5h5l4 21 17 10v6L39 37l-2 15 8 5v4l-12-3-12 3v-4l8-5-2-15-17 5v-6l17-10 3-21Z"/></svg>'};
+    // A real, instantly recognisable helicopter glyph is clearer at map size
+    // than the former abstract top-down SVG silhouettes.
+    if(/CHINOOK|CH-?47|\bH47\b/.test(text)) return {kind:'chinook',html:'🚁',rotorcraft:true};
+    if(/APACHE|AH-?64/.test(text)) return {kind:'apache',html:'🚁',rotorcraft:true};
+    if(v.type==='sar' || /HELICOPTER|SIKORSKY|AW1|EC1|H135|H145|DAUPHIN/.test(text)) return {kind:'helicopter',html:'🚁',rotorcraft:true};
+    return {kind:'plane',html:'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M30 5h5l4 21 17 10v6L39 37l-2 15 8 5v4l-12-3-12 3v-4l8-5-2-15-17 5v-6l17-10 3-21Z"/></svg>',rotorcraft:false};
   }
 
   function aircraftDisplayBearing(v) {
@@ -874,10 +918,10 @@
       const identity=aircraftMapIdentity(v);
       const priority=currentWorkspace === 'cool' && cool.score >= 45 ? `<em>${esc(cool.label)}</em>` : '';
       const observedBearing=aircraftDisplayBearing(v);
-      const rotation = shape.kind === 'plane' ? observedBearing : observedBearing-90;
+      const rotation = shape.rotorcraft ? 0 : observedBearing;
       return L.divIcon({
         className:'marker-wrap aerial-marker-wrap',
-        html:`<div class="motion-shell aerial-motion-shell"><div class="aerial-map-marker aerial-${esc(type)} aircraft-shape-${shape.kind}" title="${esc(identity)} — ${esc(v.name)}"><span class="aircraft-silhouette" style="transform:rotate(${rotation}deg)">${shape.svg}</span><small>${esc(identity)}</small>${priority}</div>${pointer}${speedTag}</div>`,
+        html:`<div class="motion-shell aerial-motion-shell"><div class="aerial-map-marker aerial-${esc(type)} aircraft-shape-${shape.kind}" title="${esc(identity)} — ${esc(v.name)}"><span class="aircraft-silhouette${shape.rotorcraft?' rotorcraft-glyph':''}" style="transform:rotate(${rotation}deg)">${shape.html}</span><small>${esc(identity)}</small>${priority}</div>${pointer}${speedTag}</div>`,
         iconSize:[62,54],iconAnchor:[31,27]
       });
     }
@@ -1285,8 +1329,16 @@
       const payload = await response.json();
       if (requestId !== globalCoolRequest) return;
       const rows = Array.isArray(payload.activities) ? payload.activities : [];
-      globalCoolActivities = rows;
-      globalCoolById = new Map(rows.map(activity => [activity.id, activity]));
+      // Keep a visitor's Discover set stable while they pan and zoom. Refresh
+      // the live data for the same finds, but do not silently swap the set as
+      // viewport messages or ranking ties change underneath them.
+      if (globalCoolActivities.length) {
+        const fresh = new Map(rows.map(activity => [activity.id, activity]));
+        globalCoolActivities = globalCoolActivities.map(activity => fresh.get(activity.id) || activity);
+      } else {
+        globalCoolActivities = rows;
+      }
+      globalCoolById = new Map(globalCoolActivities.map(activity => [activity.id, activity]));
       globalCoolRevision += 1;
       filteredCacheKey = '';
       globalCoolLoadedAt = Date.now();
@@ -1303,7 +1355,7 @@
       // discovery request must never make the live map fail.
     } finally {
       clearTimeout(globalCoolRefreshTimer);
-      if (currentWorkspace === 'cool') globalCoolRefreshTimer=setTimeout(()=>loadGlobalCool(true),8000);
+      if (currentWorkspace === 'cool') globalCoolRefreshTimer=setTimeout(()=>loadGlobalCool(true),60000);
     }
   }
 
@@ -1367,7 +1419,9 @@
       }
     }
     for (const a of rows) {
-      const intendedGroup = ['aircraft','sar'].includes(a.type) ? aerialMarkerGroup : markerGroup;
+      // Discover is a curated, deliberately small set. Never cluster those
+      // markers: each find must remain individually visible at every zoom.
+      const intendedGroup = currentWorkspace==='cool' || ['aircraft','sar'].includes(a.type) ? aerialMarkerGroup : markerGroup;
       let marker = markers.get(a.id);
       const positionSignature = markerPositionSignature(a);
       const visualSignature = markerVisualSignature(a);
@@ -3226,13 +3280,20 @@
     document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x.dataset.type==='cool-rail'));
     updateCoolRailSubtypeUi();
     trackProduct('layer_selected', `cool-rail-${selectedRailSubtype}`);
-    sendViewport();loadGlobalCool(true);
+    sendViewport();loadGlobalCool(false);
     renderMap(); renderStats(); renderRanking(); renderCoolSummary(); renderLiveTicker();
   }));
-  document.querySelectorAll('[data-layer-toggle]').forEach(button => button.addEventListener('click', () => {
+  document.querySelectorAll('[data-layer-toggle]').forEach(button => button.addEventListener('click', async () => {
     const type = button.dataset.layerToggle;
     if (!toggleableActivityTypes.has(type)) return;
     if (enabledActivityTypes.has(type)) enabledActivityTypes.delete(type); else enabledActivityTypes.add(type);
+    // National Highways only reports closures where physical signs/signals are
+    // set, so it is intentionally sparse. Pair the Incidents switch with the
+    // current TomTom incident overlay to provide genuine local coverage.
+    if(type==='incident'){
+      if(enabledActivityTypes.has(type)) await setTrafficMode('incidents',true);
+      else if(trafficMode==='incidents') await setTrafficMode('off',true);
+    }
     selectedType='useful';
     updateLayerToggleUi();
     sendViewport();
