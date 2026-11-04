@@ -23,7 +23,7 @@ visitor turns a layer on.
 
 `COMMERCIAL_MODE=true` is fail-closed. Sources without a documented commercial
 display/reuse basis are disabled even if an old local `.env` still contains a
-key. The public profile uses server-proxied TomTom map/traffic tiles and removes
+key. The public profile uses a direct Mapbox basemap plus server-proxied TomTom traffic tiles and removes
 the old radio, weather-radar, broadcast, Trainiac and third-party aircraft-photo
 paths. Wikimedia images appear only when their file metadata explicitly permits
 commercial reuse and each card links to the creator/source and licence.
@@ -68,6 +68,7 @@ Core private settings include:
 - `BODS_API_KEY`
 - `NATIONAL_HIGHWAYS_API_KEY`
 - `TOMTOM_TRAFFIC_API_KEY`
+- `MAPBOX_PUBLIC_TOKEN` (read-only browser token; restrict it to your production domain in Mapbox)
 
 ## Tests
 

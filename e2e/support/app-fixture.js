@@ -141,6 +141,7 @@ async function installAppFixture(page) {
       if (pathname === '/static/service-worker.js') return route.fulfill({ contentType: 'text/javascript', body: 'self.addEventListener("fetch",()=>{});' });
       if (pathname === '/static/manifest.webmanifest') return route.fulfill({ contentType: 'application/manifest+json', body: '{}' });
       if (pathname.startsWith('/static/icon-')) return route.fulfill({ contentType: 'image/png', body: Buffer.alloc(0) });
+      if (pathname === '/api/map/config') return route.fulfill({ json:{provider:'Mapbox',configured:false,tile_url:null,tile_size:512,zoom_offset:-1,max_zoom:20,attribution:'Fixture map'} });
       if (pathname === '/api/places') return route.fulfill({ json: places });
       if (pathname === '/api/places/nearest-rail') return route.fulfill({ json: { place: places.places[0] } });
       if (pathname === '/api/places/nearest-bus') return route.fulfill({ json: { place: { ...places.places[1], distance_km:0.24 } } });

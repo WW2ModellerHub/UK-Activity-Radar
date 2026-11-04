@@ -1,16 +1,40 @@
 (() => {
   const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([54.1, -2.5], 6);
 
-  const tileSets = {
-    standard: L.tileLayer('/api/map/tile/{z}/{x}/{y}.png?style=street-light', {
-      maxZoom: 22,
-      keepBuffer: 1,
-      updateWhenIdle: true,
-      updateWhenZooming: false,
-      attribution: '<a href="/data-licences">Map data &copy; TomTom</a>'
-    })
-  };
-  let currentBase = tileSets.standard.addTo(map);
+  const tileSets = {standard:null};
+  let currentBase = null;
+
+  function baseTileLayer(config) {
+    const direct=Boolean(config?.configured && config?.tile_url);
+    return L.tileLayer(
+      direct ? config.tile_url : '/api/map/tile/{z}/{x}/{y}.png?style=street-light',
+      {
+        maxZoom:direct ? Number(config.max_zoom || 20) : 22,
+        tileSize:direct ? Number(config.tile_size || 512) : 256,
+        zoomOffset:direct ? Number(config.zoom_offset ?? -1) : 0,
+        keepBuffer:3,
+        updateWhenIdle:false,
+        updateWhenZooming:true,
+        updateInterval:100,
+        crossOrigin:direct,
+        attribution:direct
+          ? config.attribution
+          : '<a href="/data-licences">Temporary map fallback &copy; TomTom</a>'
+      }
+    );
+  }
+
+  async function configureBaseMap() {
+    let config=null;
+    try {
+      const response=await fetch('/api/map/config',{cache:'force-cache'});
+      if(response.ok)config=await response.json();
+    } catch {}
+    tileSets.standard=baseTileLayer(config);
+    currentBase=tileSets.standard.addTo(map);
+    $('map').dataset.mapProvider=config?.configured?'mapbox':'tomtom-fallback';
+  }
+  configureBaseMap();
 
   map.createPane('trafficPane');
   map.getPane('trafficPane').style.zIndex = '360';
@@ -508,7 +532,7 @@
     mode = 'standard';
     if (currentBase && map.hasLayer(currentBase)) map.removeLayer(currentBase);
     currentBase = tileSets.standard;
-    currentBase.addTo(map);
+    if(currentBase)currentBase.addTo(map);
     $('map').dataset.mapMode = mode;
     try { localStorage.setItem('ukRadarMapMode', mode); } catch {}
     if (trafficMode !== 'off') renderTrafficLayer();
@@ -3124,7 +3148,16 @@
   }
 
   map.on('click', e => inspectTrafficAt(e.latlng));
-  map.on('moveend zoomend', () => { queueViewport(); fetchPlaces(); if(webcamsEnabled)fetchCameras(false); renderNearbySummary(); });
+  let mapSettledTimer=null;
+  map.on('moveend zoomend', () => {
+    clearTimeout(mapSettledTimer);
+    mapSettledTimer=setTimeout(()=>{
+      queueViewport();
+      if(placeMode!=='off')fetchPlaces();
+      if(webcamsEnabled)fetchCameras(false);
+      renderNearbySummary();
+    },80);
+  });
   document.querySelectorAll('.filter').forEach(button => button.addEventListener('click', () => {
     const originalType=button.dataset.type;
     const turningBackOn=originalType==='cool-off'&&selectedType==='cool-off';

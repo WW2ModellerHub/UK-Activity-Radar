@@ -172,6 +172,9 @@ class Settings:
     # so the API key never appears in page source. This is an optional layer;
     # National Highways incidents continue to work independently.
     traffic_flow_enabled: bool = _bool("TRAFFIC_FLOW_ENABLED", True)
+    # Public, read-only browser token for the commercial Mapbox basemap. This
+    # is intentionally separate from the server-side TomTom traffic key.
+    mapbox_public_token: str = os.getenv("MAPBOX_PUBLIC_TOKEN", "").strip()
     tomtom_traffic_api_key: str = os.getenv("TOMTOM_TRAFFIC_API_KEY", "").strip()
     tomtom_traffic_base_url: str = os.getenv("TOMTOM_TRAFFIC_BASE_URL", "https://api.tomtom.com").rstrip("/")
     traffic_flow_cache_seconds: int = max(15, int(os.getenv("TRAFFIC_FLOW_CACHE_SECONDS", "45")))

@@ -17,7 +17,7 @@ from html import escape as html_escape
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -1429,9 +1429,36 @@ def traffic_status():
     return traffic_flow_service.status_payload()
 
 
+@app.get("/api/map/config")
+def map_config():
+    """Publish only the read-only browser map configuration.
+
+    Mapbox public tokens are designed for client-side use. The production token
+    should be URL-restricted to the deployed domain in the Mapbox dashboard.
+    """
+    configured = bool(settings.mapbox_public_token)
+    payload = {
+        "provider": "Mapbox",
+        "configured": configured,
+        "tile_url": (
+            "https://api.mapbox.com/styles/v1/mapbox/light-v11/tiles/512/"
+            "{z}/{x}/{y}?access_token=" + settings.mapbox_public_token
+        ) if configured else None,
+        "tile_size": 512,
+        "zoom_offset": -1,
+        "max_zoom": 20,
+        "attribution": (
+            '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> '
+            '&copy; <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener">Mapbox</a>'
+        ),
+        "message": None if configured else "Add MAPBOX_PUBLIC_TOKEN to enable the commercial basemap.",
+    }
+    return JSONResponse(payload, headers={"Cache-Control": "public, max-age=300"})
+
+
 @app.get("/api/map/tile/{z}/{x}/{y}.png")
 def map_tile(request: Request, z: int, x: int, y: int, style: str = "street-light"):
-    """Proxy the licensed production base map without exposing its API key."""
+    """Legacy TomTom base-map fallback retained during the Mapbox migration."""
     _enforce_public_budget(request, tile_request_budget)
     if traffic_flow_service is None or not traffic_flow_service.map_ready:
         raise HTTPException(status_code=503, detail="The production base map is not configured")

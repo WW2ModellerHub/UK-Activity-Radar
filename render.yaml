@@ -133,3 +133,5 @@ services:
         sync: false
       - key: TOMTOM_TRAFFIC_API_KEY
         sync: false
+      - key: MAPBOX_PUBLIC_TOKEN
+        sync: false
