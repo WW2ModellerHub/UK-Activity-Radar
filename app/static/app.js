@@ -3222,7 +3222,7 @@
     updateLayerToggleUi();
     sendViewport();
   });
-  $('traffic-quick')?.addEventListener('click',()=>{ if(trafficMode==='off'&&!requirePlus('traffic_pro','Live TomTom traffic is included with Radar+.'))return; const style=$('traffic-style')?.value || 'combined'; setTrafficMode(trafficMode==='off'?style:'off'); });
+  $('traffic-quick')?.addEventListener('click',()=>{ if(trafficMode==='off'&&!requirePlus('traffic_pro','Live traffic is available with Radar+.'))return; const style=$('traffic-style')?.value || 'combined'; setTrafficMode(trafficMode==='off'?style:'off'); });
   $('live-webcams')?.addEventListener('click',()=>{ if(!webcamsEnabled&&!requirePlus('live_cameras','Official live cameras are included with Radar+.'))return; webcamsEnabled=!webcamsEnabled; updateWebcamControl(); if(webcamsEnabled)fetchCameras(true); else { cameras=[]; renderCameraMarkers(); } trackProduct('layer_selected',webcamsEnabled?'live-cameras-on':'live-cameras-off'); });
   $('journey-planner')?.addEventListener('click',openJourneyPlanner);
   $('journey-close')?.addEventListener('click',closeJourneyPlanner);
