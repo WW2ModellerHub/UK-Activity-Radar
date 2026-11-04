@@ -766,7 +766,9 @@ test('mobile viewport keeps core navigation, map, and details usable', async ({ 
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(390);
   expect(box.height).toBeLessThan(500);
-  await expect(page.locator('#workspace-shell')).toHaveCSS('opacity','0');
+  const mobileRail = await page.locator('#workspace-shell').boundingBox();
+  expect(mobileRail.width).toBeLessThanOrEqual(52);
+  expect(box.x).toBeGreaterThanOrEqual(60);
   const mapBox = await page.locator('#map').boundingBox();
   expect(mapBox.y + mapBox.height).toBeGreaterThan(820);
   await page.locator('#detail-close').click();

@@ -90,7 +90,10 @@
   .detail-intelligence{margin:6px 0;padding:8px}.detail-fields{gap:5px}.detail-field{padding:7px!important}.detail-field strong{font-size:10px!important}
   .detail-photo img,.detail-photo img.aircraft-type-photo{height:145px!important;max-height:145px!important}
   .detail-insight,.detail-discovery{margin:6px 0!important;padding:8px!important}
-  .v12-layout:has(.v12-detail:not(.is-empty)) .v12-leftbar{opacity:0!important;pointer-events:none!important;transform:translateX(-12px)!important}
+  .v12-layout:has(.v12-detail:not(.is-empty)) .v12-leftbar{width:50px!important;max-width:50px!important;height:auto!important;max-height:calc(100% - 66px)!important;opacity:1!important;pointer-events:auto!important;transform:none!important;z-index:1810!important}
+  .v12-layout:has(.v12-detail:not(.is-empty)) .v12-leftbar .workspace-rail{width:48px!important;flex-basis:48px!important;padding:3px!important;border:0!important}
+  .v12-layout:has(.v12-detail:not(.is-empty)) .v12-leftbar .workspace-drawer{display:none!important}
+  .v12-layout:has(.v12-detail:not(.is-empty)) .v12-detail{left:66px!important}
 }
 
 /* Train operator colour should feel like part of the whole service card, not a
