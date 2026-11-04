@@ -26,6 +26,8 @@ test('Buses near me enables buses and opens the nearest live stop board', async 
   await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');
   await expect(page.locator('#detail-placeboard')).toContainText('City Centre');
   await expect(page.locator('#detail-placeboard')).toContainText('Arriva Midlands');
+  await expect(page.locator('.place-marker')).toHaveCount(1);
+  await expect(page.locator('.place-marker')).toContainText('🚌');
 });
 
 test('Today on the Radar shows verified live highlights', async ({ page }) => {
@@ -332,7 +334,7 @@ test('Useful and Cool workspaces alter visible layers and render Cool badges', a
   await expect(page.locator('.marker-bubble')).toHaveCount(0);
   await page.getByRole('button', { name: /Discover/ }).click();
   await expect(page.locator('body')).toHaveAttribute('data-experience', 'cool');
-  await expect(page.locator('.cool-map-marker')).toHaveCount(1);
+  await expect(page.locator('.cool-map-marker')).toHaveCount(2);
   await expect(page.locator('.cool-marker-wrap').first()).toHaveAttribute('data-clustered','false');
   await expect(page.locator('.cool-badge').filter({ hasText: 'STEAM' }).first()).toBeVisible();
   // Cool markers come from the national Cool feed, not only the current
@@ -341,10 +343,10 @@ test('Useful and Cool workspaces alter visible layers and render Cool badges', a
   await expect(page.locator('.aerial-marker-wrap').first()).toHaveAttribute('data-clustered', 'false');
   await expect(page.locator('#ranking-title')).toHaveText(/Cool stuff now • UK/);
   await expect(page.locator('#ranking')).toContainText('RAF AWACS SENTINEL01');
-  await expect(page.locator('#ranking')).not.toContainText('RNLI RESCUE CONTEXT');
-  await expect(page.locator('.ticker-items')).not.toContainText('RNLI RESCUE CONTEXT');
-  await expect(page.locator('#cool-summary')).toContainText('4 matched live');
-  await expect(page.locator('#cool-summary .cool-find-row')).toHaveCount(3);
+  await expect(page.locator('#ranking')).toContainText('RNLI RESCUE CONTEXT');
+  await expect(page.locator('.ticker-items')).toContainText('RNLI RESCUE CONTEXT');
+  await expect(page.locator('#cool-summary')).toContainText('5 matched live');
+  await expect(page.locator('#cool-summary .cool-find-row')).toHaveCount(4);
   await expect(page.locator('#cool-summary')).toContainText(/1\s*RESCUE/);
   await page.locator('.cool-filter[data-type="cool-rescue"]').click();
   await expect(page.locator('#ranking')).toContainText('RNLI RESCUE CONTEXT');
@@ -374,7 +376,7 @@ test('Cool rail offers only source-supported subfilters and Best Spot focuses th
 
 test('Cool map can be switched completely off', async ({ page }) => {
   await page.getByRole('button', { name: /Discover/ }).click();
-  await expect(page.locator('.cool-map-marker')).toHaveCount(1);
+  await expect(page.locator('.cool-map-marker')).toHaveCount(2);
   await expect(page.locator('.aerial-map-marker')).toHaveCount(3);
   await page.locator('.cool-map-switch[data-type="cool-off"]').click();
   await expect(page.locator('.cool-map-marker')).toHaveCount(0);
@@ -589,6 +591,27 @@ test('known military helicopters show a bundled real photograph when live image 
   await expect(page.locator('#detail-insight')).toContainText('military heavy-lift helicopter');
 });
 
+test('aircraft markers distinguish airliners and propeller aircraft with the type below', async ({ page }) => {
+  await page.locator('[data-layer-toggle="aircraft"]').click();
+  await page.evaluate(() => {
+    const next=structuredClone(window.__fixtureSnapshot);
+    const aircraft=next.activities.find(row=>row.id==='aircraft-live-1');
+    Object.assign(aircraft,{name:'RYR1YY',vehicle_ref:'EI-TEST',aircraft_model:'Boeing 737-8200',aircraft_type_code:'B38M'});
+    window.__fixtureSocket.onmessage({data:JSON.stringify(next)});
+  });
+  await expect(page.locator('.aircraft-shape-airliner').filter({ hasText:'737-8200' }).first()).toBeVisible();
+  await page.evaluate(() => {
+    const next=structuredClone(window.__fixtureSnapshot);
+    const aircraft=next.activities.find(row=>row.id==='aircraft-live-1');
+    Object.assign(aircraft,{name:'G-TALR',vehicle_ref:'G-TALR',aircraft_model:'Cessna 152',aircraft_type_code:'C152'});
+    window.__fixtureSocket.onmessage({data:JSON.stringify(next)});
+  });
+  const propeller=page.locator('.aircraft-shape-propeller').filter({hasText:'CESSNA 152'}).first();
+  await expect(propeller).toBeVisible();
+  await expect(propeller.locator('.map-propeller-svg')).toHaveCount(1);
+  await expect(propeller.locator('.motion-speed')).toHaveCount(0);
+});
+
 test('selected aircraft draws an honest browser-local live trail', async ({ page }) => {
   await page.goto('/');
   await page.locator('[data-workspace="cool"]').click();
@@ -745,7 +768,7 @@ test('Share live page works directly from a selected activity', async ({ page })
 test('clicking a bus stop opens live timetable information', async ({ page }) => {
   await page.locator('.useful-details summary').click();
   await page.locator('#place-mode').selectOption('all');
-  const stop = page.locator('.place-marker').filter({ hasText: '🚏' });
+  const stop = page.locator('.place-marker').filter({ hasText: '🚌' });
   await expect(stop).toBeVisible();
   await stop.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');

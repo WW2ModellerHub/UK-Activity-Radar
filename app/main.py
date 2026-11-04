@@ -1965,11 +1965,11 @@ async def websocket_updates(websocket: WebSocket):
 
     async def wait_for_refresh() -> None:
         """Keep the normal cadence, but send a newly requested viewport now."""
-        cadence = (
-            settings.websocket_refresh_seconds
-            if websocket_access.has("fast_updates")
-            else max(2.0, settings.websocket_refresh_seconds)
-        )
+        base_cadence = max(0.5, settings.websocket_refresh_seconds)
+        # Deliver fresh TRUST reports promptly to everyone. Radar+ halves the
+        # delivery interval, while the underlying reporting-point data remains
+        # source-faithful rather than being visually interpolated as GPS.
+        cadence = max(0.5, base_cadence / 2) if websocket_access.has("fast_updates") else base_cadence
         with suppress(asyncio.TimeoutError):
             await asyncio.wait_for(
                 viewport_changed.wait(),

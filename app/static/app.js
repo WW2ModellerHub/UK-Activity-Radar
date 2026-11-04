@@ -75,7 +75,7 @@
   let cameraRequest = 0;
   let cameraDetailRequest = 0;
 
-  const placeIcons = {rail_station:'🚉',bus_stop:'🚏',rain_gauge:'🌧️'};
+  const placeIcons = {rail_station:'🚉',bus_stop:'🚌',rain_gauge:'🌧️'};
   const placeMarkers = new Map();
   const placeGroup = typeof L.markerClusterGroup === 'function'
     ? L.markerClusterGroup({ disableClusteringAtZoom: 14, maxClusterRadius: 40, showCoverageOnHover:false })
@@ -880,6 +880,9 @@
       [/VOYAGER|KC-?2|A330 MRTT/, 'VOYAGER'], [/C-?130|HERCULES|\bC30J\b/, 'HERCULES'],
       [/HAWK/, 'HAWK'], [/OSPREY|V-?22/, 'OSPREY'], [/AWACS|SENTRY|E-?3/, 'AWACS'],
       [/COASTGUARD|SIKORSKY S-?92|\bS92\b/, 'COASTGUARD'],
+      [/SPITFIRE|\bSPIT\b/, 'SPITFIRE'], [/HURRICANE/, 'HURRICANE'], [/LANCASTER/, 'LANCASTER'],
+      [/CESSNA\s*152|\bC152\b/, 'CESSNA 152'], [/CESSNA\s*172|\bC172\b/, 'CESSNA 172'],
+      [/KC-?135|STRATOTANKER/, 'KC-135'],
     ];
     for (const [pattern,label] of known) if(pattern.test(text)) return label;
     const fallback=String(v.aircraft_model || v.aircraft_type_code || v.vehicle_ref || (v.type==='sar'?'RESCUE':'AIRCRAFT')).trim();
@@ -891,11 +894,13 @@
     const helicopter='<svg class="map-aircraft-svg map-helicopter-svg" viewBox="0 0 48 48" aria-hidden="true"><circle class="rotor-disc" cx="24" cy="19" r="15"/><path d="M21 7c-2 3-3 8-3 13 0 7 2 11 4 14l-1 8-4 3v2l7-2 7 2v-2l-4-3-1-8c2-3 4-7 4-14 0-5-1-10-3-13l-3-2-3 2Z"/><path class="rotor-line" d="M5 19h38M24 1v36"/><circle class="tail-rotor" cx="24" cy="42" r="3"/></svg>';
     const fastJet='<svg class="map-aircraft-svg map-fastjet-svg" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 2c-2 3-3 8-3 14L7 29v5l14-5 1 10-6 5v2l8-2 8 2v-2l-6-5 1-10 14 5v-5L27 16c0-6-1-11-3-14Z"/></svg>';
     const heavy='<svg class="map-aircraft-svg map-heavy-svg" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 2c-3 3-4 9-4 16L4 29v6l16-5 1 10-7 5v2l10-2 10 2v-2l-7-5 1-10 16 5v-6L28 18c0-7-1-13-4-16Z"/></svg>';
-    const plane='<svg class="map-aircraft-svg map-plane-svg" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 2c-2 3-3 9-3 17L6 29v5l15-5 1 10-6 5v2l8-2 8 2v-2l-6-5 1-10 15 5v-5L27 19c0-8-1-14-3-17Z"/></svg>';
+    const airliner='<svg class="map-aircraft-svg map-airliner-svg" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 2c-2.5 3-3.5 9-3.5 18L4 30v5l16.5-4.5 1 9.5-6.5 4.5V47l9-2 9 2v-2.5L26.5 40l1-9.5L44 35v-5L27.5 20C27.5 11 26.5 5 24 2Z"/></svg>';
+    const propeller='<svg class="map-aircraft-svg map-propeller-svg" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 5c-2 3-3 8-3 15L8 29v4l13-4 1 10-6 5v2l8-2 8 2v-2l-6-5 1-10 13 4v-4l-13-9c0-7-1-12-3-15Z"/><circle class="prop-hub" cx="24" cy="5" r="2.2"/><path class="prop-line" d="M12 5h24M24 1v8"/></svg>';
     if(v.type==='sar' || /CHINOOK|CH-?47|\bH47\b|APACHE|AH-?64|HELICOPTER|SIKORSKY|AW1|EC1|H135|H145|DAUPHIN|\bS92\b/.test(text)) return {kind:'helicopter',html:helicopter,rotorcraft:true};
     if(/TYPHOON|EUROFIGHTER|F-?35|F-?16|F-?15|F-?18|TORNADO|HAWK|GRIPEN|RAFALE/.test(text)) return {kind:'fastjet',html:fastJet,rotorcraft:false};
     if(/KC-?135|STRATOTANKER|VOYAGER|A330|A340|A350|A380|747|C-?17|GLOBEMASTER|A400M|ATLAS|HERCULES|C-?130|AWACS|SENTRY|RIVET/.test(text)) return {kind:'heavy',html:heavy,rotorcraft:false};
-    return {kind:'plane',html:plane,rotorcraft:false};
+    if(/SPITFIRE|HURRICANE|LANCASTER|MUSTANG|DAKOTA|CESSNA|PIPER|CIRRUS|BEECH|DIAMOND|\bC1(?:52|72|82)\b|\bPA-?\d+\b|\bSR2\d\b|\bDA\d{2}\b|\bDH8\b|DASH\s*8|ATR\s*\d+/.test(text)) return {kind:'propeller',html:propeller,rotorcraft:false};
+    return {kind:'airliner',html:airliner,rotorcraft:false};
   }
 
   function aircraftDisplayBearing(v) {
@@ -933,7 +938,7 @@
       const rotation = observedBearing;
       return L.divIcon({
         className:'marker-wrap aerial-marker-wrap',
-        html:`<div class="motion-shell aerial-motion-shell"><div class="aerial-map-marker aerial-${esc(type)} aircraft-shape-${shape.kind}" title="${esc(identity)} — ${esc(v.name)}"><span class="aircraft-silhouette${shape.rotorcraft?' rotorcraft-silhouette':''}" style="transform:rotate(${rotation}deg)">${shape.html}</span><small>${esc(identity)}</small>${priority}</div>${pointer}${speedTag}</div>`,
+        html:`<div class="motion-shell aerial-motion-shell"><div class="aerial-map-marker aerial-${esc(type)} aircraft-shape-${shape.kind}" title="${esc(identity)} — ${esc(v.name)}"><span class="aircraft-silhouette${shape.rotorcraft?' rotorcraft-silhouette':''}" style="transform:rotate(${rotation}deg)">${shape.html}</span><small>${esc(identity)}</small>${priority}</div>${pointer}</div>`,
         iconSize:[62,54],iconAnchor:[31,27]
       });
     }
@@ -1259,8 +1264,10 @@
     if(cached && Date.now()-cached.at<15000) renderPlaceBoard(p,cached.payload);
     else box.innerHTML='<small>LIVE TIMES</small><p class="coverage-loading">Loading…</p>';
     if(pan) map.panTo([p.lat,p.lon],{animate:true});
-    try { const r=await fetch(`/api/places/${encodeURIComponent(p.id)}/board?limit=10`,{cache:'no-store'}); if(!r.ok)throw new Error('board unavailable'); const payload=await r.json(); placeBoardCache.set(id,{at:Date.now(),payload}); if(selectedPlaceId===id)renderPlaceBoard(p,payload); }
+    const controller=new AbortController();const boardTimeout=setTimeout(()=>controller.abort(),12000);
+    try { const r=await fetch(`/api/places/${encodeURIComponent(p.id)}/board?limit=10`,{cache:'no-store',signal:controller.signal}); if(!r.ok)throw new Error('board unavailable'); const payload=await r.json(); placeBoardCache.set(id,{at:Date.now(),payload}); if(selectedPlaceId===id)renderPlaceBoard(p,payload); }
     catch { if(selectedPlaceId===id) box.innerHTML='<small>LIVE TIMES</small><p class="board-empty">Times unavailable right now.</p>'; }
+    finally { clearTimeout(boardTimeout); }
   }
 
   async function loadEnvironmentContext(a) {
@@ -1305,7 +1312,7 @@
     if (type === 'all') return true;
     if (type === 'useful') return enabledActivityTypes.has(a.type);
     if (type === 'transport') return ['train','bus'].includes(a.type);
-    if (type === 'cool') return a.type !== 'vessel' && !isRescueContextActivity(a) && coolInfo(a).score >= 45;
+    if (type === 'cool') return a.type !== 'vessel' && coolInfo(a).score >= 45;
     if (type === 'cool-air') return a.type === 'aircraft' && !isRescueContextActivity(a) && (overheadActive || coolInfo(a).score >= 45);
     if (type === 'nearby-aircraft') return overheadActive && ['aircraft','sar'].includes(a.type);
     if (type === 'cool-rail') return railSubtypeMatch(a) && coolInfo(a).score >= 45;
@@ -1410,7 +1417,7 @@
     const speed = zoomBand >= 1 ? a.speed : '';
     const speedUnit = zoomBand >= 2 ? a.speed_unit : '';
     const movementPosition=['aircraft','sar'].includes(a.type)?`${a.lat}|${a.lon}`:'';
-    return [a.type,a.position_method,a.name,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon].join('|');
+    return [a.type,a.position_method,a.name,a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon].join('|');
   }
 
   function markerTooltipSignature(a) {
@@ -3382,7 +3389,9 @@
     if(button)button.disabled=true;if(note)note.textContent='Finding your nearest stop…';
     navigator.geolocation.getCurrentPosition(async pos => {
       const lat=pos.coords.latitude,lon=pos.coords.longitude;
-      placeMode='bus';if($('place-mode'))$('place-mode').value='bus';
+      // This action promises one nearest stop, not every stop in the viewport.
+      // Keep the general places layer off so map movement cannot flood the map.
+      placeMode='off';if($('place-mode'))$('place-mode').value='off';
       enabledActivityTypes.add('bus');updateLayerToggleUi();setNearby(lat,lon,'device');
       map.setView([lat,lon],15,{animate:true});trackProduct('nearby_used','nearest-bus');
       collapseWorkspaceOnPhone();
@@ -3390,11 +3399,11 @@
         const response=await fetch(`/api/places/nearest-bus?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`,{cache:'no-store'});
         const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.detail||'No nearby stop is ready');
         const place=payload.place;
-        if(!places.some(row=>row.id===place.id))places.push(place);
+        places=[place];
         renderPlaces();sendViewport();await selectPlace(place.id,true);
         const distance=Number(place.distance_km);showToast(`Opened ${place.name}${Number.isFinite(distance)?` • ${distance<1?Math.round(distance*1000)+' m':distance.toFixed(1)+' km'} away`:''}.`);
       } catch(error) {
-        await fetchPlaces();showToast(error?.message||'Your nearest bus stop could not load right now.');
+        places=[];renderPlaces();showToast(error?.message||'Your nearest bus stop could not load right now.');
       } finally {if(button)button.disabled=false;if(note)note.textContent='Nearest stop and live departures';}
     }, () => {if(button)button.disabled=false;if(note)note.textContent='Nearest stop and live departures';showToast('Location permission was not granted. Search for a stop instead.');}, {enableHighAccuracy:true,timeout:10000,maximumAge:120000});
   });
