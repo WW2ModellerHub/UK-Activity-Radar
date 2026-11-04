@@ -1651,7 +1651,9 @@ def locate_rail_service(request: Request, train_uid: str | None = None, headcode
 @app.get("/api/activity/{activity_id:path}/bus")
 def activity_bus(request: Request, activity_id: str, limit: int = 12):
     _enforce_public_budget(request, lookup_request_budget)
-    _require_plus(request, "advanced_transport")
+    # A clicked live bus must always be able to show its official route and
+    # next stops. Charging for this core context made every free-user request
+    # fail with 402 and the browser misleadingly reported the route unavailable.
     item = state.get(activity_id)
     if not item or item.type != "bus":
         raise HTTPException(status_code=404, detail="Bus activity not found")

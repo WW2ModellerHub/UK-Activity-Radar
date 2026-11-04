@@ -139,7 +139,7 @@ def product_plans(*, payments_enabled: bool = False, price_display: str = "£3.9
                 "status": "available" if payments_enabled else "setup",
                 "features": [
                     "Full Cool ranking and advanced filters",
-                    "Rich vehicle identity and transport detail",
+                    "Advanced vehicle identity and live tracking",
                     "Journey planning and official live cameras",
                     "TomTom traffic intelligence and faster tracking",
                     "Unlimited local favourites and watch zones",

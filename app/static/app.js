@@ -1844,6 +1844,10 @@
       const response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/${a.type==='train'?'rail':'bus'}`,{cache:'no-store'});
       const payload=await response.json().catch(()=>({}));
       if(requestId!==intelligenceRequest || selectedId!==a.id)return;
+      if(response.status===402){
+        box.innerHTML=`<small>${a.type==='train'?'LIVE TRAIN JOURNEY':'LIVE BUS JOURNEY'}</small><div class="transport-unavailable radar-plus-locked"><strong>Available with Radar+</strong><span>Upgrade to unlock this advanced live transport detail.</span></div>`;
+        return;
+      }
       if(!response.ok)throw new Error(payload?.detail || 'route detail unavailable');
       const detail=payload?.detail && typeof payload.detail==='object' ? payload.detail : payload;
       box.innerHTML=a.type==='train' ? renderRailIntelligence(detail) : renderBusIntelligence(detail);

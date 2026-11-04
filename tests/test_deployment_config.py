@@ -112,6 +112,8 @@ def test_basic_train_route_details_are_not_hidden_behind_subscription():
     assert '_require_plus(request, "advanced_transport")' not in schedule_route
     locate_route = source[source.index("def locate_rail_service("):source.index("def activity_bus(")]
     assert '_require_plus(request, "advanced_transport")' in locate_route
+    bus_route = source[source.index("def activity_bus("):source.index("def activity_detail(")]
+    assert '_require_plus(request, "advanced_transport")' not in bus_route
 
 
 def test_paid_launch_requires_public_seller_name_and_support_email():
@@ -191,7 +193,14 @@ def test_long_lived_service_rechecks_schedule_and_reference_data():
 def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
-    assert "/static/styles.css?v=15122" in index
-    assert "/static/app.js?v=15122" in index
+    assert "/static/styles.css?v=15123" in index
+    assert "/static/app.js?v=15123" in index
     assert "NETWORK_FIRST_ASSETS" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r22" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r23" in worker
+
+
+def test_paid_transport_detail_is_labelled_as_radar_plus():
+    app_js = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "response.status===402" in app_js
+    assert "Available with Radar+" in app_js
