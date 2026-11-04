@@ -193,10 +193,10 @@ def test_long_lived_service_rechecks_schedule_and_reference_data():
 def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
-    assert "/static/styles.css?v=15131" in index
-    assert "/static/app.js?v=15131" in index
+    assert "/static/styles.css?v=15132" in index
+    assert "/static/app.js?v=15132" in index
     assert "NETWORK_FIRST_ASSETS" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r31" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r32" in worker
 
 
 def test_paid_transport_detail_is_labelled_as_radar_plus():

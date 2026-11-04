@@ -28,6 +28,9 @@ test('Buses near me enables buses and opens the nearest live stop board', async 
   await expect(page.locator('#detail-placeboard')).toContainText('Arriva Midlands');
   await expect(page.locator('.place-marker')).toHaveCount(1);
   await expect(page.locator('.place-marker')).toContainText('🚌');
+  await expect(page.locator('#nearby-note')).toHaveClass(/hidden/);
+  await page.locator('#detail-close').click();
+  await expect(page.locator('.place-marker')).toHaveCount(0);
 });
 
 test('Today on the Radar shows verified live highlights', async ({ page }) => {
@@ -640,6 +643,17 @@ test('What’s above me loads nearby aircraft and can be turned off', async ({ p
   await page.locator('#overhead-now').click();
   await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','false');
   await expect(page.locator('#overhead-now')).toContainText('Aircraft received within 50 miles');
+});
+
+test('Discover clears above-me radius and returns to the full UK feed', async ({ page }) => {
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
+  await page.locator('#overhead-now').click();
+  await expect(page.locator('#nearby-note')).not.toHaveClass(/hidden/);
+  await page.getByRole('button',{name:/Discover/}).click();
+  await expect(page.locator('#nearby-note')).toHaveClass(/hidden/);
+  await expect(page.locator('#overhead-now')).not.toHaveClass(/active/);
+  await expect(page.locator('#cool-summary')).toContainText('RAF AWACS SENTINEL01');
+  await expect(page.locator('#cool-summary')).toContainText('RNLI RESCUE CONTEXT');
 });
 
 test('left workspace drawer collapses and reopens', async ({ page }) => {

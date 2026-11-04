@@ -88,6 +88,7 @@
   let returnPlaceId = null;
   const placeBoardCache = new Map();
   let overheadActive = false;
+  let transientNearestBusPlaceId = null;
   let overheadAutoEnabledAircraft = false;
   let nearbyAircraftRows = [];
   const detailBackButton=document.createElement('button');
@@ -2189,6 +2190,26 @@
     renderNearbyOverlay(); renderMap(); renderStats(); renderRanking();
   }
 
+  function clearTransientLocationModes({clearNearestStop=true}={}) {
+    overheadActive=false;
+    nearbyAircraftRows=[];
+    nearbyState.active=false;
+    const overhead=$('overhead-now');
+    overhead?.classList.remove('active');
+    const overheadNote=overhead?.querySelector('small');
+    if(overheadNote)overheadNote.textContent='Aircraft received within 50 miles';
+    if(overheadAutoEnabledAircraft)enabledActivityTypes.delete('aircraft');
+    overheadAutoEnabledAircraft=false;
+    if(clearNearestStop&&transientNearestBusPlaceId){
+      places=places.filter(place=>place.id!==transientNearestBusPlaceId);
+      transientNearestBusPlaceId=null;
+      renderPlaces();
+    }
+    filteredCacheKey='';
+    renderNearbyOverlay();
+    updateLayerToggleUi();
+  }
+
   function openPlusDialog() {
     trackProduct('radar_plus_opened','radar-plus');
     const dialog=$('plus-dialog'); if(!dialog)return;
@@ -2837,6 +2858,7 @@
 
   function activateWorkspace(name, autoSelect=true) {
     if(!['useful','cool','live','settings'].includes(name)) name='useful';
+    if(name!==currentWorkspace)clearTransientLocationModes();
     currentWorkspace=name;
     document.body.dataset.experience=name;
     document.querySelectorAll('.workspace-tab[data-workspace]').forEach(b=>b.classList.toggle('active',b.dataset.workspace===name));
@@ -3355,7 +3377,7 @@
     const rail=(rows||places).filter(p=>p.place_type==='rail_station').sort((a,b)=>distanceKm(c.lat,c.lng,a.lat,a.lon)-distanceKm(c.lat,c.lng,b.lat,b.lon));
     if(rail[0]){await selectPlace(rail[0].id,true);showToast(`Opened ${rail[0].name} live station board.`);}else showToast('No rail station metadata is ready yet. If this is a fresh install, configure TomTom or let the station cache finish syncing.');
   });
-  $('detail-close')?.addEventListener('click',()=>{ $('detail-panel')?.classList.remove('show-technical'); const tt=$('detail-tech-toggle'); if(tt)tt.textContent='More details'; selectedId=null; selectedPlaceId=null; returnPlaceId=null; detailBackButton.classList.add('hidden'); trackedActivityId=null; selectedDetailSignature=''; if(focusMarker){map.removeLayer(focusMarker);focusMarker=null;} clearSelectedTrail(); clearPhoto(); clearOperatorIdentity(); clearPlaceLink(); clearActivityIntelligence(); clearDiscoveryDetail(); sendWatching(null); $('track-activity')?.classList.add('hidden'); $('save-place')?.classList.add('hidden'); $('share-activity')?.classList.add('hidden'); $('detail-sidebar')?.classList.add('is-empty'); $('detail-panel')?.classList.remove('has-selection'); renderRanking(); });
+  $('detail-close')?.addEventListener('click',()=>{ $('detail-panel')?.classList.remove('show-technical'); const tt=$('detail-tech-toggle'); if(tt)tt.textContent='More details'; const closingTransientStop=selectedPlaceId&&selectedPlaceId===transientNearestBusPlaceId; selectedId=null; selectedPlaceId=null; returnPlaceId=null; detailBackButton.classList.add('hidden'); trackedActivityId=null; selectedDetailSignature=''; if(closingTransientStop)clearTransientLocationModes(); if(focusMarker){map.removeLayer(focusMarker);focusMarker=null;} clearSelectedTrail(); clearPhoto(); clearOperatorIdentity(); clearPlaceLink(); clearActivityIntelligence(); clearDiscoveryDetail(); sendWatching(null); $('track-activity')?.classList.add('hidden'); $('save-place')?.classList.add('hidden'); $('share-activity')?.classList.add('hidden'); $('detail-sidebar')?.classList.add('is-empty'); $('detail-panel')?.classList.remove('has-selection'); renderRanking(); });
   detailBackButton.addEventListener('click',()=>{const id=returnPlaceId;if(id)selectPlace(id,false);});
   $('traffic-style')?.addEventListener('change', e => { if(trafficMode!=='off') setTrafficMode(e.target.value); });
   $('place-mode').addEventListener('change', e => { placeMode=e.target.value || 'off'; trackProduct('smart_places_selected', placeMode); fetchPlaces(); updateLayerToggleUi(); });
@@ -3389,10 +3411,11 @@
     if(button)button.disabled=true;if(note)note.textContent='Finding your nearest stop…';
     navigator.geolocation.getCurrentPosition(async pos => {
       const lat=pos.coords.latitude,lon=pos.coords.longitude;
+      clearTransientLocationModes();
       // This action promises one nearest stop, not every stop in the viewport.
       // Keep the general places layer off so map movement cannot flood the map.
       placeMode='off';if($('place-mode'))$('place-mode').value='off';
-      enabledActivityTypes.add('bus');updateLayerToggleUi();setNearby(lat,lon,'device');
+      enabledActivityTypes.add('bus');updateLayerToggleUi();
       map.setView([lat,lon],15,{animate:true});trackProduct('nearby_used','nearest-bus');
       collapseWorkspaceOnPhone();
       try {
@@ -3400,25 +3423,25 @@
         const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.detail||'No nearby stop is ready');
         const place=payload.place;
         places=[place];
+        transientNearestBusPlaceId=place.id;
         renderPlaces();sendViewport();await selectPlace(place.id,true);
         const distance=Number(place.distance_km);showToast(`Opened ${place.name}${Number.isFinite(distance)?` • ${distance<1?Math.round(distance*1000)+' m':distance.toFixed(1)+' km'} away`:''}.`);
       } catch(error) {
-        places=[];renderPlaces();showToast(error?.message||'Your nearest bus stop could not load right now.');
+        places=[];transientNearestBusPlaceId=null;renderPlaces();showToast(error?.message||'Your nearest bus stop could not load right now.');
       } finally {if(button)button.disabled=false;if(note)note.textContent='Nearest stop and live departures';}
     }, () => {if(button)button.disabled=false;if(note)note.textContent='Nearest stop and live departures';showToast('Location permission was not granted. Search for a stop instead.');}, {enableHighAccuracy:true,timeout:10000,maximumAge:120000});
   });
   $('overhead-now')?.addEventListener('click',()=>{
     const button=$('overhead-now');
     if(overheadActive){
-      overheadActive=false;nearbyAircraftRows=[];nearbyState.active=false;button?.classList.remove('active');
-      if(overheadAutoEnabledAircraft)enabledActivityTypes.delete('aircraft');overheadAutoEnabledAircraft=false;updateLayerToggleUi();
+      clearTransientLocationModes();
       selectedType=currentWorkspace==='cool'?'cool-off':'useful';
-      const note=button?.querySelector('small');if(note)note.textContent='Aircraft received within 50 miles';
       renderNearbyOverlay();sendViewport();renderMap();renderStats();renderRanking();showToast('Aircraft above-me view turned off.');return;
     }
     if(!navigator.geolocation){showToast('Location is not available in this browser.');return;}
     if(button){button.disabled=true;button.querySelector('small').textContent='Finding your location…';}
     navigator.geolocation.getCurrentPosition(async pos=>{
+      clearTransientLocationModes();
       if($('near-radius'))$('near-radius').value='25';
       overheadActive=true;button?.classList.add('active');
       selectedType='nearby-aircraft';
@@ -3445,7 +3468,7 @@
     },{enableHighAccuracy:false,timeout:7000,maximumAge:120000});
   });
   $('near-centre').addEventListener('click',()=>{ const c=map.getCenter(); setNearby(c.lat,c.lng,'centre'); trackProduct('nearby_used','map-centre'); });
-  $('near-clear').addEventListener('click',()=>{ nearbyState.active=false; renderNearbyOverlay(); renderMap(); renderStats(); renderRanking(); });
+  $('near-clear').addEventListener('click',()=>{ clearTransientLocationModes({clearNearestStop:false}); sendViewport();renderMap();renderStats();renderRanking(); });
   $('add-watch-zone').addEventListener('click',()=>{ if(!billingState.plus&&watchZones.length>=1){openPlusDialog();showToast('Free My Radar includes one watch zone. Radar+ unlocks more.');return;} const c=map.getCenter(); const radius=Number($('near-radius').value || 10); const suggested=`Watch zone ${watchZones.length+1}`; const name=(window.prompt('Name this live watch zone', suggested) || '').trim(); if(!name)return; watchZones.push({id:`zone-${Date.now()}`,name,lat:c.lat,lon:c.lng,radiusMiles:radius}); saveWatchZones(); renderWatchZones();renderMyRadar(); trackProduct('watch_zone_added','watch-zone'); showToast(`${name} saved • ${radius} mile radius`); });
   $('search').addEventListener('input', (e) => { searchText = e.target.value.trim().toLowerCase(); renderMap(); renderStats(); renderRanking(); if (!searchText) hideSearchResults(); });
   $('search').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); runSearch(); } });
