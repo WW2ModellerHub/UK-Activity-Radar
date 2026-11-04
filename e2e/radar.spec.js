@@ -576,10 +576,10 @@ test('aircraft media is not restarted on every live snapshot', async ({ page }) 
 test('known military helicopters show a bundled real photograph when live image lookup is unavailable', async ({ page }) => {
   await page.route('**/api/activity/aircraft-live-2/media', route => route.fulfill({ json:{ ok:false, reason:'no_match' } }));
   await page.locator('[data-layer-toggle="aircraft"]').click();
-  const marker=page.locator('.aircraft-shape-chinook').first();
+  const marker=page.locator('.aircraft-shape-helicopter').first();
   await expect(marker).toBeVisible();
-  await expect(marker.locator('.rotorcraft-glyph')).toContainText('🚁');
-  await expect(marker.locator('svg')).toHaveCount(0);
+  await expect(marker.locator('.rotorcraft-silhouette .map-helicopter-svg')).toHaveCount(1);
+  await expect(marker.locator('.rotor-disc')).toHaveCount(1);
   await marker.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-photo img')).toHaveAttribute('src','/static/assets/aircraft/chinook-raf.jpg');
   await expect(page.locator('#detail-photo')).toContainText('Reference photo of this aircraft type');

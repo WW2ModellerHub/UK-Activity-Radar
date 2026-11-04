@@ -724,6 +724,8 @@
   function aircraftTypePhoto(a) {
     const text=[a.aircraft_model,a.aircraft_type_code,a.subtitle,a.name].filter(Boolean).join(' ').toUpperCase();
     const kind=/KC-?135|K35R|STRATOTANKER/.test(text)?'kc135'
+      : /CHINOOK|CH-?47|\bH47\b/.test(text)?'chinook'
+      : /APACHE|AH-?64/.test(text)?'apache'
       : /EUROFIGHTER|TYPHOON|\bEF2000\b/.test(text)?'typhoon'
       : /A400M|ATLAS C?\.?1|\bA4M\b/.test(text)?'a400m'
       : /C-?17|GLOBEMASTER|\bC17\b/.test(text)?'c17'
@@ -878,12 +880,14 @@
 
   function aircraftMapShape(v) {
     const text=[v.aircraft_model,v.aircraft_type_code,v.subtitle].filter(Boolean).join(' ').toUpperCase();
-    // A real, instantly recognisable helicopter glyph is clearer at map size
-    // than the former abstract top-down SVG silhouettes.
-    if(/CHINOOK|CH-?47|\bH47\b/.test(text)) return {kind:'chinook',html:'🚁',rotorcraft:true};
-    if(/APACHE|AH-?64/.test(text)) return {kind:'apache',html:'🚁',rotorcraft:true};
-    if(v.type==='sar' || /HELICOPTER|SIKORSKY|AW1|EC1|H135|H145|DAUPHIN/.test(text)) return {kind:'helicopter',html:'🚁',rotorcraft:true};
-    return {kind:'plane',html:'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M30 5h5l4 21 17 10v6L39 37l-2 15 8 5v4l-12-3-12 3v-4l8-5-2-15-17 5v-6l17-10 3-21Z"/></svg>',rotorcraft:false};
+    const helicopter='<svg class="map-aircraft-svg map-helicopter-svg" viewBox="0 0 48 48" aria-hidden="true"><circle class="rotor-disc" cx="24" cy="19" r="15"/><path d="M21 7c-2 3-3 8-3 13 0 7 2 11 4 14l-1 8-4 3v2l7-2 7 2v-2l-4-3-1-8c2-3 4-7 4-14 0-5-1-10-3-13l-3-2-3 2Z"/><path class="rotor-line" d="M5 19h38M24 1v36"/><circle class="tail-rotor" cx="24" cy="42" r="3"/></svg>';
+    const fastJet='<svg class="map-aircraft-svg map-fastjet-svg" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 2c-2 3-3 8-3 14L7 29v5l14-5 1 10-6 5v2l8-2 8 2v-2l-6-5 1-10 14 5v-5L27 16c0-6-1-11-3-14Z"/></svg>';
+    const heavy='<svg class="map-aircraft-svg map-heavy-svg" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 2c-3 3-4 9-4 16L4 29v6l16-5 1 10-7 5v2l10-2 10 2v-2l-7-5 1-10 16 5v-6L28 18c0-7-1-13-4-16Z"/></svg>';
+    const plane='<svg class="map-aircraft-svg map-plane-svg" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 2c-2 3-3 9-3 17L6 29v5l15-5 1 10-6 5v2l8-2 8 2v-2l-6-5 1-10 15 5v-5L27 19c0-8-1-14-3-17Z"/></svg>';
+    if(v.type==='sar' || /CHINOOK|CH-?47|\bH47\b|APACHE|AH-?64|HELICOPTER|SIKORSKY|AW1|EC1|H135|H145|DAUPHIN|\bS92\b/.test(text)) return {kind:'helicopter',html:helicopter,rotorcraft:true};
+    if(/TYPHOON|EUROFIGHTER|F-?35|F-?16|F-?15|F-?18|TORNADO|HAWK|GRIPEN|RAFALE/.test(text)) return {kind:'fastjet',html:fastJet,rotorcraft:false};
+    if(/KC-?135|STRATOTANKER|VOYAGER|A330|A340|A350|A380|747|C-?17|GLOBEMASTER|A400M|ATLAS|HERCULES|C-?130|AWACS|SENTRY|RIVET/.test(text)) return {kind:'heavy',html:heavy,rotorcraft:false};
+    return {kind:'plane',html:plane,rotorcraft:false};
   }
 
   function aircraftDisplayBearing(v) {
@@ -918,10 +922,10 @@
       const identity=aircraftMapIdentity(v);
       const priority=currentWorkspace === 'cool' && cool.score >= 45 ? `<em>${esc(cool.label)}</em>` : '';
       const observedBearing=aircraftDisplayBearing(v);
-      const rotation = shape.rotorcraft ? 0 : observedBearing;
+      const rotation = observedBearing;
       return L.divIcon({
         className:'marker-wrap aerial-marker-wrap',
-        html:`<div class="motion-shell aerial-motion-shell"><div class="aerial-map-marker aerial-${esc(type)} aircraft-shape-${shape.kind}" title="${esc(identity)} — ${esc(v.name)}"><span class="aircraft-silhouette${shape.rotorcraft?' rotorcraft-glyph':''}" style="transform:rotate(${rotation}deg)">${shape.html}</span><small>${esc(identity)}</small>${priority}</div>${pointer}${speedTag}</div>`,
+        html:`<div class="motion-shell aerial-motion-shell"><div class="aerial-map-marker aerial-${esc(type)} aircraft-shape-${shape.kind}" title="${esc(identity)} — ${esc(v.name)}"><span class="aircraft-silhouette${shape.rotorcraft?' rotorcraft-silhouette':''}" style="transform:rotate(${rotation}deg)">${shape.html}</span><small>${esc(identity)}</small>${priority}</div>${pointer}${speedTag}</div>`,
         iconSize:[62,54],iconAnchor:[31,27]
       });
     }
