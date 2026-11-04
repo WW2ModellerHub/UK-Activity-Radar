@@ -193,10 +193,10 @@ def test_long_lived_service_rechecks_schedule_and_reference_data():
 def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
-    assert "/static/styles.css?v=15125" in index
-    assert "/static/app.js?v=15125" in index
+    assert "/static/styles.css?v=15126" in index
+    assert "/static/app.js?v=15126" in index
     assert "NETWORK_FIRST_ASSETS" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r25" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r26" in worker
 
 
 def test_paid_transport_detail_is_labelled_as_radar_plus():
@@ -221,3 +221,10 @@ def test_optional_traffic_control_does_not_mislabel_the_basemap_as_tomtom():
 
     assert "<strong>Live traffic</strong>" in index
     assert "<strong>TomTom traffic</strong>" not in index
+
+
+def test_map_has_a_max_zoom_before_marker_clusters_are_attached():
+    app_js = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+
+    map_setup = app_js[:app_js.index("const markerGroup")]
+    assert "maxZoom: 20" in map_setup

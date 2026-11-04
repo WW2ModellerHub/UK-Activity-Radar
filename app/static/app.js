@@ -1,5 +1,8 @@
 (() => {
-  const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([54.1, -2.5], 6);
+  // MarkerCluster requires a map-level maxZoom immediately. The commercial
+  // basemap is attached asynchronously, so it cannot be the first component
+  // to supply this value.
+  const map = L.map('map', { zoomControl: true, preferCanvas: true, maxZoom: 20 }).setView([54.1, -2.5], 6);
 
   const tileSets = {standard:null};
   let currentBase = null;
@@ -34,7 +37,7 @@
     } catch {}
     tileSets.standard=baseTileLayer(config);
     currentBase=tileSets.standard.addTo(map);
-    $('map').dataset.mapProvider=config?.configured?'mapbox':'tomtom-fallback';
+    document.getElementById('map').dataset.mapProvider=config?.configured?'mapbox':'tomtom-fallback';
   }
   configureBaseMap();
 
