@@ -585,6 +585,8 @@ test('known military helicopters show a bundled real photograph when live image 
   await expect(page.locator('#detail-photo')).toContainText('Reference photo of this aircraft type');
   await expect(page.locator('#detail-photo')).toContainText('Adrian Pingstone');
   await expect(page.locator('#detail-photo .aircraft-reference-visual')).toHaveCount(0);
+  await expect(page.locator('#detail-insight')).toBeVisible();
+  await expect(page.locator('#detail-insight')).toContainText('military heavy-lift helicopter');
 });
 
 test('selected aircraft draws an honest browser-local live trail', async ({ page }) => {
@@ -652,6 +654,7 @@ test('commercial aircraft use operator colours and an exact licensed photo', asy
   await expect(page.locator('#detail-photo img')).toHaveAttribute('src','https://upload.wikimedia.org/fixture-ryanair.jpg');
   await expect(page.locator('#detail-photo .image-truth')).toContainText('this aircraft registration');
   await expect(page.locator('#detail-photo')).toContainText('CC BY-SA 4.0');
+  await expect(page.locator('#detail-insight')).toBeHidden();
 });
 
 test('activity marker hover shows facts and click opens and closes detail', async ({ page }) => {

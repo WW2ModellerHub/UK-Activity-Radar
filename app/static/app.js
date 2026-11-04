@@ -343,7 +343,15 @@
     if (a.type === 'wave' && /(?:[4-9]|\d{2,})\.?\d* m/.test(text)) { score += 13; reasons.push('large live wave reading'); }
     if (a.type === 'outage') { score += a.interesting ? 13 : 5; reasons.push('live power outage'); }
     if (a.type === 'space') { score += 16; reasons.push('aurora / space-weather trigger'); }
-    if (['aircraft','gritter','satellite'].includes(a.type)) { score += 10; reasons.push(a.type === 'aircraft' ? 'military / special aircraft' : a.type === 'gritter' ? 'live winter-service vehicle' : 'ISS currently in map area'); }
+    if (a.type === 'aircraft') {
+      const classified = coolInfo(a);
+      if (classified.candidate && classified.score >= 45) {
+        score += 10;
+        reasons.push(...(classified.reasons.length ? classified.reasons : ['verified unusual aircraft']));
+      }
+    }
+    if (a.type === 'gritter') { score += 10; reasons.push('live winter-service vehicle'); }
+    if (a.type === 'satellite') { score += 10; reasons.push('ISS currently in map area'); }
     if (a.type === 'airquality' && /high|very high|index [7-9]|index 10/.test(text)) { score += 12; reasons.push('elevated air pollution'); }
     if (a.type === 'train' && /steam|special|charter|heritage|measurement|test train|royal/.test(text)) { score += 18; reasons.push('unusual rail movement'); }
     const delay = Math.abs(Number(a.delay_minutes || 0));
@@ -1648,7 +1656,14 @@
       return;
     }
     if(a.type==='train'){box.classList.add('hidden');box.innerHTML='';return;}
-    const info = currentWorkspace==='cool' ? coolInfo(a) : interestInfo(a);
+    let info;
+    if(a.type==='aircraft'){
+      const classified=coolInfo(a);
+      if(!classified.candidate || classified.score<45 || !classified.reasons.length){box.classList.add('hidden');box.innerHTML='';return;}
+      info=classified;
+    }else{
+      info=currentWorkspace==='cool' ? coolInfo(a) : interestInfo(a);
+    }
     if (info.score < (currentWorkspace==='cool'?45:10)) { box.classList.add('hidden'); box.innerHTML=''; return; }
     box.classList.remove('hidden');
     box.innerHTML = `<strong>${currentWorkspace==='cool'?'⚡ Why this is cool':'✨ Why this is interesting now'}</strong><span>${esc(info.reasons.join(' • ') || 'Current live activity')}</span>`;
