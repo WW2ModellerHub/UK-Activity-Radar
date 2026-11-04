@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## 2026-11-04 — distinct aircraft and bus-stop map symbols
+
+- Replaced the shared aircraft outline with recognisable top-down airliner,
+  propeller, fast-jet, heavy-transport and helicopter silhouettes, including
+  visible engines, propellers, intakes and rotor details at map scale.
+- Gave each aircraft class its own colour while retaining the aircraft type
+  label beneath the symbol.
+- Replaced the moving-bus emoji on fixed bus stops with a dedicated blue
+  roadside stop sign and pole, preventing stops being mistaken for vehicles.
+- Added browser assertions for bus-stop signage, airliner engines and propeller
+  detail, and advanced the mobile asset cache to release 15133.
+
 ## 2026-11-03 — safe first Render deployment
 
 - Staged Radar+ behind `BILLING_ENABLED=false` for the first hosted launch so

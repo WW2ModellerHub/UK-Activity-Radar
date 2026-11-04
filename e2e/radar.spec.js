@@ -27,7 +27,7 @@ test('Buses near me enables buses and opens the nearest live stop board', async 
   await expect(page.locator('#detail-placeboard')).toContainText('City Centre');
   await expect(page.locator('#detail-placeboard')).toContainText('Arriva Midlands');
   await expect(page.locator('.place-marker')).toHaveCount(1);
-  await expect(page.locator('.place-marker')).toContainText('🚌');
+  await expect(page.locator('.place-marker.place-bus_stop .bus-stop-sign')).toHaveCount(1);
   await expect(page.locator('#nearby-note')).toHaveClass(/hidden/);
   await page.locator('#detail-close').click();
   await expect(page.locator('.place-marker')).toHaveCount(0);
@@ -602,7 +602,9 @@ test('aircraft markers distinguish airliners and propeller aircraft with the typ
     Object.assign(aircraft,{name:'RYR1YY',vehicle_ref:'EI-TEST',aircraft_model:'Boeing 737-8200',aircraft_type_code:'B38M'});
     window.__fixtureSocket.onmessage({data:JSON.stringify(next)});
   });
-  await expect(page.locator('.aircraft-shape-airliner').filter({ hasText:'737-8200' }).first()).toBeVisible();
+  const airliner=page.locator('.aircraft-shape-airliner').filter({ hasText:'737-8200' }).first();
+  await expect(airliner).toBeVisible();
+  await expect(airliner.locator('.map-airliner-svg .engine')).toHaveCount(2);
   await page.evaluate(() => {
     const next=structuredClone(window.__fixtureSnapshot);
     const aircraft=next.activities.find(row=>row.id==='aircraft-live-1');
@@ -612,6 +614,7 @@ test('aircraft markers distinguish airliners and propeller aircraft with the typ
   const propeller=page.locator('.aircraft-shape-propeller').filter({hasText:'CESSNA 152'}).first();
   await expect(propeller).toBeVisible();
   await expect(propeller.locator('.map-propeller-svg')).toHaveCount(1);
+  await expect(propeller.locator('.prop-line')).toHaveCount(1);
   await expect(propeller.locator('.motion-speed')).toHaveCount(0);
 });
 
@@ -782,7 +785,7 @@ test('Share live page works directly from a selected activity', async ({ page })
 test('clicking a bus stop opens live timetable information', async ({ page }) => {
   await page.locator('.useful-details summary').click();
   await page.locator('#place-mode').selectOption('all');
-  const stop = page.locator('.place-marker').filter({ hasText: '🚌' });
+  const stop = page.locator('.place-marker.place-bus_stop');
   await expect(stop).toBeVisible();
   await stop.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');

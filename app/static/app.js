@@ -75,7 +75,7 @@
   let cameraRequest = 0;
   let cameraDetailRequest = 0;
 
-  const placeIcons = {rail_station:'🚉',bus_stop:'🚌',rain_gauge:'🌧️'};
+  const placeIcons = {rail_station:'🚉',bus_stop:'▣',rain_gauge:'🌧️'};
   const placeMarkers = new Map();
   const placeGroup = typeof L.markerClusterGroup === 'function'
     ? L.markerClusterGroup({ disableClusteringAtZoom: 14, maxClusterRadius: 40, showCoverageOnHover:false })
@@ -892,11 +892,12 @@
 
   function aircraftMapShape(v) {
     const text=[v.aircraft_model,v.aircraft_type_code,v.subtitle].filter(Boolean).join(' ').toUpperCase();
-    const helicopter='<svg class="map-aircraft-svg map-helicopter-svg" viewBox="0 0 48 48" aria-hidden="true"><circle class="rotor-disc" cx="24" cy="19" r="15"/><path d="M21 7c-2 3-3 8-3 13 0 7 2 11 4 14l-1 8-4 3v2l7-2 7 2v-2l-4-3-1-8c2-3 4-7 4-14 0-5-1-10-3-13l-3-2-3 2Z"/><path class="rotor-line" d="M5 19h38M24 1v36"/><circle class="tail-rotor" cx="24" cy="42" r="3"/></svg>';
-    const fastJet='<svg class="map-aircraft-svg map-fastjet-svg" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 2c-2 3-3 8-3 14L7 29v5l14-5 1 10-6 5v2l8-2 8 2v-2l-6-5 1-10 14 5v-5L27 16c0-6-1-11-3-14Z"/></svg>';
-    const heavy='<svg class="map-aircraft-svg map-heavy-svg" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 2c-3 3-4 9-4 16L4 29v6l16-5 1 10-7 5v2l10-2 10 2v-2l-7-5 1-10 16 5v-6L28 18c0-7-1-13-4-16Z"/></svg>';
-    const airliner='<svg class="map-aircraft-svg map-airliner-svg" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 2c-2.5 3-3.5 9-3.5 18L4 30v5l16.5-4.5 1 9.5-6.5 4.5V47l9-2 9 2v-2.5L26.5 40l1-9.5L44 35v-5L27.5 20C27.5 11 26.5 5 24 2Z"/></svg>';
-    const propeller='<svg class="map-aircraft-svg map-propeller-svg" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 5c-2 3-3 8-3 15L8 29v4l13-4 1 10-6 5v2l8-2 8 2v-2l-6-5 1-10 13 4v-4l-13-9c0-7-1-12-3-15Z"/><circle class="prop-hub" cx="24" cy="5" r="2.2"/><path class="prop-line" d="M12 5h24M24 1v8"/></svg>';
+    // Original category-specific silhouettes; details remain visible at map size.
+    const helicopter='<svg class="map-aircraft-svg map-helicopter-svg" viewBox="0 0 64 64" aria-hidden="true"><ellipse class="rotor-disc" cx="32" cy="23" rx="27" ry="9"/><path class="rotor-line" d="M5 23h54M32 11v24"/><path class="airframe" d="M32 13c-7 0-11 5-11 13 0 7 4 12 8 14l-2 13-6 4v3l11-3 11 3v-3l-6-4-2-13c4-2 8-7 8-14 0-8-4-13-11-13Z"/><circle class="tail-rotor" cx="32" cy="56" r="5"/><path class="tail-rotor" d="m28 52 8 8m0-8-8 8"/></svg>';
+    const fastJet='<svg class="map-aircraft-svg map-fastjet-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="airframe" d="M32 2c-3 4-5 12-5 20L8 43v6l19-8 1 10-9 7v3l13-4 13 4v-3l-9-7 1-10 19 8v-6L37 22c0-8-2-16-5-20Z"/><path class="jet-intake" d="m22 32 5-7v13Zm20 0-5-7v13Z"/><path class="tail-detail" d="m24 54 8-4 8 4"/></svg>';
+    const heavy='<svg class="map-aircraft-svg map-heavy-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="airframe" d="M32 2c-4 4-6 13-6 23L3 40v8l23-8 2 11-10 7v3l14-4 14 4v-3l-10-7 2-11 23 8v-8L38 25c0-10-2-19-6-23Z"/><ellipse class="engine" cx="13" cy="42" rx="3" ry="5"/><ellipse class="engine" cx="22" cy="37" rx="3" ry="5"/><ellipse class="engine" cx="42" cy="37" rx="3" ry="5"/><ellipse class="engine" cx="51" cy="42" rx="3" ry="5"/></svg>';
+    const airliner='<svg class="map-aircraft-svg map-airliner-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="airframe" d="M32 2c-3 4-5 13-5 25L5 42v6l22-8 1 12-9 6v3l13-4 13 4v-3l-9-6 1-12 22 8v-6L37 27c0-12-2-21-5-25Z"/><ellipse class="engine" cx="18" cy="42" rx="3" ry="5"/><ellipse class="engine" cx="46" cy="42" rx="3" ry="5"/></svg>';
+    const propeller='<svg class="map-aircraft-svg map-propeller-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="airframe" d="M32 8c-3 4-4 12-4 21L9 38v7l19-5 1 12-9 6v3l12-4 12 4v-3l-9-6 1-12 19 5v-7l-19-9c0-9-1-17-4-21Z"/><circle class="prop-hub" cx="32" cy="8" r="3"/><path class="prop-line" d="M12 8h40M32 3v10"/><path class="cockpit-detail" d="M29 18h6"/></svg>';
     if(v.type==='sar' || /CHINOOK|CH-?47|\bH47\b|APACHE|AH-?64|HELICOPTER|SIKORSKY|AW1|EC1|H135|H145|DAUPHIN|\bS92\b/.test(text)) return {kind:'helicopter',html:helicopter,rotorcraft:true};
     if(/TYPHOON|EUROFIGHTER|F-?35|F-?16|F-?15|F-?18|TORNADO|HAWK|GRIPEN|RAFALE/.test(text)) return {kind:'fastjet',html:fastJet,rotorcraft:false};
     if(/KC-?135|STRATOTANKER|VOYAGER|A330|A340|A350|A380|747|C-?17|GLOBEMASTER|A400M|ATLAS|HERCULES|C-?130|AWACS|SENTRY|RIVET/.test(text)) return {kind:'heavy',html:heavy,rotorcraft:false};
@@ -963,10 +964,14 @@
 
   function placeMarkerIcon(p) {
     const icon = placeIcons[p.place_type] || '📍';
+    const isBusStop=p.place_type==='bus_stop';
+    const markerContent=isBusStop
+      ? '<span class="bus-stop-sign" aria-hidden="true"><i>STOP</i><b></b></span>'
+      : esc(icon);
     return L.divIcon({
       className: 'place-marker-wrap',
-      html: `<div class="place-marker place-${esc(p.place_type || 'other')}" title="${esc(p.name)}">${icon}</div>`,
-      iconSize:[27,27], iconAnchor:[13,13]
+      html: `<div class="place-marker place-${esc(p.place_type || 'other')}" title="${esc(p.name)}">${markerContent}</div>`,
+      iconSize:isBusStop?[27,32]:[27,27], iconAnchor:isBusStop?[13,31]:[13,13]
     });
   }
 
