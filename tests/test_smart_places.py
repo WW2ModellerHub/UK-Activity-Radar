@@ -72,13 +72,14 @@ def test_scheduled_train_detail_returns_calling_points_without_live_marker(tmp_p
     now=datetime.now(london_tz())
     locations=[
         {'tiploc_code':'NUNEAT','scheduled_departure':'1010'},
+        {'tiploc_code':'WIGSTON','scheduled_pass':'1015'},
         {'tiploc_code':'HNK','scheduled_arrival':'1020','scheduled_departure':'1022'},
         {'tiploc_code':'LESTER','scheduled_arrival':'1040'},
     ]
     with store._connect() as con:
         con.executemany(
             "INSERT INTO tiplocs(tiploc,description) VALUES(?,?)",
-            [('NUNEAT','Nuneaton'),('HNK','Hinckley'),('LESTER','Leicester')],
+            [('NUNEAT','Nuneaton'),('WIGSTON','Wigston Junction'),('HNK','Hinckley'),('LESTER','Leicester')],
         )
         con.execute(
             """INSERT INTO schedules(train_uid,start_date,end_date,source,atoc_code,origin_name,destination_name,locations_json,power_type,booked_speed)
@@ -93,6 +94,7 @@ def test_scheduled_train_detail_returns_calling_points_without_live_marker(tmp_p
     assert detail['runs'][0]['booked_speed_mph']=='125'
     assert detail['runs'][0]['likely_train']['label']=='Class 220/221 Voyager family'
     assert [row['name'] for row in detail['runs'][0]['calling_points']]==['Nuneaton','Hinckley','Leicester']
+    assert {row['event'] for row in detail['runs'][0]['calling_points']}=={'Stops'}
 
 
 def test_scheduled_train_detail_does_not_reuse_an_expired_route(tmp_path: Path):

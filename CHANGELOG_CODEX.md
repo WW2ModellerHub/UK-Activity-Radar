@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## 2026-11-05 — passenger stops only in train timetables
+
+- Removed non-stopping junctions, signals and railway timing points from train
+  journey cards; the displayed list now contains passenger stops only.
+- Added a browser-side guard so upstream route data explicitly labelled as a
+  pass is also hidden rather than leaking back into the public timetable.
+
 ## 2026-11-05 — prevent false train journeys
 
 - Stopped TD-only trains being joined to a national timetable using a reused

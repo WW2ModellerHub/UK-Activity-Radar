@@ -1921,7 +1921,11 @@
 
   function railCallingPoints(run) {
     const candidates = [run?.calling_points,run?.locations,run?.calls,run?.stops,run?.progress?.calling_points,run?.train?.calling_points];
-    return candidates.find(Array.isArray) || [];
+    const rows=candidates.find(Array.isArray) || [];
+    return rows.filter(point=>{
+      const event=String(point?.event || point?.status || point?.type || '').trim();
+      return !/^pass(?:es|ing|ed)?$/i.test(event);
+    });
   }
 
   function renderRailRun(run, index) {

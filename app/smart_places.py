@@ -712,6 +712,16 @@ class SmartPlacesService:
                         for item in locations[:40]:
                             if not isinstance(item, dict):
                                 continue
+                            # CIF includes non-passenger timing points used only
+                            # to regulate the working. The public journey card
+                            # should be a calling pattern, not every passed
+                            # junction, signal or timing location.
+                            is_stop = any(item.get(key) for key in (
+                                'public_arrival', 'public_departure',
+                                'scheduled_arrival', 'scheduled_departure',
+                            ))
+                            if not is_stop:
+                                continue
                             code = str(item.get('tiploc_code') or '').strip()
                             clock = _clean_time(item.get('public_departure') or item.get('public_arrival') or item.get('scheduled_departure') or item.get('scheduled_arrival'))
                             if not code:
@@ -719,7 +729,7 @@ class SmartPlacesService:
                             calls.append({
                                 "name": names.get(code, code),
                                 "scheduled": clock,
-                                "event": "Calls" if item.get('scheduled_arrival') and item.get('scheduled_departure') else "Passes",
+                                "event": "Stops",
                             })
                         run.update({
                             "origin": row['origin_name'] or run['origin'],

@@ -769,6 +769,7 @@ test('clicked trains and buses load source-backed route intelligence', async ({ 
   await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-intelligence')).toContainText('JOURNEY');
   await expect(page.locator('#detail-intelligence')).toContainText('Watford Junction');
+  await expect(page.locator('#detail-intelligence')).not.toContainText('Ledburn Junction');
 
   await page.locator('#detail-close').click();
   await page.locator('[data-layer-toggle="bus"]').click();
