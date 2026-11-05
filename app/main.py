@@ -1843,10 +1843,35 @@ def cool_activities(request: Request, limit: int = 20, category: str | None = No
         raise HTTPException(status_code=400, detail="Unknown Cool category")
     context = _billing_context(request)
     maximum = 50 if context.has("cool_full") else 3
-    rows = state.cool_candidates(limit=max(1, min(limit, maximum)), category=wanted)
+    available = state.cool_candidates(limit=50, category=wanted)
+    requested = max(1, min(limit, maximum))
+    if context.has("cool_full") or wanted:
+        rows = available[:requested]
+    else:
+        # A straight score sort made the free preview look aircraft-only.
+        # Prefer one example from each visible Discover category, then fill
+        # unused slots by score. This changes presentation, not entitlement.
+        rows = []
+        for category_name in ("air", "rail", "rescue"):
+            match = next(
+                (row for row in available if str(row.cool_category or "").lower() == category_name),
+                None,
+            )
+            if match is not None and match not in rows:
+                rows.append(match)
+            if len(rows) >= requested:
+                break
+        rows.extend(row for row in available if row not in rows)
+        rows = rows[:requested]
+    available_counts = {
+        name: sum(1 for row in available if str(row.cool_category or "").lower() == name)
+        for name in ("air", "rail", "rescue")
+    }
     return {
         "activities": [row.model_dump(mode="json") for row in rows],
         "count": len(rows),
+        "available_count": len(available),
+        "available_counts": available_counts,
         "full_access": context.has("cool_full"),
         "limit": maximum,
         "updated_at": datetime.now(timezone.utc).isoformat(),

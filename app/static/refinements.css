@@ -121,3 +121,6 @@
 .transport-run-card.operator-themed .transport-run-head span{background:var(--train-accent);color:#111}
 .transport-run-card.operator-themed .transport-facts span{border-color:color-mix(in srgb,var(--train-accent) 35%,#263744);background:color-mix(in srgb,var(--train-primary) 35%,#17232d)}
 .transport-run-card.operator-themed .train-service-identity{border-left:5px solid var(--train-accent);background:linear-gradient(110deg,var(--train-primary),color-mix(in srgb,var(--train-secondary) 26%,#081017))}
+.aircraft-shape-helicopter .aircraft-silhouette svg .rotor,.aircraft-shape-apache .aircraft-silhouette svg .rotor,.aircraft-shape-chinook .aircraft-silhouette svg .rotor{fill:none;stroke:#ffe7da;stroke-width:1.5;stroke-linecap:round;opacity:.95}
+.aircraft-shape-helicopter .rotor-hub,.aircraft-shape-apache .rotor-hub,.aircraft-shape-chinook .rotor-hub{fill:#fff1e8;stroke:#512f2a;stroke-width:1}
+.aircraft-shape-helicopter .tail-boom,.aircraft-shape-helicopter .tail-plane,.aircraft-shape-apache .stub-wing,.aircraft-shape-chinook .tail-plane{fill:none;stroke:currentColor;stroke-width:4;stroke-linecap:round}

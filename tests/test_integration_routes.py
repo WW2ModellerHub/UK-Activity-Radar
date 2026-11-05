@@ -46,6 +46,29 @@ def test_multimodal_journey_route_uses_configured_otp(monkeypatch):
     assert payload["itineraries"]
 
 
+def test_free_discover_preview_is_balanced_and_reports_full_availability(monkeypatch):
+    candidates = [
+        Vehicle(id="air:1", type="aircraft", name="Fast jet", lat=52, lon=-1, cool_category="air", cool_score=100),
+        Vehicle(id="air:2", type="aircraft", name="Tanker", lat=53, lon=-2, cool_category="air", cool_score=99),
+        Vehicle(id="rail:1", type="train", name="Railtour", lat=54, lon=-3, cool_category="rail", cool_score=90),
+        Event(id="rescue:1", type="rescue", name="Rescue", lat=51, lon=-1, cool_category="rescue", cool_score=80),
+    ]
+
+    class State:
+        def cool_candidates(self, limit=20, category=None):
+            rows = [row for row in candidates if not category or row.cool_category == category]
+            return rows[:limit]
+
+    monkeypatch.setattr(main, "state", State())
+    monkeypatch.setattr(main, "_billing_context", lambda request: main.AccessContext())
+    payload = main.cool_activities(_request(), limit=20)
+
+    assert [row["cool_category"] for row in payload["activities"]] == ["air", "rail", "rescue"]
+    assert payload["available_count"] == 4
+    assert payload["available_counts"] == {"air": 2, "rail": 1, "rescue": 1}
+    assert payload["full_access"] is False
+
+
 def test_journey_route_fails_closed_when_commercial_planner_is_absent(monkeypatch):
     class Planner:
         configured = False

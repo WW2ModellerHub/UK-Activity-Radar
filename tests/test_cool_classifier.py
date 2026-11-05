@@ -100,6 +100,13 @@ def test_adsb_designators_name_apache_and_chinook_in_plain_english():
     assert all(classify_activity(row, now=NOW).candidate for row in rows)
 
 
+def test_lynx_is_classified_as_a_military_helicopter():
+    lynx = _aircraft("NAVY LYNX", aircraft_model="Westland Lynx AH.7")
+    result = classify_activity(lynx, now=NOW)
+    assert result.subtype == "military-helicopter"
+    assert result.candidate is True
+
+
 def test_old_rnli_record_is_not_a_best_spot_now_candidate():
     event = Event(
         id="rnli:old",

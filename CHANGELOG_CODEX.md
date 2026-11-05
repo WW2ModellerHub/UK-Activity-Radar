@@ -1,5 +1,26 @@
 # Codex stabilization changelog
 
+## 2026-11-05 — faster zoom and balanced Discover preview
+
+- Classified Lynx, Wildcat and other named military rotorcraft as helicopters
+  and replaced the generic disc with recognisable single-rotor, Apache and
+  tandem-rotor Chinook map silhouettes.
+- Stopped long live-position interpolation from overriding Leaflet during zoom,
+  so markers now remain attached to their map coordinates during the animation.
+- Balanced the three-item free Discover preview across aircraft, rail and rescue
+  whenever those categories are live, while showing the real national category
+  totals and explaining that Radar+ unlocks the full result set.
+
+## 2026-11-04 — public bug reporting
+
+- Added a prominent Report a bug action to the mobile-accessible Network menu,
+  the desktop footer and public information pages.
+- Added a structured GitHub issue form that requests reproduction steps, device,
+  browser and optional screenshots while warning visitors not to publish private
+  locations, credentials or payment information.
+- Advanced the offline shell cache so existing installed clients receive the
+  new support route.
+
 ## 2026-11-04 — technical SEO and consent-gated site analytics
 
 - Added canonical, description, social-card and WebSite/WebApplication

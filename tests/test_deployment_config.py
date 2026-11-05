@@ -160,6 +160,9 @@ def test_commercial_public_pages_and_footer_are_present():
     assert 'href="/terms"' in index
     assert 'href="/privacy"' in index
     assert 'href="/data-licences"' in index
+    assert 'issues/new?template=bug_report.yml' in index
+    assert 'Report a bug' in index
+    assert (ROOT / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml").exists()
     assert "not an official transport, navigation, emergency or safety service" in terms
     assert "£3.99 per month" in terms
     assert "{{SELLER_LEGAL_NAME}}" in terms
@@ -202,10 +205,10 @@ def test_long_lived_service_rechecks_schedule_and_reference_data():
 def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
-    assert "/static/styles.css?v=15134" in index
-    assert "/static/app.js?v=15134" in index
+    assert "/static/styles.css?v=15135" in index
+    assert "/static/app.js?v=15135" in index
     assert "NETWORK_FIRST_ASSETS" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r34" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r36" in worker
 
 
 def test_paid_transport_detail_is_labelled_as_radar_plus():

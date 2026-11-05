@@ -106,6 +106,7 @@
   let activities = [];
   let activitiesById = new Map();
   let globalCoolActivities = [];
+  let globalCoolAvailability = {fullAccess:false,total:0,counts:{air:0,rail:0,rescue:0}};
   let globalCoolById = new Map();
   let globalCoolRevision = 0;
   let globalCoolRequest = 0;
@@ -925,6 +926,7 @@
   function aircraftMapIdentity(v) {
     const text=[v.aircraft_model,v.aircraft_type_code,v.subtitle,v.name].filter(Boolean).join(' ').toUpperCase();
     const known=[
+      [/LYNX|WILDCAT/, 'LYNX'],
       [/APACHE|AH-?64/, 'APACHE'], [/CHINOOK|CH-?47|\bH47\b/, 'CHINOOK'],
       [/EUROFIGHTER|TYPHOON|\bEUFI\b/, 'TYPHOON'], [/F-?35|LIGHTNING II/, 'F-35'],
       [/A400M|\bA400\b|ATLAS/, 'ATLAS'], [/C-?17|GLOBEMASTER/, 'C-17'],
@@ -943,12 +945,16 @@
   function aircraftMapShape(v) {
     const text=[v.aircraft_model,v.aircraft_type_code,v.subtitle].filter(Boolean).join(' ').toUpperCase();
     // Original category-specific silhouettes; details remain visible at map size.
-    const helicopter='<svg class="map-aircraft-svg map-helicopter-svg" viewBox="0 0 64 64" aria-hidden="true"><ellipse class="rotor-disc" cx="32" cy="23" rx="27" ry="9"/><path class="rotor-line" d="M5 23h54M32 11v24"/><path class="airframe" d="M32 13c-7 0-11 5-11 13 0 7 4 12 8 14l-2 13-6 4v3l11-3 11 3v-3l-6-4-2-13c4-2 8-7 8-14 0-8-4-13-11-13Z"/><circle class="tail-rotor" cx="32" cy="56" r="5"/><path class="tail-rotor" d="m28 52 8 8m0-8-8 8"/></svg>';
+    const helicopter='<svg class="map-aircraft-svg map-helicopter-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="rotor" d="M4 22h56M11 8l42 28M11 36 53 8"/><circle class="rotor-hub" cx="32" cy="22" r="3"/><path class="airframe" d="M32 13c-7 0-11 5-11 13 0 8 5 13 9 15l-2 14h8l-2-14c4-2 9-7 9-15 0-8-4-13-11-13Z"/><path class="tail-boom" d="M32 39v20"/><path class="tail-plane" d="M22 53h20"/><path class="tail-rotor" d="M32 54v10m-5-5h10"/></svg>';
+    const chinook='<svg class="map-aircraft-svg map-chinook-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="rotor" d="M4 17h34M12 5l18 24M12 29 30 5M26 47h34M34 35l18 24M34 59l18-24"/><circle class="rotor-hub" cx="21" cy="17" r="3"/><circle class="rotor-hub" cx="43" cy="47" r="3"/><path class="airframe" d="M20 12c-5 2-7 7-5 12l18 29c3 5 10 6 15 2 4-3 5-9 2-14L31 12c-2-3-7-4-11 0Z"/><path class="tail-plane" d="M38 48h18M15 17 7 24"/></svg>';
+    const apache='<svg class="map-aircraft-svg map-apache-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="rotor" d="M3 23h58M10 7l44 32M10 39 54 7"/><circle class="rotor-hub" cx="32" cy="23" r="3"/><path class="airframe" d="M32 10c-5 0-9 5-9 13l4 18 2 15h6l2-15 4-18c0-8-4-13-9-13Z"/><path class="stub-wing" d="M13 37h38l-5 5H18Z"/><path class="tail-rotor" d="M32 53v11m-5-5h10"/></svg>';
     const fastJet='<svg class="map-aircraft-svg map-fastjet-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="airframe" d="M32 2c-3 4-5 12-5 20L8 43v6l19-8 1 10-9 7v3l13-4 13 4v-3l-9-7 1-10 19 8v-6L37 22c0-8-2-16-5-20Z"/><path class="jet-intake" d="m22 32 5-7v13Zm20 0-5-7v13Z"/><path class="tail-detail" d="m24 54 8-4 8 4"/></svg>';
     const heavy='<svg class="map-aircraft-svg map-heavy-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="airframe" d="M32 2c-4 4-6 13-6 23L3 40v8l23-8 2 11-10 7v3l14-4 14 4v-3l-10-7 2-11 23 8v-8L38 25c0-10-2-19-6-23Z"/><ellipse class="engine" cx="13" cy="42" rx="3" ry="5"/><ellipse class="engine" cx="22" cy="37" rx="3" ry="5"/><ellipse class="engine" cx="42" cy="37" rx="3" ry="5"/><ellipse class="engine" cx="51" cy="42" rx="3" ry="5"/></svg>';
     const airliner='<svg class="map-aircraft-svg map-airliner-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="airframe" d="M32 2c-3 4-5 13-5 25L5 42v6l22-8 1 12-9 6v3l13-4 13 4v-3l-9-6 1-12 22 8v-6L37 27c0-12-2-21-5-25Z"/><ellipse class="engine" cx="18" cy="42" rx="3" ry="5"/><ellipse class="engine" cx="46" cy="42" rx="3" ry="5"/></svg>';
     const propeller='<svg class="map-aircraft-svg map-propeller-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="airframe" d="M32 8c-3 4-4 12-4 21L9 38v7l19-5 1 12-9 6v3l12-4 12 4v-3l-9-6 1-12 19 5v-7l-19-9c0-9-1-17-4-21Z"/><circle class="prop-hub" cx="32" cy="8" r="3"/><path class="prop-line" d="M12 8h40M32 3v10"/><path class="cockpit-detail" d="M29 18h6"/></svg>';
-    if(v.type==='sar' || /CHINOOK|CH-?47|\bH47\b|APACHE|AH-?64|HELICOPTER|SIKORSKY|AW1|EC1|H135|H145|DAUPHIN|\bS92\b/.test(text)) return {kind:'helicopter',html:helicopter,rotorcraft:true};
+    if(/CHINOOK|CH-?47|\bH47\b/.test(text)) return {kind:'chinook',html:chinook,rotorcraft:true};
+    if(/APACHE|AH-?64/.test(text)) return {kind:'apache',html:apache,rotorcraft:true};
+    if(v.type==='sar' || /LYNX|WILDCAT|MERLIN|GAZELLE|PUMA|HELICOPTER|SIKORSKY|AW1|EC1|H135|H145|DAUPHIN|\bS92\b/.test(text)) return {kind:'helicopter',html:helicopter,rotorcraft:true};
     if(/TYPHOON|EUROFIGHTER|F-?35|F-?16|F-?15|F-?18|TORNADO|HAWK|GRIPEN|RAFALE/.test(text)) return {kind:'fastjet',html:fastJet,rotorcraft:false};
     if(/KC-?135|STRATOTANKER|VOYAGER|A330|A340|A350|A380|747|C-?17|GLOBEMASTER|A400M|ATLAS|HERCULES|C-?130|AWACS|SENTRY|RIVET/.test(text)) return {kind:'heavy',html:heavy,rotorcraft:false};
     if(/SPITFIRE|HURRICANE|LANCASTER|MUSTANG|DAKOTA|CESSNA|PIPER|CIRRUS|BEECH|DIAMOND|\bC1(?:52|72|82)\b|\bPA-?\d+\b|\bSR2\d\b|\bDA\d{2}\b|\bDH8\b|DASH\s*8|ATR\s*\d+/.test(text)) return {kind:'propeller',html:propeller,rotorcraft:false};
@@ -1404,12 +1410,16 @@
       const payload = await response.json();
       if (requestId !== globalCoolRequest) return;
       const rows = Array.isArray(payload.activities) ? payload.activities : [];
+      const availableCounts=payload.available_counts&&typeof payload.available_counts==='object'?payload.available_counts:{};
+      globalCoolAvailability={fullAccess:Boolean(payload.full_access),total:Number(payload.available_count ?? rows.length)||0,counts:{air:Number(availableCounts.air)||0,rail:Number(availableCounts.rail)||0,rescue:Number(availableCounts.rescue)||0}};
       // Keep a visitor's Discover set stable while they pan and zoom. Refresh
       // the live data for the same finds, but do not silently swap the set as
       // viewport messages or ranking ties change underneath them.
       if (globalCoolActivities.length) {
         const fresh = new Map(rows.map(activity => [activity.id, activity]));
-        globalCoolActivities = globalCoolActivities.map(activity => fresh.get(activity.id) || activity);
+        const retained=globalCoolActivities.map(activity=>fresh.get(activity.id)).filter(Boolean);
+        const retainedIds=new Set(retained.map(activity=>activity.id));
+        globalCoolActivities=[...retained,...rows.filter(activity=>!retainedIds.has(activity.id))].slice(0,rows.length);
       } else {
         globalCoolActivities = rows;
       }
@@ -2888,12 +2898,14 @@
     const candidates=scopedCandidates.filter(x=>layerTypeMatch(x.a,selectedType) && operatorMatches(x.a)).sort((x,y)=>y.c.score-x.c.score || x.km-y.km);
     const countSource=selectedType==='cool'?scopedCandidates:candidates;
     const cats=[['AIR','air',x=>discoveryCategoryForActivity(x.a)==='air'],['RAIL','rail',x=>discoveryCategoryForActivity(x.a)==='rail'],['RESCUE','rescue',x=>discoveryCategoryForActivity(x.a)==='rescue'||isRescueContextActivity(x.a)]];
-    const counts=cats.map(([label,theme,fn])=>({label,theme,n:countSource.filter(fn).length}));
+    const previewCounts=globalCoolAvailability.counts||{};
+    const counts=cats.map(([label,theme,fn])=>({label,theme,n:selectedType==='cool'&&!globalCoolAvailability.fullAccess?Number(previewCounts[theme]||0):countSource.filter(fn).length}));
     const top=candidates[0];
     const more=candidates.slice(1,6);
     const emptyScope=radius==null?'in the current UK live feed':`within ${Math.round(radius/1.609344)} miles`;
     const moreHtml=more.length?`<div class="cool-find-list"><div class="cool-find-head"><strong>MORE LIVE FINDS</strong><span>${candidates.length} matched live</span></div>${more.map(x=>`<button type="button" class="cool-find-row${isNewDiscoveryActivity(x.a)?' is-new':''}" data-cool-find="${esc(x.a.id)}"><span>${coolBadgeHtml(x.a,true)}</span><span><strong>${isNewDiscoveryActivity(x.a)?'<em class="discovery-new-tag">NEW</em> ':''}${esc(x.a.name)}${activityMatchesInterests(x.a)?' <em class="interest-match">MY INTEREST</em>':''}</strong><small>${esc(x.c.reasons[0]||x.a.subtitle||'Unusual live movement')} • updated ${esc(discoveryFreshness(x.a))}</small></span><b>›</b></button>`).join('')}</div>`:'';
-    box.innerHTML=`<div class="cool-scoreboard">${counts.map(x=>`<div><span class="cool-mini-icon cool-${x.theme}">${x.theme==='air'?'▲':x.theme==='rail'?'◆':'✚'}</span><strong>${x.n}</strong><small>${x.label}</small></div>`).join('')}</div>${top?`<button class="cool-hero-hit${isNewDiscoveryActivity(top.a)?' is-new':''}" type="button" data-cool-top="${esc(top.a.id)}"><span>${coolBadgeHtml(top.a,false)}</span><div><small>${isNewDiscoveryActivity(top.a)?'NEW • ':''}${activityIsCollectible(top.a)?'BEST LIVE FIND':'LIVE INCIDENT'} • updated ${esc(discoveryFreshness(top.a))}</small><strong>${esc(top.a.name)}${activityMatchesInterests(top.a)?' <em class="interest-match">MY INTEREST</em>':''}</strong><p>${esc(top.c.reasons[0]||top.a.subtitle||'Unusual live movement')}${activityIsCollectible(top.a)?` • ${top.km<1?'<1':Math.round(top.km)} km from map centre`:''}</p></div><b>›</b></button>${moreHtml}`:`<div class="cool-empty">Nothing unusual spotted ${emptyScope} right now.</div>`}`;
+    const previewNote=!globalCoolAvailability.fullAccess&&globalCoolAvailability.total>candidates.length?`<p class="cool-preview-note">Showing a balanced ${candidates.length}-item preview from ${globalCoolAvailability.total} live Discover matches. Radar+ shows the full set.</p>`:'';
+    box.innerHTML=`<div class="cool-scoreboard">${counts.map(x=>`<div><span class="cool-mini-icon cool-${x.theme}">${x.theme==='air'?'▲':x.theme==='rail'?'◆':'✚'}</span><strong>${x.n}</strong><small>${x.label}</small></div>`).join('')}</div>${previewNote}${top?`<button class="cool-hero-hit${isNewDiscoveryActivity(top.a)?' is-new':''}" type="button" data-cool-top="${esc(top.a.id)}"><span>${coolBadgeHtml(top.a,false)}</span><div><small>${isNewDiscoveryActivity(top.a)?'NEW • ':''}${activityIsCollectible(top.a)?'BEST LIVE FIND':'LIVE INCIDENT'} • updated ${esc(discoveryFreshness(top.a))}</small><strong>${esc(top.a.name)}${activityMatchesInterests(top.a)?' <em class="interest-match">MY INTEREST</em>':''}</strong><p>${esc(top.c.reasons[0]||top.a.subtitle||'Unusual live movement')}${activityIsCollectible(top.a)?` • ${top.km<1?'<1':Math.round(top.km)} km from map centre`:''}</p></div><b>›</b></button>${moreHtml}`:`<div class="cool-empty">Nothing unusual spotted ${emptyScope} right now.</div>`}`;
     box.querySelector('[data-cool-top]')?.addEventListener('click',e=>selectActivity(e.currentTarget.dataset.coolTop,true,11));
     box.querySelectorAll('[data-cool-find]').forEach(button=>button.addEventListener('click',()=>selectActivity(button.dataset.coolFind,true,11)));
   }
@@ -3340,7 +3352,9 @@
 
   map.on('click', e => inspectTrafficAt(e.latlng));
   let mapSettledTimer=null;
+  map.on('zoomstart',()=>map.getContainer().classList.add('map-zooming-fast'));
   map.on('moveend zoomend', () => {
+    map.getContainer().classList.remove('map-zooming-fast');
     clearTimeout(mapSettledTimer);
     mapSettledTimer=setTimeout(()=>{
       queueViewport();

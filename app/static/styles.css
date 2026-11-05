@@ -278,6 +278,9 @@ footer { min-height: 39px; display: flex; flex-wrap: wrap; align-items: center; 
 .plus-note { margin-top:12px; padding:9px 10px; border:1px solid var(--border); border-radius:9px; color:var(--muted); font-size:9px; line-height:1.45; }
 .preview-access{display:grid;gap:5px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}.preview-access label{color:var(--muted);font-size:8px}.preview-access>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}.preview-access input{min-width:0;height:34px;padding:0 9px;border:1px solid var(--border);border-radius:8px;background:#0a131c;color:var(--text)}.preview-access button{min-height:34px;padding:0 12px;border:1px solid rgba(86,214,164,.4);border-radius:8px;background:var(--accent-soft);color:#dff8ef;font-weight:800;cursor:pointer}
 .footer-link { color:#a9cbff; text-decoration:none; }
+.feedback-panel{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.feedback-panel p{margin:0 0 9px;color:var(--muted);font-size:10px;line-height:1.45}
+.feedback-link{display:flex;align-items:center;justify-content:center;min-height:38px;color:#dff8ef;text-decoration:none;border-color:rgba(86,214,164,.34)!important;background:rgba(86,214,164,.09)!important}
 
 @media (max-width: 900px) {
   .topbar { align-items:flex-start; flex-wrap:wrap; }
@@ -454,6 +457,7 @@ footer { height:35px; min-height:35px; padding:0 12px; display:flex; align-items
 .detail-close { width:30px; height:30px; flex:0 0 auto; border:1px solid var(--border); border-radius:8px; background:var(--panel-2); color:#91a4b5; font-size:19px; cursor:pointer; }
 .detail-back{width:30px;height:30px;flex:0 0 auto;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);color:#d8e5ee;font-size:17px;cursor:pointer}.detail-back:hover{border-color:var(--accent);color:#fff}
 .leaflet-marker-icon.marker-wrap-bus{transition:transform 5s linear!important}.leaflet-marker-icon.marker-wrap-train{transition:transform 2.2s ease-in-out!important}.leaflet-marker-icon.aerial-marker-wrap{transition:transform 1.4s linear!important}.overhead-now.active{border-color:rgba(86,214,164,.68);background:rgba(86,214,164,.12)}
+.map-zooming-fast .leaflet-marker-icon{transition:transform .25s cubic-bezier(0,0,.25,1)!important}
 .detail-panel > p { margin:5px 0 9px; font-size:10px; line-height:1.4; }
 .detail-fields { gap:5px; margin:8px 0; }
 .detail-field { padding:7px; }
@@ -712,3 +716,4 @@ body[data-experience="cool"] .marker-cluster-small,body[data-experience="cool"] 
 .aircraft-shape-propeller .aircraft-silhouette{color:#b8e6ff}
 .aircraft-shape-propeller .prop-line{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
 .aircraft-shape-propeller .prop-hub{stroke:#07111b;stroke-width:1}
+.cool-preview-note{margin:0;padding:7px 8px;border-radius:8px;background:rgba(157,214,255,.06);color:#9fb4c3!important;font-size:8px!important;line-height:1.4!important}

@@ -581,10 +581,10 @@ test('aircraft media is not restarted on every live snapshot', async ({ page }) 
 test('known military helicopters show a bundled real photograph when live image lookup is unavailable', async ({ page }) => {
   await page.route('**/api/activity/aircraft-live-2/media', route => route.fulfill({ json:{ ok:false, reason:'no_match' } }));
   await page.locator('[data-layer-toggle="aircraft"]').click();
-  const marker=page.locator('.aircraft-shape-helicopter').first();
+  const marker=page.locator('.aircraft-shape-chinook').first();
   await expect(marker).toBeVisible();
-  await expect(marker.locator('.rotorcraft-silhouette .map-helicopter-svg')).toHaveCount(1);
-  await expect(marker.locator('.rotor-disc')).toHaveCount(1);
+  await expect(marker.locator('.rotorcraft-silhouette .map-chinook-svg')).toHaveCount(1);
+  await expect(marker.locator('.rotor-hub')).toHaveCount(2);
   await marker.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-photo img')).toHaveAttribute('src','/static/assets/aircraft/chinook-raf.jpg');
   await expect(page.locator('#detail-photo')).toContainText('Reference photo of this aircraft type');
@@ -616,6 +616,20 @@ test('aircraft markers distinguish airliners and propeller aircraft with the typ
   await expect(propeller.locator('.map-propeller-svg')).toHaveCount(1);
   await expect(propeller.locator('.prop-line')).toHaveCount(1);
   await expect(propeller.locator('.motion-speed')).toHaveCount(0);
+});
+
+test('Westland Lynx aircraft use a helicopter silhouette and identity', async ({ page }) => {
+  await page.locator('[data-layer-toggle="aircraft"]').click();
+  await page.evaluate(() => {
+    const next=structuredClone(window.__fixtureSnapshot);
+    const aircraft=next.activities.find(row=>row.id==='aircraft-live-1');
+    Object.assign(aircraft,{name:'ARMYLYNX',vehicle_ref:'XZ179',aircraft_model:'Westland Lynx AH.7',aircraft_type_code:'LYNX'});
+    window.__fixtureSocket.onmessage({data:JSON.stringify(next)});
+  });
+  const lynx=page.locator('.aircraft-shape-helicopter').filter({hasText:'LYNX'}).first();
+  await expect(lynx).toBeVisible();
+  await expect(lynx.locator('.map-helicopter-svg')).toHaveCount(1);
+  await expect(lynx.locator('.rotor')).toHaveCount(1);
 });
 
 test('selected aircraft draws an honest browser-local live trail', async ({ page }) => {

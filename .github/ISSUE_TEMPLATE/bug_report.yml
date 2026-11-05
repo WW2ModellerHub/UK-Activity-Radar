@@ -1,0 +1,61 @@
+name: Report a bug
+description: Tell us when UK Activity Radar is not working as expected.
+title: "Bug: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve UK Activity Radar. Please do not include passwords, API keys, payment information, precise home locations or other private data.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What went wrong?
+      description: Describe what you saw and what you expected instead.
+      placeholder: I selected Trains, but no train markers appeared…
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we reproduce it?
+      description: List the buttons or map actions you used, in order.
+      placeholder: |
+        1. Open the live radar
+        2. Select Trains
+        3. Zoom into Birmingham
+    validations:
+      required: true
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options:
+        - iPhone or iPad
+        - Android phone or tablet
+        - Windows computer
+        - Mac
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      description: For example, Safari, Chrome, Edge or Firefox and its version if known.
+      placeholder: Safari on iOS 18
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshot or extra detail
+      description: Drag in a screenshot if it helps. Remove private information first.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have refreshed the page and the problem still happens.
+          required: true
+        - label: I have not included passwords, API keys, payment data or a precise private location.
+          required: true

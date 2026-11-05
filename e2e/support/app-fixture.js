@@ -36,6 +36,9 @@ const globalCoolFixture = {
     },
   ],
   count: 6,
+  available_count: 6,
+  available_counts: { air:3, rail:2, rescue:1 },
+  full_access: true,
   updated_at: '2026-10-05T10:01:00Z',
 };
 const discoveryCatalogueFixture = {
