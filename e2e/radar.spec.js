@@ -18,6 +18,18 @@ test('app loads with its map and deterministic live snapshot', async ({ page }) 
   await expect(page.locator('.ticker-item')).toContainText(['London Express', 'Bus 7']);
 });
 
+test('first load centres the map on the visitor when location is available', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, 'geolocation', {
+    configurable:true,
+    value:{getCurrentPosition(success){success({coords:{latitude:52.4862,longitude:-1.8904}});},watchPosition(){return 1;},clearWatch(){}},
+  }));
+  await page.reload();
+  await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout:5000 });
+  await expect(page.locator('#map')).toHaveAttribute('data-map-center','52.4862,-1.8904');
+  await expect(page.locator('#map')).toHaveAttribute('data-map-zoom','12');
+  await expect(page.locator('#recenter')).toHaveText('My location');
+});
+
 test('Buses near me enables buses and opens the nearest live stop board', async ({ page }) => {
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
   await page.locator('#near-me').click();
@@ -168,6 +180,35 @@ test('live stream deltas update one activity and remove ended activity without a
   await expect(page.locator('.marker-bubble')).toHaveCount(2);
   await expect(page.locator('#map')).toHaveAttribute('data-activity-count','2');
   await expect.poll(() => page.evaluate(() => window.__leafletStats.markerMoves)).toBeGreaterThan(movesBefore);
+});
+
+test('trains progress between confirmed railway reports without waiting minutes', async ({ page }) => {
+  await page.locator('#station-boards').click();
+  await page.locator('#detail-placeboard .board-clickable').first().click();
+  await expect(page.locator('#map')).toHaveAttribute('data-map-zoom','12');
+  await page.evaluate(() => {
+    let now=Date.parse('2026-10-05T10:01:20Z');
+    Date.now=()=>now+=1000;
+    const train=window.__fixtureSnapshot.activities.find(row=>row.id==='train-live-1');
+    window.__fixtureSocket.onmessage({data:JSON.stringify({
+      ...window.__fixtureSnapshot,
+      activities:window.__fixtureSnapshot.activities.map(row=>row.id==='train-live-1'?{
+        ...train,
+        reported_lat:52.04,
+        reported_lon:-0.76,
+        next_lat:52.08,
+        next_lon:-0.70,
+        next_location:'Bletchley',
+        estimate_started_at:'2026-10-05T10:01:00Z',
+        estimate_due_at:'2026-10-05T10:03:00Z',
+      }:row),
+    })});
+  });
+  await expect(page.locator('.marker-wrap-train .marker-estimated').first()).toBeVisible();
+  const movesBefore=await page.evaluate(()=>window.__leafletStats.markerMoves);
+  await expect.poll(()=>page.evaluate(()=>window.__leafletStats.markerMoves),{timeout:5000}).toBeGreaterThan(movesBefore);
+  await page.locator('.marker-wrap-train').first().evaluate(el=>el.dispatchEvent(new MouseEvent('mouseenter',{bubbles:true})));
+  await expect(page.locator('.activity-tooltip')).toContainText('Estimated between reports');
 });
 
 test('a 2,500-object streamed view refreshes incrementally', async ({ page }) => {
@@ -406,7 +447,7 @@ test('Cool rail detail shows an attributed and honestly labelled reference image
   expect(mediaCalls).toBe(1);
 });
 
-test('Discover renders its live view and private Field Guide without missions or requesting location', async ({ page }) => {
+test('Discover renders its live view and private Field Guide without an extra location request', async ({ page }) => {
   await page.locator('[data-workspace="cool"]').click();
   await expect(page.locator('[data-cool-view-panel="now"]')).toHaveClass(/active/);
   await expect(page.locator('#discovery-now-status')).toContainText('0/3');
@@ -419,7 +460,7 @@ test('Discover renders its live view and private Field Guide without missions or
   await expect(page.locator('#field-guide-grid .field-guide-card')).toHaveCount(3);
   await expect(page.locator('#field-guide-grid')).toContainText('Steam Train');
   await expect(page.locator('#field-guide-grid .field-guide-card.locked')).toHaveCount(3);
-  expect(await page.evaluate(() => window.__geolocationRequests)).toBe(0);
+  expect(await page.evaluate(() => window.__geolocationRequests)).toBe(1);
 });
 
 test('a live steam discovery enters the private Field Guide and survives reload', async ({ page }) => {
@@ -451,7 +492,7 @@ test('a live steam discovery enters the private Field Guide and survives reload'
   expect(stored[0]).toMatchObject({ id:'rail:steam', activity_id:'steam-live-1', broad_region:'Northern England and Wales' });
   expect(stored[0]).not.toHaveProperty('lat');
   expect(stored[0]).not.toHaveProperty('lon');
-  expect(await page.evaluate(() => window.__geolocationRequests)).toBe(0);
+  expect(await page.evaluate(() => window.__geolocationRequests)).toBe(1);
 
   await page.reload();
   await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout:5000 });
@@ -459,7 +500,7 @@ test('a live steam discovery enters the private Field Guide and survives reload'
   await page.locator('[data-cool-view="guide"]').click();
   await expect(page.locator('#field-guide-grid .field-guide-card').filter({ hasText:'Steam Train' })).toHaveClass(/discovered/);
   await expect(page.locator('#field-guide-progress')).toContainText('1 of 3 discovered');
-  expect(await page.evaluate(() => Number(sessionStorage.getItem('__radarTestGeolocationRequests') || 0))).toBe(0);
+  expect(await page.evaluate(() => Number(sessionStorage.getItem('__radarTestGeolocationRequests') || 0))).toBe(2);
 });
 
 test('a rejected discovery claim cannot unlock the Field Guide', async ({ page }) => {

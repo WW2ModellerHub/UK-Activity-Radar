@@ -111,7 +111,7 @@ def test_scheduled_train_detail_does_not_reuse_an_expired_route(tmp_path: Path):
     assert run.get('calling_points') is None
 
 
-def test_td_only_train_detail_resolves_todays_schedule_from_headcode(tmp_path: Path):
+def test_td_only_train_detail_does_not_guess_schedule_from_reused_headcode(tmp_path: Path):
     store=ScheduleStore(tmp_path/'schedule.sqlite')
     now=datetime.now(london_tz())
     locations=[
@@ -137,11 +137,11 @@ def test_td_only_train_detail_resolves_todays_schedule_from_headcode(tmp_path: P
     detail=SmartPlacesService(tmp_path,store,FakeState()).train_vehicle_detail(vehicle)
 
     run=detail['runs'][0]
-    assert run['train_uid']=='C2S53'
-    assert run['origin']=='Sheffield'
-    assert run['destination']=='Leicester'
-    assert run['operator']=='East Midlands Railway'
-    assert [call['name'] for call in run['calling_points']]==['Chesterfield','Derby','Leicester']
+    assert run.get('train_uid') is None
+    assert run.get('origin') is None
+    assert run.get('destination') is None
+    assert run.get('calling_points') is None
+    assert 'No timetable identity could be verified' in detail['note']
 
 
 class FakeStateWithGet(FakeState):

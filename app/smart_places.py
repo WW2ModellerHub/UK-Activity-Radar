@@ -682,26 +682,7 @@ class SmartPlacesService:
             ),
         }
         uid = str(getattr(vehicle, 'train_uid', '') or '').strip()
-        if not uid and headcode and self.schedules.ready():
-            try:
-                matched = self.schedules.lookup_headcode(headcode)
-            except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
-                matched = None
-            if matched:
-                uid = matched.train_uid
-                run.update({
-                    "train_uid": matched.train_uid,
-                    "origin": matched.origin or run["origin"],
-                    "destination": matched.destination or run["destination"],
-                    "operator_code": matched.atoc_code,
-                    "operator": operator_name(matched.atoc_code, run["operator"]),
-                    "service_code": matched.service_code,
-                    "train_category_code": matched.train_category,
-                    "power_type_code": matched.power_type,
-                    "timing_load": matched.timing_load,
-                    "booked_speed_mph": matched.booked_speed,
-                    "operating_characteristics": matched.operating_characteristics,
-                })
+        schedule_verified = False
         if uid and self.schedules.db_path.exists():
             try:
                 now = datetime.now(london_tz())
@@ -720,6 +701,7 @@ class SmartPlacesService:
                     ).fetchall()
                     row = next((candidate for candidate in rows if _day_runs(candidate['days_runs'], now)), None)
                     if row:
+                        schedule_verified = True
                         locations = json.loads(row['locations_json'] or '[]')
                         codes = sorted({str(item.get('tiploc_code') or '').strip() for item in locations if isinstance(item, dict) and item.get('tiploc_code')})
                         names = {}
@@ -770,7 +752,11 @@ class SmartPlacesService:
         return {
             "available": True, "mode": "network_rail", "source": "Live railway and timetable data",
             "runs": [run],
-            "note": "The route and calling points come from today's published timetable. The marker remains at the last confirmed railway report.",
+            "note": (
+                "The route and calling points come from today's published timetable. The marker remains at the last confirmed railway report."
+                if schedule_verified else
+                "No timetable identity could be verified for this live signalling report, so no route has been attached. The marker remains at the last confirmed railway report."
+            ),
         }
 
     def scheduled_train_detail(self, train_uid: str, headcode: str | None = None) -> dict:

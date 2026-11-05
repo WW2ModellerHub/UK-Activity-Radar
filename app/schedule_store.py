@@ -288,6 +288,11 @@ class ScheduleStore:
             now = now.astimezone(london_tz())
         service_date = running_date or now.date()
         location = str(tiploc or "").strip().upper()
+        # A four-character signalling ID is reused across the network and
+        # across service days. Without the live berth's TIPLOC it is not an
+        # identity and must never be used to attach a passenger journey.
+        if not location:
+            return None
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT * FROM schedules
@@ -316,7 +321,16 @@ class ScheduleStore:
             location_rank = 0 if location and location in codes else 1
             if location and location_rank:
                 continue
-            time_rank = self._clock_distance(locations, now)
+            location_rows = [
+                item for item in locations
+                if isinstance(item, dict)
+                and str(item.get("tiploc_code") or "").strip().upper() == location
+            ]
+            time_rank = self._clock_distance(location_rows, now)
+            # Allow substantial disruption, but reject a same-headcode route
+            # whose published passage through this berth is hours away.
+            if time_rank > 180:
+                continue
             source_rank = 0 if row["source"] == "VSTP" else 1
             ranked.append(((location_rank, time_rank, source_rank, -int(row["id"])), row))
         if not ranked:

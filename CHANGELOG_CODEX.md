@@ -1,5 +1,24 @@
 # Codex stabilization changelog
 
+## 2026-11-05 — prevent false train journeys
+
+- Stopped TD-only trains being joined to a national timetable using a reused
+  four-character headcode alone.
+- Required the live signalling location and a plausible passage time before a
+  TD report can inherit a timetable identity, route or calling points.
+- Show a clear unavailable explanation when no timetable identity is verified
+  instead of displaying a confident but unrelated journey.
+
+## 2026-11-05 — location-first map and smoother live trains
+
+- Centred the first map view on the visitor's current location when browser
+  permission is available, with the UK overview retained as the safe fallback.
+- Replaced the old Britain reset with a persistent My location control and a
+  visible current-position dot.
+- Added clearly labelled three-second train progress estimates between the last
+  confirmed Network Rail position and its next timed reporting point, while
+  keeping confirmed source positions unchanged in the live data and details.
+
 ## 2026-11-05 — faster zoom and balanced Discover preview
 
 - Classified Lynx, Wildcat and other named military rotorcraft as helicopters

@@ -456,7 +456,7 @@ footer { height:35px; min-height:35px; padding:0 12px; display:flex; align-items
 .detail-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
 .detail-close { width:30px; height:30px; flex:0 0 auto; border:1px solid var(--border); border-radius:8px; background:var(--panel-2); color:#91a4b5; font-size:19px; cursor:pointer; }
 .detail-back{width:30px;height:30px;flex:0 0 auto;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);color:#d8e5ee;font-size:17px;cursor:pointer}.detail-back:hover{border-color:var(--accent);color:#fff}
-.leaflet-marker-icon.marker-wrap-bus{transition:transform 5s linear!important}.leaflet-marker-icon.marker-wrap-train{transition:transform 2.2s ease-in-out!important}.leaflet-marker-icon.aerial-marker-wrap{transition:transform 1.4s linear!important}.overhead-now.active{border-color:rgba(86,214,164,.68);background:rgba(86,214,164,.12)}
+.leaflet-marker-icon.marker-wrap-bus{transition:transform 5s linear!important}.leaflet-marker-icon.marker-wrap-train{transition:transform 2.8s linear!important}.leaflet-marker-icon.aerial-marker-wrap{transition:transform 1.4s linear!important}.overhead-now.active{border-color:rgba(86,214,164,.68);background:rgba(86,214,164,.12)}
 .map-zooming-fast .leaflet-marker-icon{transition:transform .25s cubic-bezier(0,0,.25,1)!important}
 .detail-panel > p { margin:5px 0 9px; font-size:10px; line-height:1.4; }
 .detail-fields { gap:5px; margin:8px 0; }

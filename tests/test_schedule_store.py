@@ -111,3 +111,36 @@ def test_headcode_lookup_uses_live_location_before_reused_service(tmp_path):
     assert match.train_uid == "RIGHT1"
     assert match.origin == "Sheffield"
     assert match.destination == "Leicester"
+
+
+def test_headcode_lookup_refuses_to_guess_without_live_location(tmp_path):
+    store = ScheduleStore(tmp_path / "schedule.sqlite")
+    now = datetime.now(london_tz()).replace(second=0, microsecond=0)
+    with store._connect() as conn:
+        conn.execute(
+            """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,
+                   signalling_id,origin_name,destination_name,locations_json)
+               VALUES(?,?,?,?,?,?,?,?,?)""",
+            ("WRONG1", (now-timedelta(days=1)).date().isoformat(),
+             (now+timedelta(days=1)).date().isoformat(), "1111111", "P", "1P02",
+             "London Liverpool Street", "Norwich", json.dumps([{"tiploc_code":"STFD","scheduled_departure":now.strftime("%H%M")}]))
+        )
+
+    assert store.lookup_headcode("1P02", at_time=now) is None
+
+
+def test_headcode_lookup_refuses_implausible_time_at_same_location(tmp_path):
+    store = ScheduleStore(tmp_path / "schedule.sqlite")
+    now = datetime.now(london_tz()).replace(second=0, microsecond=0)
+    far_time = (now + timedelta(hours=6)).strftime("%H%M")
+    with store._connect() as conn:
+        conn.execute(
+            """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,
+                   signalling_id,origin_name,destination_name,locations_json)
+               VALUES(?,?,?,?,?,?,?,?,?)""",
+            ("STALE1", (now-timedelta(days=1)).date().isoformat(),
+             (now+timedelta(days=1)).date().isoformat(), "1111111", "P", "1P02",
+             "Wrong", "Route", json.dumps([{"tiploc_code":"HINCKLY","scheduled_departure":far_time}]))
+        )
+
+    assert store.lookup_headcode("1P02", at_time=now, tiploc="HINCKLY") is None

@@ -2,7 +2,10 @@
   // MarkerCluster requires a map-level maxZoom immediately. The commercial
   // basemap is attached asynchronously, so it cannot be the first component
   // to supply this value.
-  const map = L.map('map', { zoomControl: true, preferCanvas: true, maxZoom: 20 }).setView([54.1, -2.5], 6);
+  const DEFAULT_MAP_VIEW = [54.1, -2.5];
+  const map = L.map('map', { zoomControl: true, preferCanvas: true, maxZoom: 20 }).setView(DEFAULT_MAP_VIEW, 6);
+  let lastKnownDeviceLocation = null;
+  let deviceLocationMarker = null;
   // The navigation drawer owns the left edge of the map on every breakpoint.
   // Keep Leaflet's controls on the opposite edge so they can never sit over it.
   map.zoomControl?.setPosition?.('topright');
@@ -623,6 +626,7 @@
     if (delay) pills.push(`<span class="tooltip-pill ${delayN > 5 ? 'warn' : 'good'}">${esc(delay)}</span>`);
     if (movement) pills.push(`<span class="tooltip-pill">${esc(movement)}</span>`);
     if (next) pills.push(`<span class="tooltip-pill">${esc(next)}</span>`);
+    if (a.type === 'train' && a.position_method === 'estimated') pills.push('<span class="tooltip-pill warn">Estimated between reports</span>');
     if (a.type === 'vessel' && a.vehicle_ref) pills.push(`<span class="tooltip-pill">MMSI ${esc(a.vehicle_ref)}</span>`);
     if (['sar','aircraft'].includes(a.type) && (a.aircraft_model || a.vehicle_ref)) pills.push(`<span class="tooltip-pill">${esc(a.aircraft_model || a.vehicle_ref)}</span>`);
     const badge = currentWorkspace === 'cool' ? coolBadgeHtml(a,true) : '';
@@ -1475,6 +1479,27 @@
     return `${Number(a.lat).toFixed(6)}|${Number(a.lon).toFixed(6)}`;
   }
 
+  function activityMapPresentation(a, now=Date.now()) {
+    if (a?.type !== 'train') return a;
+    if (a.next_lat == null || a.next_lon == null || !a.estimate_started_at || !a.estimate_due_at) return a;
+    const fromLat=Number(a.reported_lat ?? a.lat),fromLon=Number(a.reported_lon ?? a.lon);
+    const toLat=Number(a.next_lat),toLon=Number(a.next_lon);
+    const started=Date.parse(a.estimate_started_at || ''),due=Date.parse(a.estimate_due_at || '');
+    const duration=due-started;
+    if (![fromLat,fromLon,toLat,toLon,started,due,duration].every(Number.isFinite)
+      || duration < 15000 || duration > 60*60*1000) return a;
+    const fraction=Math.max(0,Math.min(.97,(now-started)/duration));
+    if (fraction <= .01) return a;
+    const target=a.next_location ? ` towards ${a.next_location}` : '';
+    return {
+      ...a,
+      lat:fromLat+(toLat-fromLat)*fraction,
+      lon:fromLon+(toLon-fromLon)*fraction,
+      position_method:'estimated',
+      position_label:`Estimated progress${target} between confirmed railway reports`,
+    };
+  }
+
   function markerVisualSignature(a) {
     const zoomBand = map.getZoom() >= 12 ? 2 : map.getZoom() >= 9 ? 1 : 0;
     const appearance = currentWorkspace === 'cool' ? 'cool' : 'standard';
@@ -1504,16 +1529,17 @@
       }
     }
     for (const a of rows) {
+      const displayActivity=activityMapPresentation(a);
       // Discover is a curated, deliberately small set. Never cluster those
       // markers: each find must remain individually visible at every zoom.
       const intendedGroup = currentWorkspace==='cool' || ['aircraft','sar'].includes(a.type) ? aerialMarkerGroup : markerGroup;
       let marker = markers.get(a.id);
-      const positionSignature = markerPositionSignature(a);
-      const visualSignature = markerVisualSignature(a);
-      const tooltipSignature = markerTooltipSignature(a);
+      const positionSignature = markerPositionSignature(displayActivity);
+      const visualSignature = markerVisualSignature(displayActivity);
+      const tooltipSignature = markerTooltipSignature(displayActivity);
       if (!marker) {
-        marker = L.marker([a.lat, a.lon], { icon: markerIcon(a), riseOnHover: true });
-        marker.bindTooltip(tooltipHtml(a), { direction: 'top', offset: [0,-13], opacity: 0.97, className: 'activity-tooltip', sticky: true });
+        marker = L.marker([displayActivity.lat, displayActivity.lon], { icon: markerIcon(displayActivity), riseOnHover: true });
+        marker.bindTooltip(tooltipHtml(displayActivity), { direction: 'top', offset: [0,-13], opacity: 0.97, className: 'activity-tooltip', sticky: true });
         marker.on('click', () => selectActivity(a.id, true));
         marker.__activityGroup = intendedGroup;
         marker.__positionSignature = positionSignature;
@@ -1531,18 +1557,18 @@
           intendedGroup.addLayer(marker);
         }
         if (marker.__positionSignature !== positionSignature) {
-          marker.setLatLng([a.lat, a.lon]);
+          marker.setLatLng([displayActivity.lat, displayActivity.lon]);
           marker.__positionSignature = positionSignature;
           if (intendedGroup === markerGroup) clusterDirty = true;
           diagnostics.markerMoves += 1;
         }
         if (marker.__visualSignature !== visualSignature) {
-          marker.setIcon(markerIcon(a));
+          marker.setIcon(markerIcon(displayActivity));
           marker.__visualSignature = visualSignature;
           diagnostics.markerVisualUpdates += 1;
         }
         if (marker.__tooltipSignature !== tooltipSignature && marker.getTooltip()) {
-          marker.setTooltipContent(tooltipHtml(a));
+          marker.setTooltipContent(tooltipHtml(displayActivity));
           marker.__tooltipSignature = tooltipSignature;
           diagnostics.markerTooltipUpdates += 1;
         }
@@ -1557,6 +1583,38 @@
       map.removeLayer(focusMarker); focusMarker=null;
     }
   }
+
+  function refreshEstimatedTrainMarkers() {
+    if (document.hidden || map.getZoom() < 9) return;
+    const now=Date.now();
+    let clusterDirty=false;
+    for (const [id,marker] of markers.entries()) {
+      const activity=activityById(id);
+      if (activity?.type !== 'train') continue;
+      const displayActivity=activityMapPresentation(activity,now);
+      const positionSignature=markerPositionSignature(displayActivity);
+      if (marker.__positionSignature !== positionSignature) {
+        marker.setLatLng([displayActivity.lat,displayActivity.lon]);
+        marker.__positionSignature=positionSignature;
+        clusterDirty=marker.__activityGroup===markerGroup || clusterDirty;
+        diagnostics.markerMoves += 1;
+      }
+      const visualSignature=markerVisualSignature(displayActivity);
+      if (marker.__visualSignature !== visualSignature) {
+        marker.setIcon(markerIcon(displayActivity));
+        marker.__visualSignature=visualSignature;
+        diagnostics.markerVisualUpdates += 1;
+      }
+      const tooltipSignature=markerTooltipSignature(displayActivity);
+      if (marker.__tooltipSignature !== tooltipSignature && marker.getTooltip()) {
+        marker.setTooltipContent(tooltipHtml(displayActivity));
+        marker.__tooltipSignature=tooltipSignature;
+        diagnostics.markerTooltipUpdates += 1;
+      }
+    }
+    if(clusterDirty&&typeof markerGroup.refreshClusters==='function')markerGroup.refreshClusters();
+  }
+  window.setInterval(refreshEstimatedTrainMarkers,3000);
 
   function showFocusMarker(a) {
     if (focusMarker) { map.removeLayer(focusMarker); focusMarker=null; }
@@ -3474,6 +3532,37 @@
     showToast('Map cleared. Choose any layer when you want it.');
   });
   $('near-radius').addEventListener('change', e => { nearbyState.radiusMiles = Number(e.target.value || 10); if (nearbyState.active) { renderNearbyOverlay(); renderMap(); renderStats(); renderRanking(); } });
+  function showDeviceLocation(lat,lon) {
+    lastKnownDeviceLocation={lat:Number(lat),lon:Number(lon)};
+    if(deviceLocationMarker)map.removeLayer(deviceLocationMarker);
+    deviceLocationMarker=L.circleMarker([lat,lon],{radius:7,color:'#ffffff',weight:2,fillColor:'#56d6a4',fillOpacity:.95,interactive:false}).addTo(map);
+    const button=$('recenter');
+    if(button){button.textContent='My location';button.title='Centre on my current location';}
+  }
+
+  function centreMapOnDeviceLocation({silent=false,startup=false}={}) {
+    if(lastKnownDeviceLocation){
+      map.setView([lastKnownDeviceLocation.lat,lastKnownDeviceLocation.lon],Math.max(map.getZoom(),12),{animate:!startup});
+      sendViewport();
+      return;
+    }
+    if(!navigator.geolocation){
+      if(!silent)showToast('Location is unavailable in this browser.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(position=>{
+      const lat=Number(position.coords.latitude),lon=Number(position.coords.longitude);
+      if(!Number.isFinite(lat)||!Number.isFinite(lon))return;
+      showDeviceLocation(lat,lon);
+      map.setView([lat,lon],12,{animate:!startup});
+      sendViewport();
+      if(!startup)trackProduct('nearby_used','recenter-location');
+    },()=>{
+      const button=$('recenter');if(button){button.textContent='Locate me';button.title='Allow location to centre the map near you';}
+      if(!silent)showToast('Location permission was not granted. The Britain overview remains available.');
+    },{enableHighAccuracy:false,timeout:8000,maximumAge:300000});
+  }
+
   $('near-me').addEventListener('click', () => {
     const button=$('near-me'),note=button?.querySelector('small');
     if (!navigator.geolocation) { showToast('Location is not available in this browser. Search for a place instead.'); return; }
@@ -3544,7 +3633,7 @@
   $('search-go').addEventListener('click', runSearch);
   $('journey-route-clear')?.addEventListener('click',()=>{clearJourneyRoute();showToast('Route cleared.');});
   document.addEventListener('click', (e) => { if (!e.target.closest('.search-shell')) hideSearchResults(); });
-  $('recenter').addEventListener('click', () => { if(searchMarker){map.removeLayer(searchMarker);searchMarker=null;} map.setView([54.1, -2.5], 6); });
+  $('recenter').addEventListener('click', () => { if(searchMarker){map.removeLayer(searchMarker);searchMarker=null;} centreMapOnDeviceLocation(); });
   $('follow').addEventListener('click', () => {
     if (!selectedId) return;
     const wasFollowing = followed.has(selectedId);
@@ -3638,6 +3727,9 @@
   renderMyRadar();
   try { setMapMode(localStorage.getItem('ukRadarMapMode') || 'standard'); } catch { setMapMode('standard'); }
   setTrafficMode('off', true);
+  // Ask once on first load so the live map begins where the visitor is. The
+  // UK overview remains visible when location is unavailable or declined.
+  centreMapOnDeviceLocation({silent:true,startup:true});
   connect();
 
   // These account/editorial requests do not affect the first map paint or
