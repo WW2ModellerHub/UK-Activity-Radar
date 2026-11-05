@@ -3,7 +3,7 @@
   // basemap is attached asynchronously, so it cannot be the first component
   // to supply this value.
   const DEFAULT_MAP_VIEW = [54.1, -2.5];
-  const map = L.map('map', { zoomControl: true, preferCanvas: true, maxZoom: 20 }).setView(DEFAULT_MAP_VIEW, 6);
+  const map = L.map('map', { zoomControl: true, preferCanvas: true, maxZoom: 20, doubleClickZoom: false }).setView(DEFAULT_MAP_VIEW, 6);
   let lastKnownDeviceLocation = null;
   let deviceLocationMarker = null;
   // The navigation drawer owns the left edge of the map on every breakpoint.
@@ -3419,6 +3419,12 @@
       hideSearchResults();
     }
     inspectTrafficAt(e.latlng);
+  });
+  map.on('dblclick', e => {
+    e.originalEvent?.preventDefault?.();
+    const lat=Number(e.latlng?.lat),lon=Number(e.latlng?.lng);
+    if(!Number.isFinite(lat)||!Number.isFinite(lon))return;
+    map.setView([lat,lon],Math.min(20,map.getZoom()+1),{animate:true});
   });
   let mapSettledTimer=null;
   map.on('zoomstart',()=>map.getContainer().classList.add('map-zooming-fast'));

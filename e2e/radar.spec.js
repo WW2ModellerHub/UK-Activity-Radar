@@ -898,6 +898,13 @@ test('tapping bare map on mobile dismisses a deeply scrolled timetable and contr
   await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
 });
 
+test('double tapping the mobile map zooms towards the tapped point', async ({ page }) => {
+  await page.setViewportSize({width:390,height:844});
+  await expect(page.locator('#map')).toHaveAttribute('data-map-zoom','6');
+  await page.locator('#map').evaluate(element=>element.dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true})));
+  await expect(page.locator('#map')).toHaveAttribute('data-map-zoom','7');
+});
+
 test('mobile first visit can find a bus, save the stop, and reach simple alerts', async ({ page }) => {
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));

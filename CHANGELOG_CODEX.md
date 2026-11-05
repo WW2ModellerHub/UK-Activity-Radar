@@ -1,5 +1,10 @@
 # Codex stabilization changelog
 
+## 2026-11-05 — mobile double-tap zoom
+
+- Added predictable one-level map zoom on double tap, centred on the point the
+  visitor tapped, while preserving single-tap panel dismissal.
+
 ## 2026-11-05 — tap the mobile map to dismiss panels
 
 - Made a tap on bare map space close an open activity, station or timetable
