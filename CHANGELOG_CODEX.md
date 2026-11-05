@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## 2026-11-05 — tap the mobile map to dismiss panels
+
+- Made a tap on bare map space close an open activity, station or timetable
+  card and collapse the navigation panel on mobile.
+- Kept the detail header and close control visible while long train timetables
+  scroll, providing a second quick exit route.
+
 ## 2026-11-05 — passenger stops only in train timetables
 
 - Removed non-stopping junctions, signals and railway timing points from train

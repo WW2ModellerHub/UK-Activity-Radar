@@ -887,6 +887,17 @@ test('mobile viewport keeps core navigation, map, and details usable', async ({ 
   expect(await page.locator('.cool-filter').evaluateAll(cards => cards.every(card => card.scrollWidth <= card.clientWidth))).toBe(true);
 });
 
+test('tapping bare map on mobile dismisses a deeply scrolled timetable and controls', async ({ page }) => {
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble').filter({hasText:'🚆'}).first().evaluate(el=>el.dispatchEvent(new MouseEvent('click',{bubbles:true})));
+  await expect(page.locator('#detail-sidebar')).not.toHaveClass(/is-empty/);
+  await page.locator('#detail-sidebar').evaluate(element=>{element.scrollTop=element.scrollHeight;});
+  await page.locator('#map').evaluate(element=>element.dispatchEvent(new MouseEvent('click',{bubbles:true})));
+  await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
+  await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
+});
+
 test('mobile first visit can find a bus, save the stop, and reach simple alerts', async ({ page }) => {
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));

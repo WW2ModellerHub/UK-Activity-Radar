@@ -82,6 +82,9 @@
       this._container.classList.add('leaflet-container');
       this._markerPane = document.createElement('div'); this._markerPane.className = 'leaflet-marker-pane';
       this._container.appendChild(this._markerPane);
+      this._container.addEventListener('click', event => {
+        if (event.target === this._container) this.fire('click', { latlng:this.getCenter(), originalEvent:event });
+      });
     }
     syncView() { this._container.dataset.mapZoom = String(this._zoom); this._container.dataset.mapCenter = `${this._center.lat},${this._center.lng}`; }
     setView(latlng, zoom) { this._center = { lat: Number(latlng[0]), lng: Number(latlng[1]) }; if (zoom != null) this._zoom = zoom; this.syncView(); return this; }

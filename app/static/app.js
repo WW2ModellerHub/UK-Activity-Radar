@@ -3412,7 +3412,14 @@
     } catch {}
   }
 
-  map.on('click', e => inspectTrafficAt(e.latlng));
+  map.on('click', e => {
+    if(window.matchMedia('(max-width: 760px)').matches){
+      closeDetailSelection();
+      setWorkspaceCollapsed(true);
+      hideSearchResults();
+    }
+    inspectTrafficAt(e.latlng);
+  });
   let mapSettledTimer=null;
   map.on('zoomstart',()=>map.getContainer().classList.add('map-zooming-fast'));
   map.on('moveend zoomend', () => {
@@ -3508,7 +3515,21 @@
     const rail=(rows||places).filter(p=>p.place_type==='rail_station').sort((a,b)=>distanceKm(c.lat,c.lng,a.lat,a.lon)-distanceKm(c.lat,c.lng,b.lat,b.lon));
     if(rail[0]){await selectPlace(rail[0].id,true);showToast(`Opened ${rail[0].name} live station board.`);}else showToast('No rail station metadata is ready yet. If this is a fresh install, configure TomTom or let the station cache finish syncing.');
   });
-  $('detail-close')?.addEventListener('click',()=>{ $('detail-panel')?.classList.remove('show-technical'); const tt=$('detail-tech-toggle'); if(tt)tt.textContent='More details'; const closingTransientStop=selectedPlaceId&&selectedPlaceId===transientNearestBusPlaceId; selectedId=null; selectedPlaceId=null; returnPlaceId=null; detailBackButton.classList.add('hidden'); trackedActivityId=null; selectedDetailSignature=''; if(closingTransientStop)clearTransientLocationModes(); if(focusMarker){map.removeLayer(focusMarker);focusMarker=null;} clearSelectedTrail(); clearPhoto(); clearOperatorIdentity(); clearPlaceLink(); clearActivityIntelligence(); clearDiscoveryDetail(); sendWatching(null); $('track-activity')?.classList.add('hidden'); $('save-place')?.classList.add('hidden'); $('share-activity')?.classList.add('hidden'); $('detail-sidebar')?.classList.add('is-empty'); $('detail-panel')?.classList.remove('has-selection'); renderRanking(); });
+  function closeDetailSelection(){
+    $('detail-panel')?.classList.remove('show-technical');
+    const tt=$('detail-tech-toggle'); if(tt)tt.textContent='More details';
+    const closingTransientStop=selectedPlaceId&&selectedPlaceId===transientNearestBusPlaceId;
+    selectedId=null; selectedPlaceId=null; returnPlaceId=null; detailBackButton.classList.add('hidden');
+    trackedActivityId=null; selectedDetailSignature='';
+    if(closingTransientStop)clearTransientLocationModes();
+    if(focusMarker){map.removeLayer(focusMarker);focusMarker=null;}
+    clearSelectedTrail(); clearPhoto(); clearOperatorIdentity(); clearPlaceLink(); clearActivityIntelligence(); clearDiscoveryDetail();
+    sendWatching(null);
+    $('track-activity')?.classList.add('hidden'); $('save-place')?.classList.add('hidden'); $('share-activity')?.classList.add('hidden');
+    $('detail-sidebar')?.classList.add('is-empty'); $('detail-panel')?.classList.remove('has-selection');
+    renderRanking();
+  }
+  $('detail-close')?.addEventListener('click',closeDetailSelection);
   detailBackButton.addEventListener('click',()=>{const id=returnPlaceId;if(id)selectPlace(id,false);});
   $('traffic-style')?.addEventListener('change', e => { if(trafficMode!=='off') setTrafficMode(e.target.value); });
   $('place-mode').addEventListener('change', e => { placeMode=e.target.value || 'off'; trackProduct('smart_places_selected', placeMode); fetchPlaces(); updateLayerToggleUi(); });
