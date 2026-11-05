@@ -709,7 +709,7 @@ class SmartPlacesService:
                             placeholders = ','.join('?' for _ in codes)
                             names = {r['tiploc']: (r['description'] or r['tiploc']) for r in con.execute(f"SELECT tiploc,description FROM tiplocs WHERE tiploc IN ({placeholders})", codes)}
                         calls = []
-                        for item in locations[:40]:
+                        for item in locations:
                             if not isinstance(item, dict):
                                 continue
                             # CIF includes non-passenger timing points used only
@@ -731,6 +731,12 @@ class SmartPlacesService:
                                 "scheduled": clock,
                                 "event": "Stops",
                             })
+                            # Limit the passenger-facing calling pattern, not
+                            # the raw CIF timing records. Long-distance trains
+                            # can contain dozens of pass-through junctions
+                            # before their later passenger stops.
+                            if len(calls) >= 40:
+                                break
                         run.update({
                             "origin": row['origin_name'] or run['origin'],
                             "destination": row['destination_name'] or run['destination'],

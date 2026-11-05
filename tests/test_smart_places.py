@@ -72,7 +72,10 @@ def test_scheduled_train_detail_returns_calling_points_without_live_marker(tmp_p
     now=datetime.now(london_tz())
     locations=[
         {'tiploc_code':'NUNEAT','scheduled_departure':'1010'},
-        {'tiploc_code':'WIGSTON','scheduled_pass':'1015'},
+        *[
+            {'tiploc_code':f'PASS{index:02d}','scheduled_pass':'1015'}
+            for index in range(45)
+        ],
         {'tiploc_code':'HNK','scheduled_arrival':'1020','scheduled_departure':'1022'},
         {'tiploc_code':'LESTER','scheduled_arrival':'1040'},
     ]

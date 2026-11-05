@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## 2026-11-05 — preserve later passenger stops
+
+- Applied the 40-stop journey limit after removing non-stopping railway timing
+  points, preventing long services from being truncated before later calls.
+- Added a regression case with 45 pass-through locations before the final
+  passenger stops so routes such as Leicester to London remain complete.
+
 ## 2026-11-05 — mobile double-tap zoom
 
 - Added predictable one-level map zoom on double tap, centred on the point the
