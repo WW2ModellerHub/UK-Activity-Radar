@@ -381,7 +381,11 @@ class ADSBLolSARCollector:
         now = datetime.now(timezone.utc)
         with self._nearby_lock:
             cached = self._nearby_cache.get(key)
-            if cached and (now - cached[0]).total_seconds() < 20:
+            # The explicit above-me tool is a live interaction, not the broad
+            # low-rate national collector.  A short shared cache keeps public
+            # API traffic bounded while allowing aircraft to reconcile often
+            # enough for the browser's between-report motion to stay honest.
+            if cached and (now - cached[0]).total_seconds() < 7:
                 return cached[1], cached[2]
             url = f"{self.settings.adsb_lol_base_url}/v2/point/{lat}/{lon}/{radius_nm}"
             response = self._session.get(url, timeout=(4, 10))

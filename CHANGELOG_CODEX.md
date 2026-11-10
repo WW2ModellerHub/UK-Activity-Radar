@@ -1,5 +1,18 @@
 # Codex stabilization changelog
 
+## 2026-11-10 — live aircraft and railway movement repair
+
+- Changed Aircraft above me from a one-off snapshot to an automatic eight-second
+  refresh, with short bounded between-report motion based on the latest ADS-B
+  speed and bearing.
+- Added smooth, clearly labelled train estimates between confirmed TRUST reports
+  using mapped timetable timing points instead of straight lines across the map.
+- Show newly activated services while their first movement report is pending and
+  retain an honest last-mapped estimate when a TD berth transition is incomplete,
+  preventing live trains from silently disappearing.
+- Added backend and browser regressions for route-shaped rail movement, activation
+  visibility, incomplete berth mapping and repeat nearby-aircraft requests.
+
 ## 2026-11-05 — preserve later passenger stops
 
 - Applied the 40-stop journey limit after removing non-stopping railway timing

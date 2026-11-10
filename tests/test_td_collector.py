@@ -121,7 +121,11 @@ def test_td_older_report_does_not_restore_obsolete_berth(tmp_path):
     assert state.get("td:DY:1F10").last_updated == now
 
 
-def test_td_step_with_only_origin_mapping_does_not_report_old_location(tmp_path):
+def test_td_step_with_only_origin_mapping_keeps_an_explicit_estimated_position(tmp_path):
     collector, state = bare_collector(tmp_path)
     td_message(collector, datetime.now(london_tz()), to="UNKNOWN")
-    assert state.get("td:DY:1F10") is None
+    train = state.get("td:DY:1F10")
+    assert train is not None
+    assert train.lat == 52.631
+    assert train.position_method == "estimated"
+    assert "unresolved step" in train.position_label

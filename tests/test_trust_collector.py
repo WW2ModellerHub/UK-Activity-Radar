@@ -14,13 +14,14 @@ def make_collector(tmp_path, *, timetable=True):
     local = now.astimezone(london_tz())
     station_file = tmp_path / "stations.json"
     station_file.write_text(json.dumps({
-        "12345": {"name": "Leicester", "lat": 52.631, "lon": -1.125},
+        "12345": {"name": "Leicester", "lat": 52.631, "lon": -1.125, "tiploc": "LESTER"},
         "12346": {"name": "Market Harborough", "lat": 52.478, "lon": -0.908, "tiploc": "MARKTH"},
     }), encoding="utf-8")
     store = ScheduleStore(tmp_path / "schedules.sqlite")
     if timetable:
         with store._connect() as conn:
-            conn.execute("INSERT INTO tiplocs(tiploc,stanox) VALUES('LESTER','12345')")
+            conn.execute("INSERT INTO tiplocs(tiploc,stanox,description,lat,lon) VALUES('LESTER','12345','Leicester',52.631,-1.125)")
+            conn.execute("INSERT INTO tiplocs(tiploc,stanox,description,lat,lon) VALUES('MARKTH','12346','Market Harborough',52.478,-0.908)")
             conn.execute(
                 """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,atoc_code,
                        signalling_id,origin_name,destination_name,locations_json)
@@ -56,6 +57,21 @@ def test_missed_activation_recovers_uid_from_confirmed_stanox_and_time(tmp_path)
     assert train.rail_event_type == "Arrival"
     assert train.rail_stanox == "12345"
     assert train.operator == "East Midlands Railway"
+
+
+def test_live_activation_is_visible_before_the_first_movement_report(tmp_path):
+    collector, state, now = make_collector(tmp_path)
+    collector.handle_message(json.dumps({"header": {"msg_type": "0001"}, "body": {
+        "train_id": "251F10MU05", "train_uid": "C1F10", "toc_id": "28",
+        "origin_dep_timestamp": int(now.timestamp() * 1000),
+        "creation_timestamp": int(now.timestamp() * 1000),
+    }}))
+    train = state.get("nr:251F10MU05")
+    assert train is not None
+    assert train.position_method == "estimated"
+    assert train.status == "Activated • awaiting first movement report"
+    assert train.next_location == "Market Harborough"
+    assert train.estimate_path == [[52.631, -1.125], [52.478, -0.908]]
 
 
 def test_unknown_station_does_not_attach_a_headcode_schedule(tmp_path):
@@ -104,6 +120,24 @@ def test_arrival_has_no_departure_estimate(tmp_path):
     train = state.get("nr:251F10MU05")
     assert train.next_lat is None
     assert train.estimate_due_at is None
+
+
+def test_departure_includes_a_mapped_railway_estimate_path(tmp_path):
+    collector, state, now = make_collector(tmp_path)
+    with collector.schedules._connect() as conn:
+        conn.execute("INSERT OR REPLACE INTO tiplocs(tiploc,stanox,lat,lon) VALUES('LESTER','12345',52.631,-1.125)")
+        conn.execute("INSERT OR REPLACE INTO tiplocs(tiploc,stanox,lat,lon) VALUES('MIDWAY','12347',52.55,-1.02)")
+        conn.execute("INSERT OR REPLACE INTO tiplocs(tiploc,stanox,lat,lon) VALUES('MARKTH','12346',52.478,-0.908)")
+        row = conn.execute("SELECT id,locations_json FROM schedules WHERE train_uid='C1F10'").fetchone()
+        locations = json.loads(row["locations_json"])
+        locations.insert(1, {"tiploc_code":"MIDWAY", "scheduled_pass":"1008"})
+        conn.execute("UPDATE schedules SET locations_json=? WHERE id=?", (json.dumps(locations), row["id"]))
+    movement(
+        collector, now, event_type="DEPARTURE", next_report_stanox="12346",
+        next_report_run_time="15",
+    )
+    train = state.get("nr:251F10MU05")
+    assert train.estimate_path == [[52.631, -1.125], [52.55, -1.02], [52.478, -0.908]]
 
 
 def test_identity_change_reuses_original_vehicle_and_retains_uid(tmp_path):

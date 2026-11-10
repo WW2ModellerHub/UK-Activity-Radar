@@ -99,6 +99,9 @@
   let transientNearestBusPlaceId = null;
   let overheadAutoEnabledAircraft = false;
   let nearbyAircraftRows = [];
+  let nearbyAircraftIds = new Set();
+  let overheadRefreshTimer = null;
+  let overheadRefreshRequest = 0;
   const detailBackButton=document.createElement('button');
   detailBackButton.id='detail-back';detailBackButton.className='detail-back hidden';detailBackButton.type='button';
   detailBackButton.setAttribute('aria-label','Back to station board');detailBackButton.textContent='←';
@@ -1457,7 +1460,7 @@
     if (type === 'transport') return ['train','bus'].includes(a.type);
     if (type === 'cool') return a.type !== 'vessel' && coolInfo(a).score >= 45;
     if (type === 'cool-air') return a.type === 'aircraft' && !isRescueContextActivity(a) && (overheadActive || coolInfo(a).score >= 45);
-    if (type === 'nearby-aircraft') return overheadActive && ['aircraft','sar'].includes(a.type);
+    if (type === 'nearby-aircraft') return overheadActive && nearbyAircraftIds.has(a.id);
     if (type === 'cool-rail') return railSubtypeMatch(a) && coolInfo(a).score >= 45;
     if (type === 'cool-rescue') return isRescueContextActivity(a) && coolInfo(a).score >= 45;
     // Planned roadworks and unplanned incidents remain deliberately separate.
@@ -1556,6 +1559,58 @@
     return `${Number(a.lat).toFixed(6)}|${Number(a.lon).toFixed(6)}`;
   }
 
+  const reduceLiveMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+
+  function pathPosition(points, fraction) {
+    const usable=(Array.isArray(points)?points:[])
+      .map(point=>[Number(point?.[0]),Number(point?.[1])])
+      .filter(point=>Number.isFinite(point[0])&&Number.isFinite(point[1]));
+    if(usable.length<2)return null;
+    const legs=[];let total=0;
+    for(let i=1;i<usable.length;i++){
+      const length=distanceKm(usable[i-1][0],usable[i-1][1],usable[i][0],usable[i][1]);
+      if(!Number.isFinite(length)||length<=0)continue;
+      legs.push({from:usable[i-1],to:usable[i],length,start:total});total+=length;
+    }
+    if(!legs.length)return null;
+    const target=Math.max(0,Math.min(1,fraction))*total;
+    const leg=legs.find(row=>target<=row.start+row.length)||legs[legs.length-1];
+    const local=Math.max(0,Math.min(1,(target-leg.start)/leg.length));
+    return {lat:leg.from[0]+(leg.to[0]-leg.from[0])*local,lon:leg.from[1]+(leg.to[1]-leg.from[1])*local};
+  }
+
+  function projectPosition(lat,lon,bearing,distance) {
+    const radius=6371,angular=distance/radius,heading=bearing*Math.PI/180;
+    const p1=lat*Math.PI/180,l1=lon*Math.PI/180;
+    const p2=Math.asin(Math.sin(p1)*Math.cos(angular)+Math.cos(p1)*Math.sin(angular)*Math.cos(heading));
+    const l2=l1+Math.atan2(Math.sin(heading)*Math.sin(angular)*Math.cos(p1),Math.cos(angular)-Math.sin(p1)*Math.sin(p2));
+    return {lat:p2*180/Math.PI,lon:((l2*180/Math.PI+540)%360)-180};
+  }
+
+  function activityMapPresentation(a, now=Date.now()) {
+    if(!a || reduceLiveMotion?.matches)return a;
+    if(a.type==='train'&&a.reported_lat!=null&&a.reported_lon!=null&&a.next_lat!=null&&a.next_lon!=null){
+      const started=Date.parse(a.estimate_started_at||''),due=Date.parse(a.estimate_due_at||'');
+      if(Number.isFinite(started)&&Number.isFinite(due)&&due>started&&now>=started){
+        const fraction=Math.max(0,Math.min(1,(now-started)/(due-started)));
+        const path=Array.isArray(a.estimate_path)&&a.estimate_path.length>=2
+          ? a.estimate_path
+          : [[a.reported_lat,a.reported_lon],[a.next_lat,a.next_lon]];
+        const point=pathPosition(path,fraction);
+        if(point)return {...a,...point,position_method:'estimated',position_label:`Estimated along the published railway path between confirmed reports • ${a.position_label||''}`};
+      }
+    }
+    if(overheadActive&&['aircraft','sar'].includes(a.type)){
+      const updated=Date.parse(a.last_updated||''),speed=Number(a.speed),bearing=Number(a.bearing);
+      const age=(now-updated)/1000;
+      if(Number.isFinite(updated)&&Number.isFinite(speed)&&Number.isFinite(bearing)&&age>0&&age<=18&&speed>=10&&speed<=800){
+        const point=projectPosition(Number(a.lat),Number(a.lon),bearing,speed*1.852*age/3600);
+        return {...a,...point,position_method:'estimated',position_label:`Live estimate from the latest ADS-B report • ${a.position_label||''}`};
+      }
+    }
+    return a;
+  }
+
   function markerVisualSignature(a) {
     const zoomBand = map.getZoom() >= 12 ? 2 : map.getZoom() >= 9 ? 1 : 0;
     const appearance = currentWorkspace === 'cool' ? 'cool' : 'standard';
@@ -1585,9 +1640,7 @@
       }
     }
     for (const a of rows) {
-      // Render observed railway positions immediately. Connecting two reports
-      // with a straight line can put a stopped train outside the station.
-      const displayActivity=a;
+      const displayActivity=activityMapPresentation(a);
       // Discover is a curated, deliberately small set. Never cluster those
       // markers: each find must remain individually visible at every zoom.
       const intendedGroup = currentWorkspace==='cool' || ['aircraft','sar'].includes(a.type) ? aerialMarkerGroup : markerGroup;
@@ -1639,6 +1692,22 @@
     $('map').dataset.lastRenderMs = String(diagnostics.lastRenderMs);
     if (selectedId && markers.has(selectedId) && focusMarker) {
       map.removeLayer(focusMarker); focusMarker=null;
+    }
+  }
+
+  function refreshLiveMarkerPositions() {
+    if(document.hidden||reduceLiveMotion?.matches)return;
+    const now=Date.now();
+    for(const a of filteredActivities()){
+      if(a.type!=='train'&&!(overheadActive&&['aircraft','sar'].includes(a.type)))continue;
+      const marker=markers.get(a.id);if(!marker)continue;
+      const display=activityMapPresentation(a,now);
+      const signature=markerPositionSignature(display);
+      if(signature===marker.__positionSignature)continue;
+      marker.setLatLng([display.lat,display.lon]);
+      marker.__positionSignature=signature;
+      diagnostics.markerMoves+=1;
+      if(trackedActivityId===a.id)map.panTo([display.lat,display.lon],{animate:false});
     }
   }
 
@@ -2357,9 +2426,43 @@
     renderNearbyOverlay(); renderMap(); renderStats(); renderRanking();
   }
 
+  function stopOverheadRefresh() {
+    clearTimeout(overheadRefreshTimer);
+    overheadRefreshTimer=null;
+    overheadRefreshRequest+=1;
+  }
+
+  async function refreshOverheadAircraft({announce=false}={}) {
+    if(!overheadActive||nearbyState.lat==null||nearbyState.lon==null)return;
+    const requestId=++overheadRefreshRequest;
+    try{
+      const response=await fetch(`/api/aircraft/nearby?lat=${encodeURIComponent(nearbyState.lat)}&lon=${encodeURIComponent(nearbyState.lon)}&radius_miles=50`,{cache:'no-store'});
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(payload.detail||'aircraft lookup unavailable');
+      if(requestId!==overheadRefreshRequest||!overheadActive)return;
+      nearbyAircraftRows=Array.isArray(payload.activities)?payload.activities:[];
+      nearbyAircraftIds=new Set(nearbyAircraftRows.map(row=>row.id));
+      replaceActivities([...new Map([...activities,...nearbyAircraftRows].map(row=>[row.id,row])).values()]);
+      renderMap();renderStats();renderRanking();renderCoolSummary();
+      const checked=Number(payload.checked||0);
+      const note=$('overhead-now')?.querySelector('small');
+      if(note)note.textContent=`${nearbyAircraftRows.length} live aircraft • refreshing automatically`;
+      if(announce)showToast(`Showing ${nearbyAircraftRows.length} positioned aircraft${checked?` from ${checked} feed records`:''} within 50 miles.`);
+    }catch(error){
+      if(announce)showToast('Nearby aircraft could not refresh; showing the latest retained positions.');
+    }finally{
+      if(requestId===overheadRefreshRequest&&overheadActive){
+        clearTimeout(overheadRefreshTimer);
+        overheadRefreshTimer=setTimeout(()=>refreshOverheadAircraft(),8000);
+      }
+    }
+  }
+
   function clearTransientLocationModes({clearNearestStop=true}={}) {
+    stopOverheadRefresh();
     overheadActive=false;
     nearbyAircraftRows=[];
+    nearbyAircraftIds=new Set();
     nearbyState.active=false;
     const overhead=$('overhead-now');
     overhead?.classList.remove('active');
@@ -3486,9 +3589,7 @@
     selectedType=turningBackOn?'cool':(togglingActiveCool?'cool-off':originalType);
     if(selectedType==='cool-rail'&&originalType==='cool-rail')selectedRailSubtype='all';
     if(selectedType==='cool-off'){
-      overheadActive=false;nearbyAircraftRows=[];
-      const overhead=$('overhead-now');overhead?.classList.remove('active');
-      const note=overhead?.querySelector('small');if(note)note.textContent='Aircraft received within 50 miles';
+      clearTransientLocationModes({clearNearestStop:false});
     }
     document.querySelector(`.filter[data-type="${selectedType}"]`)?.classList.add('active');
     const mapSwitch=$('cool-map-switch');
@@ -3510,7 +3611,8 @@
   }));
   document.querySelectorAll('[data-cool-rail-subtype]').forEach(button => button.addEventListener('click', () => {
     selectedRailSubtype = button.dataset.coolRailSubtype || 'all';
-    selectedType='cool-rail';overheadActive=false;nearbyAircraftRows=[];filteredCacheKey='';
+    clearTransientLocationModes({clearNearestStop:false});
+    selectedType='cool-rail';filteredCacheKey='';
     document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x.dataset.type==='cool-rail'));
     updateCoolRailSubtypeUi();
     trackProduct('layer_selected', `cool-rail-${selectedRailSubtype}`);
@@ -3589,8 +3691,7 @@
   });
   $('clear-map')?.addEventListener('click',()=>{
     enabledActivityTypes.clear();
-    overheadActive=false;overheadAutoEnabledAircraft=false;nearbyAircraftRows=[];
-    const overhead=$('overhead-now');overhead?.classList.remove('active');const overheadNote=overhead?.querySelector('small');if(overheadNote)overheadNote.textContent='Aircraft received within 50 miles';
+    clearTransientLocationModes();
     selectedOperator='all';operatorOptionsSignature='';updateOperatorFilterOptions();
     heatMode='off'; heatSnapshotPending=false; if($('heat-mode')) $('heat-mode').value='off';
     placeMode='off'; if($('place-mode')) $('place-mode').value='off';
@@ -3679,18 +3780,9 @@
       setNearby(pos.coords.latitude,pos.coords.longitude,'device');
       map.setView([pos.coords.latitude,pos.coords.longitude],9,{animate:true});
       collapseWorkspaceOnPhone();
-      try{
-        const response=await fetch(`/api/aircraft/nearby?lat=${encodeURIComponent(pos.coords.latitude)}&lon=${encodeURIComponent(pos.coords.longitude)}&radius_miles=50`,{cache:'no-store'});
-        const payload=await response.json().catch(()=>({}));
-        if(!response.ok)throw new Error(payload.detail||'aircraft lookup unavailable');
-        nearbyAircraftRows=Array.isArray(payload.activities)?payload.activities:[];
-        replaceActivities([...new Map([...activities,...nearbyAircraftRows].map(row=>[row.id,row])).values()]);
-        renderMap();renderStats();renderRanking();renderCoolSummary();
-        const checked=Number(payload.checked||0);
-        showToast(`Showing ${nearbyAircraftRows.length} positioned aircraft${checked?` from ${checked} feed records`:''} within 50 miles.`);
-      }catch{showToast('Nearby aircraft could not refresh; showing the current live feed.');}
+      await refreshOverheadAircraft({announce:true});
       sendViewport();
-      if(button){button.disabled=false;button.querySelector('small').textContent='Aircraft received within 50 miles • click to turn off';}
+      if(button){button.disabled=false;}
     },()=>{
       showToast('Location permission was not granted.');
       if(button){button.disabled=false;button.querySelector('small').textContent='Aircraft received within 50 miles';}
@@ -3802,6 +3894,8 @@
   // UK overview remains visible when location is unavailable or declined.
   centreMapOnDeviceLocation({silent:true,startup:true});
   connect();
+  setInterval(refreshLiveMarkerPositions,1000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshLiveMarkerPositions();});
 
   // These account/editorial requests do not affect the first map paint or
   // websocket connection. Start them in the browser's first idle slice.

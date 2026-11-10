@@ -124,6 +124,7 @@ async function installAppFixture(page) {
     window.WebSocket = FixtureWebSocket;
   }, snapshot);
 
+  let nearbyAircraftRequests=0;
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
     const pathname = url.pathname;
@@ -148,7 +149,15 @@ async function installAppFixture(page) {
       if (pathname === '/api/places') return route.fulfill({ json: places });
       if (pathname === '/api/places/nearest-rail') return route.fulfill({ json: { place: places.places[0] } });
       if (pathname === '/api/places/nearest-bus') return route.fulfill({ json: { place: { ...places.places[1], distance_km:0.24 } } });
-      if (pathname === '/api/aircraft/nearby') return route.fulfill({ json: { checked:2, radius_miles:50, activities:[snapshot.activities.find(row=>row.id==='aircraft-live-1')] } });
+      if (pathname === '/api/aircraft/nearby') {
+        nearbyAircraftRequests+=1;
+        const aircraft=snapshot.activities.find(row=>row.id==='aircraft-live-1');
+        return route.fulfill({ json: { checked:2, radius_miles:50, activities:[{
+          ...aircraft,
+          lat:Number(aircraft.lat)+nearbyAircraftRequests*0.002,
+          last_updated:'2026-10-05T10:00:58Z',
+        }] } });
+      }
       if (decodedPathname.includes('/api/places/rail:MKC/board')) return route.fulfill({ json: { board: { mode: 'live', source: 'Recorded rail fixture', next_live_id: 'train-live-1', departures: [{ expected:'10:14', destination:'Manchester Piccadilly', platform:'4', status:'On time', headcode:'1A23', train_uid:'C12345', service_date:'2026-10-05', live_train_id:'train-live-1' },{ expected:'10:32', origin:'Milton Keynes Central', destination:'Birmingham New Street', platform:'6', status:'On time', headcode:'1Z80', train_uid:'C99999', service_date:'2026-10-05', operator:'Fixture Rail' }], arrivals: [{ expected:'10:08', origin:'Birmingham New Street', platform:'2', status:'On time' }] } } });
       if (decodedPathname.startsWith('/api/rail/locate')) return route.fulfill({ json:{live:false,activity:null,message:'No matching live position is available right now.'} });
       if (decodedPathname.startsWith('/api/rail/schedule/C99999')) return route.fulfill({ json:{train_uid:'C99999',detail:{available:true,mode:'published_schedule',source:'Published railway timetable',live_marker:false,note:'Published route only. A matching live position is not available right now.',runs:[{headcode:'1Z80',origin:'Milton Keynes Central',destination:'Birmingham New Street',status:'Scheduled',calling_points:[{name:'Milton Keynes Central',scheduled:'10:32',event:'Calls'},{name:'Coventry',scheduled:'11:08',event:'Calls'},{name:'Birmingham New Street',scheduled:'11:31',event:'Calls'}]}]}} });

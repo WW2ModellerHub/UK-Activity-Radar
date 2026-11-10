@@ -36,8 +36,9 @@ class TrustCollector(StompFeed):
     """Real-time TRUST activation/movement feed.
 
     TRUST is a reporting-point feed rather than continuous GPS. Confirmed
-    locations stay at their mapped reporting point until the next movement
-    message; no straight-line interpolation is drawn between railway points.
+    locations remain the source of truth; when the timetable exposes mapped
+    timing points to the next report, clients may show a bounded estimate along
+    that railway-shaped path until the next real movement arrives.
     """
 
     def __init__(self, settings: Settings, state: LiveState, station_file: Path, schedules: ScheduleStore) -> None:
@@ -148,6 +149,35 @@ class TrustCollector(StompFeed):
         if isinstance(existing, Vehicle):
             self._enrich_existing(existing, self.activations[canonical_id])
             self.state.upsert(existing)
+        elif schedule and schedule.schedule_id and schedule.running_date:
+            try:
+                service_day = datetime.fromisoformat(schedule.running_date).date()
+                leg = self.schedules.initial_estimate_leg(schedule.schedule_id, service_day)
+                activated_at = self._event_time(body)
+            except (TypeError, ValueError):
+                leg = None
+            if leg and leg["started_at"] - timedelta(minutes=60) <= activated_at <= leg["due_at"] + timedelta(minutes=20):
+                operator = operator_name(schedule.atoc_code, trust_operator_name(body.get("toc_id")) or "Rail operator")
+                self.state.upsert(Vehicle(
+                    id=f"nr:{canonical_id}", type="train", name=headcode or train_id,
+                    subtitle=(f"{schedule.origin} → {schedule.destination}" if schedule.origin and schedule.destination else "Activated railway service"),
+                    lat=leg["lat"], lon=leg["lon"], operator=operator,
+                    origin=schedule.origin, destination=schedule.destination,
+                    headcode=headcode, train_uid=schedule.train_uid,
+                    service_date=schedule.running_date, schedule_id=schedule.schedule_id,
+                    train_category=schedule.train_category, power_type=schedule.power_type,
+                    timing_load=schedule.timing_load, booked_speed=schedule.booked_speed,
+                    operating_characteristics=schedule.operating_characteristics,
+                    next_location=leg["next_name"], status="Activated • awaiting first movement report",
+                    position_method="estimated",
+                    position_label="Timetable estimate from a live Network Rail activation; awaiting the first confirmed movement",
+                    source="Network Rail TRUST activation", source_id=train_id,
+                    last_updated=activated_at,
+                    reported_lat=leg["lat"], reported_lon=leg["lon"],
+                    next_lat=leg["next_lat"], next_lon=leg["next_lon"],
+                    estimate_path=leg["path"], estimate_started_at=leg["started_at"], estimate_due_at=leg["due_at"],
+                    rail_tiploc=leg["tiploc"],
+                ))
 
     @staticmethod
     def _enrich_existing(vehicle: Vehicle, activation: dict) -> None:
@@ -274,6 +304,7 @@ class TrustCollector(StompFeed):
             next_stanox = next_stanox.zfill(5)
         next_station = self.stations.get(next_stanox)
         next_lat = next_lon = None
+        estimate_path = None
         due_at = None
         next_name = None
         try:
@@ -284,6 +315,16 @@ class TrustCollector(StompFeed):
             next_lat, next_lon = float(next_station["lat"]), float(next_station["lon"])
             next_name = next_station.get("name") or f"STANOX {next_stanox}"
             due_at = event_time + timedelta(minutes=run_minutes)
+            route_points = self.schedules.route_points(
+                activation.get("schedule_id"), station.get("tiploc"), next_station.get("tiploc")
+            ) if self.schedules.ready() else []
+            start_point = [float(station["lat"]), float(station["lon"])]
+            end_point = [float(next_station["lat"]), float(next_station["lon"])]
+            if not route_points or route_points[0] != start_point:
+                route_points.insert(0, start_point)
+            if route_points[-1] != end_point:
+                route_points.append(end_point)
+            estimate_path = route_points
 
         operator = activation.get("atoc_code")
         if operator:
@@ -334,6 +375,7 @@ class TrustCollector(StompFeed):
             reported_lon=float(station["lon"]),
             next_lat=next_lat,
             next_lon=next_lon,
+            estimate_path=estimate_path,
             estimate_started_at=event_time if due_at else None,
             estimate_due_at=due_at,
         )
@@ -353,6 +395,7 @@ class TrustCollector(StompFeed):
             existing.status = f"Cancelled {str(body.get('canx_type') or '').title()}".strip()
             existing.last_updated = event_time
             existing.next_lat = existing.next_lon = None
+            existing.estimate_path = None
             existing.estimate_due_at = None
             self.state.upsert(existing)
 

@@ -303,6 +303,126 @@ class ScheduleStore:
         rows = self.effective_rows(service_date, train_uids=[uid])
         return self._info_from_row(rows[0], service_date) if rows else None
 
+    def route_points(
+        self,
+        schedule_id: int | None,
+        from_tiploc: str | None,
+        to_tiploc: str | None,
+    ) -> list[list[float]]:
+        """Return mapped timetable points between two reporting locations.
+
+        TRUST tells us the confirmed reporting point and the next reporting
+        point, but not a continuous GPS trace.  The SCHEDULE index normally
+        contains junctions and timing points between them.  Keeping those
+        points gives the presentation layer a substantially more railway-like
+        path while retaining the confirmed endpoints as the source of truth.
+        """
+        if not schedule_id:
+            return []
+        start = str(from_tiploc or "").strip().upper()
+        end = str(to_tiploc or "").strip().upper()
+        if not start or not end:
+            return []
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT locations_json FROM schedules WHERE id=?", (int(schedule_id),)
+                ).fetchone()
+                if row is None:
+                    return []
+                try:
+                    locations = json.loads(row["locations_json"] or "[]")
+                except (TypeError, json.JSONDecodeError):
+                    return []
+                codes = [
+                    str(item.get("tiploc_code") or "").strip().upper()
+                    for item in locations if isinstance(item, dict)
+                ]
+                try:
+                    first = codes.index(start)
+                    last = codes.index(end, first + 1)
+                except ValueError:
+                    return []
+                wanted = [code for code in codes[first:last + 1] if code]
+                if not wanted:
+                    return []
+                placeholders = ",".join("?" for _ in set(wanted))
+                geo = {
+                    str(point["tiploc"]).strip().upper(): [float(point["lat"]), float(point["lon"])]
+                    for point in conn.execute(
+                        f"SELECT tiploc,lat,lon FROM tiplocs WHERE tiploc IN ({placeholders}) AND lat IS NOT NULL AND lon IS NOT NULL",
+                        tuple(set(wanted)),
+                    )
+                }
+        except (OSError, sqlite3.Error, TypeError, ValueError):
+            return []
+        points: list[list[float]] = []
+        for code in wanted:
+            point = geo.get(code)
+            if point and (not points or point != points[-1]):
+                points.append(point)
+        return points
+
+    def initial_estimate_leg(self, schedule_id: int | None, running_date: date) -> dict | None:
+        """Resolve the first mapped timed leg for a newly activated service."""
+        if not schedule_id:
+            return None
+        try:
+            with self._connect() as conn:
+                row = conn.execute("SELECT * FROM schedules WHERE id=?", (int(schedule_id),)).fetchone()
+                if row is None:
+                    return None
+                locations = self.timed_locations(row, running_date)
+                codes = {
+                    str(item.get("tiploc_code") or "").strip().upper()
+                    for item in locations if isinstance(item, dict)
+                } - {""}
+                if not codes:
+                    return None
+                placeholders = ",".join("?" for _ in codes)
+                geo = {
+                    str(point["tiploc"]).strip().upper(): {
+                        "lat": float(point["lat"]), "lon": float(point["lon"]),
+                        "name": str(point["description"] or point["tiploc"]),
+                    }
+                    for point in conn.execute(
+                        f"SELECT tiploc,description,lat,lon FROM tiplocs WHERE tiploc IN ({placeholders}) AND lat IS NOT NULL AND lon IS NOT NULL",
+                        tuple(codes),
+                    )
+                }
+        except (OSError, sqlite3.Error, TypeError, ValueError):
+            return None
+
+        mapped: list[tuple[dict, dict, datetime]] = []
+        for location in locations:
+            code = str(location.get("tiploc_code") or "").strip().upper()
+            point = geo.get(code)
+            when = (
+                location.get("_departure_at")
+                or location.get("_pass_at")
+                or location.get("_arrival_at")
+            )
+            if point and isinstance(when, datetime):
+                mapped.append((location, point, when))
+        for index in range(len(mapped) - 1):
+            first_location, first_point, started_at = mapped[index]
+            second_location, second_point, due_at = mapped[index + 1]
+            if due_at <= started_at or due_at - started_at > timedelta(hours=2):
+                continue
+            first_code = str(first_location.get("tiploc_code") or "").strip().upper()
+            second_code = str(second_location.get("tiploc_code") or "").strip().upper()
+            path = self.route_points(schedule_id, first_code, second_code)
+            if not path:
+                path = [[first_point["lat"], first_point["lon"]], [second_point["lat"], second_point["lon"]]]
+            return {
+                "lat": first_point["lat"], "lon": first_point["lon"],
+                "next_lat": second_point["lat"], "next_lon": second_point["lon"],
+                "next_name": second_point["name"], "path": path,
+                "started_at": started_at, "due_at": due_at,
+                "tiploc": first_code,
+            }
+        return None
+
     @staticmethod
     def _clock_minutes(value: Any) -> float | None:
         raw = str(value or "").strip().upper().replace(":", "")

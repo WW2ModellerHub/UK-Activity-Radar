@@ -63,16 +63,22 @@ class TDCollector(StompFeed):
         value = str(row.get("STANOX") or row.get("stanox") or "").strip()
         return value.zfill(5) if value.isdigit() else value
 
-    def _resolve(self, area: str, msg_type: str, fr: str, to: str) -> tuple[dict | None, dict | None]:
+    def _resolve(self, area: str, msg_type: str, fr: str, to: str) -> tuple[dict | None, dict | None, bool]:
         row = None
+        fallback = False
         if msg_type == "CA":
-            # The origin berth describes where the train *was*. Falling back
-            # to it can keep a departed train pinned to a station indefinitely.
             row = self.exact.get((area, fr, to)) or self.by_to.get((area, to))
+            # SMART occasionally knows the origin berth but not the berth a CA
+            # step moved into.  Suppressing that message entirely makes a live
+            # train disappear.  Retain the last mapped berth as an explicitly
+            # estimated lower-bound position until a better report arrives.
+            if row is None:
+                row = self.by_from.get((area, fr))
+                fallback = row is not None
         elif msg_type == "CC":
             row = self.by_to.get((area, to))
         stanox = self._row_stanox(row)
-        return row, self.stations.get(stanox) if stanox else None
+        return row, self.stations.get(stanox) if stanox else None, fallback
 
     def _process_msg(self, msg: dict, status: SourceStatus, *, replay: bool = False) -> bool:
         area = str(msg.get("area_id") or "").strip().upper()
@@ -86,7 +92,7 @@ class TDCollector(StompFeed):
             return True
         if typ not in {"CA", "CC"}:
             return True
-        row, station = self._resolve(area, typ, fr, to)
+        row, station, fallback = self._resolve(area, typ, fr, to)
         if not station or not descr:
             if not replay:
                 status.movements_unmapped += 1
@@ -133,12 +139,16 @@ class TDCollector(StompFeed):
             existing.lat = lat; existing.lon = lon
             existing.reported_lat = lat; existing.reported_lon = lon
             existing.next_lat = existing.next_lon = None
+            existing.estimate_path = None
             existing.estimate_due_at = None
             existing.estimate_started_at = None
             existing.next_location = None
             existing.last_updated = event_time
-            existing.position_method = "network_report"
-            existing.position_label = f"TD berth report • {area} {fr or '—'}→{to or '—'} • {location_name}"
+            existing.position_method = "estimated" if fallback else "network_report"
+            existing.position_label = (
+                f"Last mapped TD berth before unresolved step • {area} {fr or '—'}→{to or '—'} • {location_name}"
+                if fallback else f"TD berth report • {area} {fr or '—'}→{to or '—'} • {location_name}"
+            )
             existing.source = "Network Rail TD"
             existing.source_id = f"{area}:{to}"
             existing.rail_event_type = None
@@ -168,7 +178,8 @@ class TDCollector(StompFeed):
                 operator=operator_name(schedule.atoc_code) if schedule else None,
                 origin=schedule.origin if schedule else None,
                 destination=schedule.destination if schedule else None,
-                headcode=descr, status="TD live", position_method="network_report",
+                headcode=descr, status="TD live • next berth unresolved" if fallback else "TD live",
+                position_method="estimated" if fallback else "network_report",
                 train_uid=schedule.train_uid if schedule else None,
                 service_date=schedule.running_date if schedule else None,
                 schedule_id=schedule.schedule_id if schedule else None,
@@ -179,8 +190,11 @@ class TDCollector(StompFeed):
                 timing_load=schedule.timing_load if schedule else None,
                 booked_speed=schedule.booked_speed if schedule else None,
                 operating_characteristics=schedule.operating_characteristics if schedule else None,
-                position_label=f"TD berth report • {area} {fr or '—'}→{to or '—'}",
-                source="Network Rail TD", source_id=f"{area}:{to or fr}", last_updated=event_time,
+                position_label=(
+                    f"Last mapped TD berth before unresolved step • {area} {fr or '—'}→{to or '—'}"
+                    if fallback else f"TD berth report • {area} {fr or '—'}→{to or '—'}"
+                ),
+                source="Network Rail TD", source_id=f"{area}:{fr if fallback else (to or fr)}", last_updated=event_time,
             ))
         return True
 

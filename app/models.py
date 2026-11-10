@@ -69,13 +69,15 @@ class Vehicle(BaseModel):
     cool_candidate: bool = False
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    # Optional next-report metadata retained for context. Rail markers are not
-    # geometrically interpolated between TRUST points because a straight line is
-    # not a railway route; they remain at the last confirmed mapped report.
+    # Optional next-report metadata retained for context. ``estimate_path`` is
+    # built from mapped railway timing points when they are available, allowing
+    # the browser to animate between sparse TRUST reports without drawing a
+    # single chord across towns or fields.
     reported_lat: float | None = None
     reported_lon: float | None = None
     next_lat: float | None = None
     next_lon: float | None = None
+    estimate_path: list[list[float]] | None = None
     estimate_started_at: datetime | None = None
     estimate_due_at: datetime | None = None
 

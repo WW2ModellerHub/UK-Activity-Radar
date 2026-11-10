@@ -182,7 +182,7 @@ test('live stream deltas update one activity and remove ended activity without a
   await expect.poll(() => page.evaluate(() => window.__leafletStats.markerMoves)).toBeGreaterThan(movesBefore);
 });
 
-test('trains stay at the latest confirmed railway report instead of cutting across the map', async ({ page }) => {
+test('trains move smoothly along mapped railway timing points between confirmed reports', async ({ page }) => {
   await page.locator('#station-boards').click();
   await page.locator('#detail-placeboard .board-clickable').first().click();
   await expect(page.locator('#map')).toHaveAttribute('data-map-zoom','12');
@@ -198,18 +198,19 @@ test('trains stay at the latest confirmed railway report instead of cutting acro
         reported_lon:-0.76,
         next_lat:52.08,
         next_lon:-0.70,
+        estimate_path:[[52.04,-0.76],[52.055,-0.742],[52.08,-0.70]],
         next_location:'Bletchley',
         estimate_started_at:'2026-10-05T10:01:00Z',
         estimate_due_at:'2026-10-05T10:03:00Z',
       }:row),
     })});
   });
-  await expect(page.locator('.marker-wrap-train .marker-estimated')).toHaveCount(0);
+  await expect(page.locator('.marker-wrap-train .marker-estimated')).toHaveCount(1);
   const movesBefore=await page.evaluate(()=>window.__leafletStats.markerMoves);
   await page.waitForTimeout(3500);
-  await expect.poll(()=>page.evaluate(()=>window.__leafletStats.markerMoves)).toBe(movesBefore);
+  await expect.poll(()=>page.evaluate(()=>window.__leafletStats.markerMoves)).toBeGreaterThan(movesBefore);
   await page.locator('.marker-wrap-train').first().evaluate(el=>el.dispatchEvent(new MouseEvent('mouseenter',{bubbles:true})));
-  await expect(page.locator('.activity-tooltip')).toContainText('Last railway report');
+  await expect(page.locator('.activity-tooltip')).toContainText('Estimated between reports');
 });
 
 test('a 2,500-object streamed view refreshes incrementally', async ({ page }) => {
@@ -662,6 +663,10 @@ test('aircraft markers distinguish airliners and propeller aircraft with the typ
 
 test('Westland Lynx aircraft use a helicopter silhouette and identity', async ({ page }) => {
   await page.locator('[data-layer-toggle="aircraft"]').click();
+  // Wait for the initial snapshot render before injecting the replacement.
+  // On a busy full-suite worker the startup snapshot can otherwise arrive
+  // after this test's synthetic WebSocket message and overwrite it.
+  await expect(page.locator('.aircraft-shape-fastjet').first()).toBeVisible();
   await page.evaluate(() => {
     const next=structuredClone(window.__fixtureSnapshot);
     const aircraft=next.activities.find(row=>row.id==='aircraft-live-1');
@@ -693,12 +698,15 @@ test('selected aircraft draws an honest browser-local live trail', async ({ page
 
 test('What’s above me loads nearby aircraft and can be turned off', async ({ page }) => {
   await page.goto('/');
+  let nearbyRequests=0;
+  page.on('request',request=>{if(new URL(request.url()).pathname==='/api/aircraft/nearby')nearbyRequests+=1;});
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
   await page.locator('#overhead-now').click();
   await expect(page.locator('#map')).toHaveAttribute('data-map-center','54.11,-2.45');
   await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','true');
-  await expect(page.locator('#overhead-now')).toContainText('Aircraft received within 50 miles');
+  await expect(page.locator('#overhead-now')).toContainText('live aircraft');
   await expect(page.locator('.aerial-map-marker').first()).toBeVisible();
+  await expect.poll(()=>nearbyRequests,{timeout:10000}).toBeGreaterThan(1);
   await page.locator('#overhead-now').click();
   await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','false');
   await expect(page.locator('#overhead-now')).toContainText('Aircraft received within 50 miles');
