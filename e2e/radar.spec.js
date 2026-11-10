@@ -824,7 +824,7 @@ test('Station Board opens a real fixture station and departure', async ({ page }
 test('scheduled station-board train opens its published route without a live marker', async ({ page }) => {
   await page.locator('#station-boards').click();
   await expect(page.locator('#detail-placeboard')).toContainText('View route');
-  await page.locator('#detail-placeboard [data-train-uid="C12345"]').click();
+  await page.locator('#detail-placeboard [data-train-uid="C99999"]').click();
   await expect(page.locator('#detail-title')).toContainText('1Z80');
   await expect(page.locator('#detail-intelligence')).toContainText('JOURNEY');
   await expect(page.locator('#detail-intelligence')).toContainText('Coventry');

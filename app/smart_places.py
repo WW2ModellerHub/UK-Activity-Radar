@@ -596,6 +596,9 @@ class SmartPlacesService:
                     bucket.append(item)
         dep.sort(key=lambda x:x['minutes']); arr.sort(key=lambda x:x['minutes'])
         services={(str(item['train_uid']).strip(),item['service_date']) for item in [*dep,*arr]}
+        service_dates_by_uid: dict[str,set[str]]={}
+        for uid,service_day in services:
+            service_dates_by_uid.setdefault(uid,set()).add(service_day)
         live_by_service=self.state.trains_by_services(services) if hasattr(self.state,'trains_by_services') else {}
         wanted_uids={uid for uid,_ in services}
         undated_live=self.state.trains_by_uids(wanted_uids) if hasattr(self.state,'trains_by_uids') else {}
@@ -603,7 +606,8 @@ class SmartPlacesService:
             uid=str(item.get('train_uid') or '').strip()
             live=live_by_service.get((uid,item['service_date']))
             fallback=undated_live.get(uid)
-            if live is None and fallback is not None and not getattr(fallback,'service_date',None):
+            if (live is None and fallback is not None and not getattr(fallback,'service_date',None)
+                    and len(service_dates_by_uid.get(uid,set())) == 1):
                 live=fallback
             if live is not None:
                 item['live_train_id']=live.id

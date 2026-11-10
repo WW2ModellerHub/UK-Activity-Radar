@@ -1164,11 +1164,12 @@
     if(box){box.classList.add('hidden');box.classList.remove('rail-departure-board','bus-departure-board');box.innerHTML='';}
   }
 
-  function trainMatchesBoard(a, row) {
+  function trainMatchesBoard(a, row, allowUndated=false) {
     if(a?.type!=='train')return false;
     const normalize=value=>String(value || '').trim().toUpperCase();
     if(row.train_uid && normalize(a.train_uid)!==normalize(row.train_uid))return false;
-    if(row.service_date && a.service_date!==row.service_date)return false;
+    if(row.service_date && a.service_date && a.service_date!==row.service_date)return false;
+    if(row.service_date && !a.service_date && !allowUndated)return false;
     if(row.headcode && normalize(a.headcode)!==normalize(row.headcode))return false;
     return true;
   }
@@ -1272,11 +1273,11 @@
         id=activities.find(a=>a.type==='bus'&&String(a.vehicle_ref||'').trim()===wanted)?.id || '';
       }
       let a=id?activityById(id):null;
-      if(a && btn.dataset.activityType==='train' && !trainMatchesBoard(a,row)){a=null;id='';}
+      if(a && btn.dataset.activityType==='train' && !trainMatchesBoard(a,row,true)){a=null;id='';}
       if(!a && id && ['train','bus'].includes(btn.dataset.activityType)){
         try {
           const response=await fetch(`/api/activity/${encodeURIComponent(id)}`,{cache:'no-store',signal:AbortSignal.timeout(10000)});
-          if(response.ok){const item=await response.json();if(item?.id && (btn.dataset.activityType!=='train'||trainMatchesBoard(item,row)))a=item;}
+          if(response.ok){const item=await response.json();if(item?.id && (btn.dataset.activityType!=='train'||trainMatchesBoard(item,row,true)))a=item;}
         }catch{}
       }
       if(!current())return;
@@ -1288,7 +1289,7 @@
           if(btn.dataset.serviceDate)params.set('service_date',btn.dataset.serviceDate);
           const response=await fetch(`/api/rail/locate?${params}`,{cache:'no-store',signal:AbortSignal.timeout(10000)});
           const payload=await response.json().catch(()=>({}));
-          if(response.ok && payload?.activity?.id && trainMatchesBoard(payload.activity,row))a=payload.activity;
+          if(response.ok && payload?.activity?.id && trainMatchesBoard(payload.activity,row,true))a=payload.activity;
         }catch{}
       }
       if(!current())return;

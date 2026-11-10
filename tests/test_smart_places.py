@@ -68,7 +68,7 @@ def test_local_station_board_finds_upcoming_calls(tmp_path: Path):
     assert board['departures'][0]['platform']=='1'
 
 
-def test_station_board_links_only_the_exact_dated_service_when_headcode_is_reused(tmp_path: Path):
+def test_station_board_links_unique_uid_restored_without_date_not_reused_headcode(tmp_path: Path):
     store=ScheduleStore(tmp_path/'schedule.sqlite')
     now=datetime.now(london_tz()).replace(second=0,microsecond=0)
     service_date=now.date().isoformat()
@@ -85,7 +85,7 @@ def test_station_board_links_only_the_exact_dated_service_when_headcode_is_reuse
                 (uid,service_date,service_date,'1111111','P','EM','1F10','Leicester',destination,json.dumps(locations)),
             )
     state=LiveState()
-    live=Vehicle(id='nr:live-right',type='train',name='1F10',headcode='1F10',train_uid='RIGHT1',service_date=service_date,lat=52.631,lon=-1.125,source='Network Rail TRUST')
+    live=Vehicle(id='nr:live-right',type='train',name='1F10',headcode='1F10',train_uid='RIGHT1',service_date=None,lat=52.631,lon=-1.125,source='Network Rail TRUST')
     state.upsert(live)
     board=SmartPlacesService(tmp_path,store,state)._scheduled_station_calls('LEI',10)
     rows={row['train_uid']:row for row in board['departures']}
