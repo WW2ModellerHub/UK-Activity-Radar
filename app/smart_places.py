@@ -8,7 +8,7 @@ import tempfile
 import threading
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -538,88 +538,93 @@ class SmartPlacesService:
 
     def _scheduled_station_calls(self, crs: str, limit: int=12) -> dict:
         now=datetime.now(london_tz())
-        today=now.date().isoformat()
-        now_min=now.hour*60+now.minute
+        service_dates=(now.date()-timedelta(days=1),now.date(),now.date()+timedelta(days=1))
         with sqlite3.connect(self.schedules.db_path) as con:
             con.row_factory=sqlite3.Row
             tiplocs=[r[0] for r in con.execute("SELECT tiploc FROM tiplocs WHERE crs=?",(crs,)).fetchall()]
             if not tiplocs:
                 return {"departures":[],"arrivals":[]}
-            rows=[]
             indexed=self.schedules.call_index_ready()
+            candidates: dict[date,set[str]]={day:set() for day in service_dates}
             if indexed:
                 placeholders=','.join('?' for _ in tiplocs[:6])
-                rows=con.execute(f"""SELECT s.train_uid,s.start_date,s.end_date,s.days_runs,s.stp_indicator,s.atoc_code,s.signalling_id,s.origin_name,s.destination_name,
-                           c.tiploc AS call_tiploc,c.scheduled_arrival,c.scheduled_departure,c.public_arrival,c.public_departure,c.platform
-                    FROM schedule_calls c JOIN schedules s ON s.id=c.schedule_id
-                    WHERE c.tiploc IN ({placeholders}) AND s.start_date<=? AND s.end_date>=? LIMIT 5000""",(*tiplocs[:6],today,today)).fetchall()
+                for day in service_dates:
+                    day_text=day.isoformat()
+                    candidates[day].update(str(row[0]).strip() for row in con.execute(
+                        f"""SELECT DISTINCT s.train_uid
+                            FROM schedule_calls c JOIN schedules s ON s.id=c.schedule_id
+                            WHERE c.tiploc IN ({placeholders})
+                              AND (s.start_date IS NULL OR s.start_date='' OR s.start_date<=?)
+                              AND (s.end_date IS NULL OR s.end_date='' OR s.end_date>=?)""",
+                        (*tiplocs[:6],day_text,day_text),
+                    ) if str(row[0] or '').strip())
             else:
-                for tip in tiplocs[:6]:
-                    rows.extend(con.execute("""SELECT train_uid,start_date,end_date,days_runs,stp_indicator,atoc_code,signalling_id,origin_name,destination_name,locations_json
-                        FROM schedules WHERE start_date<=? AND end_date>=? AND locations_json LIKE ? LIMIT 2200""",(today,today,f'%"tiploc_code":"{tip}"%')).fetchall())
+                for day in service_dates:
+                    day_text=day.isoformat()
+                    for tip in tiplocs[:6]:
+                        candidates[day].update(str(row[0]).strip() for row in con.execute(
+                            """SELECT DISTINCT train_uid FROM schedules
+                               WHERE (start_date IS NULL OR start_date='' OR start_date<=?)
+                                 AND (end_date IS NULL OR end_date='' OR end_date>=?)
+                                 AND locations_json LIKE ? LIMIT 5000""",
+                            (day_text,day_text,f'%"tiploc_code"%"{tip}"%'),
+                        ) if str(row[0] or '').strip())
         dep=[]; arr=[]; seen=set()
-        for row in rows:
-            if not _day_runs(row['days_runs'],now):
-                continue
-            if indexed:
-                locs=[{
-                    'tiploc_code':row['call_tiploc'],'scheduled_arrival':row['scheduled_arrival'],
-                    'scheduled_departure':row['scheduled_departure'],'public_arrival':row['public_arrival'],
-                    'public_departure':row['public_departure'],'platform':row['platform'],
-                }]
-            else:
-                try: locs=json.loads(row['locations_json'] or '[]')
-                except Exception: continue
-            for loc in locs:
+        for service_date in service_dates:
+            for row in self.schedules.effective_rows(service_date,train_uids=candidates[service_date]):
+              for loc in self.schedules.timed_locations(row,service_date):
                 if str(loc.get('tiploc_code') or '').upper() not in tiplocs:
                     continue
-                at=_clean_time(loc.get('public_arrival') or loc.get('scheduled_arrival'))
-                dt=_clean_time(loc.get('public_departure') or loc.get('scheduled_departure'))
-                common={"headcode":row['signalling_id'],"train_uid":row['train_uid'],"operator":row['atoc_code'],"origin":row['origin_name'],"destination":row['destination_name'],"platform":loc.get('platform')}
-                for bucket,clock,kind in ((arr,at,'arrival'),(dep,dt,'departure')):
-                    if not clock: continue
-                    hh,mm=map(int,clock.split(':')); scheduled_abs=hh*60+mm
-                    delta=scheduled_abs-now_min
-                    if delta < -10: delta += 1440
-                    if delta < -10 or delta > 360: continue
-                    key=(row['train_uid'],kind,clock)
+                common={
+                    "headcode":row['signalling_id'],"train_uid":row['train_uid'],
+                    "service_date":service_date.isoformat(),"schedule_id":int(row['id']),
+                    "operator":row['atoc_code'],"origin":row['origin_name'],
+                    "destination":row['destination_name'],"platform":loc.get('platform'),
+                }
+                for bucket,kind in ((arr,'arrival'),(dep,'departure')):
+                    event_at=loc.get(f'_public_{kind}_at') or loc.get(f'_{kind}_at')
+                    if event_at is None:
+                        continue
+                    delta=round((event_at-now).total_seconds()/60)
+                    if delta < -10 or delta > 360:
+                        continue
+                    key=(row['train_uid'],service_date.isoformat(),kind,event_at.isoformat())
                     if key in seen: continue
                     seen.add(key)
-                    item={**common,"scheduled":clock,"expected":clock,"minutes":delta,"status":"Scheduled","_scheduled_abs":scheduled_abs}
+                    clock=event_at.strftime('%H:%M')
+                    item={**common,"scheduled":clock,"expected":clock,"minutes":delta,"status":"Scheduled","_scheduled_at":event_at}
                     bucket.append(item)
         dep.sort(key=lambda x:x['minutes']); arr.sort(key=lambda x:x['minutes'])
-        dep=dep[:limit]; arr=arr[:limit]
-        wanted_uids={str(item.get('train_uid') or '').strip() for item in [*dep,*arr]}
-        if hasattr(self.state,'trains_by_uids'):
-            live_by_uid=self.state.trains_by_uids(wanted_uids)
-        else:
-            live_by_uid={}
-            for uid in wanted_uids:
-                fallback_id=self._match_live_train(None,uid)
-                if fallback_id and hasattr(self.state,'get'):
-                    live_by_uid[uid]=self.state.get(fallback_id)
+        services={(str(item['train_uid']).strip(),item['service_date']) for item in [*dep,*arr]}
+        live_by_service=self.state.trains_by_services(services) if hasattr(self.state,'trains_by_services') else {}
+        wanted_uids={uid for uid,_ in services}
+        undated_live=self.state.trains_by_uids(wanted_uids) if hasattr(self.state,'trains_by_uids') else {}
         for item in [*dep,*arr]:
-            live=live_by_uid.get(str(item.get('train_uid') or '').strip())
+            uid=str(item.get('train_uid') or '').strip()
+            live=live_by_service.get((uid,item['service_date']))
+            fallback=undated_live.get(uid)
+            if live is None and fallback is not None and not getattr(fallback,'service_date',None):
+                live=fallback
             if live is not None:
                 item['live_train_id']=live.id
                 delay=getattr(live,'delay_minutes',None)
                 live_status=str(getattr(live,'status',None) or '').strip()
                 if delay is not None:
-                    expected_abs=(item['_scheduled_abs']+int(delay))%1440
-                    item['expected']=f"{expected_abs//60:02d}:{expected_abs%60:02d}"
+                    expected_at=item['_scheduled_at']+timedelta(minutes=int(delay))
+                    item['expected']=expected_at.isoformat()
                     item['delay_minutes']=int(delay)
                     item['status']='On time' if int(delay)==0 else f"{int(delay):+d} min"
                 elif live_status:
                     item['status']=live_status
-            item.pop('_scheduled_abs',None)
-        return {"departures":dep,"arrivals":arr}
+            item.pop('_scheduled_at',None)
+        return {"departures":dep[:limit],"arrivals":arr[:limit]}
 
     def rail_board(self, crs: str, limit: int=10) -> dict:
         crs=str(crs or '').strip().upper()
         cache_key=(crs,int(limit))
         with self._lock:
             cached=self._rail_board_cache.get(cache_key)
-            if cached and time.monotonic()-cached[0] < 15:
+            if cached and time.monotonic()-cached[0] < 5:
                 return json.loads(json.dumps(cached[1]))
         local_ready=self.schedules.ready()
         if self.schedules.ready():
@@ -682,27 +687,18 @@ class SmartPlacesService:
             ),
         }
         uid = str(getattr(vehicle, 'train_uid', '') or '').strip()
+        service_date = self.schedules.service_date(getattr(vehicle, 'service_date', None)) or datetime.now(london_tz()).date()
+        run['service_date'] = service_date.isoformat()
         schedule_verified = False
         if uid and self.schedules.db_path.exists():
             try:
-                now = datetime.now(london_tz())
-                today = now.date().isoformat()
+                rows = self.schedules.effective_rows(service_date, train_uids=[uid])
+                row = rows[0] if rows else None
                 with sqlite3.connect(self.schedules.db_path) as con:
                     con.row_factory = sqlite3.Row
-                    rows = con.execute(
-                        """SELECT * FROM schedules
-                           WHERE train_uid=?
-                             AND (start_date IS NULL OR start_date='' OR start_date<=?)
-                             AND (end_date IS NULL OR end_date='' OR end_date>=?)
-                             AND COALESCE(stp_indicator,'')<>'C'
-                           ORDER BY CASE source WHEN 'VSTP' THEN 0 ELSE 1 END, id DESC
-                           LIMIT 16""",
-                        (uid, today, today),
-                    ).fetchall()
-                    row = next((candidate for candidate in rows if _day_runs(candidate['days_runs'], now)), None)
                     if row:
                         schedule_verified = True
-                        locations = json.loads(row['locations_json'] or '[]')
+                        locations = self.schedules.timed_locations(row, service_date)
                         codes = sorted({str(item.get('tiploc_code') or '').strip() for item in locations if isinstance(item, dict) and item.get('tiploc_code')})
                         names = {}
                         if codes:
@@ -735,8 +731,6 @@ class SmartPlacesService:
                             # the raw CIF timing records. Long-distance trains
                             # can contain dozens of pass-through junctions
                             # before their later passenger stops.
-                            if len(calls) >= 40:
-                                break
                         run.update({
                             "origin": row['origin_name'] or run['origin'],
                             "destination": row['destination_name'] or run['destination'],
@@ -775,7 +769,7 @@ class SmartPlacesService:
             ),
         }
 
-    def scheduled_train_detail(self, train_uid: str, headcode: str | None = None) -> dict:
+    def scheduled_train_detail(self, train_uid: str, headcode: str | None = None, service_date: str | None = None) -> dict:
         """Return the published route for a board service with no live marker."""
         uid = str(train_uid or '').strip()
         code = str(headcode or '').strip()
@@ -793,6 +787,7 @@ class SmartPlacesService:
             name=code or uid,
             headcode=code or None,
             train_uid=uid,
+            service_date=service_date,
             operator=None,
             origin=None,
             destination=None,
@@ -812,22 +807,23 @@ class SmartPlacesService:
         })
         return detail
 
-    def _match_live_train(self, headcode: str | None, train_uid: str | None=None, train_id: str | None=None) -> str | None:
+    def _match_live_train(self, headcode: str | None, train_uid: str | None=None, train_id: str | None=None, service_date: str | None=None) -> str | None:
         exact=str(train_id or '').strip()
         if exact and hasattr(self.state,'get') and self.state.get(f'nr:{exact}'):
             return f'nr:{exact}'
         uid=str(train_uid or '').strip()
         if uid:
-            for item in self.state.all(include_buses=False,include_vessels=False):
-                if getattr(item,'type',None)=='train' and str(getattr(item,'train_uid',None) or '').strip()==uid:
+            if hasattr(self.state,'find_train_by_uid'):
+                item=self.state.find_train_by_uid(uid,str(service_date or '').strip() or None)
+                if item is not None:
                     return item.id
             return None
         live=self.state.find_train_by_headcode(headcode or '') if hasattr(self.state,'find_train_by_headcode') else None
         return live.id if live else None
 
-    def locate_live_train(self, headcode: str | None, train_uid: str | None=None) -> object | None:
+    def locate_live_train(self, headcode: str | None, train_uid: str | None=None, service_date: str | None=None) -> object | None:
         """Resolve a board service against the current national TRUST state."""
-        live_id=self._match_live_train(headcode,train_uid)
+        live_id=self._match_live_train(headcode,train_uid,service_date=service_date)
         return self.state.get(live_id) if live_id and hasattr(self.state,'get') else None
 
     def _match_live_bus(self, vehicle_ref: str | None) -> str | None:

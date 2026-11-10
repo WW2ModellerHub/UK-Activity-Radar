@@ -182,7 +182,7 @@ test('live stream deltas update one activity and remove ended activity without a
   await expect.poll(() => page.evaluate(() => window.__leafletStats.markerMoves)).toBeGreaterThan(movesBefore);
 });
 
-test('trains progress between confirmed railway reports without waiting minutes', async ({ page }) => {
+test('trains stay at the latest confirmed railway report instead of cutting across the map', async ({ page }) => {
   await page.locator('#station-boards').click();
   await page.locator('#detail-placeboard .board-clickable').first().click();
   await expect(page.locator('#map')).toHaveAttribute('data-map-zoom','12');
@@ -204,11 +204,12 @@ test('trains progress between confirmed railway reports without waiting minutes'
       }:row),
     })});
   });
-  await expect(page.locator('.marker-wrap-train .marker-estimated').first()).toBeVisible();
+  await expect(page.locator('.marker-wrap-train .marker-estimated')).toHaveCount(0);
   const movesBefore=await page.evaluate(()=>window.__leafletStats.markerMoves);
-  await expect.poll(()=>page.evaluate(()=>window.__leafletStats.markerMoves),{timeout:5000}).toBeGreaterThan(movesBefore);
+  await page.waitForTimeout(3500);
+  await expect.poll(()=>page.evaluate(()=>window.__leafletStats.markerMoves)).toBe(movesBefore);
   await page.locator('.marker-wrap-train').first().evaluate(el=>el.dispatchEvent(new MouseEvent('mouseenter',{bubbles:true})));
-  await expect(page.locator('.activity-tooltip')).toContainText('Estimated between reports');
+  await expect(page.locator('.activity-tooltip')).toContainText('Last railway report');
 });
 
 test('a 2,500-object streamed view refreshes incrementally', async ({ page }) => {

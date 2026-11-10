@@ -7,7 +7,7 @@ import sqlite3
 import tempfile
 import time
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time as clock_time, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Callable
 
@@ -38,6 +38,8 @@ class ScheduleInfo:
     timing_load: str | None = None
     booked_speed: str | None = None
     operating_characteristics: str | None = None
+    running_date: str | None = None
+    schedule_id: int | None = None
 
 
 class ScheduleStore:
@@ -92,6 +94,7 @@ class ScheduleStore:
                 CREATE INDEX IF NOT EXISTS idx_sched_uid ON schedules(train_uid);
                 CREATE INDEX IF NOT EXISTS idx_sched_dates ON schedules(train_uid,start_date,end_date);
                 CREATE INDEX IF NOT EXISTS idx_sched_active_dates ON schedules(start_date,end_date);
+                CREATE INDEX IF NOT EXISTS idx_sched_headcode_normalized ON schedules(UPPER(TRIM(signalling_id)));
                 CREATE TABLE IF NOT EXISTS schedule_calls(
                     id INTEGER PRIMARY KEY,
                     schedule_id INTEGER NOT NULL,
@@ -113,14 +116,20 @@ class ScheduleStore:
     def call_index_ready(self) -> bool:
         try:
             with self._connect() as conn:
-                row=conn.execute("SELECT value FROM meta WHERE key='schedule_calls_date'").fetchone()
-            return bool(row and row[0] == date.today().isoformat())
+                meta = dict(conn.execute("SELECT key,value FROM meta WHERE key IN ('schedule_calls_date','schedule_calls_version')"))
+            return meta.get('schedule_calls_version') == '2' and meta.get('schedule_calls_date') == datetime.now(london_tz()).date().isoformat()
         except sqlite3.Error:
             return False
 
     @staticmethod
     def _rebuild_call_index_on(conn: sqlite3.Connection, active_date: str | None = None) -> int:
-        active_date=active_date or date.today().isoformat()
+        active_date=active_date or datetime.now(london_tz()).date().isoformat()
+        service_date = date.fromisoformat(active_date)
+        # Keep calls from trains spanning midnight and tomorrow's early
+        # departures. Consumers still resolve the actual service day and STP
+        # variation; this is only a lookup index, not a list of running trains.
+        first_date = (service_date - timedelta(days=1)).isoformat()
+        last_date = (service_date + timedelta(days=1)).isoformat()
         conn.execute("DELETE FROM schedule_calls")
         conn.execute(
             """INSERT INTO schedule_calls(schedule_id,tiploc,scheduled_arrival,scheduled_departure,public_arrival,public_departure,platform)
@@ -132,12 +141,13 @@ class ScheduleStore:
                       json_extract(j.value,'$.public_departure'),
                       json_extract(j.value,'$.platform')
                FROM schedules AS s, json_each(s.locations_json) AS j
-               WHERE s.start_date<=? AND s.end_date>=?
+               WHERE (s.start_date IS NULL OR s.start_date='' OR s.start_date<=?)
+                 AND (s.end_date IS NULL OR s.end_date='' OR s.end_date>=?)
                  AND json_extract(j.value,'$.tiploc_code') IS NOT NULL""",
-            (active_date,active_date),
+            (last_date,first_date),
         )
         count=int(conn.execute("SELECT COUNT(*) FROM schedule_calls").fetchone()[0])
-        conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('schedule_calls_version','1')")
+        conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('schedule_calls_version','2')")
         conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('schedule_calls_date',?)",(active_date,))
         conn.commit()
         return count
@@ -175,78 +185,178 @@ class ScheduleStore:
             return None
 
     def lookup_activation(self, body: dict) -> ScheduleInfo | None:
-        uid = str(body.get("train_uid") or "").strip()
+        uid = str(body.get("train_uid") or "").strip().upper()
         if not uid:
             return None
-        start = str(body.get("schedule_start_date") or "").strip()
-        end = str(body.get("schedule_end_date") or "").strip()
-        run_date = str(body.get("tp_origin_timestamp") or "").strip()
-
-        with self._connect() as conn:
-            rows: list[sqlite3.Row]
-            if start and end:
-                rows = conn.execute(
-                    "SELECT * FROM schedules WHERE train_uid=? AND start_date=? AND end_date=? ORDER BY CASE stp_indicator WHEN 'N' THEN 1 WHEN 'O' THEN 2 WHEN 'P' THEN 3 ELSE 4 END LIMIT 8",
-                    (uid, start, end),
-                ).fetchall()
-            elif run_date:
-                rows = conn.execute(
-                    "SELECT * FROM schedules WHERE train_uid=? AND start_date<=? AND end_date>=? ORDER BY CASE stp_indicator WHEN 'N' THEN 1 WHEN 'O' THEN 2 WHEN 'P' THEN 3 ELSE 4 END LIMIT 8",
-                    (uid, run_date, run_date),
-                ).fetchall()
-            else:
-                rows = conn.execute("SELECT * FROM schedules WHERE train_uid=? ORDER BY id DESC LIMIT 8", (uid,)).fetchall()
-        if not rows:
-            return None
-        row = rows[0]
-        return ScheduleInfo(
-            train_uid=uid,
-            signalling_id=row["signalling_id"],
-            atoc_code=row["atoc_code"],
-            service_code=row["service_code"],
-            origin=row["origin_name"],
-            destination=row["destination_name"],
-            origin_tiploc=row["origin_tiploc"],
-            destination_tiploc=row["destination_tiploc"],
-            train_category=row["train_category"],
-            power_type=row["power_type"],
-            timing_load=row["timing_load"],
-            booked_speed=row["booked_speed"],
-            operating_characteristics=row["operating_characteristics"],
+        # TRUST's originating departure timestamp is more reliable around BST
+        # midnight than its historical, truncated tp_origin_timestamp field.
+        service_date = (
+            self.service_date(body.get("origin_dep_timestamp"))
+            or self.service_date(body.get("tp_origin_timestamp"))
+            or datetime.now(london_tz()).date()
         )
+        return self.lookup_uid(uid, running_date=service_date)
+
+    @staticmethod
+    def service_date(value: Any) -> date | None:
+        """Normalize a TRUST service date or epoch timestamp to a UK date."""
+        if isinstance(value, datetime):
+            return value.astimezone(london_tz()).date() if value.tzinfo else value.date()
+        if isinstance(value, date):
+            return value
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            if raw.replace(".", "", 1).isdigit():
+                seconds = float(raw)
+                if seconds <= 0:
+                    return None
+                if seconds >= 100_000_000_000:
+                    seconds /= 1000
+                return datetime.fromtimestamp(seconds, tz=london_tz()).date()
+            if len(raw) == 10:
+                return date.fromisoformat(raw)
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return parsed.astimezone(london_tz()).date() if parsed.tzinfo else parsed.date()
+        except (OverflowError, OSError, TypeError, ValueError):
+            return None
 
     @staticmethod
     def _runs_on(row: sqlite3.Row, running_date: date) -> bool:
         days = str(row["days_runs"] or "").strip()
-        return not days or len(days) < 7 or days[running_date.weekday()] == "1"
+        return not days or (len(days) == 7 and days[running_date.weekday()] == "1")
 
-    @staticmethod
-    def _clock_distance(locations: list[dict], at_time: datetime) -> int:
-        """Return distance in minutes from the closest published call time."""
-        now_minutes = at_time.hour * 60 + at_time.minute
-        distances: list[int] = []
-        for location in locations:
-            if not isinstance(location, dict):
+    def effective_rows(
+        self,
+        running_date: date,
+        *,
+        train_uids: Iterable[str] | None = None,
+        headcode: str | None = None,
+    ) -> list[sqlite3.Row]:
+        """Return the applicable schedule for each UID on its origin date.
+
+        Fetch every variation for candidate UIDs before filtering locations or
+        headcodes: cancellations often have neither, and an overlay can remove
+        a station call or change the headcode. Filtering those first resurrects
+        the permanent schedule which the variation superseded.
+        """
+        day = running_date.isoformat()
+        code = str(headcode or "").strip().upper()
+        with self._connect() as conn:
+            uids = None if train_uids is None else sorted({
+                str(uid or "").strip().upper() for uid in train_uids if str(uid or "").strip()
+            })
+            if code:
+                matched = {row[0] for row in conn.execute(
+                    """SELECT DISTINCT train_uid FROM schedules
+                       WHERE UPPER(TRIM(signalling_id))=?
+                         AND (start_date IS NULL OR start_date='' OR start_date<=?)
+                         AND (end_date IS NULL OR end_date='' OR end_date>=?)""",
+                    (code, day, day),
+                )}
+                uids = sorted(matched if uids is None else matched.intersection(uids))
+            if uids == []:
+                return []
+            rows = []
+            batches = [None] if uids is None else [uids[i:i + 500] for i in range(0, len(uids), 500)]
+            for batch in batches:
+                sql = """SELECT * FROM schedules
+                         WHERE (start_date IS NULL OR start_date='' OR start_date<=?)
+                           AND (end_date IS NULL OR end_date='' OR end_date>=?)"""
+                params: list[Any] = [day, day]
+                if batch is not None:
+                    sql += " AND train_uid IN (" + ",".join("?" for _ in batch) + ")"
+                    params.extend(batch)
+                rows.extend(conn.execute(sql, params).fetchall())
+        applicable: dict[str, sqlite3.Row] = {}
+        priorities = {"C": 0, "N": 1, "O": 2, "P": 3, "": 3}
+
+        def priority(row: sqlite3.Row) -> tuple:
+            return (
+                priorities.get(str(row["stp_indicator"] or "").strip().upper(), 4),
+                0 if row["source"] == "VSTP" else 1,
+                # More recent/specific revisions win within the same STP kind.
+                str(row["start_date"] or ""),
+                int(row["id"]),
+            )
+
+        for row in rows:
+            if not self._runs_on(row, running_date):
                 continue
-            for key in (
-                "public_arrival", "public_departure",
-                "scheduled_arrival", "scheduled_departure", "scheduled_pass",
+            uid = str(row["train_uid"] or "").strip()
+            previous = applicable.get(uid)
+            rank = priority(row)
+            previous_rank = priority(previous) if previous is not None else None
+            if previous is None or rank[:2] < previous_rank[:2] or (
+                rank[:2] == previous_rank[:2] and rank[2:] > previous_rank[2:]
             ):
-                raw = "".join(ch for ch in str(location.get(key) or "") if ch.isdigit())
-                if len(raw) == 3:
-                    raw = "0" + raw
-                if len(raw) < 4:
-                    continue
-                try:
-                    minutes = int(raw[:2]) * 60 + int(raw[2:4])
-                except ValueError:
-                    continue
-                delta = abs(minutes - now_minutes)
-                distances.append(min(delta, 1440 - delta))
-        return min(distances) if distances else 720
+                applicable[uid] = row
+        return [
+            row for row in applicable.values()
+            if str(row["stp_indicator"] or "").strip().upper() != "C"
+            and (not code or str(row["signalling_id"] or "").strip().upper() == code)
+        ]
+
+    def lookup_uid(self, uid: str, *, running_date: date | None = None) -> ScheduleInfo | None:
+        service_date = running_date or datetime.now(london_tz()).date()
+        rows = self.effective_rows(service_date, train_uids=[uid])
+        return self._info_from_row(rows[0], service_date) if rows else None
 
     @staticmethod
-    def _info_from_row(row: sqlite3.Row) -> ScheduleInfo:
+    def _clock_minutes(value: Any) -> float | None:
+        raw = str(value or "").strip().upper().replace(":", "")
+        half = raw.endswith("H")
+        if half:
+            raw = raw[:-1]
+        if len(raw) == 3:
+            raw = "0" + raw
+        if len(raw) != 4 or not raw.isdigit():
+            return None
+        hour, minute = int(raw[:2]), int(raw[2:])
+        if hour > 23 or minute > 59:
+            return None
+        return hour * 60 + minute + (0.5 if half else 0)
+
+    @classmethod
+    def timed_locations(cls, row: sqlite3.Row, running_date: date) -> list[dict]:
+        """Attach actual call dates without wrapping yesterday into tomorrow."""
+        try:
+            locations = json.loads(row["locations_json"] or "[]")
+        except (TypeError, json.JSONDecodeError):
+            return []
+        if not isinstance(locations, list):
+            return []
+        midnight = datetime.combine(running_date, clock_time(), tzinfo=london_tz())
+        elapsed_day = 0
+        previous_minutes = None
+        result = []
+        for item in locations:
+            if not isinstance(item, dict):
+                continue
+            location = dict(item)
+            for kind in ("arrival", "pass", "departure"):
+                minutes = cls._clock_minutes(item.get(f"scheduled_{kind}"))
+                if minutes is None and kind != "pass":
+                    minutes = cls._clock_minutes(item.get(f"public_{kind}"))
+                if minutes is None:
+                    continue
+                if previous_minutes is not None and minutes < previous_minutes:
+                    elapsed_day += 1
+                previous_minutes = minutes
+                location[f"_{kind}_at"] = midnight + timedelta(days=elapsed_day, minutes=minutes)
+            for kind in ("arrival", "departure"):
+                minutes = cls._clock_minutes(item.get(f"public_{kind}"))
+                anchor = location.get(f"_{kind}_at")
+                if minutes is None or anchor is None:
+                    continue
+                candidates = [midnight + timedelta(days=elapsed_day + offset, minutes=minutes) for offset in (-1, 0, 1)]
+                location[f"_public_{kind}_at"] = min(candidates, key=lambda value: abs((value - anchor).total_seconds()))
+            result.append(location)
+        return result
+
+    @staticmethod
+    def _info_from_row(row: sqlite3.Row, running_date: date | None = None) -> ScheduleInfo:
         return ScheduleInfo(
             train_uid=row["train_uid"],
             signalling_id=row["signalling_id"],
@@ -261,6 +371,8 @@ class ScheduleStore:
             timing_load=row["timing_load"],
             booked_speed=row["booked_speed"],
             operating_characteristics=row["operating_characteristics"],
+            running_date=running_date.isoformat() if running_date else None,
+            schedule_id=int(row["id"]),
         )
 
     def lookup_headcode(
@@ -270,6 +382,8 @@ class ScheduleStore:
         running_date: date | None = None,
         at_time: datetime | None = None,
         tiploc: str | None = None,
+        stanox: str | None = None,
+        atoc_code: str | None = None,
     ) -> ScheduleInfo | None:
         """Resolve a live TD describer to today's most plausible schedule.
 
@@ -286,57 +400,43 @@ class ScheduleStore:
             now = now.replace(tzinfo=london_tz())
         else:
             now = now.astimezone(london_tz())
-        service_date = running_date or now.date()
-        location = str(tiploc or "").strip().upper()
+        location_codes = {str(tiploc or "").strip().upper()} - {""}
+        if stanox:
+            with self._connect() as conn:
+                location_codes.update(str(row[0]).strip().upper() for row in conn.execute(
+                    "SELECT tiploc FROM tiplocs WHERE stanox=?", (str(stanox).strip().zfill(5),),
+                ))
         # A four-character signalling ID is reused across the network and
         # across service days. Without the live berth's TIPLOC it is not an
         # identity and must never be used to attach a passenger journey.
-        if not location:
+        if not location_codes:
             return None
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT * FROM schedules
-                   WHERE UPPER(TRIM(signalling_id))=?
-                     AND (start_date IS NULL OR start_date='' OR start_date<=?)
-                     AND (end_date IS NULL OR end_date='' OR end_date>=?)
-                     AND COALESCE(stp_indicator,'')<>'C'
-                   ORDER BY CASE source WHEN 'VSTP' THEN 0 ELSE 1 END, id DESC
-                   LIMIT 64""",
-                (code, service_date.isoformat(), service_date.isoformat()),
-            ).fetchall()
-        ranked: list[tuple[tuple[int, int, int, int], sqlite3.Row]] = []
-        for row in rows:
-            if not self._runs_on(row, service_date):
-                continue
-            try:
-                locations = json.loads(row["locations_json"] or "[]")
-            except (TypeError, json.JSONDecodeError):
-                locations = []
-            if not isinstance(locations, list):
-                locations = []
-            codes = {
-                str(item.get("tiploc_code") or "").strip().upper()
-                for item in locations if isinstance(item, dict)
-            }
-            location_rank = 0 if location and location in codes else 1
-            if location and location_rank:
-                continue
-            location_rows = [
-                item for item in locations
-                if isinstance(item, dict)
-                and str(item.get("tiploc_code") or "").strip().upper() == location
-            ]
-            time_rank = self._clock_distance(location_rows, now)
-            # Allow substantial disruption, but reject a same-headcode route
-            # whose published passage through this berth is hours away.
-            if time_rank > 180:
-                continue
-            source_rank = 0 if row["source"] == "VSTP" else 1
-            ranked.append(((location_rank, time_rank, source_rank, -int(row["id"])), row))
+        dates = [running_date] if running_date else [now.date() - timedelta(days=1), now.date(), now.date() + timedelta(days=1)]
+        operator = str(atoc_code or "").strip().upper()
+        ranked: list[tuple[float, sqlite3.Row, date]] = []
+        for service_date in dates:
+            for row in self.effective_rows(service_date, headcode=code):
+                if operator and str(row["atoc_code"] or "").strip().upper() != operator:
+                    continue
+                distances = []
+                for location in self.timed_locations(row, service_date):
+                    if str(location.get("tiploc_code") or "").strip().upper() not in location_codes:
+                        continue
+                    for kind in ("arrival", "departure", "pass"):
+                        event_time = location.get(f"_{kind}_at")
+                        if event_time is not None:
+                            distances.append(abs((event_time - now).total_seconds()) / 60)
+                distance = min(distances, default=float("inf"))
+                # A headcode is reused throughout the day. A location hours
+                # away in the timetable is not a verified service identity.
+                if distance <= 180:
+                    ranked.append((distance, row, service_date))
         if not ranked:
             return None
         ranked.sort(key=lambda item: item[0])
-        return self._info_from_row(ranked[0][1])
+        if len(ranked) > 1 and ranked[1][0] - ranked[0][0] < 10:
+            return None
+        return self._info_from_row(ranked[0][1], ranked[0][2])
 
     def upsert_vstp(self, schedule: dict) -> None:
         # VSTP schema varies slightly from the overnight JSON; normalize the
@@ -350,14 +450,20 @@ class ScheduleStore:
             locations = []
         origin = locations[0] if locations else {}
         dest = locations[-1] if locations else {}
+        start = schedule.get("schedule_start_date")
+        indicator = schedule.get("CIF_stp_indicator") or schedule.get("stp_indicator")
         with self._connect() as conn:
-            old_ids=[row[0] for row in conn.execute("SELECT id FROM schedules WHERE source='VSTP' AND train_uid=?",(uid,)).fetchall()]
+            # One UID may have distinct short-notice variations on different
+            # dates. Replacing tomorrow's row must not delete today's service.
+            old_ids=[row[0] for row in conn.execute(
+                "SELECT id FROM schedules WHERE source='VSTP' AND train_uid=? AND COALESCE(start_date,'')=? AND COALESCE(stp_indicator,'')=?",
+                (uid, start or '', indicator or ''),
+            ).fetchall()]
             if old_ids:
                 conn.executemany("DELETE FROM schedule_calls WHERE schedule_id=?",((row_id,) for row_id in old_ids))
-            conn.execute(
-                "DELETE FROM schedules WHERE source='VSTP' AND train_uid=?",
-                (uid,),
-            )
+                conn.executemany("DELETE FROM schedules WHERE id=?", ((row_id,) for row_id in old_ids))
+            if str(schedule.get('transaction_type') or '').lower() == 'delete':
+                return
             cursor=conn.execute(
                 """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,atoc_code,signalling_id,service_code,
                    origin_tiploc,destination_tiploc,origin_name,destination_name,locations_json,train_category,power_type,
@@ -365,9 +471,10 @@ class ScheduleStore:
                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'VSTP')""",
                 (
                     uid,
-                    schedule.get("schedule_start_date"), schedule.get("schedule_end_date"), schedule.get("schedule_days_runs"),
-                    schedule.get("CIF_stp_indicator") or schedule.get("stp_indicator"), schedule.get("atoc_code"),
-                    schedule.get("signalling_id") or schedule.get("CIF_headcode"), schedule.get("CIF_train_service_code"),
+                    start, schedule.get("schedule_end_date"), schedule.get("schedule_days_runs"),
+                    indicator, schedule.get("atoc_code"),
+                    segment.get("signalling_id") or segment.get("CIF_headcode") or schedule.get("signalling_id") or schedule.get("CIF_headcode"),
+                    segment.get("CIF_train_service_code") or schedule.get("CIF_train_service_code"),
                     origin.get("tiploc_code"), dest.get("tiploc_code"), origin.get("tiploc_code"), dest.get("tiploc_code"),
                     json.dumps(locations, separators=(",", ":")),
                     segment.get("CIF_train_category"), segment.get("CIF_power_type"), segment.get("CIF_timing_load"),

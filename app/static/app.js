@@ -54,7 +54,8 @@
   map.getPane('journeyPane').style.zIndex = '660';
   map.getPane('journeyPane').style.pointerEvents = 'none';
   map.createPane('placePane');
-  map.getPane('placePane').style.zIndex = '650';
+  // A station is a reference point, not a cover over trains reporting there.
+  map.getPane('placePane').style.zIndex = '580';
   let trafficLayer = null;
   let trafficIncidentLayer = null;
   let trafficMode = 'off';
@@ -90,6 +91,10 @@
   let selectedPlaceId = null;
   let returnPlaceId = null;
   const placeBoardCache = new Map();
+  let placeBoardRefreshTimer = null;
+  let placeBoardController = null;
+  let placeBoardRequest = 0;
+  let boardLinkRequest = 0;
   let overheadActive = false;
   let transientNearestBusPlaceId = null;
   let overheadAutoEnabledAircraft = false;
@@ -150,6 +155,8 @@
   let coverageLoadedFor = null;
   let intelligenceRequest = 0;
   let intelligenceLoadedFor = null;
+  let intelligenceRefreshTimer = null;
+  let intelligenceController = null;
   let mediaRequest = 0;
   let mediaLoadedFor = null;
   let searchMarker = null;
@@ -630,7 +637,7 @@
     if (a.type === 'vessel' && a.vehicle_ref) pills.push(`<span class="tooltip-pill">MMSI ${esc(a.vehicle_ref)}</span>`);
     if (['sar','aircraft'].includes(a.type) && (a.aircraft_model || a.vehicle_ref)) pills.push(`<span class="tooltip-pill">${esc(a.aircraft_model || a.vehicle_ref)}</span>`);
     const badge = currentWorkspace === 'cool' ? coolBadgeHtml(a,true) : '';
-    return `<div class="activity-tooltip-card"><div class="tooltip-top"><strong>${icons[a.type] || '•'} ${esc(a.name)}</strong><span class="tooltip-live">${a.kind === 'event' ? 'EVENT' : 'LIVE'}</span></div>${badge}${route ? `<div class="tooltip-sub">${esc(route)}</div>` : ''}<div class="tooltip-pills">${pills.slice(0,4).join('')}</div><div class="tooltip-hint">Updated ${esc(relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000)))} • click for detail</div></div>`;
+    return `<div class="activity-tooltip-card"><div class="tooltip-top"><strong>${icons[a.type] || '•'} ${esc(a.name)}</strong><span class="tooltip-live">${a.kind === 'event' ? 'EVENT' : 'LIVE'}</span></div>${badge}${route ? `<div class="tooltip-sub">${esc(route)}</div>` : ''}<div class="tooltip-pills">${pills.slice(0,4).join('')}</div><div class="tooltip-hint">${a.type==='train'?'Last railway report':'Updated'} ${esc(relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000)))} • click for detail</div></div>`;
   }
 
   function operatorTheme(a) {
@@ -1147,12 +1154,27 @@
   }
 
   function clearPlaceBoard() {
+    clearTimeout(placeBoardRefreshTimer);
+    placeBoardRefreshTimer=null;
+    placeBoardRequest+=1;
+    boardLinkRequest+=1;
+    placeBoardController?.abort();
+    placeBoardController=null;
     const box=$('detail-placeboard');
     if(box){box.classList.add('hidden');box.classList.remove('rail-departure-board','bus-departure-board');box.innerHTML='';}
   }
 
+  function trainMatchesBoard(a, row) {
+    if(a?.type!=='train')return false;
+    const normalize=value=>String(value || '').trim().toUpperCase();
+    if(row.train_uid && normalize(a.train_uid)!==normalize(row.train_uid))return false;
+    if(row.service_date && a.service_date!==row.service_date)return false;
+    if(row.headcode && normalize(a.headcode)!==normalize(row.headcode))return false;
+    return true;
+  }
+
   function boardRow(row, kind) {
-    const rawClock=row.expected || row.clock || row.scheduled || '';
+    const rawClock=row.actual || row.expected || row.clock || row.scheduled || '';
     const clock=rawClock && String(rawClock).includes('T') ? (timeText(rawClock)||rawClock) : rawClock;
     const baseStatus=row.status || (row.minutes!=null ? `${row.minutes} min` : '');
     const status=(kind==='bus' && row.minutes!=null && !String(baseStatus).toLowerCase().includes('live')) ? `${baseStatus} • ${row.minutes}m` : baseStatus;
@@ -1164,6 +1186,7 @@
       live?`data-live-id="${esc(live)}"`:'',
       row.headcode?`data-headcode="${esc(row.headcode)}"`:'',
       row.train_uid?`data-train-uid="${esc(row.train_uid)}"`:'',
+      row.service_date?`data-service-date="${esc(row.service_date)}"`:'',
       row.trip_id?`data-trip-id="${esc(row.trip_id)}"`:'',
       row.vehicle_ref?`data-vehicle-ref="${esc(row.vehicle_ref)}"`:'',
       row.origin?`data-origin="${esc(row.origin)}"`:'',
@@ -1173,7 +1196,7 @@
       status?`data-status="${esc(status)}"`:'',
       `data-activity-type="${kind==='bus'?'bus':'train'}"`,
     ].filter(Boolean).join(' ');
-    const liveHint=live?'<em class="board-live-link">View live train ›</em>':(row.train_uid?'<em class="board-live-link">View route ›</em>':(kind!=='bus'&&row.headcode?'<em class="board-live-link">Find train ›</em>':''));
+    const liveHint=live?`<em class="board-live-link">View live ${kind==='bus'?'bus':'train'} ›</em>`:(row.train_uid?'<em class="board-live-link">View route ›</em>':(kind!=='bus'&&row.headcode?'<em class="board-live-link">Find train ›</em>':''));
     return `<button type="button" class="board-row board-${kind}${serviceRef?' board-clickable':''}" ${attrs}><span class="board-time">${esc(clock || (row.minutes!=null?`${row.minutes}m`:'—'))}</span><span class="board-main"><strong>${esc(humanTransitLabel(place || row.route || row.name || 'Service'))}</strong><span>${esc([row.headcode,humanTransitLabel(row.route),humanTransitLabel(row.operator)].filter(Boolean).join(' • '))}${liveHint}</span></span><span class="board-status">${esc([status,platform].filter(Boolean).join(' • '))}</span></button>`;
   }
 
@@ -1204,7 +1227,9 @@
     box.classList.remove('hidden');
     box.innerHTML='<small>PUBLISHED TRAIN ROUTE</small><p class="coverage-loading">Loading calling points…</p>';
     try {
-      const response=await fetch(`/api/rail/schedule/${encodeURIComponent(uid)}?headcode=${encodeURIComponent(btn.dataset.headcode || '')}`,{cache:'no-store'});
+      const params=new URLSearchParams({headcode:btn.dataset.headcode || ''});
+      if(btn.dataset.serviceDate)params.set('service_date',btn.dataset.serviceDate);
+      const response=await fetch(`/api/rail/schedule/${encodeURIComponent(uid)}?${params}`,{cache:'no-store'});
       const payload=await response.json().catch(()=>({}));
       if(requestId!==intelligenceRequest)return true;
       if(!response.ok)throw new Error(payload?.detail || 'route unavailable');
@@ -1219,11 +1244,24 @@
   function bindBoardLiveLinks(box) {
     box.querySelectorAll('.board-clickable').forEach(btn=>btn.addEventListener('click',async()=>{
       const originPlaceId=selectedPlaceId;
-      if(originPlaceId){returnPlaceId=originPlaceId;detailBackButton.classList.remove('hidden');}
+      const requestId=++boardLinkRequest;
+      const current=()=>requestId===boardLinkRequest && selectedPlaceId===originPlaceId;
+      const row={train_uid:btn.dataset.trainUid,headcode:btn.dataset.headcode,service_date:btn.dataset.serviceDate};
+      const openActivity=a=>{
+        if(!current())return;
+        globalCoolById.set(a.id,a);
+        if(toggleableActivityTypes.has(a.type)){enabledActivityTypes.add(a.type);updateLayerToggleUi();}
+        if(originPlaceId){returnPlaceId=originPlaceId;detailBackButton.classList.remove('hidden');}
+        renderMap();selectActivity(a.id,true,12);sendViewport();
+      };
+      btn.setAttribute('aria-busy','true');btn.disabled=true;
+      try {
       let id=btn.dataset.liveId || '';
-      if(!id && btn.dataset.headcode){
-        const wanted=btn.dataset.headcode.trim().toUpperCase();
-        id=activities.find(a=>a.type==='train'&&String(a.headcode||'').trim().toUpperCase()===wanted)?.id || '';
+      if(!id && btn.dataset.activityType==='train' && row.train_uid){
+        // Headcodes repeat across operators and dates. Only an unambiguous
+        // service identity can join a timetable row to a streamed train.
+        const matches=activities.filter(a=>trainMatchesBoard(a,row));
+        if(matches.length===1)id=matches[0].id;
       }
       if(!id && btn.dataset.tripId){
         const wanted=btn.dataset.tripId.trim();
@@ -1233,33 +1271,35 @@
         const wanted=btn.dataset.vehicleRef.trim();
         id=activities.find(a=>a.type==='bus'&&String(a.vehicle_ref||'').trim()===wanted)?.id || '';
       }
-      if(!id && btn.dataset.activityType==='train' && (btn.dataset.trainUid || btn.dataset.headcode)){
+      let a=id?activityById(id):null;
+      if(a && btn.dataset.activityType==='train' && !trainMatchesBoard(a,row)){a=null;id='';}
+      if(!a && id && ['train','bus'].includes(btn.dataset.activityType)){
+        try {
+          const response=await fetch(`/api/activity/${encodeURIComponent(id)}`,{cache:'no-store',signal:AbortSignal.timeout(10000)});
+          if(response.ok){const item=await response.json();if(item?.id && (btn.dataset.activityType!=='train'||trainMatchesBoard(item,row)))a=item;}
+        }catch{}
+      }
+      if(!current())return;
+      if(!a && btn.dataset.activityType==='train' && (btn.dataset.trainUid || btn.dataset.headcode)){
         try{
           const params=new URLSearchParams();
           if(btn.dataset.trainUid)params.set('train_uid',btn.dataset.trainUid);
           if(btn.dataset.headcode)params.set('headcode',btn.dataset.headcode);
-          const response=await fetch(`/api/rail/locate?${params}`,{cache:'no-store'});
+          if(btn.dataset.serviceDate)params.set('service_date',btn.dataset.serviceDate);
+          const response=await fetch(`/api/rail/locate?${params}`,{cache:'no-store',signal:AbortSignal.timeout(10000)});
           const payload=await response.json().catch(()=>({}));
-          if(response.ok && payload?.activity?.id){
-            const live=payload.activity;globalCoolById.set(live.id,live);
-            enabledActivityTypes.add('train');updateLayerToggleUi();sendViewport();
-            selectActivity(live.id,true,12);return;
-          }
+          if(response.ok && payload?.activity?.id && trainMatchesBoard(payload.activity,row))a=payload.activity;
         }catch{}
       }
-      let a=id?activityById(id):null;
-      // A clean launch streams no vehicle layers. Fetch the exact board item
-      // directly instead of making the passenger wait for a viewport cycle.
-      if(!a && id && ['train','bus'].includes(btn.dataset.activityType)){
-        enabledActivityTypes.add(btn.dataset.activityType);updateLayerToggleUi();sendViewport();
-        if(await focusActivityById(id,12))return;
-      }
-      if(a) selectActivity(id,true,Math.max(map.getZoom(),12));
+      if(!current())return;
+      if(a)openActivity(a);
       else if(btn.dataset.activityType==='train' && btn.dataset.trainUid){
+        if(originPlaceId){returnPlaceId=originPlaceId;detailBackButton.classList.remove('hidden');}
         showToast('No live train position is published right now; showing its route instead.');
         await openScheduledTrain(btn);
       }
       else showToast('A live position is not available for this service right now.');
+      } finally {btn.removeAttribute('aria-busy');btn.disabled=false;}
     }));
   }
 
@@ -1303,17 +1343,56 @@
       else mode='No due services found';
       const targetBlock=targeted?`<div class="board-secondary"><strong>ALSO APPROACHING</strong>${targeted}</div>`:'';
       html=`<div class="board-mast"><span>BUS TIMES</span><b>${esc(place.name)}</b><em>LIVE</em></div><strong class="board-heading">${esc(mode)}</strong>${rows||'<p class="board-empty">No buses due.</p>'}${targetBlock}`;
-      if(board.mode==='timetable_sync' && board.retry_seconds){
-        const retry=Math.max(3,Math.min(20,Number(board.retry_seconds)||5));
-        setTimeout(()=>{ if(selectedPlaceId===place.id)selectPlace(place.id,false); },retry*1000);
-      }
     }
-    box.classList.remove('hidden'); box.innerHTML=html||'<p class="board-empty">Nothing due right now.</p>'; bindBoardLiveLinks(box);
+    box.classList.remove('hidden');
+    const nextHtml=html||'<p class="board-empty">Nothing due right now.</p>';
+    box.querySelector('[data-board-refresh-error]')?.remove();
+    if(box.innerHTML!==nextHtml){
+      const focused=document.activeElement?.closest('.board-row');
+      const focusKey=focused&&box.contains(focused)?[focused.dataset.trainUid,focused.dataset.liveId,focused.dataset.headcode,focused.dataset.serviceDate,focused.className].join('|'):null;
+      const panel=$('detail-panel'),scrollTop=panel?.scrollTop || 0;
+      box.innerHTML=nextHtml;bindBoardLiveLinks(box);
+      if(focusKey){const replacement=[...box.querySelectorAll('.board-row')].find(row=>[row.dataset.trainUid,row.dataset.liveId,row.dataset.headcode,row.dataset.serviceDate,row.className].join('|')===focusKey);replacement?.focus({preventScroll:true});}
+      if(panel)panel.scrollTop=scrollTop;
+    }
     focusNextLive(place,board.next_live_id);
   }
 
+  async function refreshPlaceBoard(place) {
+    if(selectedPlaceId!==place.id)return;
+    clearTimeout(placeBoardRefreshTimer);
+    if(document.hidden){placeBoardRefreshTimer=setTimeout(()=>refreshPlaceBoard(place),10000);return;}
+    const requestId=++placeBoardRequest;
+    placeBoardController?.abort();
+    const controller=new AbortController();placeBoardController=controller;
+    const boardTimeout=setTimeout(()=>controller.abort(),12000);
+    let refreshDelay=place.place_type==='rail_station'?10000:20000;
+    try {
+      const response=await fetch(`/api/places/${encodeURIComponent(place.id)}/board?limit=10`,{cache:'no-store',signal:controller.signal});
+      if(!response.ok)throw new Error('board unavailable');
+      const payload=await response.json();
+      if(requestId!==placeBoardRequest || selectedPlaceId!==place.id)return;
+      placeBoardCache.set(place.id,{at:Date.now(),place,payload});
+      renderPlaceBoard(place,payload);
+      if(['schedule_sync','timetable_sync'].includes(payload.board?.mode))refreshDelay=Math.max(3,Math.min(20,Number(payload.board.retry_seconds)||5))*1000;
+    } catch {
+      if(requestId!==placeBoardRequest || selectedPlaceId!==place.id)return;
+      const box=$('detail-placeboard');
+      if(placeBoardCache.has(place.id)){
+        if(!box.querySelector('[data-board-refresh-error]'))box.insertAdjacentHTML('beforeend','<p class="board-empty" data-board-refresh-error role="status">Times may be out of date · retrying…</p>');
+      } else box.innerHTML='<small>LIVE TIMES</small><p class="board-empty" role="status">Times unavailable right now · retrying…</p>';
+    } finally {
+      clearTimeout(boardTimeout);
+      if(requestId===placeBoardRequest){
+        placeBoardController=null;
+        if(selectedPlaceId===place.id)placeBoardRefreshTimer=setTimeout(()=>refreshPlaceBoard(place),refreshDelay);
+      }
+    }
+  }
+
   async function selectPlace(id, pan) {
-    const p=places.find(x=>x.id===id); if(!p)return;
+    const p=places.find(x=>x.id===id) || placeBoardCache.get(id)?.place; if(!p)return;
+    clearPlaceBoard();
     selectedPlaceId=id; selectedId=null; trackedActivityId=null; selectedDetailSignature=''; sendWatching(null); clearPlaceLink(); clearOperatorIdentity(); clearActivityIntelligence();
     returnPlaceId=null; detailBackButton.classList.add('hidden');
     $('detail-panel')?.classList.add('has-selection');
@@ -1327,13 +1406,10 @@
     for(const id2 of ['detail-insight','detail-photo','detail-related']){const el=$(id2);if(el){el.classList.add('hidden');el.innerHTML='';}}
     const box=$('detail-placeboard'); box.classList.remove('hidden');
     const cached=placeBoardCache.get(id);
-    if(cached && Date.now()-cached.at<15000) renderPlaceBoard(p,cached.payload);
+    if(cached) renderPlaceBoard(p,cached.payload);
     else box.innerHTML='<small>LIVE TIMES</small><p class="coverage-loading">Loading…</p>';
     if(pan) map.panTo([p.lat,p.lon],{animate:true});
-    const controller=new AbortController();const boardTimeout=setTimeout(()=>controller.abort(),12000);
-    try { const r=await fetch(`/api/places/${encodeURIComponent(p.id)}/board?limit=10`,{cache:'no-store',signal:controller.signal}); if(!r.ok)throw new Error('board unavailable'); const payload=await r.json(); placeBoardCache.set(id,{at:Date.now(),payload}); if(selectedPlaceId===id)renderPlaceBoard(p,payload); }
-    catch { if(selectedPlaceId===id) box.innerHTML='<small>LIVE TIMES</small><p class="board-empty">Times unavailable right now.</p>'; }
-    finally { clearTimeout(boardTimeout); }
+    await refreshPlaceBoard(p);
   }
 
   async function loadEnvironmentContext(a) {
@@ -1479,27 +1555,6 @@
     return `${Number(a.lat).toFixed(6)}|${Number(a.lon).toFixed(6)}`;
   }
 
-  function activityMapPresentation(a, now=Date.now()) {
-    if (a?.type !== 'train') return a;
-    if (a.next_lat == null || a.next_lon == null || !a.estimate_started_at || !a.estimate_due_at) return a;
-    const fromLat=Number(a.reported_lat ?? a.lat),fromLon=Number(a.reported_lon ?? a.lon);
-    const toLat=Number(a.next_lat),toLon=Number(a.next_lon);
-    const started=Date.parse(a.estimate_started_at || ''),due=Date.parse(a.estimate_due_at || '');
-    const duration=due-started;
-    if (![fromLat,fromLon,toLat,toLon,started,due,duration].every(Number.isFinite)
-      || duration < 15000 || duration > 60*60*1000) return a;
-    const fraction=Math.max(0,Math.min(.97,(now-started)/duration));
-    if (fraction <= .01) return a;
-    const target=a.next_location ? ` towards ${a.next_location}` : '';
-    return {
-      ...a,
-      lat:fromLat+(toLat-fromLat)*fraction,
-      lon:fromLon+(toLon-fromLon)*fraction,
-      position_method:'estimated',
-      position_label:`Estimated progress${target} between confirmed railway reports`,
-    };
-  }
-
   function markerVisualSignature(a) {
     const zoomBand = map.getZoom() >= 12 ? 2 : map.getZoom() >= 9 ? 1 : 0;
     const appearance = currentWorkspace === 'cool' ? 'cool' : 'standard';
@@ -1529,7 +1584,9 @@
       }
     }
     for (const a of rows) {
-      const displayActivity=activityMapPresentation(a);
+      // Render observed railway positions immediately. Connecting two reports
+      // with a straight line can put a stopped train outside the station.
+      const displayActivity=a;
       // Discover is a curated, deliberately small set. Never cluster those
       // markers: each find must remain individually visible at every zoom.
       const intendedGroup = currentWorkspace==='cool' || ['aircraft','sar'].includes(a.type) ? aerialMarkerGroup : markerGroup;
@@ -1579,46 +1636,14 @@
     diagnostics.lastRenderMs = Math.round((performance.now() - startedAt) * 10) / 10;
     $('map').dataset.activityCount = String(rows.length);
     $('map').dataset.lastRenderMs = String(diagnostics.lastRenderMs);
-    if (selectedId && activitiesById.has(selectedId) && focusMarker) {
+    if (selectedId && markers.has(selectedId) && focusMarker) {
       map.removeLayer(focusMarker); focusMarker=null;
     }
   }
 
-  function refreshEstimatedTrainMarkers() {
-    if (document.hidden || map.getZoom() < 9) return;
-    const now=Date.now();
-    let clusterDirty=false;
-    for (const [id,marker] of markers.entries()) {
-      const activity=activityById(id);
-      if (activity?.type !== 'train') continue;
-      const displayActivity=activityMapPresentation(activity,now);
-      const positionSignature=markerPositionSignature(displayActivity);
-      if (marker.__positionSignature !== positionSignature) {
-        marker.setLatLng([displayActivity.lat,displayActivity.lon]);
-        marker.__positionSignature=positionSignature;
-        clusterDirty=marker.__activityGroup===markerGroup || clusterDirty;
-        diagnostics.markerMoves += 1;
-      }
-      const visualSignature=markerVisualSignature(displayActivity);
-      if (marker.__visualSignature !== visualSignature) {
-        marker.setIcon(markerIcon(displayActivity));
-        marker.__visualSignature=visualSignature;
-        diagnostics.markerVisualUpdates += 1;
-      }
-      const tooltipSignature=markerTooltipSignature(displayActivity);
-      if (marker.__tooltipSignature !== tooltipSignature && marker.getTooltip()) {
-        marker.setTooltipContent(tooltipHtml(displayActivity));
-        marker.__tooltipSignature=tooltipSignature;
-        diagnostics.markerTooltipUpdates += 1;
-      }
-    }
-    if(clusterDirty&&typeof markerGroup.refreshClusters==='function')markerGroup.refreshClusters();
-  }
-  window.setInterval(refreshEstimatedTrainMarkers,3000);
-
   function showFocusMarker(a) {
     if (focusMarker) { map.removeLayer(focusMarker); focusMarker=null; }
-    if (!a || activitiesById.has(a.id)) return;
+    if (!a || markers.has(a.id)) return;
     focusMarker=L.marker([a.lat,a.lon],{icon:markerIcon(a),riseOnHover:true,zIndexOffset:1200}).addTo(map);
     focusMarker.bindTooltip(tooltipHtml(a),{direction:'top',offset:[0,-13],opacity:.97,className:'activity-tooltip'});
     focusMarker.on('click',()=>selectActivity(a.id,false));
@@ -1876,6 +1901,10 @@
   }
 
   function clearActivityIntelligence() {
+    clearTimeout(intelligenceRefreshTimer);
+    intelligenceRefreshTimer=null;
+    intelligenceController?.abort();
+    intelligenceController=null;
     intelligenceRequest += 1;
     intelligenceLoadedFor = null;
     const box = $('detail-intelligence');
@@ -1941,7 +1970,7 @@
     const power=providerName(run?.power_type);
     const bookedSpeed=run?.booked_speed_mph ? `${run.booked_speed_mph} mph booked speed` : '';
     const platform=providerName(progress.platform || run?.platform);
-    const points=railCallingPoints(run).slice(0,40).map((point,pointIndex)=>{
+    const points=railCallingPoints(run).map((point,pointIndex)=>{
       const name=providerName(point?.station || point?.location || point?.name);
       const clock=providerClock(point?.expected || point?.actual || point?.time || point?.scheduled);
       const pointStatus=providerName(point?.status || point?.event);
@@ -2061,17 +2090,21 @@
     return `<small>LIVE BUS JOURNEY</small>${heading?`<div class="transport-route-head"><strong>${esc(heading)}</strong>${facts.length?`<span>${esc(facts.map(humanTransitLabel).join(' • '))}</span>`:''}</div>`:''}${rows?`<ol class="transport-stops bus-stops">${rows}</ol>`:`<div class="transport-unavailable"><strong>${detail?.mode==='timetable_sync'?'Timetable preparing':'Next stop unavailable'}</strong><span>${esc(detail?.note || 'The operator has not linked this live bus to a timetable trip, so its next stop cannot be identified reliably.')}</span></div>`}<p class="transport-source">${esc(detail?.source || 'DfT BODS')}</p>${rows&&detail?.note?`<p class="transport-note">${esc(detail.note)}</p>`:''}`;
   }
 
-  async function loadActivityIntelligence(a) {
+  async function loadActivityIntelligence(a, force=false) {
     if (!a || !['train','bus'].includes(a.type)) { clearActivityIntelligence(); return; }
-    if (intelligenceLoadedFor === a.id) return;
+    if (!force && intelligenceLoadedFor === a.id) return;
+    clearTimeout(intelligenceRefreshTimer);
+    intelligenceRefreshTimer=null;
+    intelligenceController?.abort();
+    const controller=new AbortController();
+    intelligenceController=controller;
     intelligenceLoadedFor = a.id;
     const box=$('detail-intelligence');
     if(!box)return;
     const requestId=++intelligenceRequest;
-    box.classList.remove('hidden');
-    box.innerHTML=`<small>${a.type==='train'?'LIVE TRAIN JOURNEY':'LIVE BUS JOURNEY'}</small><p class="coverage-loading">Loading route…</p>`;
+    if(!force){box.classList.remove('hidden');box.innerHTML=`<small>${a.type==='train'?'LIVE TRAIN JOURNEY':'LIVE BUS JOURNEY'}</small><p class="coverage-loading">Loading route…</p>`;}
     try {
-      const response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/${a.type==='train'?'rail':'bus'}`,{cache:'no-store'});
+      const response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/${a.type==='train'?'rail':'bus'}`,{cache:'no-store',signal:controller.signal});
       const payload=await response.json().catch(()=>({}));
       if(requestId!==intelligenceRequest || selectedId!==a.id)return;
       if(response.status===402){
@@ -2080,10 +2113,16 @@
       }
       if(!response.ok)throw new Error(payload?.detail || 'route detail unavailable');
       const detail=payload?.detail && typeof payload.detail==='object' ? payload.detail : payload;
-      box.innerHTML=a.type==='train' ? renderRailIntelligence(detail) : renderBusIntelligence(detail);
+      const html=a.type==='train' ? renderRailIntelligence(detail) : renderBusIntelligence(detail);
+      if(box.innerHTML!==html){const panel=$('detail-panel'),scrollTop=panel?.scrollTop||0;box.innerHTML=html;if(panel)panel.scrollTop=scrollTop;}
     } catch {
       if(requestId!==intelligenceRequest || selectedId!==a.id)return;
-      box.innerHTML=`<small>${a.type==='train'?'LIVE TRAIN JOURNEY':'LIVE BUS JOURNEY'}</small><div class="transport-unavailable"><strong>Route details not available yet</strong><span>Live position shown on the map.</span></div>`;
+      if(!force)box.innerHTML=`<small>${a.type==='train'?'LIVE TRAIN JOURNEY':'LIVE BUS JOURNEY'}</small><div class="transport-unavailable"><strong>Route details not available yet</strong><span>Live position shown on the map.</span></div>`;
+    } finally {
+      if(requestId===intelligenceRequest){
+        intelligenceController=null;
+        if(selectedId===a.id)intelligenceRefreshTimer=setTimeout(()=>{const current=activityById(a.id);if(current)loadActivityIntelligence(current,true);},a.type==='train'?10000:20000);
+      }
     }
   }
 

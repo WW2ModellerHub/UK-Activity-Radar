@@ -1751,21 +1751,21 @@ def activity_rail(request: Request, activity_id: str):
 
 
 @app.get("/api/rail/schedule/{train_uid}")
-def rail_schedule(request: Request, train_uid: str, headcode: str | None = None):
+def rail_schedule(request: Request, train_uid: str, headcode: str | None = None, service_date: str | None = None):
     """Published route fallback for a station-board train without a live marker."""
     _enforce_public_budget(request, lookup_request_budget)
     if smart_places is None:
         raise HTTPException(status_code=503, detail="Rail intelligence is not ready")
-    return {"train_uid": train_uid, "detail": smart_places.scheduled_train_detail(train_uid, headcode)}
+    return {"train_uid": train_uid, "detail": smart_places.scheduled_train_detail(train_uid, headcode, service_date)}
 
 
 @app.get("/api/rail/locate")
-def locate_rail_service(request: Request, train_uid: str | None = None, headcode: str | None = None):
+def locate_rail_service(request: Request, train_uid: str | None = None, headcode: str | None = None, service_date: str | None = None):
     """Locate a station-board service even when its layer is not streamed."""
     _enforce_public_budget(request, lookup_request_budget)
     if smart_places is None:
         raise HTTPException(status_code=503, detail="Rail intelligence is not ready")
-    item = smart_places.locate_live_train(headcode, train_uid)
+    item = smart_places.locate_live_train(headcode, train_uid, service_date)
     return {
         "live": item is not None,
         "activity": item.model_dump(mode="json", exclude_none=True) if item is not None else None,

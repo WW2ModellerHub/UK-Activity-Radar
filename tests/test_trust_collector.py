@@ -1,0 +1,129 @@
+import json
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+from app.collectors.network_rail import TrustCollector
+from app.models import Vehicle
+from app.schedule_store import ScheduleStore
+from app.state import LiveState
+from app.timeutils import london_tz
+
+
+def make_collector(tmp_path, *, timetable=True):
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    local = now.astimezone(london_tz())
+    station_file = tmp_path / "stations.json"
+    station_file.write_text(json.dumps({
+        "12345": {"name": "Leicester", "lat": 52.631, "lon": -1.125},
+        "12346": {"name": "Market Harborough", "lat": 52.478, "lon": -0.908, "tiploc": "MARKTH"},
+    }), encoding="utf-8")
+    store = ScheduleStore(tmp_path / "schedules.sqlite")
+    if timetable:
+        with store._connect() as conn:
+            conn.execute("INSERT INTO tiplocs(tiploc,stanox) VALUES('LESTER','12345')")
+            conn.execute(
+                """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,atoc_code,
+                       signalling_id,origin_name,destination_name,locations_json)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                ("C1F10", (local-timedelta(days=1)).date().isoformat(),
+                 (local+timedelta(days=1)).date().isoformat(), "1111111", "P", "EM", "1F10",
+                 "St Pancras International", "Sheffield", json.dumps([
+                     {"tiploc_code": "LESTER", "scheduled_departure": local.strftime("%H%M")},
+                     {"tiploc_code": "MARKTH", "scheduled_arrival": (local+timedelta(minutes=15)).strftime("%H%M")},
+                 ])),
+            )
+    state = LiveState()
+    collector = TrustCollector(SimpleNamespace(trust_topic="/topic/TRUST"), state, station_file, store)
+    return collector, state, now
+
+
+def movement(collector, now, **fields):
+    body = {
+        "train_id": "251F10MU05", "loc_stanox": "12345", "event_type": "ARRIVAL",
+        "actual_timestamp": int(now.timestamp()*1000), "toc_id": "28",
+    }
+    body.update(fields)
+    collector.handle_message(json.dumps({"header": {"msg_type": "0003"}, "body": body}))
+
+
+def test_missed_activation_recovers_uid_from_confirmed_stanox_and_time(tmp_path):
+    collector, state, now = make_collector(tmp_path)
+    movement(collector, now)
+    train = state.get("nr:251F10MU05")
+    assert train.train_uid == "C1F10"
+    assert train.destination == "Sheffield"
+    assert train.service_date == now.astimezone(london_tz()).date().isoformat()
+    assert train.rail_event_type == "Arrival"
+    assert train.rail_stanox == "12345"
+    assert train.operator == "East Midlands Railway"
+
+
+def test_unknown_station_does_not_attach_a_headcode_schedule(tmp_path):
+    collector, state, now = make_collector(tmp_path)
+    collector.stations["99999"] = {"name": "Elsewhere", "lat": 55, "lon": -3}
+    movement(collector, now, loc_stanox="99999")
+    train = state.get("nr:251F10MU05")
+    assert train.train_uid is None
+    assert train.destination is None
+
+
+def test_operator_mismatch_does_not_attach_schedule(tmp_path):
+    collector, state, now = make_collector(tmp_path)
+    movement(collector, now, toc_id="27")
+    assert state.get("nr:251F10MU05").train_uid is None
+
+
+def test_movement_after_restart_keeps_restored_identity_without_schedule(tmp_path):
+    collector, state, now = make_collector(tmp_path, timetable=False)
+    state.upsert(Vehicle(
+        id="nr:251F10MU05", type="train", name="1F10", headcode="1F10",
+        train_uid="RESTORED", origin="London", destination="Sheffield",
+        service_date=now.date().isoformat(), operator="East Midlands Railway",
+        lat=52.631, lon=-1.125, last_updated=now-timedelta(minutes=2),
+    ))
+    movement(collector, now)
+    train = state.get("nr:251F10MU05")
+    assert train.train_uid == "RESTORED"
+    assert train.destination == "Sheffield"
+    assert train.operator == "East Midlands Railway"
+
+
+def test_out_of_order_movement_cannot_move_train_back_to_station(tmp_path):
+    collector, state, now = make_collector(tmp_path)
+    movement(collector, now, loc_stanox="12346", event_type="PASS")
+    movement(collector, now-timedelta(minutes=3))
+    train = state.get("nr:251F10MU05")
+    assert train.rail_stanox == "12346"
+    assert train.rail_event_type == "Pass"
+    assert train.last_updated == now
+
+
+def test_arrival_has_no_departure_estimate(tmp_path):
+    collector, state, now = make_collector(tmp_path)
+    movement(collector, now, next_report_stanox="12346", next_report_run_time="15")
+    train = state.get("nr:251F10MU05")
+    assert train.next_lat is None
+    assert train.estimate_due_at is None
+
+
+def test_identity_change_reuses_original_vehicle_and_retains_uid(tmp_path):
+    collector, state, now = make_collector(tmp_path)
+    movement(collector, now)
+    collector.handle_message(json.dumps({"header": {"msg_type": "0007"}, "body": {
+        "train_id": "251F10MU05", "revised_train_id": "251F11MU05",
+    }}))
+    movement(collector, now+timedelta(seconds=10), train_id="251F11MU05")
+    train = state.get("nr:251F10MU05")
+    assert train.headcode == "1F11"
+    assert train.train_uid == "C1F10"
+    assert state.get("nr:251F11MU05") is None
+
+
+def test_late_activation_enriches_existing_position_immediately(tmp_path):
+    collector, state, now = make_collector(tmp_path, timetable=False)
+    movement(collector, now)
+    collector.handle_message(json.dumps({"header": {"msg_type": "0001"}, "body": {
+        "train_id": "251F10MU05", "train_uid": "KNOWN1", "toc_id": "28",
+    }}))
+    assert state.get("nr:251F10MU05").train_uid == "KNOWN1"
+    assert state.get("nr:251F10MU05").last_updated == now

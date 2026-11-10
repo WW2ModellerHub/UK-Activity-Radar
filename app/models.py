@@ -25,6 +25,11 @@ class Vehicle(BaseModel):
     destination: str | None = None
     headcode: str | None = None
     train_uid: str | None = None
+    service_date: str | None = None
+    schedule_id: int | None = None
+    rail_event_type: str | None = None
+    rail_tiploc: str | None = None
+    rail_stanox: str | None = None
     train_category: str | None = None
     power_type: str | None = None
     timing_load: str | None = None

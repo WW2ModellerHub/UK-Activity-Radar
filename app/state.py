@@ -30,7 +30,7 @@ class LiveState:
     def __init__(self) -> None:
         self._lock = RLock()
         self._vehicles: dict[str, Vehicle] = {}
-        self._train_uid_index: dict[str, str] = {}
+        self._train_uid_index: dict[str, set[str]] = {}
         self._events: dict[str, Event] = {}
         self._sources: dict[str, SourceStatus] = {}
         self._unmapped: deque[dict] = deque(maxlen=500)
@@ -49,13 +49,16 @@ class LiveState:
         stored = apply_cool_classification(deepcopy(vehicle))
         with self._lock:
             previous=self._vehicles.get(vehicle.id)
+            if previous is not None and stored.type == 'train' and stored.last_updated < previous.last_updated:
+                return
             if previous is not None and previous.type=='train' and previous.train_uid:
                 old_uid=str(previous.train_uid).strip()
-                if self._train_uid_index.get(old_uid)==vehicle.id:
-                    self._train_uid_index.pop(old_uid,None)
+                self._train_uid_index.get(old_uid, set()).discard(vehicle.id)
+                if not self._train_uid_index.get(old_uid):
+                    self._train_uid_index.pop(old_uid, None)
             self._vehicles[vehicle.id] = stored
             if stored.type=='train' and stored.train_uid:
-                self._train_uid_index[str(stored.train_uid).strip()]=stored.id
+                self._train_uid_index.setdefault(str(stored.train_uid).strip(), set()).add(stored.id)
             self._touch_unlocked()
 
     def upsert_event(self, event: Event) -> None:
@@ -103,15 +106,19 @@ class LiveState:
             copy = deepcopy(candidates[0])
         return apply_cool_classification(copy)
 
-    def find_train_by_uid(self, train_uid: str) -> Vehicle | None:
+    def _train_for_uid_unlocked(self, uid: str, service_date: str | None = None) -> Vehicle | None:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=45)
+        candidates = [self._vehicles[key] for key in self._train_uid_index.get(uid, set()) if key in self._vehicles]
+        candidates = [item for item in candidates if item.last_updated >= cutoff
+                      and (service_date is None or item.service_date == service_date)]
+        return max(candidates, key=lambda item: item.last_updated, default=None)
+
+    def find_train_by_uid(self, train_uid: str, service_date: str | None = None) -> Vehicle | None:
         uid=str(train_uid or '').strip()
         if not uid:
             return None
         with self._lock:
-            activity_id=self._train_uid_index.get(uid)
-            item=self._vehicles.get(activity_id) if activity_id else None
-            if item is not None and item.last_updated < datetime.now(timezone.utc)-timedelta(minutes=45):
-                item=None
+            item=self._train_for_uid_unlocked(uid, service_date)
             copy=deepcopy(item) if item is not None else None
         return apply_cool_classification(copy) if copy is not None else None
 
@@ -119,15 +126,22 @@ class LiveState:
         wanted={str(uid).strip() for uid in train_uids if str(uid).strip()}
         if not wanted:
             return {}
-        cutoff=datetime.now(timezone.utc)-timedelta(minutes=45)
         with self._lock:
             found={}
             for uid in wanted:
-                activity_id=self._train_uid_index.get(uid)
-                item=self._vehicles.get(activity_id) if activity_id else None
-                if item is not None and item.last_updated >= cutoff:
+                item=self._train_for_uid_unlocked(uid)
+                if item is not None:
                     found[uid]=deepcopy(item)
         return found
+
+    def trains_by_services(self, services: set[tuple[str, str]]) -> dict[tuple[str, str], Vehicle]:
+        with self._lock:
+            found = {}
+            for uid, service_date in services:
+                item = self._train_for_uid_unlocked(uid, service_date)
+                if item is not None:
+                    found[(uid, service_date)] = deepcopy(item)
+            return found
 
     def all(
         self,
@@ -159,6 +173,12 @@ class LiveState:
                         or stored.last_updated < cutoff
                         or (cool_trains_only and not stored.cool_candidate)
                     ):
+                        continue
+                    if stored.train_uid:
+                        current = self._train_for_uid_unlocked(str(stored.train_uid).strip(), stored.service_date)
+                        if current is not None and current.id != stored.id:
+                            continue
+                    if stored.status.lower().startswith('terminated') and stored.last_updated < now - timedelta(minutes=2):
                         continue
                 elif stored.type == "bus":
                     if not include_buses or stored.last_updated < bus_cutoff:
@@ -304,7 +324,13 @@ class LiveState:
 
     def remove(self, vehicle_id: str) -> None:
         with self._lock:
-            if self._vehicles.pop(vehicle_id, None) is not None:
+            removed = self._vehicles.pop(vehicle_id, None)
+            if removed is not None:
+                if removed.type == 'train' and removed.train_uid:
+                    uid=str(removed.train_uid).strip()
+                    self._train_uid_index.get(uid, set()).discard(vehicle_id)
+                    if not self._train_uid_index.get(uid):
+                        self._train_uid_index.pop(uid, None)
                 self._touch_unlocked()
 
     def prune_stale(self, *, now: datetime | None = None) -> int:
@@ -331,7 +357,8 @@ class LiveState:
                 self._vehicles.pop(activity_id, None)
                 if vehicle.type == "train" and vehicle.train_uid:
                     uid = str(vehicle.train_uid).strip()
-                    if self._train_uid_index.get(uid) == activity_id:
+                    self._train_uid_index.get(uid, set()).discard(activity_id)
+                    if not self._train_uid_index.get(uid):
                         self._train_uid_index.pop(uid, None)
                 removed += 1
             if removed:

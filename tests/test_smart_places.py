@@ -7,6 +7,7 @@ from app.collectors.bods import parse_siri_stop_predictions
 from app.models import Vehicle
 from app.schedule_store import ScheduleStore
 from app.smart_places import SmartPlacesService, _ea_readings_url
+from app.state import LiveState
 from app.timeutils import london_tz
 
 
@@ -67,6 +68,32 @@ def test_local_station_board_finds_upcoming_calls(tmp_path: Path):
     assert board['departures'][0]['platform']=='1'
 
 
+def test_station_board_links_only_the_exact_dated_service_when_headcode_is_reused(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    now=datetime.now(london_tz()).replace(second=0,microsecond=0)
+    service_date=now.date().isoformat()
+    with store._connect() as con:
+        con.execute("INSERT INTO tiplocs(tiploc,stanox,crs,description,lat,lon) VALUES(?,?,?,?,?,?)",('LESTER','12345','LEI','LEICESTER',52.631,-1.125))
+        for uid,offset,destination in (('RIGHT1',12,'London St Pancras'),('OTHER1',17,'Sheffield')):
+            locations=[
+                {'tiploc_code':'LESTER','scheduled_departure':(now+timedelta(minutes=offset)).strftime('%H%M'),'platform':'2'},
+                {'tiploc_code':'DEST','scheduled_arrival':(now+timedelta(minutes=offset+50)).strftime('%H%M')},
+            ]
+            con.execute(
+                """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,atoc_code,signalling_id,origin_name,destination_name,locations_json)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (uid,service_date,service_date,'1111111','P','EM','1F10','Leicester',destination,json.dumps(locations)),
+            )
+    state=LiveState()
+    live=Vehicle(id='nr:live-right',type='train',name='1F10',headcode='1F10',train_uid='RIGHT1',service_date=service_date,lat=52.631,lon=-1.125,source='Network Rail TRUST')
+    state.upsert(live)
+    board=SmartPlacesService(tmp_path,store,state)._scheduled_station_calls('LEI',10)
+    rows={row['train_uid']:row for row in board['departures']}
+    assert rows['RIGHT1']['live_train_id']=='nr:live-right'
+    assert 'live_train_id' not in rows['OTHER1']
+    assert rows['RIGHT1']['service_date']==service_date
+
+
 def test_scheduled_train_detail_returns_calling_points_without_live_marker(tmp_path: Path):
     store=ScheduleStore(tmp_path/'schedule.sqlite')
     now=datetime.now(london_tz())
@@ -98,6 +125,35 @@ def test_scheduled_train_detail_returns_calling_points_without_live_marker(tmp_p
     assert detail['runs'][0]['likely_train']['label']=='Class 220/221 Voyager family'
     assert [row['name'] for row in detail['runs'][0]['calling_points']]==['Nuneaton','Hinckley','Leicester']
     assert {row['event'] for row in detail['runs'][0]['calling_points']}=={'Stops'}
+
+
+def test_train_route_keeps_every_future_passenger_stop_after_the_current_station(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    service_date=datetime.now(london_tz()).date().isoformat()
+    locations=[{'tiploc_code':f'STOP{index:02d}','scheduled_arrival':f'{10+index//60:02d}{index%60:02d}','scheduled_departure':f'{10+index//60:02d}{index%60:02d}'} for index in range(45)]
+    locations.append({'tiploc_code':'LONDON','scheduled_arrival':'1200'})
+    with store._connect() as con:
+        con.executemany("INSERT INTO tiplocs(tiploc,description) VALUES(?,?)",[(f'STOP{index:02d}',f'Stop {index}') for index in range(45)]+[('LONDON','London St Pancras')])
+        con.execute(
+            """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,source,atoc_code,signalling_id,origin_name,destination_name,locations_json)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            ('LONG01',service_date,service_date,'1111111','P','SCHEDULE','EM','1C17','Sheffield','London St Pancras',json.dumps(locations)),
+        )
+    detail=SmartPlacesService(tmp_path,store,FakeState()).scheduled_train_detail('LONG01','1C17',service_date)
+    calls=detail['runs'][0]['calling_points']
+    assert len(calls)==46
+    assert calls[-1]['name']=='London St Pancras'
+
+
+def test_live_train_lookup_respects_service_date_for_repeated_uid(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    state=LiveState()
+    first=Vehicle(id='nr:first',type='train',name='1A01',headcode='1A01',train_uid='SAME01',service_date='2026-11-05',lat=52,lon=-1,source='TRUST')
+    second=Vehicle(id='nr:second',type='train',name='1A01',headcode='1A01',train_uid='SAME01',service_date='2026-11-06',lat=53,lon=-1,source='TRUST')
+    state.upsert(first);state.upsert(second)
+    svc=SmartPlacesService(tmp_path,store,state)
+    assert svc.locate_live_train('1A01','SAME01','2026-11-05').id=='nr:first'
+    assert svc.locate_live_train('1A01','SAME01','2026-11-06').id=='nr:second'
 
 
 def test_scheduled_train_detail_does_not_reuse_an_expired_route(tmp_path: Path):

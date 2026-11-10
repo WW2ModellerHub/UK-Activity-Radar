@@ -10,9 +10,9 @@ from ..config import Settings
 from ..models import SourceStatus, Vehicle
 from ..schedule_store import ScheduleStore
 from ..state import LiveState
-from ..timeutils import london_tz
 from ..train_identity import operator_name
 from .stomp_client import StompFeed
+from .network_rail import _km
 
 
 class TDCollector(StompFeed):
@@ -66,9 +66,9 @@ class TDCollector(StompFeed):
     def _resolve(self, area: str, msg_type: str, fr: str, to: str) -> tuple[dict | None, dict | None]:
         row = None
         if msg_type == "CA":
-            row = self.exact.get((area, fr, to)) or self.by_to.get((area, to)) or self.by_from.get((area, fr))
-        elif msg_type == "CB":
-            row = self.by_from.get((area, fr))
+            # The origin berth describes where the train *was*. Falling back
+            # to it can keep a departed train pinned to a station indefinitely.
+            row = self.exact.get((area, fr, to)) or self.by_to.get((area, to))
         elif msg_type == "CC":
             row = self.by_to.get((area, to))
         stanox = self._row_stanox(row)
@@ -80,6 +80,12 @@ class TDCollector(StompFeed):
         fr = str(msg.get("from") or "").strip().upper()
         to = str(msg.get("to") or "").strip().upper()
         descr = str(msg.get("descr") or "").strip().upper()
+        # CB means a description was cancelled out of a berth, not that a train
+        # arrived there. Keep the last confirmed report until the next CA/CC.
+        if typ == "CB":
+            return True
+        if typ not in {"CA", "CC"}:
+            return True
         row, station = self._resolve(area, typ, fr, to)
         if not station or not descr:
             if not replay:
@@ -96,28 +102,48 @@ class TDCollector(StompFeed):
         except Exception:
             event_time = datetime.now(timezone.utc)
         lat, lon = float(station["lat"]), float(station["lon"])
-        existing = self.state.find_train_by_headcode(descr, lat, lon)
         location_name = station.get("name") or str((row or {}).get("STANME") or "TD location")
         schedule = None
         if self.schedules is not None and self.schedules.ready():
             try:
                 schedule = self.schedules.lookup_headcode(
                     descr,
-                    running_date=event_time.astimezone(london_tz()).date(),
                     at_time=event_time,
                     tiploc=station.get("tiploc"),
+                    stanox=self._row_stanox(row),
                 )
             except Exception:
                 schedule = None
+        existing = self.state.find_train_by_uid(schedule.train_uid) if schedule else None
+        if existing is None:
+            existing = self.state.find_train_by_headcode(descr, lat, lon)
+        if existing:
+            elapsed = (event_time - existing.last_updated).total_seconds()
+            distance = _km({"lat": existing.lat, "lon": existing.lon}, station)
+            # Headcodes are reused throughout Britain. Only associate a fresh
+            # nearby report, allowing up to 240 km/h between confirmed points.
+            max_distance = min(100.0, 5.0 + max(0.0, elapsed) / 15.0)
+            conflict = bool(schedule and existing.train_uid and existing.train_uid != schedule.train_uid)
+            wrong_day = bool(schedule and existing.service_date and schedule.running_date and existing.service_date != schedule.running_date)
+            if conflict or wrong_day or elapsed > 1800 or distance > max_distance:
+                existing = None
+            elif elapsed < 0:
+                return True
         if existing:
             existing.lat = lat; existing.lon = lon
             existing.reported_lat = lat; existing.reported_lon = lon
             existing.next_lat = existing.next_lon = None
             existing.estimate_due_at = None
+            existing.estimate_started_at = None
+            existing.next_location = None
             existing.last_updated = event_time
             existing.position_method = "network_report"
             existing.position_label = f"TD berth report • {area} {fr or '—'}→{to or '—'} • {location_name}"
             existing.source = "Network Rail TD"
+            existing.source_id = f"{area}:{to}"
+            existing.rail_event_type = None
+            existing.rail_tiploc = station.get("tiploc")
+            existing.rail_stanox = self._row_stanox(row)
             if schedule:
                 existing.train_uid = schedule.train_uid
                 existing.origin = schedule.origin or existing.origin
@@ -128,6 +154,8 @@ class TDCollector(StompFeed):
                 existing.timing_load = schedule.timing_load
                 existing.booked_speed = schedule.booked_speed
                 existing.operating_characteristics = schedule.operating_characteristics
+                existing.service_date = schedule.running_date or existing.service_date
+                existing.schedule_id = schedule.schedule_id or existing.schedule_id
             self.state.upsert(existing)
         else:
             self.state.upsert(Vehicle(
@@ -142,6 +170,10 @@ class TDCollector(StompFeed):
                 destination=schedule.destination if schedule else None,
                 headcode=descr, status="TD live", position_method="network_report",
                 train_uid=schedule.train_uid if schedule else None,
+                service_date=schedule.running_date if schedule else None,
+                schedule_id=schedule.schedule_id if schedule else None,
+                rail_tiploc=station.get("tiploc"),
+                rail_stanox=self._row_stanox(row),
                 train_category=schedule.train_category if schedule else None,
                 power_type=schedule.power_type if schedule else None,
                 timing_load=schedule.timing_load if schedule else None,

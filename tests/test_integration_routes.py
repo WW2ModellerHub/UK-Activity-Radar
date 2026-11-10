@@ -119,7 +119,7 @@ def test_activity_intelligence_routes_require_matching_live_type(monkeypatch):
         def bus_vehicle_journey(self, item, limit=12):
             return {"mode": "matched_timetable", "route": item.name, "stops": []}
 
-        def locate_live_train(self, headcode, train_uid=None):
+        def locate_live_train(self, headcode, train_uid=None, service_date=None):
             return train if headcode == "1A01" or train_uid == "C12345" else None
 
     monkeypatch.setattr(main, "settings", _settings())

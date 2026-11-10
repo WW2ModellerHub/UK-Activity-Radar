@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from app.collectors.td import TDCollector
+from app.models import Vehicle
 from app.schedule_store import ScheduleStore
 from app.state import LiveState
 from app.timeutils import london_tz
@@ -48,3 +49,79 @@ def test_td_movement_is_enriched_with_matching_schedule(tmp_path):
     assert train.operator == "East Midlands Railway"
     assert train.origin == "Sheffield"
     assert train.destination == "Leicester"
+
+
+def bare_collector(tmp_path):
+    station_file = tmp_path / "stations.json"
+    station_file.write_text(json.dumps({
+        "12345": {"name": "Leicester", "lat": 52.631, "lon": -1.125, "tiploc": "LESTER"},
+        "12346": {"name": "Harborough", "lat": 52.478, "lon": -0.908, "tiploc": "MARKTH"},
+    }), encoding="utf-8")
+    smart_file = tmp_path / "smart.json"
+    smart_file.write_text(json.dumps([
+        {"TD": "DY", "FROMBERTH": "A001", "TOBERTH": "A002", "STANOX": "12345"},
+        {"TD": "DY", "FROMBERTH": "A002", "TOBERTH": "A003", "STANOX": "12346"},
+    ]), encoding="utf-8")
+    state = LiveState()
+    return TDCollector(SimpleNamespace(td_topic="/topic/TD"), state, station_file, smart_file), state
+
+
+def td_message(collector, now, typ="CA", **fields):
+    body = {"area_id": "DY", "from": "A001", "to": "A002", "descr": "1F10", "time": int(now.timestamp()*1000)}
+    body.update(fields)
+    collector.handle_message(json.dumps({f"{typ}_MSG": body}))
+
+
+def test_td_does_not_move_unrelated_same_headcode_across_the_country(tmp_path):
+    collector, state = bare_collector(tmp_path)
+    now = datetime.now(london_tz())
+    state.upsert(Vehicle(
+        id="nr:unrelated", type="train", name="1F10", headcode="1F10", train_uid="FARAWAY",
+        lat=55.9, lon=-3.1, last_updated=now-timedelta(seconds=30),
+    ))
+    td_message(collector, now)
+    assert state.get("nr:unrelated").lat == 55.9
+    assert state.get("nr:unrelated").train_uid == "FARAWAY"
+    assert state.get("td:DY:1F10").lat == 52.631
+
+
+def test_td_keeps_exact_uid_when_enriching_nearby_trust_train(tmp_path):
+    collector, state = bare_collector(tmp_path)
+    now = datetime.now(london_tz())
+    state.upsert(Vehicle(
+        id="nr:known", type="train", name="1F10", headcode="1F10", train_uid="EXACT1",
+        lat=52.631, lon=-1.125, last_updated=now-timedelta(seconds=10),
+        rail_event_type="Arrival", destination="Sheffield", source="Network Rail TRUST",
+        next_lat=53, next_lon=-1, next_location="Old next report",
+    ))
+    td_message(collector, now)
+    train = state.get("nr:known")
+    assert train.train_uid == "EXACT1"
+    assert train.destination == "Sheffield"
+    assert train.rail_event_type is None
+    assert train.rail_stanox == "12345"
+    assert train.next_location is None
+
+
+def test_td_berth_cancellation_is_not_a_fresh_position(tmp_path):
+    collector, state = bare_collector(tmp_path)
+    now = datetime.now(london_tz())
+    td_message(collector, now, **{"from": "A002", "to": "A003"})
+    td_message(collector, now+timedelta(seconds=10), "CB", **{"from": "A001", "to": ""})
+    train = state.get("td:DY:1F10")
+    assert train.lat == 52.478
+    assert train.last_updated == now.replace(microsecond=(now.microsecond//1000)*1000)
+
+
+def test_td_older_report_does_not_restore_obsolete_berth(tmp_path):
+    collector, state = bare_collector(tmp_path)
+    now = datetime.now(london_tz()).replace(microsecond=0)
+    td_message(collector, now)
+    td_message(collector, now-timedelta(seconds=15))
+    assert state.get("td:DY:1F10").last_updated == now
+
+
+def test_td_step_with_only_origin_mapping_does_not_report_old_location(tmp_path):
+    collector, state = bare_collector(tmp_path)
+    td_message(collector, datetime.now(london_tz()), to="UNKNOWN")
+    assert state.get("td:DY:1F10") is None

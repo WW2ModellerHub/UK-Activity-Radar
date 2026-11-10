@@ -11,7 +11,7 @@ from ..config import Settings
 from ..models import SourceStatus, Vehicle
 from ..schedule_store import ScheduleInfo, ScheduleStore
 from ..state import LiveState
-from ..train_identity import operator_name, trust_operator_name
+from ..train_identity import ATOC_OPERATOR_NAMES, operator_name, trust_operator_name
 from .stomp_client import StompFeed
 
 
@@ -47,6 +47,7 @@ class TrustCollector(StompFeed):
         self.stations = self._load_stations()
         self.activations: dict[str, dict] = {}
         self.identities: dict[str, str] = {}
+        self._canonical_ids: dict[str, str] = {}
         self._pending_movements: deque[dict] = deque(maxlen=5000)
         self._pending_lock = RLock()
 
@@ -120,7 +121,9 @@ class TrustCollector(StompFeed):
         if not headcode:
             wtt = str(body.get("schedule_wtt_id") or "").strip()
             headcode = wtt[:4] if len(wtt) >= 4 else _headcode_from_train_id(train_id)
-        self.activations[train_id] = {
+        canonical_id = self._canonical_ids.get(train_id, train_id)
+        previous = self.activations.get(canonical_id, {})
+        activation = {
             "train_uid": str(body.get("train_uid") or (schedule.train_uid if schedule else "")).strip() or None,
             "headcode": headcode,
             "origin": schedule.origin if schedule else None,
@@ -134,13 +137,103 @@ class TrustCollector(StompFeed):
             "booked_speed": schedule.booked_speed if schedule else None,
             "operating_characteristics": schedule.operating_characteristics if schedule else None,
             "schedule_source": body.get("schedule_source"),
+            "service_date": schedule.running_date if schedule else None,
+            "schedule_id": schedule.schedule_id if schedule else None,
         }
+        self.activations[canonical_id] = {
+            key: value if value is not None else previous.get(key)
+            for key, value in activation.items()
+        }
+        existing = self.state.get(f"nr:{canonical_id}")
+        if isinstance(existing, Vehicle):
+            self._enrich_existing(existing, self.activations[canonical_id])
+            self.state.upsert(existing)
+
+    @staticmethod
+    def _enrich_existing(vehicle: Vehicle, activation: dict) -> None:
+        for field in (
+            "train_uid", "headcode", "origin", "destination", "train_category",
+            "power_type", "timing_load", "booked_speed", "operating_characteristics",
+            "service_date", "schedule_id",
+        ):
+            if activation.get(field) is not None:
+                setattr(vehicle, field, activation[field])
+        if activation.get("atoc_code"):
+            vehicle.operator = operator_name(activation["atoc_code"], vehicle.operator)
+        elif activation.get("trust_operator"):
+            vehicle.operator = activation["trust_operator"]
+        vehicle.name = vehicle.headcode or vehicle.name
+        if vehicle.origin and vehicle.destination:
+            vehicle.subtitle = f"{vehicle.origin} → {vehicle.destination}"
+
+    def _recover_activation(
+        self, train_id: str, identity: str, body: dict, station: dict,
+        stanox: str, event_time: datetime, existing: Vehicle | None,
+    ) -> dict:
+        """Recover a missed activation using a confirmed location and call time.
+
+        Restarts can happen hours after activation. A movement must retain a
+        restored UID, and an unknown UID needs more evidence than its headcode.
+        """
+        activation = dict(self.activations.get(train_id, {}))
+        if existing:
+            for field in (
+                "train_uid", "headcode", "origin", "destination", "train_category",
+                "power_type", "timing_load", "booked_speed", "operating_characteristics",
+                "service_date", "schedule_id",
+            ):
+                if activation.get(field) is None:
+                    activation[field] = getattr(existing, field)
+        headcode = activation.get("headcode") or _headcode_from_train_id(identity)
+        schedule = None
+        if self.schedules.ready() and not activation.get("schedule_id"):
+            if activation.get("train_uid"):
+                schedule = self.schedules.lookup_activation({
+                    "train_uid": activation["train_uid"],
+                    "tp_origin_timestamp": activation.get("service_date") or event_time.isoformat(),
+                })
+            elif headcode and (station.get("tiploc") or stanox):
+                planned_body = {"actual_timestamp": body.get("planned_timestamp")}
+                call_time = self._event_time(planned_body) if body.get("planned_timestamp") else event_time
+                expected_operator = trust_operator_name(body.get("toc_id"))
+                atoc_code = next((code for code, name in ATOC_OPERATOR_NAMES.items() if name == expected_operator), None)
+                schedule = self.schedules.lookup_headcode(
+                    headcode,
+                    at_time=call_time, tiploc=station.get("tiploc"), stanox=stanox,
+                    atoc_code=atoc_code,
+                )
+                if schedule and body.get("train_service_code") and schedule.service_code and str(body["train_service_code"]).strip() != str(schedule.service_code).strip():
+                    schedule = None
+        if schedule:
+            activation.update({
+                "train_uid": schedule.train_uid,
+                "headcode": headcode or schedule.signalling_id,
+                "atoc_code": schedule.atoc_code,
+                "origin": schedule.origin, "destination": schedule.destination,
+                "train_category": schedule.train_category, "power_type": schedule.power_type,
+                "timing_load": schedule.timing_load, "booked_speed": schedule.booked_speed,
+                "operating_characteristics": schedule.operating_characteristics,
+                "service_date": schedule.running_date, "schedule_id": schedule.schedule_id,
+            })
+        if activation:
+            self.activations[train_id] = activation
+        return activation
 
     def _movement(self, body: dict, status: SourceStatus, *, replay: bool = False) -> bool:
         stanox = self._stanox(body)
         train_id = str(body.get("train_id") or "").strip()
         current_id = str(body.get("current_train_id") or "").strip()
-        identity = current_id or self.identities.get(train_id) or train_id or "unknown"
+        if not train_id:
+            return False
+        canonical_id = self._canonical_ids.get(train_id, train_id)
+        if current_id:
+            self._canonical_ids[current_id] = canonical_id
+        identity = current_id or self.identities.get(canonical_id) or train_id
+        existing = self.state.get(f"nr:{canonical_id}")
+        existing = existing if isinstance(existing, Vehicle) else None
+        event_time = self._event_time(body)
+        if existing and event_time < existing.last_updated:
+            return True
         station = self.stations.get(stanox)
         if not station:
             if not replay:
@@ -156,7 +249,9 @@ class TrustCollector(StompFeed):
                     self._pending_movements.append(dict(body))
             return False
 
-        activation = self.activations.get(train_id, {})
+        activation = self._recover_activation(
+            canonical_id, identity, body, station, stanox, event_time, existing,
+        )
         headcode = activation.get("headcode") or _headcode_from_train_id(identity)
         variation = body.get("timetable_variation")
         try:
@@ -174,7 +269,6 @@ class TrustCollector(StompFeed):
         if platform:
             subtitle += f" • P{platform}"
 
-        event_time = self._event_time(body)
         next_stanox = str(body.get("next_report_stanox") or "").strip()
         if next_stanox.isdigit():
             next_stanox = next_stanox.zfill(5)
@@ -186,7 +280,7 @@ class TrustCollector(StompFeed):
             run_minutes = float(body.get("next_report_run_time") or 0)
         except (TypeError, ValueError):
             run_minutes = 0
-        if next_station and 0.25 <= run_minutes <= 60 and _km(station, next_station) <= 120:
+        if event_type in {"Departure", "Pass"} and next_station and 0.25 <= run_minutes <= 60 and _km(station, next_station) <= 120:
             next_lat, next_lon = float(next_station["lat"]), float(next_station["lon"])
             next_name = next_station.get("name") or f"STANOX {next_stanox}"
             due_at = event_time + timedelta(minutes=run_minutes)
@@ -198,13 +292,14 @@ class TrustCollector(StompFeed):
             operator = (
                 activation.get("trust_operator")
                 or trust_operator_name(body.get("toc_id"))
+                or (existing.operator if existing else None)
                 or "Rail operator"
             )
 
         name = headcode or identity
         position_label = f"Confirmed report at {location_name}"
         vehicle = Vehicle(
-            id=f"nr:{train_id or identity}",
+            id=f"nr:{canonical_id}",
             type="train",
             name=name,
             subtitle=subtitle,
@@ -215,6 +310,11 @@ class TrustCollector(StompFeed):
             destination=activation.get("destination"),
             headcode=headcode,
             train_uid=activation.get("train_uid"),
+            service_date=activation.get("service_date"),
+            schedule_id=activation.get("schedule_id"),
+            rail_event_type=event_type,
+            rail_tiploc=station.get("tiploc"),
+            rail_stanox=stanox,
             train_category=activation.get("train_category"),
             power_type=activation.get("power_type"),
             timing_load=activation.get("timing_load"),
@@ -245,10 +345,13 @@ class TrustCollector(StompFeed):
 
     def _cancellation(self, body: dict) -> None:
         train_id = str(body.get("train_id") or "").strip()
-        existing = self.state.get(f"nr:{train_id}")
+        existing = self.state.get(f"nr:{self._canonical_ids.get(train_id, train_id)}")
         if existing:
+            event_time = self._event_time(body)
+            if event_time < existing.last_updated:
+                return
             existing.status = f"Cancelled {str(body.get('canx_type') or '').title()}".strip()
-            existing.last_updated = datetime.now(timezone.utc)
+            existing.last_updated = event_time
             existing.next_lat = existing.next_lon = None
             existing.estimate_due_at = None
             self.state.upsert(existing)
@@ -257,9 +360,11 @@ class TrustCollector(StompFeed):
         train_id = str(body.get("train_id") or "").strip()
         revised = str(body.get("revised_train_id") or "").strip()
         if train_id and revised:
-            self.identities[train_id] = revised
-            if train_id in self.activations:
-                self.activations[train_id]["headcode"] = _headcode_from_train_id(revised) or self.activations[train_id].get("headcode")
+            canonical_id = self._canonical_ids.get(train_id, train_id)
+            self._canonical_ids[revised] = canonical_id
+            self.identities[canonical_id] = revised
+            if canonical_id in self.activations:
+                self.activations[canonical_id]["headcode"] = _headcode_from_train_id(revised) or self.activations[canonical_id].get("headcode")
 
     def handle_message(self, payload: str) -> None:
         try:
@@ -279,6 +384,8 @@ class TrustCollector(StompFeed):
             status.messages_seen += 1
             header = message.get("header") or {}
             body = message.get("body") or {}
+            if not isinstance(header, dict) or not isinstance(body, dict):
+                continue
             msg_type = str(header.get("msg_type") or "")
             if msg_type == "0001":
                 self._activation(body)
