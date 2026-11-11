@@ -206,15 +206,15 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
     assert "/static/styles.css?v=15150" in index
-    assert "/static/refinements.css?v=15142" in index
+    assert "/static/refinements.css?v=15151" in index
     assert "/static/app.js?v=15150" in index
     assert "/static/motion-engine.js?v=15150" in index
     assert "/static/live-object-renderer.js?v=15150" in index
     assert "/static/movement-history.css?v=15147" in index
     assert "NETWORK_FIRST_ASSETS" in worker
-    assert "/static/refinements.css?v=15142" in worker
+    assert "/static/refinements.css?v=15151" in worker
     assert "/static/app.js?v=15150" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r51" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r52" in worker
 
 
 def test_paid_transport_detail_is_labelled_as_radar_plus():

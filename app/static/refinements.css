@@ -145,3 +145,29 @@
 @media(max-width:380px){.detail-route-restore small{display:none}.detail-route-view{min-width:52px;padding:0 8px}.detail-route-view span{display:none}}
 @media(prefers-reduced-motion:reduce){.v12-detail{transition:none!important}}
 .aircraft-shape-helicopter .tail-boom,.aircraft-shape-helicopter .tail-plane,.aircraft-shape-apache .stub-wing,.aircraft-shape-chinook .tail-plane{fill:none;stroke:currentColor;stroke-width:4;stroke-linecap:round}
+
+/* Signalbox-inspired restraint: the map is the primary surface. Panels use a
+   flat, quiet hierarchy and disclose detail only after the user asks for it. */
+.v12-leftbar,.v12-detail{border-color:rgba(50,70,86,.72)!important;background:rgba(8,15,22,.94)!important;box-shadow:0 6px 18px rgba(0,0,0,.18)!important;backdrop-filter:blur(8px)!important}
+.v12-leftbar{width:318px}.workspace-rail{width:58px;flex-basis:58px;padding:6px 4px}.workspace-drawer{width:259px;padding:10px}
+.workspace-tab{min-height:48px;border-radius:8px}.workspace-tab span{font-size:7.5px}.workspace-tab:hover,.workspace-tab.active{background:rgba(86,214,164,.08)}
+.workspace-head,.experience-hero{padding:0 0 9px!important;margin:0 0 9px!important;background:none!important;border-bottom:1px solid rgba(66,87,103,.45)!important;border-radius:0!important}
+.workspace-head p,.experience-hero p{display:none}.workspace-head h2,.experience-hero h1,.experience-hero h2{margin-bottom:0!important;font-size:15px!important}
+.cool-map-controls,.passing-next-card,.commute-alert-card,.live-context-card,.nearby-summary-row,.cool-filter{background:#0d1922!important;border-color:rgba(60,82,99,.62)!important;box-shadow:none!important}
+.cool-filter,.nearby-summary-row{border-radius:9px!important}.cool-filter.active{background:#12251f!important;border-color:rgba(86,214,164,.46)!important}
+.v12-detail{width:332px}.v12-detail .detail-panel{padding:11px}.detail-head h2{font-size:18px}.detail-head>div>small{font-size:7px;letter-spacing:.12em}
+.detail-operator,.detail-intelligence,.detail-fields,.detail-insight,.detail-discovery{box-shadow:none!important}.detail-operator{margin:7px 0;padding:8px 10px;border-radius:10px}.detail-operator>i{min-height:36px}.detail-operator strong{font-size:15px}
+.detail-intelligence{margin:7px 0;padding:8px;border-radius:10px}.detail-fields{margin:7px 0}.detail-field{background:#111e29!important;border:1px solid rgba(62,82,98,.45)!important;border-radius:8px!important}
+.transport-run-card.operator-themed{border-top-width:2px;background:#09141c;box-shadow:none}.train-service-identity{box-shadow:none!important}.transport-note,.transport-source{line-height:1.35}
+.live-ticker{height:30px;bottom:8px;border-color:rgba(52,73,89,.72);border-radius:9px;background:rgba(7,14,20,.9);box-shadow:none;backdrop-filter:blur(7px)}.ticker-label{font-size:7px}.ticker-item{padding:3px 6px;font-size:8px}
+.focus-map-button{border-color:rgba(62,82,98,.7);background:rgba(7,14,20,.86);box-shadow:none;backdrop-filter:blur(7px)}
+
+@media(max-width:560px){
+  .v12-leftbar{width:min(72vw,276px)!important;max-height:min(55dvh,450px)!important;border-radius:12px!important}
+  .workspace-drawer{max-height:min(55dvh,450px)!important;padding:8px!important}.workspace-tab{min-height:44px!important}
+  .v12-detail{width:auto!important;bottom:46px!important;max-height:46dvh!important;border-radius:12px!important}.v12-detail .detail-panel{padding:9px!important}
+  .detail-head h2{font-size:17px!important}.detail-operator{padding:7px 8px}.detail-intelligence{padding:7px}
+  .detail-photo,.detail-related,.detail-coverage,.detail-audio{margin:6px 0!important}
+  .live-ticker{left:66px;right:8px;bottom:8px;height:30px}.v12-layout:has(.v12-detail:not(.is-empty)) .live-ticker{opacity:.35}
+  .v12-detail.route-view{bottom:46px!important;height:58px!important;min-height:58px!important;max-height:58px!important}.detail-route-peek{height:58px;padding:5px}
+}
