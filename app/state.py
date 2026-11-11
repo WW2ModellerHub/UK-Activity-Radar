@@ -26,6 +26,58 @@ def _inside(lat: float, lon: float, bbox: tuple[float, float, float, float] | No
     return west <= lon <= east and south <= lat <= north
 
 
+def _estimated_train_position(vehicle: Vehicle, now: datetime) -> tuple[float, float] | None:
+    """Return the browser-equivalent position for viewport continuity.
+
+    The stored ``lat``/``lon`` remains the confirmed SMART reporting location.
+    Streaming decisions must use the moving estimate, however, or a train whose
+    reporting point sits outside the viewport disappears while its rendered
+    route position is still on screen.
+    """
+    if not (
+        vehicle.estimate_started_at and vehicle.estimate_due_at
+        and vehicle.estimate_due_at > vehicle.estimate_started_at
+    ):
+        return None
+    points = []
+    for raw in vehicle.estimate_path or []:
+        try:
+            lat, lon = float(raw[0]), float(raw[1])
+        except (IndexError, TypeError, ValueError):
+            continue
+        if -90 <= lat <= 90 and -180 <= lon <= 180:
+            points.append((lat, lon))
+    if len(points) < 2:
+        if None in {vehicle.reported_lat, vehicle.reported_lon, vehicle.next_lat, vehicle.next_lon}:
+            return None
+        points = [
+            (float(vehicle.reported_lat), float(vehicle.reported_lon)),
+            (float(vehicle.next_lat), float(vehicle.next_lon)),
+        ]
+    total_seconds = (vehicle.estimate_due_at - vehicle.estimate_started_at).total_seconds()
+    fraction = max(0.0, min(1.0, (now - vehicle.estimate_started_at).total_seconds() / total_seconds))
+    legs: list[tuple[tuple[float, float], tuple[float, float], float, float]] = []
+    total_distance = 0.0
+    for first, second in zip(points, points[1:]):
+        length = _distance_km(first[0], first[1], second[0], second[1])
+        if length <= 0:
+            continue
+        legs.append((first, second, length, total_distance))
+        total_distance += length
+    if not legs or total_distance <= 0:
+        return None
+    target = fraction * total_distance
+    first, second, length, started = next(
+        (leg for leg in legs if target <= leg[3] + leg[2]),
+        legs[-1],
+    )
+    local = max(0.0, min(1.0, (target - started) / length))
+    return (
+        first[0] + (second[0] - first[0]) * local,
+        first[1] + (second[1] - first[1]) * local,
+    )
+
+
 class LiveState:
     def __init__(self) -> None:
         self._lock = RLock()
@@ -191,7 +243,10 @@ class LiveState:
                     continue
 
                 effective_bbox = train_bbox if stored.type == "train" and train_bbox is not None else bbox
-                if not _inside(stored.lat, stored.lon, effective_bbox):
+                visible_position = _estimated_train_position(stored, now) if stored.type == "train" else None
+                if not _inside(stored.lat, stored.lon, effective_bbox) and not (
+                    visible_position and _inside(visible_position[0], visible_position[1], effective_bbox)
+                ):
                     continue
 
                 if stored.type == "train":

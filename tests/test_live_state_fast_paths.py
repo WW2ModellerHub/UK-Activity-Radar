@@ -91,3 +91,29 @@ def test_duplicate_sources_collapse_only_within_the_same_dated_service():
     state.upsert(td);state.upsert(trust);state.upsert(tomorrow)
     ids={item.id for item in state.all(include_buses=False,include_vessels=False)}
     assert ids=={'nr:trust','nr:tomorrow'}
+
+
+def test_train_remains_streamed_when_estimate_is_visible_but_report_point_is_not():
+    state = LiveState()
+    now = datetime.now(timezone.utc)
+    train = _vehicle("td:WG:1P04", "train", "1P04")
+    train.lat = 52.535
+    train.lon = -1.371  # confirmed point is west of this narrow viewport
+    train.reported_lat = 52.535
+    train.reported_lon = -1.371
+    train.next_lat = 52.571
+    train.next_lon = -1.203
+    train.estimate_path = [[52.535, -1.371], [52.571, -1.203]]
+    train.estimate_started_at = now - timedelta(minutes=8)
+    train.estimate_due_at = now + timedelta(minutes=2)
+    train.last_updated = now
+    state.upsert(train)
+
+    rows = state.all(
+        bbox=(-1.25, 52.54, -1.20, 52.59),
+        train_bbox=(-1.25, 52.54, -1.20, 52.59),
+        include_buses=False,
+        include_vessels=False,
+    )
+
+    assert [row.id for row in rows] == ["td:WG:1P04"]

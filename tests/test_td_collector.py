@@ -151,3 +151,52 @@ def test_unmapped_td_step_holds_the_same_marker_until_next_mapped_berth(tmp_path
     assert train.lat == 52.631
     assert train.last_updated == now + timedelta(seconds=12)
     assert train.status == "TD live • next berth unresolved"
+
+
+def test_td_uses_smart_departure_offset_instead_of_restarting_at_station(tmp_path):
+    now = datetime.now(london_tz()).replace(second=0, microsecond=0)
+    station_file = tmp_path / "stations.json"
+    station_file.write_text(json.dumps({
+        "59318": {"name": "Hinckley", "lat": 52.535, "lon": -1.371, "tiploc": "HINCKLY"},
+    }), encoding="utf-8")
+    smart_file = tmp_path / "smart.json"
+    smart_file.write_text(json.dumps([{
+        "TD": "WG", "FROMBERTH": "2976", "TOBERTH": "2970", "STANOX": "59318",
+        "EVENT": "B", "BERTHOFFSET": "-82",
+    }]), encoding="utf-8")
+    store = ScheduleStore(tmp_path / "schedule.sqlite")
+    with store._connect() as conn:
+        conn.executemany(
+            "INSERT INTO tiplocs(tiploc,stanox,description,lat,lon) VALUES(?,?,?,?,?)",
+            [
+                ("HINCKLY", "59318", "Hinckley", 52.535, -1.371),
+                ("NARBORO", "59301", "Narborough", 52.571, -1.203),
+            ],
+        )
+        conn.execute(
+            """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,atoc_code,
+                   signalling_id,origin_name,destination_name,locations_json)
+               VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                "C1P04", (now-timedelta(days=1)).date().isoformat(),
+                (now+timedelta(days=1)).date().isoformat(), "1111111", "P", "XC",
+                "1P04", "Birmingham", "Leicester", json.dumps([
+                    {"tiploc_code": "HINCKLY", "scheduled_departure": now.strftime("%H%M")},
+                    {"tiploc_code": "NARBORO", "scheduled_arrival": (now+timedelta(minutes=10)).strftime("%H%M")},
+                ]),
+            ),
+        )
+    state = LiveState()
+    collector = TDCollector(SimpleNamespace(td_topic="/topic/TD"), state, station_file, smart_file, store)
+
+    collector.handle_message(json.dumps({"CA_MSG": {
+        "area_id": "WG", "from": "2976", "to": "2970", "descr": "1P04",
+        "time": int(now.timestamp() * 1000),
+    }}))
+
+    train = state.get("td:WG:1P04")
+    assert train is not None
+    assert train.rail_event_type == "Departure"
+    assert train.estimate_started_at == now - timedelta(seconds=82)
+    assert train.estimate_due_at == now + timedelta(minutes=10, seconds=-82)
+    assert "corrected -82s" in train.position_label

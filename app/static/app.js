@@ -1590,7 +1590,7 @@
   }
 
   function activityMapPresentation(a, now=Date.now()) {
-    if(!a || reduceLiveMotion?.matches)return a;
+    if(!a)return a;
     if(a.type==='train'&&a.reported_lat!=null&&a.reported_lon!=null&&a.next_lat!=null&&a.next_lon!=null){
       const started=Date.parse(a.estimate_started_at||''),due=Date.parse(a.estimate_due_at||'');
       if(Number.isFinite(started)&&Number.isFinite(due)&&due>started&&now>=started){
@@ -1602,6 +1602,7 @@
         if(point)return {...a,...point,position_method:'estimated',position_label:`Estimated along the published railway path between confirmed reports • ${a.position_label||''}`};
       }
     }
+    if(reduceLiveMotion?.matches)return a;
     if(overheadActive&&['aircraft','sar'].includes(a.type)){
       const updated=Date.parse(a.last_updated||''),speed=Number(a.speed),bearing=Number(a.bearing);
       const age=(now-updated)/1000;

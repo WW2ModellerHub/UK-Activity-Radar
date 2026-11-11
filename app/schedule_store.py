@@ -429,15 +429,22 @@ class ScheduleStore:
         running_date: date,
         from_tiploc: str | None,
         observed_at: datetime,
+        *,
+        event_code: str | None = None,
+        berth_offset_seconds: int | float | None = None,
     ) -> dict | None:
-        """Build the next mapped timetable leg after a confirmed rail report.
+        """Build the timetable leg occupied at a confirmed signalling report.
 
-        TD reports identify signalling berths, not GPS positions.  Once a berth
-        has been resolved to a timetable location, the booked runtime to the
-        next mapped timing point is the best honest basis for continuous map
-        presentation.  The observation time deliberately becomes the start of
-        the estimate so late-running trains do not instantly jump to the end of
-        a leg whose booked clock time has already passed.
+        SMART maps a TD berth step to an arrival/departure at a reporting
+        location and supplies a signed offset from the raw berth timestamp to
+        the corresponding TRUST event.  Arrival steps therefore belong to the
+        *approach* leg, while departure steps belong to the following leg.  A
+        previous implementation always started the following leg at the raw TD
+        timestamp; at locations such as Narborough (departure offset -111s)
+        that visibly left a train several miles behind its real progress.
+
+        Callers without SMART event metadata retain the conservative legacy
+        behaviour: start the following booked leg at ``observed_at``.
         """
         if not schedule_id or not from_tiploc:
             return None
@@ -471,17 +478,69 @@ class ScheduleStore:
         def call_time(location: dict) -> datetime | None:
             return location.get("_departure_at") or location.get("_pass_at") or location.get("_arrival_at")
 
-        start_index = next((
+        event = str(event_code or "").strip().upper()
+        event_kind = "arrival" if event in {"A", "C"} else "departure" if event in {"B", "D"} else ""
+        try:
+            offset = max(-900, min(900, int(float(berth_offset_seconds or 0))))
+        except (TypeError, ValueError):
+            offset = 0
+        recorded_at = observed_at + timedelta(seconds=offset) if event_kind else observed_at
+
+        matching_indices = [
             index for index, location in enumerate(locations)
             if str(location.get("tiploc_code") or "").strip().upper() == start_code
-        ), None)
+        ]
+        # Circular/duplicated schedules can call at one TIPLOC more than once.
+        # Prefer the occurrence whose booked event is nearest the corrected
+        # report time instead of silently snapping to the first occurrence.
+        def event_time_for(location: dict) -> datetime | None:
+            if event_kind == "arrival":
+                return location.get("_arrival_at") or location.get("_pass_at") or call_time(location)
+            if event_kind == "departure":
+                return location.get("_departure_at") or location.get("_pass_at") or call_time(location)
+            return call_time(location)
+
+        start_index = min(
+            matching_indices,
+            key=lambda index: abs((event_time_for(locations[index]) - recorded_at).total_seconds())
+            if isinstance(event_time_for(locations[index]), datetime) else float("inf"),
+            default=None,
+        )
         if start_index is None:
             return None
         start_location = locations[start_index]
         start_point = geo.get(start_code)
-        start_time = call_time(start_location)
+        start_time = event_time_for(start_location)
         if not start_point or not isinstance(start_time, datetime):
             return None
+
+        if event_kind == "arrival":
+            for previous_location in reversed(locations[:start_index]):
+                previous_code = str(previous_location.get("tiploc_code") or "").strip().upper()
+                previous_point = geo.get(previous_code)
+                previous_time = call_time(previous_location)
+                if not previous_point or not isinstance(previous_time, datetime) or previous_time >= start_time:
+                    continue
+                runtime = start_time - previous_time
+                if runtime < timedelta(seconds=30) or runtime > timedelta(hours=1):
+                    continue
+                path = self.route_points(schedule_id, previous_code, start_code)
+                first = [previous_point["lat"], previous_point["lon"]]
+                last = [start_point["lat"], start_point["lon"]]
+                if not path or path[0] != first:
+                    path.insert(0, first)
+                if path[-1] != last:
+                    path.append(last)
+                return {
+                    "lat": previous_point["lat"], "lon": previous_point["lon"],
+                    "next_lat": start_point["lat"], "next_lon": start_point["lon"],
+                    "next_name": start_point["name"], "path": path,
+                    "started_at": recorded_at - runtime, "due_at": recorded_at,
+                    "tiploc": previous_code, "report_tiploc": start_code,
+                    "event_kind": event_kind, "berth_offset_seconds": offset,
+                }
+            return None
+
         for next_location in locations[start_index + 1:]:
             next_code = str(next_location.get("tiploc_code") or "").strip().upper()
             next_point = geo.get(next_code)
@@ -502,8 +561,9 @@ class ScheduleStore:
                 "lat": start_point["lat"], "lon": start_point["lon"],
                 "next_lat": next_point["lat"], "next_lon": next_point["lon"],
                 "next_name": next_point["name"], "path": path,
-                "started_at": observed_at, "due_at": observed_at + runtime,
-                "tiploc": start_code,
+                "started_at": recorded_at, "due_at": recorded_at + runtime,
+                "tiploc": start_code, "report_tiploc": start_code,
+                "event_kind": event_kind or None, "berth_offset_seconds": offset,
             }
         return None
 

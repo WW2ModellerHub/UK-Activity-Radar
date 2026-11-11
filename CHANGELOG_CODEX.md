@@ -1,5 +1,18 @@
 # Codex stabilization changelog
 
+## 2026-11-11 — correct signed rail progress and prevent visible dropouts
+
+- Applied Network Rail SMART arrival/departure semantics and signed berth offsets
+  to rail estimates, so a departure report starts from its corrected event time
+  instead of restarting the train behind the signal report.
+- Kept arrivals on their approach leg until the corrected arrival time, then
+  switched departures to the following leg without preserving the wrong path.
+- Made rail viewport streaming use the same moving estimate as the browser, so
+  an on-screen train is not removed merely because its last confirmed reporting
+  point is outside the map bounds.
+- Added regressions for the Hinckley/Narborough offset pattern, arrival approach
+  direction and visible-estimate streaming continuity.
+
 ## 2026-11-11 — persistent and smoother live trains
 
 - Unified TRUST and Train Describer updates for the same scheduled service so a

@@ -70,6 +70,24 @@ class TDCollector(StompFeed):
         except (TypeError, ValueError, OSError):
             return datetime.now(timezone.utc)
 
+    @staticmethod
+    def _row_offset_seconds(row: dict | None) -> int:
+        try:
+            # Network Rail SMART defines this as the signed difference from
+            # the raw berth event to the corresponding TRUST event time.
+            return max(-900, min(900, int(float((row or {}).get("BERTHOFFSET") or 0))))
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _row_event_kind(row: dict | None) -> str | None:
+        event = str((row or {}).get("EVENT") or "").strip().upper()
+        if event in {"A", "C"}:
+            return "Arrival"
+        if event in {"B", "D"}:
+            return "Departure"
+        return None
+
     def _resolve(self, area: str, msg_type: str, fr: str, to: str) -> tuple[dict | None, dict | None, bool]:
         row = None
         fallback = False
@@ -128,6 +146,9 @@ class TDCollector(StompFeed):
         status.movements_mapped += 1
         lat, lon = float(station["lat"]), float(station["lon"])
         location_name = station.get("name") or str((row or {}).get("STANME") or "TD location")
+        event_kind = self._row_event_kind(row)
+        berth_offset = self._row_offset_seconds(row)
+        source_id = f"{area}:{fr if fallback else (to or fr)}"
         schedule = None
         if self.schedules is not None and self.schedules.ready():
             try:
@@ -157,6 +178,9 @@ class TDCollector(StompFeed):
         if existing:
             preserve_leg = bool(
                 not fallback
+                and existing.source == "Network Rail TD"
+                and existing.source_id == source_id
+                and existing.rail_event_type == event_kind
                 and existing.rail_stanox == self._row_stanox(row)
                 and existing.estimate_started_at
                 and existing.estimate_due_at
@@ -172,13 +196,14 @@ class TDCollector(StompFeed):
                 existing.next_location = None
             existing.last_updated = event_time
             existing.position_method = "estimated" if fallback else "network_report"
+            offset_note = f" • corrected {berth_offset:+d}s" if event_kind and berth_offset else ""
             existing.position_label = (
                 f"Last mapped TD berth before unresolved step • {area} {fr or '—'}→{to or '—'} • {location_name}"
-                if fallback else f"TD berth report • {area} {fr or '—'}→{to or '—'} • {location_name}"
+                if fallback else f"TD {str(event_kind or 'berth').lower()} report{offset_note} • {area} {fr or '—'}→{to or '—'} • {location_name}"
             )
             existing.source = "Network Rail TD"
-            existing.source_id = f"{area}:{to}"
-            existing.rail_event_type = None
+            existing.source_id = source_id
+            existing.rail_event_type = event_kind
             existing.rail_tiploc = station.get("tiploc")
             existing.rail_stanox = self._row_stanox(row)
             if schedule:
@@ -193,8 +218,12 @@ class TDCollector(StompFeed):
                 existing.operating_characteristics = schedule.operating_characteristics
                 existing.service_date = schedule.running_date or existing.service_date
                 existing.schedule_id = schedule.schedule_id or existing.schedule_id
-                leg = self._schedule_leg(schedule.schedule_id, schedule.running_date, station.get("tiploc"), event_time)
+                leg = self._schedule_leg(
+                    schedule.schedule_id, schedule.running_date, station.get("tiploc"), event_time,
+                    event_code=(row or {}).get("EVENT"), berth_offset_seconds=berth_offset,
+                )
                 if leg and not fallback and not preserve_leg:
+                    existing.reported_lat = leg["lat"]; existing.reported_lon = leg["lon"]
                     existing.next_lat = leg["next_lat"]; existing.next_lon = leg["next_lon"]
                     existing.next_location = leg["next_name"]
                     existing.estimate_path = leg["path"]
@@ -206,6 +235,7 @@ class TDCollector(StompFeed):
                 schedule.schedule_id if schedule else None,
                 schedule.running_date if schedule else None,
                 station.get("tiploc"), event_time,
+                event_code=(row or {}).get("EVENT"), berth_offset_seconds=berth_offset,
             ) if not fallback else None
             self.state.upsert(Vehicle(
                 id=f"td:{area}:{descr}", type="train", name=descr,
@@ -222,6 +252,7 @@ class TDCollector(StompFeed):
                 train_uid=schedule.train_uid if schedule else None,
                 service_date=schedule.running_date if schedule else None,
                 schedule_id=schedule.schedule_id if schedule else None,
+                rail_event_type=event_kind,
                 rail_tiploc=station.get("tiploc"),
                 rail_stanox=self._row_stanox(row),
                 train_category=schedule.train_category if schedule else None,
@@ -231,10 +262,13 @@ class TDCollector(StompFeed):
                 operating_characteristics=schedule.operating_characteristics if schedule else None,
                 position_label=(
                     f"Last mapped TD berth before unresolved step • {area} {fr or '—'}→{to or '—'}"
-                    if fallback else f"TD berth report • {area} {fr or '—'}→{to or '—'}"
+                    if fallback else f"TD {str(event_kind or 'berth').lower()} report"
+                    f"{f' • corrected {berth_offset:+d}s' if event_kind and berth_offset else ''}"
+                    f" • {area} {fr or '—'}→{to or '—'}"
                 ),
-                source="Network Rail TD", source_id=f"{area}:{fr if fallback else (to or fr)}", last_updated=event_time,
-                reported_lat=lat, reported_lon=lon,
+                source="Network Rail TD", source_id=source_id, last_updated=event_time,
+                reported_lat=leg["lat"] if leg else lat,
+                reported_lon=leg["lon"] if leg else lon,
                 next_lat=leg["next_lat"] if leg else None,
                 next_lon=leg["next_lon"] if leg else None,
                 next_location=leg["next_name"] if leg else None,
@@ -244,12 +278,18 @@ class TDCollector(StompFeed):
             ))
         return True
 
-    def _schedule_leg(self, schedule_id, running_date, tiploc, observed_at):
+    def _schedule_leg(
+        self, schedule_id, running_date, tiploc, observed_at, *,
+        event_code=None, berth_offset_seconds=None,
+    ):
         if not self.schedules or not self.schedules.ready() or not schedule_id or not running_date:
             return None
         try:
             service_day = datetime.fromisoformat(str(running_date)).date()
-            return self.schedules.estimate_leg_from(schedule_id, service_day, tiploc, observed_at)
+            return self.schedules.estimate_leg_from(
+                schedule_id, service_day, tiploc, observed_at,
+                event_code=event_code, berth_offset_seconds=berth_offset_seconds,
+            )
         except (TypeError, ValueError):
             return None
 

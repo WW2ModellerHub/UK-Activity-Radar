@@ -280,6 +280,65 @@ def test_timed_locations_keep_midnight_and_half_minutes_in_service_sequence(tmp_
     assert calls[3]["_arrival_at"].date() == date(2026, 11, 6)
 
 
+def test_smart_departure_offset_starts_train_ahead_of_reporting_point(tmp_path):
+    store = ScheduleStore(tmp_path / "schedule.sqlite")
+    schedule_id = _schedule(store, locations=[
+        {"tiploc_code": "HINCKLY", "scheduled_departure": "0730"},
+        {"tiploc_code": "NARBORO", "scheduled_arrival": "0740"},
+    ])
+    with store._connect() as conn:
+        conn.executemany(
+            "INSERT INTO tiplocs(tiploc,description,lat,lon) VALUES(?,?,?,?)",
+            [
+                ("HINCKLY", "Hinckley", 52.535, -1.371),
+                ("NARBORO", "Narborough", 52.571, -1.203),
+            ],
+        )
+    observed = datetime(2026, 11, 5, 7, 32, tzinfo=london_tz())
+
+    leg = store.estimate_leg_from(
+        schedule_id, date(2026, 11, 5), "HINCKLY", observed,
+        event_code="B", berth_offset_seconds=-82,
+    )
+
+    assert leg is not None
+    assert leg["event_kind"] == "departure"
+    assert leg["started_at"] == observed - timedelta(seconds=82)
+    assert leg["due_at"] == observed + timedelta(minutes=10, seconds=-82)
+    assert leg["path"] == [[52.535, -1.371], [52.571, -1.203]]
+
+
+def test_smart_arrival_offset_keeps_train_on_approach_leg(tmp_path):
+    store = ScheduleStore(tmp_path / "schedule.sqlite")
+    schedule_id = _schedule(store, locations=[
+        {"tiploc_code": "HINCKLY", "scheduled_departure": "0730"},
+        {"tiploc_code": "NARBORO", "scheduled_arrival": "0740", "scheduled_departure": "0741"},
+        {"tiploc_code": "LESTER", "scheduled_arrival": "0750"},
+    ])
+    with store._connect() as conn:
+        conn.executemany(
+            "INSERT INTO tiplocs(tiploc,description,lat,lon) VALUES(?,?,?,?)",
+            [
+                ("HINCKLY", "Hinckley", 52.535, -1.371),
+                ("NARBORO", "Narborough", 52.571, -1.203),
+                ("LESTER", "Leicester", 52.631, -1.125),
+            ],
+        )
+    observed = datetime(2026, 11, 5, 7, 39, 34, tzinfo=london_tz())
+
+    leg = store.estimate_leg_from(
+        schedule_id, date(2026, 11, 5), "NARBORO", observed,
+        event_code="A", berth_offset_seconds=26,
+    )
+
+    assert leg is not None
+    assert leg["event_kind"] == "arrival"
+    assert leg["path"] == [[52.535, -1.371], [52.571, -1.203]]
+    assert leg["due_at"] == datetime(2026, 11, 5, 7, 40, tzinfo=london_tz())
+    assert leg["started_at"] == datetime(2026, 11, 5, 7, 30, tzinfo=london_tz())
+    assert leg["next_name"] == "Narborough"
+
+
 def test_call_index_retains_overnight_and_next_day_rows(tmp_path):
     store = ScheduleStore(tmp_path / "schedule.sqlite")
     yesterday = _schedule(store, uid="YESTER", start="2026-11-04", end="2026-11-04")
