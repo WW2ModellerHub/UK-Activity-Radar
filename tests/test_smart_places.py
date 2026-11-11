@@ -108,8 +108,13 @@ def test_scheduled_train_detail_returns_calling_points_without_live_marker(tmp_p
     ]
     with store._connect() as con:
         con.executemany(
-            "INSERT INTO tiplocs(tiploc,description) VALUES(?,?)",
-            [('NUNEAT','Nuneaton'),('WIGSTON','Wigston Junction'),('HNK','Hinckley'),('LESTER','Leicester')],
+            "INSERT INTO tiplocs(tiploc,description,lat,lon) VALUES(?,?,?,?)",
+            [
+                ('NUNEAT','Nuneaton',52.526,-1.464),
+                ('WIGSTON','Wigston Junction',52.586,-1.105),
+                ('HNK','Hinckley',52.535,-1.371),
+                ('LESTER','Leicester',52.631,-1.125),
+            ],
         )
         con.execute(
             """INSERT INTO schedules(train_uid,start_date,end_date,source,atoc_code,origin_name,destination_name,locations_json,power_type,booked_speed)
@@ -125,6 +130,47 @@ def test_scheduled_train_detail_returns_calling_points_without_live_marker(tmp_p
     assert detail['runs'][0]['likely_train']['label']=='Class 220/221 Voyager family'
     assert [row['name'] for row in detail['runs'][0]['calling_points']]==['Nuneaton','Hinckley','Leicester']
     assert {row['event'] for row in detail['runs'][0]['calling_points']}=={'Stops'}
+    assert detail['runs'][0]['route_path']==[
+        [52.526,-1.464],[52.535,-1.371],[52.631,-1.125],
+    ]
+
+
+def test_live_train_exact_schedule_id_supplies_route_without_uid(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    now=datetime.now(london_tz())
+    locations=[
+        {'tiploc_code':'SHEFFLD','scheduled_departure':'0700'},
+        {'tiploc_code':'LESTER','scheduled_arrival':'0800','scheduled_departure':'0802'},
+        {'tiploc_code':'STPX','scheduled_arrival':'0910'},
+    ]
+    with store._connect() as con:
+        con.executemany(
+            "INSERT INTO tiplocs(tiploc,description,lat,lon) VALUES(?,?,?,?)",
+            [
+                ('SHEFFLD','Sheffield',53.378,-1.463),
+                ('LESTER','Leicester',52.631,-1.125),
+                ('STPX','London St Pancras',51.530,-0.125),
+            ],
+        )
+        cursor=con.execute(
+            """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,source,atoc_code,signalling_id,origin_name,destination_name,locations_json)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            ('ROUTE1',(now-timedelta(days=1)).date().isoformat(),(now+timedelta(days=1)).date().isoformat(),'1111111','P','SCHEDULE','EM','1C17','Sheffield','London St Pancras',json.dumps(locations)),
+        )
+        schedule_id=cursor.lastrowid
+    vehicle=Vehicle(
+        id='td:LE:1C17',type='train',name='1C17',headcode='1C17',schedule_id=schedule_id,
+        service_date=now.date().isoformat(),lat=52.631,lon=-1.125,source='Network Rail TD',
+    )
+
+    detail=SmartPlacesService(tmp_path,store,FakeState()).train_vehicle_detail(vehicle)
+
+    run=detail['runs'][0]
+    assert run['origin']=='Sheffield'
+    assert run['destination']=='London St Pancras'
+    assert [row['name'] for row in run['calling_points']]==['Sheffield','Leicester','London St Pancras']
+    assert run['route_path']==[[53.378,-1.463],[52.631,-1.125],[51.53,-0.125]]
+    assert 'route and calling points' in detail['note']
 
 
 def test_train_route_keeps_every_future_passenger_stop_after_the_current_station(tmp_path: Path):

@@ -221,6 +221,11 @@ test('trains move smoothly along mapped railway timing points between confirmed 
   await page.locator('#station-boards').click();
   await page.locator('#detail-placeboard .board-clickable').first().click();
   await expect(page.locator('#map')).toHaveAttribute('data-map-zoom','12');
+  await expect(page.locator('#map')).toHaveAttribute('data-map-context','rail');
+  await expect(page.locator('.train-published-route-guide')).toHaveCount(1);
+  await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-route-points','5');
+  await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-leg-points','0');
+  await expect(page.locator('#detail-trail')).toContainText('PUBLISHED TRAIN ROUTE');
   await page.evaluate(() => {
     let now=Date.parse('2026-10-05T10:01:20Z');
     Date.now=()=>now+=1000;
@@ -241,13 +246,15 @@ test('trains move smoothly along mapped railway timing points between confirmed 
     })});
   });
   await expect(page.locator('.marker-wrap-train .marker-estimated')).toHaveCount(1);
-  await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-route-points','3');
+  await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-route-points','5');
+  await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-leg-points','3');
   await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-route-arrows','2');
+  await expect(page.locator('.train-published-route-guide')).toHaveCount(1);
   await expect(page.locator('.train-live-leg-guide')).toHaveCount(1);
   await expect(page.locator('.train-live-leg-progress')).toHaveCount(1);
   await expect(page.locator('.train-route-arrow')).toHaveCount(2);
-  await expect(page.locator('#detail-trail')).toContainText('CURRENT RAIL LEG');
-  await expect(page.locator('#detail-trail')).toContainText('Towards Bletchley');
+  await expect(page.locator('#detail-trail')).toContainText('PUBLISHED TRAIN ROUTE');
+  await expect(page.locator('#detail-trail')).toContainText('Milton Keynes Central → London Euston');
   const progressBefore=Number(await page.locator('#map').getAttribute('data-selected-rail-route-progress'));
   const movesBefore=await page.evaluate(()=>window.__leafletStats.markerMoves);
   await page.waitForTimeout(3500);
@@ -256,6 +263,7 @@ test('trains move smoothly along mapped railway timing points between confirmed 
   await page.locator('.marker-wrap-train').first().evaluate(el=>el.dispatchEvent(new MouseEvent('mouseenter',{bubbles:true})));
   await expect(page.locator('.activity-tooltip')).toContainText('Estimated between reports');
   await page.locator('#detail-close').click();
+  await expect(page.locator('.train-published-route-guide')).toHaveCount(0);
   await expect(page.locator('.train-live-leg-guide')).toHaveCount(0);
   await expect(page.locator('.train-route-arrow')).toHaveCount(0);
 });
@@ -305,12 +313,14 @@ test('Useful map layers can independently turn trains and buses off and on', asy
   await expect(page.locator('[data-layer-toggle="train"]')).toHaveAttribute('aria-pressed', 'false');
   await page.locator('[data-layer-toggle="train"]').click();
   await expect(page.locator('[data-layer-toggle="train"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#map')).toHaveAttribute('data-map-context','rail');
   await expect(page.locator('.marker-bubble').filter({ hasText: '🚆' })).toHaveCount(2);
   await expect(page.locator('.marker-bubble').filter({ hasText: '🚌' })).toHaveCount(0);
   await page.locator('[data-layer-toggle="bus"]').click();
   await expect(page.locator('.marker-bubble').filter({ hasText: '🚌' })).toHaveCount(1);
   await page.locator('[data-layer-toggle="train"]').click();
   await expect(page.locator('.marker-bubble').filter({ hasText: '🚆' })).toHaveCount(0);
+  await expect(page.locator('#map')).toHaveAttribute('data-map-context','standard');
   const viewport = await page.evaluate(() => window.__fixtureSocketMessages.filter(row => row.action === 'viewport').at(-1));
   expect(viewport.types).toEqual(['bus']);
 });

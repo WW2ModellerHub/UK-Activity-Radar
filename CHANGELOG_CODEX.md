@@ -1,5 +1,19 @@
 # Codex stabilization changelog
 
+## 2026-11-11 — rail-focused map and persistent published train routes
+
+- Switch train and station contexts from the pale general Mapbox Light map to
+  the commercial Mapbox Streets style so railway infrastructure has stronger
+  visual context without introducing a separate unlicensed tile provider.
+- Return mapped geometry for the verified full published train schedule,
+  including exact live schedule matches that have not received a public UID.
+- Keep the full route highlighted in cyan whenever a train is selected, then
+  overlay the current live estimated leg and progress in white and gold.
+- Preserve the route when the live feed omits an estimate path, eliminating the
+  detached “floating train” state for services with a verified timetable.
+- Added backend and browser regressions for exact-schedule route recovery,
+  rail-map context switching and persistent full-route highlighting.
+
 ## 2026-11-11 — continue live trains through railway reporting gaps
 
 - Hand confirmed station arrivals back to the published onward schedule after

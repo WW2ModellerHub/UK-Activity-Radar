@@ -691,27 +691,53 @@ class SmartPlacesService:
             ),
         }
         uid = str(getattr(vehicle, 'train_uid', '') or '').strip()
+        schedule_id = getattr(vehicle, 'schedule_id', None)
         service_date = self.schedules.service_date(getattr(vehicle, 'service_date', None)) or datetime.now(london_tz()).date()
         run['service_date'] = service_date.isoformat()
         schedule_verified = False
-        if uid and self.schedules.db_path.exists():
+        if (uid or schedule_id) and self.schedules.db_path.exists():
             try:
-                rows = self.schedules.effective_rows(service_date, train_uids=[uid])
-                row = rows[0] if rows else None
+                row = None
+                if schedule_id:
+                    with sqlite3.connect(self.schedules.db_path) as schedule_con:
+                        schedule_con.row_factory = sqlite3.Row
+                        row = schedule_con.execute(
+                            "SELECT * FROM schedules WHERE id=?", (int(schedule_id),)
+                        ).fetchone()
+                if row is None and uid:
+                    rows = self.schedules.effective_rows(service_date, train_uids=[uid])
+                    row = rows[0] if rows else None
                 with sqlite3.connect(self.schedules.db_path) as con:
                     con.row_factory = sqlite3.Row
                     if row:
                         schedule_verified = True
                         locations = self.schedules.timed_locations(row, service_date)
                         codes = sorted({str(item.get('tiploc_code') or '').strip() for item in locations if isinstance(item, dict) and item.get('tiploc_code')})
-                        names = {}
+                        geography = {}
                         if codes:
                             placeholders = ','.join('?' for _ in codes)
-                            names = {r['tiploc']: (r['description'] or r['tiploc']) for r in con.execute(f"SELECT tiploc,description FROM tiplocs WHERE tiploc IN ({placeholders})", codes)}
+                            geography = {
+                                r['tiploc']: {
+                                    "name": r['description'] or r['tiploc'],
+                                    "lat": r['lat'], "lon": r['lon'],
+                                }
+                                for r in con.execute(
+                                    f"SELECT tiploc,description,lat,lon FROM tiplocs WHERE tiploc IN ({placeholders})",
+                                    codes,
+                                )
+                            }
                         calls = []
+                        route_path = []
                         for item in locations:
                             if not isinstance(item, dict):
                                 continue
+                            code = str(item.get('tiploc_code') or '').strip()
+                            point = geography.get(code) or {}
+                            lat, lon = point.get('lat'), point.get('lon')
+                            if lat is not None and lon is not None:
+                                coordinate = [float(lat), float(lon)]
+                                if not route_path or route_path[-1] != coordinate:
+                                    route_path.append(coordinate)
                             # CIF includes non-passenger timing points used only
                             # to regulate the working. The public journey card
                             # should be a calling pattern, not every passed
@@ -722,15 +748,17 @@ class SmartPlacesService:
                             ))
                             if not is_stop:
                                 continue
-                            code = str(item.get('tiploc_code') or '').strip()
                             clock = _clean_time(item.get('public_departure') or item.get('public_arrival') or item.get('scheduled_departure') or item.get('scheduled_arrival'))
                             if not code:
                                 continue
-                            calls.append({
-                                "name": names.get(code, code),
+                            call = {
+                                "name": point.get('name') or code,
                                 "scheduled": clock,
                                 "event": "Stops",
-                            })
+                            }
+                            if lat is not None and lon is not None:
+                                call.update({"lat": float(lat), "lon": float(lon)})
+                            calls.append(call)
                             # Limit the passenger-facing calling pattern, not
                             # the raw CIF timing records. Long-distance trains
                             # can contain dozens of pass-through junctions
@@ -749,6 +777,7 @@ class SmartPlacesService:
                             "operating_characteristics": row['operating_characteristics'],
                             "schedule_source": row['source'],
                             "calling_points": calls,
+                            "route_path": route_path,
                         })
                         if headcode.upper().startswith('1Z'):
                             run["service_label"] = (

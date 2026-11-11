@@ -206,10 +206,10 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
     assert "/static/styles.css?v=15146" in index
-    assert "/static/app.js?v=15146" in index
-    assert "/static/movement-history.css?v=15145" in index
+    assert "/static/app.js?v=15147" in index
+    assert "/static/movement-history.css?v=15147" in index
     assert "NETWORK_FIRST_ASSETS" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r47" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r48" in worker
 
 
 def test_paid_transport_detail_is_labelled_as_radar_plus():
@@ -227,6 +227,8 @@ def test_map_provider_configuration_cannot_pin_the_old_fallback_in_cache():
     assert "fetch('/api/map/config',{cache:'no-store'})" in app_js
     assert '"Cache-Control": "no-store"' in map_route
     assert '"base_map_provider": "Mapbox" if settings.mapbox_public_token' in main
+    assert "mapbox/streets-v12" in map_route
+    assert '"rail_tile_url"' in map_route
 
 
 def test_optional_traffic_control_does_not_mislabel_the_basemap_as_tomtom():

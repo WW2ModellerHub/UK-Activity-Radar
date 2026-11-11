@@ -1564,6 +1564,10 @@ def map_config():
             "https://api.mapbox.com/styles/v1/mapbox/light-v11/tiles/512/"
             "{z}/{x}/{y}?access_token=" + settings.mapbox_public_token
         ) if configured else None,
+        "rail_tile_url": (
+            "https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/512/"
+            "{z}/{x}/{y}?access_token=" + settings.mapbox_public_token
+        ) if configured else None,
         "tile_size": 512,
         "zoom_offset": -1,
         "max_zoom": 20,

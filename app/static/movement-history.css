@@ -16,7 +16,8 @@
   background: linear-gradient(135deg, rgba(116, 89, 19, .24), rgba(8, 24, 35, .58));
 }
 .detail-trail.rail-leg strong { color: #ffd34e; }
-.train-live-leg-outline,.train-live-leg-guide,.train-live-leg-progress { stroke-linecap: round; stroke-linejoin: round; }
+.train-published-route-outline,.train-published-route-guide,.train-live-leg-guide,.train-live-leg-progress { stroke-linecap: round; stroke-linejoin: round; }
+.train-published-route-guide { filter: drop-shadow(0 0 5px rgba(84, 215, 240, .94)); }
 .train-live-leg-guide { filter: drop-shadow(0 0 4px rgba(86, 214, 239, .92)); }
 .train-live-leg-progress { filter: drop-shadow(0 0 5px rgba(255, 211, 78, .96)); }
 .train-route-arrow { background: transparent; border: 0; }

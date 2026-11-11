@@ -11,7 +11,7 @@
   // Keep Leaflet's controls on the opposite edge so they can never sit over it.
   map.zoomControl?.setPosition?.('topright');
 
-  const tileSets = {standard:null};
+  const tileSets = {standard:null,rail:null};
   let currentBase = null;
 
   function baseTileLayer(config) {
@@ -43,10 +43,37 @@
       if(response.ok)config=await response.json();
     } catch {}
     tileSets.standard=baseTileLayer(config);
-    currentBase=tileSets.standard.addTo(map);
+    tileSets.rail=config?.configured&&config?.rail_tile_url
+      ? baseTileLayer({...config,tile_url:config.rail_tile_url})
+      : null;
     document.getElementById('map').dataset.mapProvider=config?.configured?'mapbox':'tomtom-fallback';
+    syncBaseMap();
   }
   configureBaseMap();
+
+  function railMapContextActive() {
+    const selected=selectedId ? activityById(selectedId) : null;
+    return selected?.type==='train'
+      || placeMode==='rail'
+      || selectedType==='train'
+      || selectedType==='cool-rail'
+      || enabledActivityTypes.has('train');
+  }
+
+  function syncBaseMap() {
+    const wantsRail=railMapContextActive();
+    const nextKey=wantsRail&&tileSets.rail?'rail':'standard';
+    const next=tileSets[nextKey];
+    const mapNode=document.getElementById('map');
+    if(mapNode){
+      mapNode.dataset.mapContext=wantsRail?'rail':'standard';
+      mapNode.dataset.baseStyle=nextKey;
+    }
+    if(!next||currentBase===next)return;
+    if(currentBase&&map.hasLayer(currentBase))map.removeLayer(currentBase);
+    currentBase=next.addTo(map);
+    currentBase.bringToBack?.();
+  }
 
   map.createPane('trafficPane');
   map.getPane('trafficPane').style.zIndex = '360';
@@ -120,6 +147,7 @@
   const movementHistory = new UKActivityMovementHistory({maxPoints:120,maxAgeMs:30*60*1000});
   let selectedTrailLayer = null;
   let selectedTrainRoute = null;
+  let selectedTrainPublishedRoute = null;
 
   let activities = [];
   let activitiesById = new Map();
@@ -529,6 +557,7 @@
     });
     const clear = $('clear-map');
     if (clear) clear.disabled = !enabledActivityTypes.size && placeMode === 'off' && trafficMode === 'off' && heatMode === 'off' && !webcamsEnabled;
+    syncBaseMap();
   }
 
   function updateCoolRailSubtypeUi() {
@@ -621,9 +650,7 @@
 
   function setMapMode(mode) {
     mode = 'standard';
-    if (currentBase && map.hasLayer(currentBase)) map.removeLayer(currentBase);
-    currentBase = tileSets.standard;
-    if(currentBase)currentBase.addTo(map);
+    syncBaseMap();
     $('map').dataset.mapMode = mode;
     try { localStorage.setItem('ukRadarMapMode', mode); } catch {}
     if (trafficMode !== 'off') renderTrafficLayer();
@@ -2062,19 +2089,21 @@
     $('map')?.removeAttribute('data-selected-trail-points');
   }
 
-  function clearSelectedTrainRoute() {
+  function clearSelectedTrainRoute(clearPublished=true) {
     if(selectedTrainRoute?.group&&map.hasLayer(selectedTrainRoute.group))map.removeLayer(selectedTrainRoute.group);
     selectedTrainRoute=null;
+    if(clearPublished)selectedTrainPublishedRoute=null;
     const mapNode=$('map');
     mapNode?.removeAttribute('data-selected-rail-route-points');
+    mapNode?.removeAttribute('data-selected-rail-leg-points');
     mapNode?.removeAttribute('data-selected-rail-route-arrows');
     mapNode?.removeAttribute('data-selected-rail-route-progress');
   }
 
   function updateSelectedTrainRouteProgress(a, now=Date.now()) {
-    if(!selectedTrainRoute||selectedTrainRoute.id!==a?.id)return;
+    if(!selectedTrainRoute||selectedTrainRoute.id!==a?.id||!selectedTrainRoute.progress||selectedTrainRoute.livePoints.length<2)return;
     const fraction=trainEstimateFraction(a,now);
-    const sample=pathSample(selectedTrainRoute.points,fraction);
+    const sample=pathSample(selectedTrainRoute.livePoints,fraction);
     if(!sample)return;
     selectedTrainRoute.progress.setLatLngs(sample.progress);
     const mapNode=$('map');
@@ -2082,14 +2111,23 @@
   }
 
   function renderSelectedTrainRoute(a, now=Date.now()) {
-    const points=trainEstimatePath(a);
-    if(points.length<2){clearSelectedTrainRoute();return false;}
-    const signature=`${a.id}|${points.map(point=>point.join(',')).join('|')}`;
+    const livePoints=trainEstimatePath(a);
+    const publishedPoints=selectedTrainPublishedRoute?.id===a?.id
+      ? selectedTrainPublishedRoute.points
+      : [];
+    const points=publishedPoints.length>=2 ? publishedPoints : livePoints;
+    if(points.length<2){clearSelectedTrainRoute(false);return false;}
+    const signature=`${a.id}|route:${points.map(point=>point.join(',')).join('|')}|leg:${livePoints.map(point=>point.join(',')).join('|')}`;
     if(selectedTrainRoute?.signature!==signature){
-      clearSelectedTrainRoute();
-      const outline=L.polyline(points,{pane:'trainRoutePane',color:'#07131b',weight:11,opacity:.78,interactive:false,className:'train-live-leg-outline'});
-      const guide=L.polyline(points,{pane:'trainRoutePane',color:'#8ee8f5',weight:6,opacity:.92,dashArray:'2 9',interactive:false,className:'train-live-leg-guide'});
-      const progress=L.polyline([points[0],points[0]],{pane:'trainRoutePane',color:'#ffd34e',weight:6,opacity:1,interactive:false,className:'train-live-leg-progress'});
+      clearSelectedTrainRoute(false);
+      const outline=L.polyline(points,{pane:'trainRoutePane',color:'#07131b',weight:12,opacity:.82,interactive:false,className:'train-published-route-outline'});
+      const guide=L.polyline(points,{pane:'trainRoutePane',color:'#54d7f0',weight:6,opacity:.96,interactive:false,className:'train-published-route-guide'});
+      const liveGuide=livePoints.length>=2
+        ? L.polyline(livePoints,{pane:'trainRoutePane',color:'#f7fbff',weight:3,opacity:.96,dashArray:'3 7',interactive:false,className:'train-live-leg-guide'})
+        : null;
+      const progress=livePoints.length>=2
+        ? L.polyline([livePoints[0],livePoints[0]],{pane:'trainRoutePane',color:'#ffd34e',weight:7,opacity:1,interactive:false,className:'train-live-leg-progress'})
+        : null;
       const samples=(pathSample(points,.36)?.total||0)<2 ? [.58] : [.34,.72];
       const arrows=samples.map(fraction=>{
         const sample=pathSample(points,fraction);
@@ -2103,11 +2141,12 @@
           })
         });
       }).filter(Boolean);
-      const group=L.layerGroup([outline,guide,progress,...arrows]).addTo(map);
-      selectedTrainRoute={id:a.id,signature,points,outline,guide,progress,arrows,group};
+      const group=L.layerGroup([outline,guide,liveGuide,progress,...arrows].filter(Boolean)).addTo(map);
+      selectedTrainRoute={id:a.id,signature,points,livePoints,outline,guide,liveGuide,progress,arrows,group};
       const mapNode=$('map');
       if(mapNode){
         mapNode.dataset.selectedRailRoutePoints=String(points.length);
+        mapNode.dataset.selectedRailLegPoints=String(livePoints.length);
         mapNode.dataset.selectedRailRouteArrows=String(arrows.length);
       }
     }
@@ -2126,7 +2165,9 @@
       box.classList.toggle('hidden',!shown);
       box.classList.toggle('rail-leg',shown);
       box.innerHTML=shown
-        ? `<strong>CURRENT RAIL LEG</strong><span>${esc(a.next_location?`Towards ${a.next_location}`:'Direction shown on map')}</span><small>Glow and arrows show the published direction. Position between railway reports is estimated.</small>`
+        ? `${selectedTrainPublishedRoute?.id===a.id
+          ? `<strong>PUBLISHED TRAIN ROUTE</strong><span>${esc(selectedTrainPublishedRoute.origin&&selectedTrainPublishedRoute.destination?`${selectedTrainPublishedRoute.origin} → ${selectedTrainPublishedRoute.destination}`:(a.next_location?`Towards ${a.next_location}`:'Route shown on map'))}</span>`
+          : `<strong>CURRENT RAIL LEG</strong><span>${esc(a.next_location?`Towards ${a.next_location}`:'Direction shown on map')}</span>`}<small>Cyan follows the published railway timing path. Gold shows live estimated progress between confirmed reports.</small>`
         : '';
       return;
     }
@@ -2209,6 +2250,28 @@
       const event=String(point?.event || point?.status || point?.type || '').trim();
       return !/^pass(?:es|ing|ed)?$/i.test(event);
     });
+  }
+
+  function railPublishedPath(detail) {
+    const runs=Array.isArray(detail?.runs)?detail.runs:[];
+    for(const run of runs){
+      const supplied=Array.isArray(run?.route_path)?run.route_path:[];
+      const fallback=railCallingPoints(run).map(point=>[point?.lat,point?.lon]);
+      const points=(supplied.length>=2?supplied:fallback)
+        .map(point=>[Number(point?.[0]),Number(point?.[1])])
+        .filter(point=>Number.isFinite(point[0])&&Number.isFinite(point[1]));
+      const deduped=points.filter((point,index)=>index===0||point[0]!==points[index-1][0]||point[1]!==points[index-1][1]);
+      if(deduped.length>=2)return {points:deduped,origin:providerName(run?.origin),destination:providerName(run?.destination)};
+    }
+    return null;
+  }
+
+  function applySelectedTrainPublishedRoute(a,detail) {
+    if(a?.type!=='train'||selectedId!==a.id)return;
+    const route=railPublishedPath(detail);
+    if(!route)return;
+    selectedTrainPublishedRoute={id:a.id,...route};
+    renderSelectedTrail(a);
   }
 
   function renderRailRun(run, index) {
@@ -2367,6 +2430,7 @@
       }
       if(!response.ok)throw new Error(payload?.detail || 'route detail unavailable');
       const detail=payload?.detail && typeof payload.detail==='object' ? payload.detail : payload;
+      if(a.type==='train')applySelectedTrainPublishedRoute(a,detail);
       const html=a.type==='train' ? renderRailIntelligence(detail) : renderBusIntelligence(detail);
       if(box.innerHTML!==html){const panel=$('detail-panel'),scrollTop=panel?.scrollTop||0;box.innerHTML=html;if(panel)panel.scrollTop=scrollTop;}
     } catch {
@@ -2383,10 +2447,12 @@
   function selectActivity(id, pan, focusZoom=null) {
     const selectionChanged = selectedId !== id || selectedPlaceId !== null;
     if (selectionChanged && trackedActivityId && trackedActivityId !== id) trackedActivityId = null;
+    if (selectionChanged) selectedTrainPublishedRoute=null;
     selectedPlaceId = null;
     selectedId = id;
     const a = activityById(id);
     if (!a) return;
+    syncBaseMap();
     showFocusMarker(a);
     $('save-place')?.classList.add('hidden'); $('share-activity')?.classList.remove('hidden');
     selectedDetailSignature = activityDetailSignature(a);
@@ -3802,6 +3868,7 @@
     if(selectedType==='cool-off'&&focusMarker){map.removeLayer(focusMarker);focusMarker=null;}
     if (selectedType === 'train' && map.getZoom() < 7) map.setZoom(7); if (selectedType === 'bus' && map.getZoom() < 7) map.setZoom(8); if (['vessel','sar'].includes(selectedType) && map.getZoom() < 6) map.setZoom(7);
     updateCoolRailSubtypeUi();
+    syncBaseMap();
     sendViewport();
     renderMap(); renderStats(); renderRanking(); renderCoolSummary(); renderLiveTicker();
     const count=activities.filter(a=>layerTypeMatch(a,selectedType)).length;
@@ -3819,6 +3886,7 @@
     selectedType='cool-rail';filteredCacheKey='';
     document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x.dataset.type==='cool-rail'));
     updateCoolRailSubtypeUi();
+    syncBaseMap();
     trackProduct('layer_selected', `cool-rail-${selectedRailSubtype}`);
     sendViewport();loadGlobalCool(false);
     renderMap(); renderStats(); renderRanking(); renderCoolSummary(); renderLiveTicker();
@@ -3858,6 +3926,7 @@
   $('journey-dialog')?.addEventListener('click',event=>{ if(event.target===$('journey-dialog'))closeJourneyPlanner(); });
   $('station-boards')?.addEventListener('click',async()=>{
     placeMode='rail'; $('place-mode').value='rail'; if(map.getZoom()<9) map.setZoom(10);
+    syncBaseMap();
     const c=map.getCenter();
     try {
       const r=await fetch(`/api/places/nearest-rail?lat=${encodeURIComponent(c.lat)}&lon=${encodeURIComponent(c.lng)}`,{cache:'no-store'});
@@ -3877,6 +3946,7 @@
     if(focusMarker){map.removeLayer(focusMarker);focusMarker=null;}
     clearSelectedTrail(); clearPhoto(); clearOperatorIdentity(); clearPlaceLink(); clearActivityIntelligence(); clearDiscoveryDetail();
     sendWatching(null);
+    syncBaseMap();
     $('track-activity')?.classList.add('hidden'); $('save-place')?.classList.add('hidden'); $('share-activity')?.classList.add('hidden');
     $('detail-sidebar')?.classList.add('is-empty'); $('detail-panel')?.classList.remove('has-selection');
     renderRanking();
