@@ -130,10 +130,16 @@ class TDCollector(StompFeed):
                 and str(existing.source_id or "").startswith(f"{area}:")
                 and event_time >= existing.last_updated
             ):
+                advanced = self._advance_schedule_estimate(existing, event_time)
                 existing.last_updated = event_time
                 existing.status = "TD live • next berth unresolved"
                 existing.position_method = "estimated"
-                existing.position_label = f"Holding the last mapped TD berth while {area} {fr or '—'}→{to or '—'} is unresolved"
+                existing.position_label = (
+                    f"Live TD step • following the matched published railway schedule while {area} "
+                    f"{fr or '—'}→{to or '—'} is not in SMART"
+                    if advanced or existing.estimate_path else
+                    f"Holding the last mapped TD berth while {area} {fr or '—'}→{to or '—'} is unresolved"
+                )
                 self.state.upsert(existing)
             if not replay:
                 status.movements_unmapped += 1
@@ -194,6 +200,7 @@ class TDCollector(StompFeed):
                 existing.estimate_due_at = None
                 existing.estimate_started_at = None
                 existing.next_location = None
+                existing.next_tiploc = None
             existing.last_updated = event_time
             existing.position_method = "estimated" if fallback else "network_report"
             offset_note = f" • corrected {berth_offset:+d}s" if event_kind and berth_offset else ""
@@ -222,10 +229,11 @@ class TDCollector(StompFeed):
                     schedule.schedule_id, schedule.running_date, station.get("tiploc"), event_time,
                     event_code=(row or {}).get("EVENT"), berth_offset_seconds=berth_offset,
                 )
-                if leg and not fallback and not preserve_leg:
+                if leg and (not fallback or event_kind == "Departure") and not preserve_leg:
                     existing.reported_lat = leg["lat"]; existing.reported_lon = leg["lon"]
                     existing.next_lat = leg["next_lat"]; existing.next_lon = leg["next_lon"]
                     existing.next_location = leg["next_name"]
+                    existing.next_tiploc = leg.get("next_tiploc")
                     existing.estimate_path = leg["path"]
                     existing.estimate_started_at = leg["started_at"]
                     existing.estimate_due_at = leg["due_at"]
@@ -236,7 +244,7 @@ class TDCollector(StompFeed):
                 schedule.running_date if schedule else None,
                 station.get("tiploc"), event_time,
                 event_code=(row or {}).get("EVENT"), berth_offset_seconds=berth_offset,
-            ) if not fallback else None
+            ) if (not fallback or event_kind == "Departure") else None
             self.state.upsert(Vehicle(
                 id=f"td:{area}:{descr}", type="train", name=descr,
                 subtitle=(
@@ -272,6 +280,7 @@ class TDCollector(StompFeed):
                 next_lat=leg["next_lat"] if leg else None,
                 next_lon=leg["next_lon"] if leg else None,
                 next_location=leg["next_name"] if leg else None,
+                next_tiploc=leg.get("next_tiploc") if leg else None,
                 estimate_path=leg["path"] if leg else None,
                 estimate_started_at=leg["started_at"] if leg else None,
                 estimate_due_at=leg["due_at"] if leg else None,
@@ -292,6 +301,58 @@ class TDCollector(StompFeed):
             )
         except (TypeError, ValueError):
             return None
+
+    def _schedule_departure_after_arrival(self, vehicle: Vehicle, observed_at: datetime):
+        if not self.schedules or not self.schedules.ready() or not vehicle.schedule_id or not vehicle.service_date:
+            return None
+        try:
+            service_day = datetime.fromisoformat(str(vehicle.service_date)).date()
+            return self.schedules.estimate_departure_leg_after_arrival(
+                vehicle.schedule_id, service_day, vehicle.next_tiploc or vehicle.rail_tiploc, observed_at,
+            )
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _apply_estimate_leg(vehicle: Vehicle, leg: dict) -> None:
+        vehicle.lat = leg["lat"]
+        vehicle.lon = leg["lon"]
+        vehicle.reported_lat = leg["lat"]
+        vehicle.reported_lon = leg["lon"]
+        vehicle.next_lat = leg["next_lat"]
+        vehicle.next_lon = leg["next_lon"]
+        vehicle.next_location = leg["next_name"]
+        vehicle.next_tiploc = leg.get("next_tiploc")
+        vehicle.estimate_path = leg["path"]
+        vehicle.estimate_started_at = leg["started_at"]
+        vehicle.estimate_due_at = leg["due_at"]
+
+    def _advance_schedule_estimate(self, vehicle: Vehicle, observed_at: datetime) -> bool:
+        """Bridge SMART gaps using the already matched service timetable.
+
+        TD remains the liveness signal.  This only advances a train after its
+        current mapped leg has elapsed and only along the same identified
+        schedule; the next mapped TD/TRUST report replaces the estimate.
+        """
+        advanced = False
+        for step in range(4):
+            due_at = vehicle.estimate_due_at
+            next_tiploc = str(vehicle.next_tiploc or "").strip().upper()
+            if not due_at or observed_at <= due_at or not next_tiploc:
+                break
+            leg = (
+                self._schedule_departure_after_arrival(vehicle, due_at)
+                if step == 0 and str(vehicle.rail_event_type or "").lower() == "arrival"
+                else self._schedule_leg(
+                    vehicle.schedule_id, vehicle.service_date, next_tiploc, due_at,
+                    event_code="D", berth_offset_seconds=0,
+                )
+            )
+            if not leg or leg.get("due_at") <= due_at:
+                break
+            self._apply_estimate_leg(vehicle, leg)
+            advanced = True
+        return advanced
 
     def _replay_pending(self) -> None:
         with self._pending_lock:

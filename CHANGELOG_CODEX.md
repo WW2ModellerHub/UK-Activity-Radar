@@ -1,5 +1,21 @@
 # Codex stabilization changelog
 
+## 2026-11-11 — continue live trains through railway reporting gaps
+
+- Hand confirmed station arrivals back to the published onward schedule after
+  the booked dwell, so a service no longer remains pinned at a station after it
+  has departed merely because its next TRUST report is delayed.
+- Carry mapped Train Describer services across short unresolved SMART berth
+  gaps using the identified schedule, while retaining explicit estimate labels
+  and replacing the estimate as soon as a verified railway report arrives.
+- Keep temporarily omitted trains for 90 seconds to survive feed hand-offs,
+  update their presentation every second, and shorten visual easing so markers
+  no longer lag several seconds behind their calculated position.
+- Fan trains reported at the same station or berth into individually tappable
+  markers, with numbered markers and leader lines back to the true rail point.
+- Added schedule, TRUST, TD and browser regressions for arrival dwell hand-off,
+  unresolved berth continuity, same-position separation and marker stability.
+
 ## 2026-11-11 — anchor selected trains to their live rail leg
 
 - Added a high-contrast selected-train rail leg beneath the marker so an

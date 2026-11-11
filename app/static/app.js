@@ -1033,10 +1033,22 @@
     const trainStyle=trainTheme && trainTheme.key!=='reference'
       ? ` style="background:${esc(trainTheme.primary)};border-color:${esc(trainTheme.accent)};color:${esc(trainTheme.ink)};box-shadow:0 4px 13px rgba(0,0,0,.38),0 0 0 3px ${esc(trainTheme.accent)}40"`
       : '';
+    const coincidentCount=type==='train' ? Math.max(1,Number(v._coincidentCount)||1) : 1;
+    const coincidentSlot=type==='train' ? Math.max(0,Number(v._coincidentSlot)||0) : 0;
+    const offsetX=coincidentCount>1 ? Number(v._coincidentX)||0 : 0;
+    const offsetY=coincidentCount>1 ? Number(v._coincidentY)||0 : 0;
+    const stemLength=Math.hypot(offsetX,offsetY);
+    const stemAngle=Math.atan2(-offsetY,-offsetX)*180/Math.PI;
+    const trainFan=coincidentCount>1
+      ? `<i class="train-coincident-stem" style="width:${stemLength.toFixed(1)}px;transform:rotate(${stemAngle.toFixed(1)}deg)"></i><i class="train-coincident-origin" style="transform:translate(${-offsetX}px,${-offsetY}px)"></i>`
+      : '';
+    const trainIndex=coincidentCount>1 ? `<b class="train-coincident-index" aria-hidden="true">${coincidentSlot+1}</b>` : '';
+    const sharedNote=coincidentCount>1 ? ` • ${coincidentCount} trains share this reported point` : '';
     return L.divIcon({
-      className: `marker-wrap marker-wrap-${esc(type)}`,
-      html: `<div class="motion-shell"><div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}"${trainStyle} title="${esc(v.position_label)}"><span>${icons[type] || '•'}</span></div>${pointer}${speedTag}</div>`,
-      iconSize: [42,42], iconAnchor: [21,21]
+      className: `marker-wrap marker-wrap-${esc(type)}${coincidentCount>1?' train-coincident-wrap':''}`,
+      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}"${trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}</div>${pointer}${speedTag}</div>`,
+      iconSize: [42,42], iconAnchor: [21-offsetX,21-offsetY],
+      tooltipAnchor: type==='train' ? [offsetX,offsetY-17] : [0,0]
     });
   }
 
@@ -1567,6 +1579,52 @@
     return `${Number(a.lat).toFixed(6)}|${Number(a.lon).toFixed(6)}`;
   }
 
+  function trainCoincidentLayouts(rows) {
+    const layouts=new Map();
+    let groupCount=0,separatedCount=0;
+    if(map.getZoom()>=10){
+      const groups=new Map();
+      for(const row of rows){
+        if(row?.type!=='train'||!Number.isFinite(Number(row.lat))||!Number.isFinite(Number(row.lon)))continue;
+        // Railway reporting points are shared coordinates. Five decimal places
+        // keeps genuinely separate trains separate while grouping the same
+        // station/berth point to roughly one metre.
+        const key=`${Number(row.lat).toFixed(5)}|${Number(row.lon).toFixed(5)}`;
+        if(!groups.has(key))groups.set(key,[]);
+        groups.get(key).push(row);
+      }
+      for(const group of groups.values()){
+        if(group.length<2)continue;
+        groupCount+=1;separatedCount+=group.length;
+        const ordered=[...group].sort((a,b)=>String(a.id).localeCompare(String(b.id)));
+        const count=ordered.length;
+        const radius=count===2?20:Math.min(44,Math.max(24,18/Math.sin(Math.PI/count)));
+        const start=count===2?0:-Math.PI/2;
+        ordered.forEach((row,index)=>{
+          const angle=start+(Math.PI*2*index/count);
+          layouts.set(row.id,{
+            count,slot:index,
+            x:Math.round(Math.cos(angle)*radius),
+            y:Math.round(Math.sin(angle)*radius),
+          });
+        });
+      }
+    }
+    $('map').dataset.coincidentTrainGroups=String(groupCount);
+    $('map').dataset.separatedTrainMarkers=String(separatedCount);
+    return layouts;
+  }
+
+  function withTrainCoincidentLayout(activity,layout) {
+    if(activity?.type!=='train')return activity;
+    return {...activity,
+      _coincidentCount:layout?.count||1,
+      _coincidentSlot:layout?.slot||0,
+      _coincidentX:layout?.x||0,
+      _coincidentY:layout?.y||0,
+    };
+  }
+
   const reduceLiveMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
   function pathSample(points, fraction) {
@@ -1661,7 +1719,7 @@
     const speed = zoomBand >= 1 ? a.speed : '';
     const speedUnit = zoomBand >= 2 ? a.speed_unit : '';
     const movementPosition=['aircraft','sar'].includes(a.type)?`${a.lat}|${a.lon}`:'';
-    return [a.type,a.position_method,a.name,a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon].join('|');
+    return [a.type,a.position_method,a.name,a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon,a._coincidentCount,a._coincidentSlot,a._coincidentX,a._coincidentY].join('|');
   }
 
   function markerTooltipSignature(a) {
@@ -1672,6 +1730,9 @@
   function renderMap() {
     const startedAt = performance.now();
     const rows = filteredActivities();
+    const now=Date.now();
+    const presentations=rows.map(row=>activityMapPresentation(row,now));
+    const coincidentLayouts=trainCoincidentLayouts(presentations);
     const shown = new Set(rows.map(a => a.id));
     let clusterDirty = false;
     for (const [id, marker] of markers.entries()) {
@@ -1681,8 +1742,9 @@
         markers.delete(id);
       }
     }
-    for (const a of rows) {
-      const displayActivity=activityMapPresentation(a);
+    for (let index=0;index<rows.length;index+=1) {
+      const a=rows[index];
+      const displayActivity=withTrainCoincidentLayout(presentations[index],coincidentLayouts.get(a.id));
       // Discover is a curated, deliberately small set. Never cluster those
       // markers: each find must remain individually visible at every zoom.
       const intendedGroup = currentWorkspace==='cool' || ['aircraft','sar'].includes(a.type) ? aerialMarkerGroup : markerGroup;
@@ -1740,17 +1802,28 @@
   function refreshLiveMarkerPositions() {
     if(document.hidden||reduceLiveMotion?.matches)return;
     const now=Date.now();
-    for(const a of filteredActivities()){
+    const rows=filteredActivities();
+    const presentations=rows.map(row=>activityMapPresentation(row,now));
+    const coincidentLayouts=trainCoincidentLayouts(presentations);
+    for(let index=0;index<rows.length;index+=1){
+      const a=rows[index];
       if(a.type!=='train'&&!(overheadActive&&['aircraft','sar'].includes(a.type)))continue;
       const marker=markers.get(a.id);if(!marker)continue;
-      const display=activityMapPresentation(a,now);
+      const display=withTrainCoincidentLayout(presentations[index],coincidentLayouts.get(a.id));
       const signature=markerPositionSignature(display);
+      const visualSignature=markerVisualSignature(display);
       if(selectedId===a.id&&a.type==='train')updateSelectedTrainRouteProgress(a,now);
-      if(signature===marker.__positionSignature)continue;
-      marker.setLatLng([display.lat,display.lon]);
-      marker.__positionSignature=signature;
-      diagnostics.markerMoves+=1;
-      if(trackedActivityId===a.id)map.panTo([display.lat,display.lon],{animate:false});
+      if(signature!==marker.__positionSignature){
+        marker.setLatLng([display.lat,display.lon]);
+        marker.__positionSignature=signature;
+        diagnostics.markerMoves+=1;
+        if(trackedActivityId===a.id)map.panTo([display.lat,display.lon],{animate:false});
+      }
+      if(visualSignature!==marker.__visualSignature){
+        marker.setIcon(markerIcon(display));
+        marker.__visualSignature=visualSignature;
+        diagnostics.markerVisualUpdates+=1;
+      }
     }
   }
 
@@ -3365,7 +3438,7 @@
             if(!activitiesById.has(id))return;
             replaceActivities(activities.filter(row=>row.id!==id));
             renderAll(latestSources);
-          },15000);
+          },90000);
           deferredTrainRemovals.set(id,timer);
         }else merged.delete(id);
       }

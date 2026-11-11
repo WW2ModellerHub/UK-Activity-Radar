@@ -173,7 +173,8 @@ class TrustCollector(StompFeed):
                     train_category=schedule.train_category, power_type=schedule.power_type,
                     timing_load=schedule.timing_load, booked_speed=schedule.booked_speed,
                     operating_characteristics=schedule.operating_characteristics,
-                    next_location=leg["next_name"], status="Activated • awaiting first movement report",
+                    next_location=leg["next_name"], next_tiploc=leg.get("next_tiploc"),
+                    status="Activated • awaiting first movement report",
                     position_method="estimated",
                     position_label="Timetable estimate from a live Network Rail activation; awaiting the first confirmed movement",
                     source="Network Rail TRUST activation", source_id=train_id,
@@ -316,6 +317,7 @@ class TrustCollector(StompFeed):
         estimate_path = None
         due_at = None
         next_name = None
+        next_tiploc = None
         try:
             run_minutes = float(body.get("next_report_run_time") or 0)
         except (TypeError, ValueError):
@@ -323,6 +325,7 @@ class TrustCollector(StompFeed):
         if event_type in {"Departure", "Pass"} and next_station and 0.25 <= run_minutes <= 60 and _km(station, next_station) <= 120:
             next_lat, next_lon = float(next_station["lat"]), float(next_station["lon"])
             next_name = next_station.get("name") or f"STANOX {next_stanox}"
+            next_tiploc = next_station.get("tiploc")
             due_at = event_time + timedelta(minutes=run_minutes)
             route_points = self.schedules.route_points(
                 activation.get("schedule_id"), station.get("tiploc"), next_station.get("tiploc")
@@ -334,6 +337,20 @@ class TrustCollector(StompFeed):
             if route_points[-1] != end_point:
                 route_points.append(end_point)
             estimate_path = route_points
+        elif event_type == "Arrival" and activation.get("schedule_id") and activation.get("service_date") and station.get("tiploc"):
+            try:
+                service_day = datetime.fromisoformat(str(activation["service_date"])).date()
+                leg = self.schedules.estimate_departure_leg_after_arrival(
+                    activation["schedule_id"], service_day, station["tiploc"], event_time,
+                )
+            except (TypeError, ValueError):
+                leg = None
+            if leg:
+                next_lat, next_lon = leg["next_lat"], leg["next_lon"]
+                next_name = leg["next_name"]
+                next_tiploc = leg.get("next_tiploc")
+                due_at = leg["due_at"]
+                estimate_path = leg["path"]
 
         operator = activation.get("atoc_code")
         if operator:
@@ -348,6 +365,8 @@ class TrustCollector(StompFeed):
 
         name = headcode or identity
         position_label = f"Confirmed report at {location_name}"
+        if event_type == "Arrival" and estimate_path:
+            position_label += " • onward estimate starts after the published station dwell"
         vehicle = Vehicle(
             # TD can see a service before TRUST activation/movement arrives.
             # Keep that first live identity so the browser moves one marker
@@ -374,6 +393,7 @@ class TrustCollector(StompFeed):
             booked_speed=activation.get("booked_speed"),
             operating_characteristics=activation.get("operating_characteristics"),
             next_location=next_name,
+            next_tiploc=next_tiploc,
             status=variation_status if str(body.get("train_terminated", "false")).lower() != "true" else "Terminated",
             delay_minutes=delay,
             position_method="network_report",
@@ -388,7 +408,7 @@ class TrustCollector(StompFeed):
             next_lat=next_lat,
             next_lon=next_lon,
             estimate_path=estimate_path,
-            estimate_started_at=event_time if due_at else None,
+            estimate_started_at=(leg["started_at"] if event_type == "Arrival" and estimate_path else event_time) if due_at else None,
             estimate_due_at=due_at,
         )
         self.state.upsert(vehicle)

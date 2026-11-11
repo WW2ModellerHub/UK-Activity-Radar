@@ -46,6 +46,7 @@ class Vehicle(BaseModel):
     bearing: float | None = None
     occupancy: str | None = None
     next_location: str | None = None
+    next_tiploc: str | None = None
     status: str = "Unknown"
     speed: float | None = None
     speed_unit: str | None = None
@@ -69,7 +70,10 @@ class Vehicle(BaseModel):
     cool_candidate: bool = False
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    # Optional next-report metadata retained for context. ``estimate_path`` is
+    # Optional next-report metadata retained for context. ``next_tiploc`` lets
+    # an unresolved Train Describer berth continue onto the following
+    # published timing leg without guessing a new geographic location.
+    # ``estimate_path`` is
     # built from mapped railway timing points when they are available, allowing
     # the browser to animate between sparse TRUST reports without drawing a
     # single chord across towns or fields.

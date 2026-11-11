@@ -194,6 +194,29 @@ test('live stream deltas update vehicles and hold transient train omissions with
   await expect.poll(() => page.evaluate(() => window.__leafletStats.markerMoves)).toBeGreaterThan(movesBefore);
 });
 
+test('trains sharing one station coordinate remain separate and tappable', async ({ page }) => {
+  await page.locator('#station-boards').click();
+  await expect(page.locator('#map')).toHaveAttribute('data-map-zoom','10');
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.evaluate(() => {
+    const first=window.__fixtureSnapshot.activities.find(row=>row.id==='train-live-1');
+    const second={...first,id:'train-live-same-station',name:'1C17 St Pancras',headcode:'1C17',train_uid:'C1C17'};
+    window.__fixtureSocket.onmessage({data:JSON.stringify({
+      ...window.__fixtureSnapshot,
+      activities:[first,second],
+      stream:{...window.__fixtureSnapshot.stream,selected_types:['train']},
+    })});
+  });
+  await expect(page.locator('.marker-wrap-train.train-coincident-wrap')).toHaveCount(2);
+  await expect(page.locator('.train-coincident-index')).toHaveText(['1','2']);
+  await expect(page.locator('.train-coincident-origin')).toHaveCount(2);
+  await expect(page.locator('#map')).toHaveAttribute('data-coincident-train-groups','1');
+  await expect(page.locator('#map')).toHaveAttribute('data-separated-train-markers','2');
+  await page.locator('#workspace-collapse').click();
+  await page.locator('.marker-wrap-train.train-coincident-wrap').nth(1).click();
+  await expect(page.locator('#detail-title')).toContainText('1C17 St Pancras');
+});
+
 test('trains move smoothly along mapped railway timing points between confirmed reports', async ({ page }) => {
   await page.locator('#station-boards').click();
   await page.locator('#detail-placeboard .board-clickable').first().click();

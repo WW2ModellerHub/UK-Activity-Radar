@@ -114,12 +114,21 @@ def test_out_of_order_movement_cannot_move_train_back_to_station(tmp_path):
     assert train.last_updated == now
 
 
-def test_arrival_has_no_departure_estimate(tmp_path):
+def test_arrival_hands_over_to_onward_estimate_after_booked_dwell(tmp_path):
     collector, state, now = make_collector(tmp_path)
+    local = now.astimezone(london_tz())
+    with collector.schedules._connect() as conn:
+        row = conn.execute("SELECT id,locations_json FROM schedules WHERE train_uid='C1F10'").fetchone()
+        locations = json.loads(row["locations_json"])
+        locations[0]["scheduled_arrival"] = (local-timedelta(minutes=1)).strftime("%H%M")
+        conn.execute("UPDATE schedules SET locations_json=? WHERE id=?", (json.dumps(locations), row["id"]))
     movement(collector, now, next_report_stanox="12346", next_report_run_time="15")
     train = state.get("nr:251F10MU05")
-    assert train.next_lat is None
-    assert train.estimate_due_at is None
+    assert train.next_location == "Market Harborough"
+    assert train.next_tiploc == "MARKTH"
+    assert train.estimate_started_at == now + timedelta(minutes=1)
+    assert train.estimate_due_at == now + timedelta(minutes=16)
+    assert "published station dwell" in train.position_label
 
 
 def test_departure_includes_a_mapped_railway_estimate_path(tmp_path):

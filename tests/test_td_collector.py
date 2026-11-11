@@ -171,6 +171,7 @@ def test_td_uses_smart_departure_offset_instead_of_restarting_at_station(tmp_pat
             [
                 ("HINCKLY", "59318", "Hinckley", 52.535, -1.371),
                 ("NARBORO", "59301", "Narborough", 52.571, -1.203),
+                ("LESTER", "59300", "Leicester", 52.631, -1.125),
             ],
         )
         conn.execute(
@@ -183,6 +184,7 @@ def test_td_uses_smart_departure_offset_instead_of_restarting_at_station(tmp_pat
                 "1P04", "Birmingham", "Leicester", json.dumps([
                     {"tiploc_code": "HINCKLY", "scheduled_departure": now.strftime("%H%M")},
                     {"tiploc_code": "NARBORO", "scheduled_arrival": (now+timedelta(minutes=10)).strftime("%H%M")},
+                    {"tiploc_code": "LESTER", "scheduled_arrival": (now+timedelta(minutes=20)).strftime("%H%M")},
                 ]),
             ),
         )
@@ -199,4 +201,19 @@ def test_td_uses_smart_departure_offset_instead_of_restarting_at_station(tmp_pat
     assert train.rail_event_type == "Departure"
     assert train.estimate_started_at == now - timedelta(seconds=82)
     assert train.estimate_due_at == now + timedelta(minutes=10, seconds=-82)
+    assert train.next_tiploc == "NARBORO"
     assert "corrected -82s" in train.position_label
+
+    collector.handle_message(json.dumps({"CA_MSG": {
+        "area_id": "WG", "from": "UNKNOWN", "to": "UNKNOWN", "descr": "1P04",
+        "time": int((now + timedelta(minutes=10)).timestamp() * 1000),
+    }}))
+
+    advanced = state.get("td:WG:1P04")
+    assert advanced.reported_lat == 52.571
+    assert advanced.reported_lon == -1.203
+    assert advanced.next_location == "Leicester"
+    assert advanced.next_tiploc == "LESTER"
+    assert advanced.estimate_started_at == now + timedelta(minutes=10, seconds=-82)
+    assert advanced.position_method == "estimated"
+    assert "matched published railway schedule" in advanced.position_label

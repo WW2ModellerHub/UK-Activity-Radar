@@ -417,7 +417,7 @@ class ScheduleStore:
             return {
                 "lat": first_point["lat"], "lon": first_point["lon"],
                 "next_lat": second_point["lat"], "next_lon": second_point["lon"],
-                "next_name": second_point["name"], "path": path,
+                "next_name": second_point["name"], "next_tiploc": second_code, "path": path,
                 "started_at": started_at, "due_at": due_at,
                 "tiploc": first_code,
             }
@@ -534,7 +534,7 @@ class ScheduleStore:
                 return {
                     "lat": previous_point["lat"], "lon": previous_point["lon"],
                     "next_lat": start_point["lat"], "next_lon": start_point["lon"],
-                    "next_name": start_point["name"], "path": path,
+                    "next_name": start_point["name"], "next_tiploc": start_code, "path": path,
                     "started_at": recorded_at - runtime, "due_at": recorded_at,
                     "tiploc": previous_code, "report_tiploc": start_code,
                     "event_kind": event_kind, "berth_offset_seconds": offset,
@@ -560,12 +560,58 @@ class ScheduleStore:
             return {
                 "lat": start_point["lat"], "lon": start_point["lon"],
                 "next_lat": next_point["lat"], "next_lon": next_point["lon"],
-                "next_name": next_point["name"], "path": path,
+                "next_name": next_point["name"], "next_tiploc": next_code, "path": path,
                 "started_at": recorded_at, "due_at": recorded_at + runtime,
                 "tiploc": start_code, "report_tiploc": start_code,
                 "event_kind": event_kind or None, "berth_offset_seconds": offset,
             }
         return None
+
+    def estimate_departure_leg_after_arrival(
+        self,
+        schedule_id: int | None,
+        running_date: date,
+        at_tiploc: str | None,
+        observed_arrival_at: datetime,
+    ) -> dict | None:
+        """Start the onward leg after the service's published station dwell.
+
+        TRUST often reports an arrival several minutes before its next
+        departure/pass event.  Holding the marker until that later message can
+        leave a train visibly behind.  The actual arrival is authoritative;
+        only the short booked dwell and onward railway path are inferred.
+        """
+        if not schedule_id or not at_tiploc:
+            return None
+        code = str(at_tiploc).strip().upper()
+        try:
+            with self._connect() as conn:
+                row = conn.execute("SELECT * FROM schedules WHERE id=?", (int(schedule_id),)).fetchone()
+                if row is None:
+                    return None
+                locations = self.timed_locations(row, running_date)
+        except (OSError, sqlite3.Error, TypeError, ValueError):
+            return None
+
+        candidates: list[tuple[float, datetime]] = []
+        for location in locations:
+            if str(location.get("tiploc_code") or "").strip().upper() != code:
+                continue
+            arrival = location.get("_arrival_at")
+            departure = location.get("_departure_at")
+            if not isinstance(arrival, datetime) or not isinstance(departure, datetime):
+                continue
+            dwell = departure - arrival
+            if dwell < timedelta(0) or dwell > timedelta(minutes=30):
+                continue
+            candidates.append((abs((arrival - observed_arrival_at).total_seconds()), observed_arrival_at + dwell))
+        if not candidates:
+            return None
+        _, estimated_departure = min(candidates, key=lambda item: item[0])
+        return self.estimate_leg_from(
+            schedule_id, running_date, code, estimated_departure,
+            event_code="D", berth_offset_seconds=0,
+        )
 
     @staticmethod
     def _clock_minutes(value: Any) -> float | None:

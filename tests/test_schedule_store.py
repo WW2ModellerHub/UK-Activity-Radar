@@ -306,6 +306,37 @@ def test_smart_departure_offset_starts_train_ahead_of_reporting_point(tmp_path):
     assert leg["started_at"] == observed - timedelta(seconds=82)
     assert leg["due_at"] == observed + timedelta(minutes=10, seconds=-82)
     assert leg["path"] == [[52.535, -1.371], [52.571, -1.203]]
+    assert leg["next_tiploc"] == "NARBORO"
+
+
+def test_confirmed_arrival_advances_after_published_station_dwell(tmp_path):
+    store = ScheduleStore(tmp_path / "schedule.sqlite")
+    schedule_id = _schedule(store, locations=[
+        {"tiploc_code": "HINCKLY", "scheduled_departure": "0750"},
+        {"tiploc_code": "LESTER", "scheduled_arrival": "0800", "scheduled_departure": "0801"},
+        {"tiploc_code": "MARKTH", "scheduled_arrival": "0815"},
+    ])
+    with store._connect() as conn:
+        conn.executemany(
+            "INSERT INTO tiplocs(tiploc,description,lat,lon) VALUES(?,?,?,?)",
+            [
+                ("HINCKLY", "Hinckley", 52.535, -1.371),
+                ("LESTER", "Leicester", 52.631, -1.125),
+                ("MARKTH", "Market Harborough", 52.478, -0.908),
+            ],
+        )
+    actual_arrival = datetime(2026, 11, 5, 8, 3, tzinfo=london_tz())
+
+    leg = store.estimate_departure_leg_after_arrival(
+        schedule_id, date(2026, 11, 5), "LESTER", actual_arrival,
+    )
+
+    assert leg is not None
+    assert leg["started_at"] == datetime(2026, 11, 5, 8, 4, tzinfo=london_tz())
+    assert leg["due_at"] == datetime(2026, 11, 5, 8, 18, tzinfo=london_tz())
+    assert leg["next_name"] == "Market Harborough"
+    assert leg["next_tiploc"] == "MARKTH"
+    assert leg["path"] == [[52.631, -1.125], [52.478, -0.908]]
 
 
 def test_smart_arrival_offset_keeps_train_on_approach_leg(tmp_path):
