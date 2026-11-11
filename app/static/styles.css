@@ -36,6 +36,10 @@ button { color: inherit; }
 .primary-button { width: 100%; border: 0; background: var(--accent); color: #06130e; font-weight: 800; }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 365px; min-height: calc(100vh - 107px); }
 .map-panel { position: relative; min-width: 0; min-height: 680px; border-right: 1px solid var(--border); }
+#live-object-map{position:absolute;inset:0;z-index:450;pointer-events:none;background:transparent}
+#live-object-map .maplibregl-canvas{outline:0}
+.maplibre-live-ready .leaflet-marker-icon.live-object-proxy{opacity:0!important}
+@media(prefers-reduced-motion:reduce){#live-object-map{display:none}.maplibre-live-ready .leaflet-marker-icon.live-object-proxy{opacity:1!important}}
 #map { height: calc(100vh - 107px); min-height: 680px; background: #0b141c; }
 .leaflet-control-attribution { font-size: 9px !important; background: rgba(9,16,24,.75) !important; color: #a3b1bd !important; }
 .leaflet-control-attribution a { color: #b7d6ff !important; }

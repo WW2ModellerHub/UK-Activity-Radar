@@ -1571,6 +1571,7 @@ def map_config():
         "tile_size": 512,
         "zoom_offset": -1,
         "max_zoom": 20,
+        "live_object_renderer": True,
         "attribution": (
             '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> '
             '&copy; <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener">Mapbox</a>'

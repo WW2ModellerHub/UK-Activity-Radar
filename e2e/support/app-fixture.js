@@ -137,6 +137,8 @@ async function installAppFixture(page) {
       if (pathname.startsWith('/static/vendor/') && pathname.endsWith('.js')) return route.fulfill({ contentType: 'text/javascript', body: '' });
       if (pathname.startsWith('/static/vendor/') && pathname.endsWith('.css')) return route.fulfill({ contentType: 'text/css', body: '' });
       if (pathname === '/static/movement-history.js') return route.fulfill({ contentType: 'text/javascript', body: read('app/static/movement-history.js') });
+      if (pathname === '/static/motion-engine.js') return route.fulfill({ contentType: 'text/javascript', body: read('app/static/motion-engine.js') });
+      if (pathname === '/static/live-object-renderer.js') return route.fulfill({ contentType: 'text/javascript', body: 'export class LiveObjectRenderer {}' });
       if (pathname === '/static/share.js') return route.fulfill({ contentType: 'text/javascript', body: read('app/static/share.js') });
       if (pathname === '/static/share.css') return route.fulfill({ contentType: 'text/css', body: read('app/static/share.css') });
       if (pathname === '/static/styles.css') return route.fulfill({ contentType: 'text/css', body: read('app/static/styles.css') });
@@ -145,7 +147,7 @@ async function installAppFixture(page) {
       if (pathname === '/static/service-worker.js') return route.fulfill({ contentType: 'text/javascript', body: 'self.addEventListener("fetch",()=>{});' });
       if (pathname === '/static/manifest.webmanifest') return route.fulfill({ contentType: 'application/manifest+json', body: '{}' });
       if (pathname.startsWith('/static/icon-')) return route.fulfill({ contentType: 'image/png', body: Buffer.alloc(0) });
-      if (pathname === '/api/map/config') return route.fulfill({ json:{provider:'Mapbox',configured:false,tile_url:null,tile_size:512,zoom_offset:-1,max_zoom:20,attribution:'Fixture map'} });
+      if (pathname === '/api/map/config') return route.fulfill({ json:{provider:'Mapbox',configured:false,tile_url:null,tile_size:512,zoom_offset:-1,max_zoom:20,attribution:'Fixture map',live_object_renderer:false} });
       if (pathname === '/api/places') return route.fulfill({ json: places });
       if (pathname === '/api/places/nearest-rail') return route.fulfill({ json: { place: places.places[0] } });
       if (pathname === '/api/places/nearest-bus') return route.fulfill({ json: { place: { ...places.places[1], distance_km:0.24 } } });

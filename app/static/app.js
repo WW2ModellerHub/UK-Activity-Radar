@@ -13,6 +13,7 @@
 
   const tileSets = {standard:null,rail:null};
   let currentBase = null;
+  let liveObjectRenderer = null;
 
   function baseTileLayer(config) {
     const direct=Boolean(config?.configured && config?.tile_url);
@@ -48,6 +49,19 @@
       : null;
     document.getElementById('map').dataset.mapProvider=config?.configured?'mapbox':'tomtom-fallback';
     syncBaseMap();
+    if(config?.live_object_renderer!==false&&window.UKActivityLiveRendererModule&&window.UKActivityMotionEngine){
+      try{
+        const module=await window.UKActivityLiveRendererModule;
+        liveObjectRenderer=new module.LiveObjectRenderer({
+          container:document.getElementById('live-object-map'),leafMap:map,motionEngine:window.UKActivityMotionEngine,
+          onReady:()=>renderMap(),
+        });
+        document.getElementById('map').dataset.liveRenderer='maplibre';
+      }catch(error){
+        document.getElementById('map').dataset.liveRenderer='leaflet-fallback';
+        console.warn('MapLibre live renderer unavailable; retaining Leaflet markers.',error);
+      }
+    }
   }
   configureBaseMap();
 
@@ -1660,6 +1674,7 @@
   const reduceLiveMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
   function pathSample(points, fraction) {
+    if(window.UKActivityMotionEngine)return window.UKActivityMotionEngine.samplePath(points,fraction);
     const usable=(Array.isArray(points)?points:[])
       .map(point=>[Number(point?.[0]),Number(point?.[1])])
       .filter(point=>Number.isFinite(point[0])&&Number.isFinite(point[1]));
@@ -1719,6 +1734,7 @@
   }
 
   function activityMapPresentation(a, now=Date.now()) {
+    if(window.UKActivityMotionEngine)return window.UKActivityMotionEngine.present(a,now,Boolean(reduceLiveMotion?.matches));
     if(!a)return a;
     if(a.type==='train'&&a.reported_lat!=null&&a.reported_lon!=null&&a.next_lat!=null&&a.next_lon!=null){
       const started=Date.parse(a.estimate_started_at||''),due=Date.parse(a.estimate_due_at||'');
@@ -1764,11 +1780,12 @@
     const rows = filteredActivities();
     const now=Date.now();
     const presentations=rows.map(row=>activityMapPresentation(row,now));
+    liveObjectRenderer?.setActivities(rows,selectedId);
     const coincidentLayouts=trainCoincidentLayouts(presentations);
     const shown = new Set(rows.map(a => a.id));
     let clusterDirty = false;
     for (const [id, marker] of markers.entries()) {
-      if (!shown.has(id)) {
+      if (!shown.has(id)||(liveObjectRenderer?.ready&&['train','aircraft','sar'].includes(marker.__activityType))) {
         if ((marker.__activityGroup || markerGroup) === markerGroup) clusterDirty = true;
         (marker.__activityGroup || markerGroup).removeLayer(marker);
         markers.delete(id);
@@ -1777,6 +1794,7 @@
     for (let index=0;index<rows.length;index+=1) {
       const a=rows[index];
       const displayActivity=withTrainCoincidentLayout(presentations[index],coincidentLayouts.get(a.id));
+      if(liveObjectRenderer?.ready&&['train','aircraft','sar'].includes(a.type))continue;
       // Discover is a curated, deliberately small set. Never cluster those
       // markers: each find must remain individually visible at every zoom.
       const intendedGroup = currentWorkspace==='cool' || ['aircraft','sar'].includes(a.type) ? aerialMarkerGroup : markerGroup;
@@ -1789,10 +1807,12 @@
         marker.bindTooltip(tooltipHtml(displayActivity), { direction: 'top', offset: [0,-13], opacity: 0.97, className: 'activity-tooltip', sticky: true });
         marker.on('click', () => selectActivity(a.id, true));
         marker.__activityGroup = intendedGroup;
+        marker.__activityType = a.type;
         marker.__positionSignature = positionSignature;
         marker.__visualSignature = visualSignature;
         marker.__tooltipSignature = tooltipSignature;
         intendedGroup.addLayer(marker);
+        if(['train','aircraft','sar'].includes(a.type))marker.getElement?.()?.classList.add('live-object-proxy');
         markers.set(a.id, marker);
         if (intendedGroup === markerGroup) clusterDirty = true;
         diagnostics.markersCreated += 1;
@@ -1819,6 +1839,7 @@
           marker.__tooltipSignature = tooltipSignature;
           diagnostics.markerTooltipUpdates += 1;
         }
+        if(['train','aircraft','sar'].includes(a.type))marker.getElement?.()?.classList.add('live-object-proxy');
       }
     }
     if (clusterDirty && typeof markerGroup.refreshClusters === 'function') markerGroup.refreshClusters();
@@ -1840,16 +1861,16 @@
     for(let index=0;index<rows.length;index+=1){
       const a=rows[index];
       if(a.type!=='train'&&!(overheadActive&&['aircraft','sar'].includes(a.type)))continue;
-      const marker=markers.get(a.id);if(!marker)continue;
       const display=withTrainCoincidentLayout(presentations[index],coincidentLayouts.get(a.id));
+      if(selectedId===a.id&&a.type==='train')updateSelectedTrainRouteProgress(a,now);
+      if(trackedActivityId===a.id)map.panTo([display.lat,display.lon],{animate:false});
+      const marker=markers.get(a.id);if(!marker)continue;
       const signature=markerPositionSignature(display);
       const visualSignature=markerVisualSignature(display);
-      if(selectedId===a.id&&a.type==='train')updateSelectedTrainRouteProgress(a,now);
       if(signature!==marker.__positionSignature){
         marker.setLatLng([display.lat,display.lon]);
         marker.__positionSignature=signature;
         diagnostics.markerMoves+=1;
-        if(trackedActivityId===a.id)map.panTo([display.lat,display.lon],{animate:false});
       }
       if(visualSignature!==marker.__visualSignature){
         marker.setIcon(markerIcon(display));
@@ -1861,6 +1882,7 @@
 
   function showFocusMarker(a) {
     if (focusMarker) { map.removeLayer(focusMarker); focusMarker=null; }
+    if(liveObjectRenderer?.ready&&['train','aircraft','sar'].includes(a?.type))return;
     if (!a || markers.has(a.id)) return;
     focusMarker=L.marker([a.lat,a.lon],{icon:markerIcon(a),riseOnHover:true,zIndexOffset:1200}).addTo(map);
     focusMarker.bindTooltip(tooltipHtml(a),{direction:'top',offset:[0,-13],opacity:.97,className:'activity-tooltip'});
@@ -2524,6 +2546,7 @@
     selectedId = id;
     const a = activityById(id);
     if (!a) return;
+    liveObjectRenderer?.setActivities(filteredActivities(),selectedId);
     setDetailRouteView(false);
     syncDetailRouteControl(a);
     syncBaseMap();
@@ -3900,6 +3923,8 @@
   }
 
   map.on('click', e => {
+    const liveId=liveObjectRenderer?.featureAt(e.containerPoint);
+    if(liveId){selectActivity(liveId,true);return;}
     if(window.matchMedia('(max-width: 760px)').matches){
       if(selectedTrainActivity())setDetailRouteView(true);
       else closeDetailSelection();

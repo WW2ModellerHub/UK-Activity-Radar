@@ -15,6 +15,7 @@ from typing import Any, Iterable, Callable
 import requests
 
 from .reference_data import FeedDownloadError, ensure_naptan_cache, merge_station_file
+from .railway_graph import RailwayRoutingGraph, distance_km
 from .timeutils import london_tz
 
 SCHEDULE_URLS = [
@@ -57,6 +58,9 @@ class ScheduleStore:
         self._rail_geo_lock = threading.RLock()
         self._rail_geo_mtime_ns: int | None = None
         self._rail_geo_by_tiploc: dict[str, dict[str, Any]] = {}
+        self._routing_graph_lock = threading.RLock()
+        self._routing_graph_version: str | None = None
+        self._routing_graph: RailwayRoutingGraph | None = None
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
@@ -117,12 +121,47 @@ class ScheduleStore:
                     platform TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_schedule_calls_tiploc ON schedule_calls(tiploc,schedule_id);
+                CREATE TABLE IF NOT EXISTS rail_edges(
+                    from_tiploc TEXT NOT NULL,
+                    to_tiploc TEXT NOT NULL,
+                    service_count INTEGER NOT NULL DEFAULT 1,
+                    PRIMARY KEY(from_tiploc,to_tiploc)
+                );
+                CREATE INDEX IF NOT EXISTS idx_rail_edges_to ON rail_edges(to_tiploc);
                 """
             )
             existing = {row[1] for row in conn.execute("PRAGMA table_info(schedules)")}
             for column in ("train_category", "power_type", "timing_load", "booked_speed", "operating_characteristics"):
                 if column not in existing:
                     conn.execute(f"ALTER TABLE schedules ADD COLUMN {column} TEXT")
+
+    def railway_routing_graph(self) -> RailwayRoutingGraph | None:
+        """Load the persisted timetable adjacency graph once per DB version."""
+        with self._routing_graph_lock:
+            try:
+                with self._connect() as conn:
+                    version_row = conn.execute("SELECT value FROM meta WHERE key='last_sync'").fetchone()
+                    version = str(version_row[0]) if version_row else "unsynced"
+                    if self._routing_graph_version == version:
+                        return self._routing_graph
+                    edges = [(row[0], row[1], row[2]) for row in conn.execute(
+                        "SELECT from_tiploc,to_tiploc,service_count FROM rail_edges"
+                    )]
+                    mapped = [(row[0], row[1], row[2]) for row in conn.execute(
+                        "SELECT tiploc,lat,lon FROM tiplocs WHERE lat IS NOT NULL AND lon IS NOT NULL"
+                    )]
+            except sqlite3.Error:
+                return None
+            if not edges:
+                self._routing_graph_version = version
+                self._routing_graph = None
+                return None
+            coordinates = {str(code).upper(): (float(lat), float(lon)) for code, lat, lon in mapped}
+            for code, point in self._fallback_tiploc_geography().items():
+                coordinates.setdefault(code, (float(point["lat"]), float(point["lon"])))
+            self._routing_graph = RailwayRoutingGraph(edges, coordinates)
+            self._routing_graph_version = version
+            return self._routing_graph
 
     def _fallback_tiploc_geography(self) -> dict[str, dict[str, Any]]:
         """Return cached broad TIPLOC geography without making a network call."""
@@ -452,7 +491,23 @@ class ScheduleStore:
             if point.get("lat") is not None and point.get("lon") is not None
         }
         points: list[list[float]] = []
-        for code in wanted:
+        expanded: list[str] = []
+        graph = self.railway_routing_graph()
+        for index, code in enumerate(wanted):
+            if not expanded:
+                expanded.append(code)
+                continue
+            previous = expanded[-1]
+            first_point, second_point = geo.get(previous), geo.get(code)
+            direct_distance = distance_km(tuple(first_point), tuple(second_point)) if first_point and second_point else 0
+            # Only replace suspiciously long timetable chords. Short published
+            # legs remain authoritative and avoid accidental branch detours.
+            routed = graph.route(previous, code, max_distance_km=min(80, direct_distance * 1.8)) if graph and direct_distance >= 5 else []
+            expanded.extend(routed[1:] if len(routed) > 2 else [code])
+        if expanded != wanted:
+            geography.update(self.location_geography(expanded))
+            geo.update({code: [float(point["lat"]), float(point["lon"])] for code, point in geography.items() if point.get("lat") is not None and point.get("lon") is not None})
+        for code in expanded:
             point = geo.get(code)
             if point and (not points or point != points[-1]):
                 points.append(point)
@@ -992,6 +1047,7 @@ def ingest_schedule_file(schedule_path: Path, store: ScheduleStore, naptan: dict
 
     tiploc_rows: dict[str, dict] = {}
     schedules_buffer: list[tuple] = []
+    rail_edges: dict[tuple[str, str], int] = {}
     schedule_count = 0
     tiploc_count = 0
 
@@ -1003,6 +1059,7 @@ def ingest_schedule_file(schedule_path: Path, store: ScheduleStore, naptan: dict
         conn.execute("PRAGMA cache_size=-150000")
         conn.execute("DELETE FROM schedules")
         conn.execute("DELETE FROM tiplocs")
+        conn.execute("DELETE FROM rail_edges")
         for line_no, line in enumerate(f, 1):
             if progress and line_no % 10000 == 0:
                 progress("index", {"lines": line_no, "schedules": schedule_count, "tiplocs": tiploc_count})
@@ -1039,6 +1096,11 @@ def ingest_schedule_file(schedule_path: Path, store: ScheduleStore, naptan: dict
             destination = locs[-1] if locs else {}
             origin_tiploc = str(origin.get("tiploc_code") or "").strip().upper() or None
             destination_tiploc = str(destination.get("tiploc_code") or "").strip().upper() or None
+            location_codes = [str(item.get("tiploc_code") or "").strip().upper() for item in locs if isinstance(item, dict)]
+            for first, second in zip(location_codes, location_codes[1:]):
+                if first and second and first != second:
+                    edge = tuple(sorted((first, second)))
+                    rail_edges[edge] = rail_edges.get(edge, 0) + 1
             schedules_buffer.append((
                 uid,
                 sched.get("schedule_start_date"), sched.get("schedule_end_date"), sched.get("schedule_days_runs"),
@@ -1067,6 +1129,10 @@ def ingest_schedule_file(schedule_path: Path, store: ScheduleStore, naptan: dict
                    timing_load,booked_speed,operating_characteristics) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 schedules_buffer,
             )
+        conn.executemany(
+            "INSERT INTO rail_edges(from_tiploc,to_tiploc,service_count) VALUES(?,?,?)",
+            ((first, second, count) for (first, second), count in rail_edges.items()),
+        )
 
         by_tiploc = naptan.get("by_tiploc", {})
         by_crs = naptan.get("by_crs", {})

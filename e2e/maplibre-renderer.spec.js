@@ -1,0 +1,30 @@
+const { test, expect } = require('@playwright/test');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const read = relative => fs.readFileSync(path.join(root, relative));
+
+test('MapLibre live layer renders trains and aircraft from one motion clock', async ({ page }) => {
+  const errors=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  await page.route('**/*', route => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname === '/static/live-object-renderer.js') return route.fulfill({contentType:'text/javascript',body:read('app/static/live-object-renderer.js')});
+    if (pathname === '/static/motion-engine.js') return route.fulfill({contentType:'text/javascript',body:read('app/static/motion-engine.js')});
+    if (pathname === '/static/vendor/maplibre/maplibre-gl.mjs') return route.fulfill({contentType:'text/javascript',body:read('app/static/vendor/maplibre/maplibre-gl.mjs')});
+    return route.fulfill({contentType:'text/html',body:`<!doctype html><html><body><div class="map-panel"><div id="live" style="width:640px;height:420px"></div></div><script src="/static/motion-engine.js"></script><script type="module">
+      import {LiveObjectRenderer} from '/static/live-object-renderer.js';
+      class LeafMap { constructor(){this.events={};} getCenter(){return {lat:52.6,lng:-1.2};} getZoom(){return 9;} on(names,handler){for(const name of names.split(' '))this.events[name]=handler;} off(){} }
+      const now=Date.now(),renderer=new LiveObjectRenderer({container:document.querySelector('#live'),leafMap:new LeafMap(),motionEngine:window.UKActivityMotionEngine});
+      renderer.setActivities([
+        {id:'train-1',type:'train',lat:52.6,lon:-1.2,reported_lat:52.6,reported_lon:-1.2,next_lat:52.7,next_lon:-1.1,estimate_path:[[52.6,-1.2],[52.65,-1.16],[52.7,-1.1]],estimate_started_at:new Date(now-30000).toISOString(),estimate_due_at:new Date(now+30000).toISOString()},
+        {id:'air-1',type:'aircraft',lat:52.5,lon:-1.3,bearing:90,speed:250,last_updated:new Date(now-3000).toISOString(),aircraft_model:'Airbus A320'}
+      ],'train-1');
+    </script></body></html>`});
+  });
+  await page.goto('http://radar.test/maplibre-test');
+  await expect(page.locator('#live')).toHaveAttribute('data-renderer','ready',{timeout:10000}).catch(error=>{throw new Error(`${error.message}\nBrowser errors: ${errors.join(' | ')}`);});
+  await expect(page.locator('#live')).toHaveAttribute('data-object-count','2');
+  await expect(page.locator('.map-panel')).toHaveClass(/maplibre-live-ready/);
+});
