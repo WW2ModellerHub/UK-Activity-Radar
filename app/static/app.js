@@ -182,6 +182,7 @@
   const interestCache = new WeakMap();
   const coolCache = new WeakMap();
   let selectedId = null;
+  let selectedActivitySnapshot = null;
   let selectedType = 'useful';
   let selectedRailSubtype = 'all';
   let selectedOperator = 'all';
@@ -1537,13 +1538,14 @@
     activities = Array.isArray(nextActivities) ? nextActivities : [];
     movementHistory.ingest(activities);
     activitiesById = new Map(activities.map(activity => [activity.id, activity]));
+    if(selectedId&&activitiesById.has(selectedId))selectedActivitySnapshot=activitiesById.get(selectedId);
     activityRevision += 1;
     filteredCacheKey = '';
     updateOperatorFilterOptions();
   }
 
   function activityById(id) {
-    return activitiesById.get(id) || globalCoolById.get(id);
+    return activitiesById.get(id) || globalCoolById.get(id) || (id===selectedId?selectedActivitySnapshot:null);
   }
 
   function globalCoolRows() {
@@ -1777,7 +1779,12 @@
 
   function renderMap() {
     const startedAt = performance.now();
-    const rows = filteredActivities();
+    let rows = filteredActivities();
+    const routeTrain=$('detail-sidebar')?.classList.contains('route-view')?selectedTrainActivity():null;
+    if(routeTrain){
+      rows=rows.filter(row=>row.type!=='train'||row.id===selectedId);
+      if(!rows.some(row=>row.id===routeTrain.id))rows=[...rows,routeTrain];
+    }
     const now=Date.now();
     const presentations=rows.map(row=>activityMapPresentation(row,now));
     liveObjectRenderer?.setActivities(rows,selectedId);
@@ -2119,18 +2126,24 @@
     if(!train)setDetailRouteView(false);
   }
 
-  function focusSelectedTrainRoute() {
-    const points=selectedTrainRoute?.points;
+  function focusSelectedTrainRoute({whole=false}={}) {
+    const route=selectedTrainRoute;
+    const points=whole ? route?.points : (route?.livePoints?.length>=2 ? route.livePoints : route?.points);
     if(!Array.isArray(points)||points.length<2){detailRouteFitPending=true;return false;}
     detailRouteFitPending=false;
     detailRouteAwaitPublishedFit=selectedTrainPublishedRoute?.id!==selectedTrainRoute.id;
     const mobile=window.matchMedia('(max-width: 760px)').matches;
-    map.fitBounds(L.latLngBounds(points),{
-      maxZoom:13,
-      paddingTopLeft:mobile?[84,64]:[60,60],
-      paddingBottomRight:mobile?[24,140]:[420,80],
-      animate:true,
-    });
+    const bounds=L.latLngBounds(points);
+    const paddingTopLeft=mobile?[84,64]:[60,60];
+    const paddingBottomRight=mobile?[24,140]:[420,80];
+    const padding=[Math.max(paddingTopLeft[0],paddingBottomRight[0]),Math.max(paddingTopLeft[1],paddingBottomRight[1])];
+    const fitted=map.getBoundsZoom?.(bounds,false,padding) ?? 11;
+    const zoom=whole?Math.min(13,fitted):Math.max(8,Math.min(13,fitted));
+    const center=bounds.getCenter?.() || {
+      lat:(Math.min(...points.map(point=>Number(point[0])))+Math.max(...points.map(point=>Number(point[0]))))/2,
+      lng:(Math.min(...points.map(point=>Number(point[1])))+Math.max(...points.map(point=>Number(point[1]))))/2,
+    };
+    map.setView(center,zoom,{animate:true});
     return true;
   }
 
@@ -2146,6 +2159,7 @@
     if('inert' in (panel||{}))panel.inert=collapsed;
     if(!collapsed){detailRouteFitPending=false;detailRouteAwaitPublishedFit=false;}
     if(collapsed&&fit)focusSelectedTrainRoute();
+    renderMap();
     if(collapsed&&focusPeek)$('detail-route-restore')?.focus({preventScroll:true});
     if(!collapsed&&focusDetails)$('detail-route-view')?.focus({preventScroll:true});
   }
@@ -2546,6 +2560,7 @@
     selectedId = id;
     const a = activityById(id);
     if (!a) return;
+    selectedActivitySnapshot=a;
     liveObjectRenderer?.setActivities(filteredActivities(),selectedId);
     setDetailRouteView(false);
     syncDetailRouteControl(a);
@@ -4055,7 +4070,7 @@
   $('detail-close')?.addEventListener('click',closeDetailSelection);
   $('detail-route-view')?.addEventListener('click',()=>setDetailRouteView(true,{fit:true,focusPeek:true}));
   $('detail-route-restore')?.addEventListener('click',()=>setDetailRouteView(false,{focusDetails:true}));
-  $('detail-route-fit')?.addEventListener('click',focusSelectedTrainRoute);
+  $('detail-route-fit')?.addEventListener('click',()=>focusSelectedTrainRoute({whole:true}));
   $('detail-route-close')?.addEventListener('click',closeDetailSelection);
   detailBackButton.addEventListener('click',()=>{const id=returnPlaceId;if(id)selectPlace(id,false);});
   $('traffic-style')?.addEventListener('change', e => { if(trafficMode!=='off') setTrafficMode(e.target.value); });

@@ -977,6 +977,14 @@ test('tapping bare map on mobile minimizes train details but keeps its route vis
   await expect(page.locator('.train-published-route-guide')).toHaveCount(1);
   await page.locator('#detail-route-view').click();
   await expect(page.locator('#detail-sidebar')).toHaveClass(/route-view/);
+  await expect.poll(async()=>Number(await page.locator('#map').getAttribute('data-map-zoom'))).toBeGreaterThanOrEqual(8);
+  await expect(page.locator('.marker-wrap-train')).toHaveCount(1);
+  await page.evaluate(()=>window.__fixtureSocket.onmessage?.({data:JSON.stringify({
+    ...window.__fixtureSnapshot,
+    activities:window.__fixtureSnapshot.activities.filter(row=>row.type!=='train'),
+  })}));
+  await expect(page.locator('.train-published-route-guide')).toHaveCount(1);
+  await expect(page.locator('.marker-wrap-train')).toHaveCount(1);
   await page.locator('#detail-route-close').click();
   await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
   await expect(page.locator('.train-published-route-guide')).toHaveCount(0);
