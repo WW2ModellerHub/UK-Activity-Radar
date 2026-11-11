@@ -955,15 +955,31 @@ test('mobile viewport keeps core navigation, map, and details usable', async ({ 
   expect(await page.locator('.cool-filter').evaluateAll(cards => cards.every(card => card.scrollWidth <= card.clientWidth))).toBe(true);
 });
 
-test('tapping bare map on mobile dismisses a deeply scrolled timetable and controls', async ({ page }) => {
+test('tapping bare map on mobile minimizes train details but keeps its route visible', async ({ page }) => {
   await page.setViewportSize({width:390,height:844});
   await page.locator('[data-layer-toggle="train"]').click();
   await page.locator('.marker-bubble').filter({hasText:'🚆'}).first().evaluate(el=>el.dispatchEvent(new MouseEvent('click',{bubbles:true})));
   await expect(page.locator('#detail-sidebar')).not.toHaveClass(/is-empty/);
+  await expect(page.locator('#detail-route-view')).toBeVisible();
+  await expect(page.locator('.train-published-route-guide')).toHaveCount(1);
   await page.locator('#detail-sidebar').evaluate(element=>{element.scrollTop=element.scrollHeight;});
   await page.locator('#map').evaluate(element=>element.dispatchEvent(new MouseEvent('click',{bubbles:true})));
-  await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
+  await expect(page.locator('#detail-sidebar')).toHaveClass(/route-view/);
+  await expect(page.locator('#detail-sidebar')).toHaveAttribute('data-detail-view','route');
+  await expect(page.locator('#detail-route-peek')).toBeVisible();
+  await expect(page.locator('.train-published-route-guide')).toHaveCount(1);
   await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
+  const peek=await page.locator('#detail-sidebar').boundingBox();
+  expect(peek.height).toBeLessThanOrEqual(66);
+  await page.locator('#detail-route-restore').click();
+  await expect(page.locator('#detail-sidebar')).not.toHaveClass(/route-view/);
+  await expect(page.locator('#detail-panel')).toBeVisible();
+  await expect(page.locator('.train-published-route-guide')).toHaveCount(1);
+  await page.locator('#detail-route-view').click();
+  await expect(page.locator('#detail-sidebar')).toHaveClass(/route-view/);
+  await page.locator('#detail-route-close').click();
+  await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
+  await expect(page.locator('.train-published-route-guide')).toHaveCount(0);
 });
 
 test('double tapping the mobile map zooms towards the tapped point', async ({ page }) => {

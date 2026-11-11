@@ -1,5 +1,16 @@
 # Codex stabilization changelog
 
+## 2026-11-11 — keep selected train routes visible on mobile
+
+- Split the mobile train-detail actions into a reversible route view and a true
+  close, so tapping the map no longer destroys the selected railway path.
+- Replace the tall train sheet with a compact, accessible route bar that can
+  restore details, refit the whole published route or close the selection.
+- Add a dedicated Route control to fit the full path, with mobile-safe spacing,
+  44-pixel controls and reduced-motion support.
+- Added browser regression coverage proving minimize/restore preserves the
+  route and that only an explicit close removes it.
+
 ## 2026-11-11 — align train routes to railway timing geography
 
 - Fill passenger-station gaps with the cached national TIPLOC geography so a

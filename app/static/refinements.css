@@ -123,4 +123,25 @@
 .transport-run-card.operator-themed .train-service-identity{border-left:5px solid var(--train-accent);background:linear-gradient(110deg,var(--train-primary),color-mix(in srgb,var(--train-secondary) 26%,#081017))}
 .aircraft-shape-helicopter .aircraft-silhouette svg .rotor,.aircraft-shape-apache .aircraft-silhouette svg .rotor,.aircraft-shape-chinook .aircraft-silhouette svg .rotor{fill:none;stroke:#ffe7da;stroke-width:1.5;stroke-linecap:round;opacity:.95}
 .aircraft-shape-helicopter .rotor-hub,.aircraft-shape-apache .rotor-hub,.aircraft-shape-chinook .rotor-hub{fill:#fff1e8;stroke:#512f2a;stroke-width:1}
+
+/* Route view keeps a selected railway path alive while replacing the tall
+   detail sheet with a small, reversible control bar. The close button remains
+   a true close; minimizing never clears selection or map geometry. */
+.detail-head>div:first-child{min-width:0}.detail-head-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.detail-route-view{min-width:64px;height:44px;padding:0 10px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid color-mix(in srgb,var(--operator-accent,#54d7f0) 42%,#344b5e);border-radius:10px;background:rgba(16,34,47,.92);color:#dff7ff;font:inherit;font-size:9px;font-weight:900;cursor:pointer}
+.detail-route-view:hover,.detail-route-view:focus-visible{border-color:#63dff3;background:#17394a;color:#fff;outline:0}.detail-route-view svg,.detail-route-restore svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.detail-route-peek{height:64px;padding:7px;display:grid;grid-template-columns:minmax(0,1fr) 44px 44px;gap:6px;align-items:stretch;background:linear-gradient(110deg,rgba(9,24,34,.98),rgba(12,19,28,.98));border-radius:14px}
+.detail-route-restore,.detail-route-fit,.detail-route-peek-close{min-width:44px;min-height:44px;border:1px solid #31495c;border-radius:9px;background:#122230;color:#e5f1f7;font:inherit;cursor:pointer}
+.detail-route-restore{min-width:0;padding:0 10px;display:grid;grid-template-columns:22px minmax(0,1fr);gap:8px;align-items:center;text-align:left;color:#73ddf1}.detail-route-restore span{min-width:0}.detail-route-restore strong,.detail-route-restore small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.detail-route-restore strong{color:#f0f7fa;font-size:10px}.detail-route-restore small{margin-top:2px;color:#8ea4b3;font-size:7.5px}.detail-route-fit{font-size:9px;font-weight:900;color:#bff4ff}.detail-route-peek-close{font-size:20px;color:#9cb0be}
+.detail-route-restore:hover,.detail-route-restore:focus-visible,.detail-route-fit:hover,.detail-route-fit:focus-visible,.detail-route-peek-close:hover,.detail-route-peek-close:focus-visible{border-color:#63dff3;background:#17394a;outline:0}
+.v12-detail.route-view{top:auto!important;bottom:52px!important;height:64px!important;min-height:64px!important;max-height:64px!important;overflow:hidden!important;padding:0!important;border-color:rgba(84,215,240,.55)!important;box-shadow:0 12px 34px rgba(0,0,0,.35)}
+.v12-detail.route-view .detail-panel{display:none!important}
+
+@media(max-width:760px){
+  .detail-route-view,.detail-close{height:44px!important;min-height:44px!important}
+  .detail-close{width:44px!important}
+  .v12-detail.route-view{left:66px!important;right:8px!important;bottom:52px!important;width:auto!important}
+}
+@media(max-width:380px){.detail-route-restore small{display:none}.detail-route-view{min-width:52px;padding:0 8px}.detail-route-view span{display:none}}
+@media(prefers-reduced-motion:reduce){.v12-detail{transition:none!important}}
 .aircraft-shape-helicopter .tail-boom,.aircraft-shape-helicopter .tail-plane,.aircraft-shape-apache .stub-wing,.aircraft-shape-chinook .tail-plane{fill:none;stroke:currentColor;stroke-width:4;stroke-linecap:round}

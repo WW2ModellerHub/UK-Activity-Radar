@@ -148,6 +148,8 @@
   let selectedTrailLayer = null;
   let selectedTrainRoute = null;
   let selectedTrainPublishedRoute = null;
+  let detailRouteFitPending = false;
+  let detailRouteAwaitPublishedFit = false;
 
   let activities = [];
   let activitiesById = new Map();
@@ -1162,6 +1164,7 @@
   function selectCamera(camera, pan) {
     if (!camera) return;
     selectedId=null; selectedPlaceId=null; trackedActivityId=null; selectedDetailSignature=''; sendWatching(null); clearPlaceLink(); clearPhoto(); clearPlaceBoard(); clearActivityIntelligence(); clearCoverage(); clearDiscoveryDetail();
+    syncDetailRouteControl(null);
     $('detail-panel')?.classList.add('has-selection'); $('detail-sidebar')?.classList.remove('is-empty');
     $('detail-title').textContent=`📷 ${camera.name || 'Live traffic camera'}`;
     $('detail-subtitle').textContent=[camera.view,camera.source].filter(Boolean).join(' • ') || 'Verified live camera';
@@ -1255,6 +1258,7 @@
     const uid=btn.dataset.trainUid || '';
     if(!uid)return false;
     selectedId=null; selectedPlaceId=null; trackedActivityId=null; sendWatching(null);
+    syncDetailRouteControl(null);
     if(focusMarker){map.removeLayer(focusMarker);focusMarker=null;}
     clearPlaceLink(); clearPlaceBoard(); clearPhoto(); clearOperatorIdentity(); clearDiscoveryDetail();
     $('detail-panel')?.classList.add('has-selection');
@@ -1445,6 +1449,7 @@
     const p=places.find(x=>x.id===id) || placeBoardCache.get(id)?.place; if(!p)return;
     clearPlaceBoard();
     selectedPlaceId=id; selectedId=null; trackedActivityId=null; selectedDetailSignature=''; sendWatching(null); clearPlaceLink(); clearOperatorIdentity(); clearActivityIntelligence();
+    syncDetailRouteControl(null);
     returnPlaceId=null; detailBackButton.classList.add('hidden');
     $('detail-panel')?.classList.add('has-selection');
     $('detail-sidebar')?.classList.remove('is-empty');
@@ -2078,6 +2083,51 @@
     return box;
   }
 
+  function selectedTrainActivity() {
+    const activity=selectedId ? activityById(selectedId) : null;
+    return activity?.type==='train' ? activity : null;
+  }
+
+  function syncDetailRouteControl(activity=selectedTrainActivity()) {
+    const train=activity?.type==='train' ? activity : null;
+    const button=$('detail-route-view');
+    button?.classList.toggle('hidden',!train);
+    const title=$('detail-route-peek-title');
+    if(title)title.textContent=train?.name || 'Selected train';
+    if(!train)setDetailRouteView(false);
+  }
+
+  function focusSelectedTrainRoute() {
+    const points=selectedTrainRoute?.points;
+    if(!Array.isArray(points)||points.length<2){detailRouteFitPending=true;return false;}
+    detailRouteFitPending=false;
+    detailRouteAwaitPublishedFit=selectedTrainPublishedRoute?.id!==selectedTrainRoute.id;
+    const mobile=window.matchMedia('(max-width: 760px)').matches;
+    map.fitBounds(L.latLngBounds(points),{
+      maxZoom:13,
+      paddingTopLeft:mobile?[84,64]:[60,60],
+      paddingBottomRight:mobile?[24,140]:[420,80],
+      animate:true,
+    });
+    return true;
+  }
+
+  function setDetailRouteView(active,{fit=false,focusPeek=false,focusDetails=false}={}) {
+    const sidebar=$('detail-sidebar');
+    const panel=$('detail-panel');
+    const peek=$('detail-route-peek');
+    const collapsed=Boolean(active&&selectedTrainActivity());
+    sidebar?.classList.toggle('route-view',collapsed);
+    if(sidebar)sidebar.dataset.detailView=collapsed?'route':'full';
+    peek?.classList.toggle('hidden',!collapsed);
+    panel?.setAttribute('aria-hidden',String(collapsed));
+    if('inert' in (panel||{}))panel.inert=collapsed;
+    if(!collapsed){detailRouteFitPending=false;detailRouteAwaitPublishedFit=false;}
+    if(collapsed&&fit)focusSelectedTrainRoute();
+    if(collapsed&&focusPeek)$('detail-route-restore')?.focus({preventScroll:true});
+    if(!collapsed&&focusDetails)$('detail-route-view')?.focus({preventScroll:true});
+  }
+
   function clearSelectedTrail() {
     if (selectedTrailLayer) map.removeLayer(selectedTrailLayer);
     selectedTrailLayer = null;
@@ -2155,6 +2205,9 @@
       }
     }
     updateSelectedTrainRouteProgress(a,now);
+    if(detailRouteFitPending&&$('detail-sidebar')?.classList.contains('route-view')){
+      requestAnimationFrame(()=>focusSelectedTrainRoute());
+    }
     return true;
   }
 
@@ -2288,6 +2341,9 @@
     if(!route)return;
     selectedTrainPublishedRoute={id:a.id,...route};
     renderSelectedTrail(a);
+    if(detailRouteAwaitPublishedFit&&$('detail-sidebar')?.classList.contains('route-view')){
+      requestAnimationFrame(()=>focusSelectedTrainRoute());
+    }
   }
 
   function renderRailRun(run, index) {
@@ -2468,6 +2524,8 @@
     selectedId = id;
     const a = activityById(id);
     if (!a) return;
+    setDetailRouteView(false);
+    syncDetailRouteControl(a);
     syncBaseMap();
     showFocusMarker(a);
     $('save-place')?.classList.add('hidden'); $('share-activity')?.classList.remove('hidden');
@@ -3843,7 +3901,8 @@
 
   map.on('click', e => {
     if(window.matchMedia('(max-width: 760px)').matches){
-      closeDetailSelection();
+      if(selectedTrainActivity())setDetailRouteView(true);
+      else closeDetailSelection();
       setWorkspaceCollapsed(true);
       hideSearchResults();
     }
@@ -3957,6 +4016,7 @@
     const tt=$('detail-tech-toggle'); if(tt)tt.textContent='More details';
     const closingTransientStop=selectedPlaceId&&selectedPlaceId===transientNearestBusPlaceId;
     selectedId=null; selectedPlaceId=null; returnPlaceId=null; detailBackButton.classList.add('hidden');
+    syncDetailRouteControl(null);
     trackedActivityId=null; selectedDetailSignature='';
     if(closingTransientStop)clearTransientLocationModes();
     if(focusMarker){map.removeLayer(focusMarker);focusMarker=null;}
@@ -3968,6 +4028,10 @@
     renderRanking();
   }
   $('detail-close')?.addEventListener('click',closeDetailSelection);
+  $('detail-route-view')?.addEventListener('click',()=>setDetailRouteView(true,{fit:true,focusPeek:true}));
+  $('detail-route-restore')?.addEventListener('click',()=>setDetailRouteView(false,{focusDetails:true}));
+  $('detail-route-fit')?.addEventListener('click',focusSelectedTrainRoute);
+  $('detail-route-close')?.addEventListener('click',closeDetailSelection);
   detailBackButton.addEventListener('click',()=>{const id=returnPlaceId;if(id)selectPlace(id,false);});
   $('traffic-style')?.addEventListener('change', e => { if(trafficMode!=='off') setTrafficMode(e.target.value); });
   $('place-mode').addEventListener('change', e => { placeMode=e.target.value || 'off'; trackProduct('smart_places_selected', placeMode); fetchPlaces(); updateLayerToggleUi(); });
