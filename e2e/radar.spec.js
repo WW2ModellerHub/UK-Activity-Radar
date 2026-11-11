@@ -160,7 +160,7 @@ test('source-health-only deltas skip the map render path', async ({ page }) => {
   });
 });
 
-test('live stream deltas update one activity and remove ended activity without a full snapshot', async ({ page }) => {
+test('live stream deltas update vehicles and hold transient train omissions without flicker', async ({ page }) => {
   await page.locator('[data-layer-toggle="train"]').click();
   await page.locator('[data-layer-toggle="bus"]').click();
   await expect(page.locator('.marker-bubble')).toHaveCount(3);
@@ -177,8 +177,20 @@ test('live stream deltas update one activity and remove ended activity without a
       summary:window.__fixtureSnapshot.summary,
     })});
   });
-  await expect(page.locator('.marker-bubble')).toHaveCount(2);
-  await expect(page.locator('#map')).toHaveAttribute('data-activity-count','2');
+  // A single missing rail delta is not proof that the train ended. Keep the
+  // existing marker during the grace period so a feed hand-off cannot blink.
+  await expect(page.locator('.marker-bubble')).toHaveCount(3);
+  const retainedTrain = await page.evaluate(() => window.__fixtureSnapshot.activities.find(row => row.id === 'train-live-1'));
+  await page.evaluate(train => {
+    window.__fixtureSocket.onmessage({data:JSON.stringify({
+      activity_delta:{upsert:[train],remove:[]},
+      stream:{transport:'delta',upserts:1,removals:0,selected_types:['train','bus']},
+      sources:window.__fixtureSnapshot.sources,
+      summary:window.__fixtureSnapshot.summary,
+    })});
+  }, retainedTrain);
+  await expect(page.locator('.marker-bubble')).toHaveCount(3);
+  await expect(page.locator('#map')).toHaveAttribute('data-activity-count','3');
   await expect.poll(() => page.evaluate(() => window.__leafletStats.markerMoves)).toBeGreaterThan(movesBefore);
 });
 

@@ -161,3 +161,23 @@ def test_late_activation_enriches_existing_position_immediately(tmp_path):
     }}))
     assert state.get("nr:251F10MU05").train_uid == "KNOWN1"
     assert state.get("nr:251F10MU05").last_updated == now
+
+
+def test_trust_reuses_a_td_marker_for_the_same_scheduled_service(tmp_path):
+    collector, state, now = make_collector(tmp_path)
+    state.upsert(Vehicle(
+        id="td:DY:1F10", type="train", name="1F10", headcode="1F10",
+        train_uid="C1F10", service_date=now.astimezone(london_tz()).date().isoformat(),
+        lat=52.631, lon=-1.125, source="Network Rail TD",
+        last_updated=now-timedelta(seconds=10),
+    ))
+    collector.handle_message(json.dumps({"header": {"msg_type": "0001"}, "body": {
+        "train_id": "251F10MU05", "train_uid": "C1F10", "toc_id": "28",
+        "origin_dep_timestamp": int(now.timestamp() * 1000),
+        "creation_timestamp": int(now.timestamp() * 1000),
+    }}))
+    assert state.get("td:DY:1F10").destination == "Sheffield"
+    assert state.get("nr:251F10MU05") is None
+    movement(collector, now)
+    assert state.get("td:DY:1F10").source == "Network Rail TRUST"
+    assert state.get("nr:251F10MU05") is None

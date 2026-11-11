@@ -2109,8 +2109,16 @@ async def websocket_updates(websocket: WebSocket):
                 settings.maritime_max_stream,
                 450 if zoom < 7 else 600 if zoom < 9 else 1000 if zoom < 10 else settings.maritime_max_stream,
             )
+            west, south, east, north = viewport["bbox"]
+            # A train can be visually interpolated ahead of its last confirmed
+            # reporting point. Keep a modest off-screen rail buffer so crossing
+            # a viewport edge or panning a few pixels cannot remove/recreate it.
+            lon_pad = max(0.01, abs(east - west) * 0.2)
+            lat_pad = max(0.01, abs(north - south) * 0.2)
+            train_bbox = (west - lon_pad, south - lat_pad, east + lon_pad, north + lat_pad)
             streamed_vehicles = state.all(
                 bbox=viewport["bbox"],
+                train_bbox=train_bbox,
                 include_trains=include_trains,
                 train_limit=train_limit,
                 cool_trains_only=zoom < settings.train_min_map_zoom,

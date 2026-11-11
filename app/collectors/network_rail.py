@@ -146,6 +146,11 @@ class TrustCollector(StompFeed):
             for key, value in activation.items()
         }
         existing = self.state.get(f"nr:{canonical_id}")
+        if not isinstance(existing, Vehicle) and self.activations[canonical_id].get("train_uid"):
+            existing = self.state.find_train_by_uid(
+                self.activations[canonical_id]["train_uid"],
+                self.activations[canonical_id].get("service_date"),
+            )
         if isinstance(existing, Vehicle):
             self._enrich_existing(existing, self.activations[canonical_id])
             self.state.upsert(existing)
@@ -282,6 +287,10 @@ class TrustCollector(StompFeed):
         activation = self._recover_activation(
             canonical_id, identity, body, station, stanox, event_time, existing,
         )
+        if existing is None and activation.get("train_uid"):
+            existing = self.state.find_train_by_uid(
+                activation["train_uid"], activation.get("service_date")
+            )
         headcode = activation.get("headcode") or _headcode_from_train_id(identity)
         variation = body.get("timetable_variation")
         try:
@@ -340,7 +349,10 @@ class TrustCollector(StompFeed):
         name = headcode or identity
         position_label = f"Confirmed report at {location_name}"
         vehicle = Vehicle(
-            id=f"nr:{canonical_id}",
+            # TD can see a service before TRUST activation/movement arrives.
+            # Keep that first live identity so the browser moves one marker
+            # rather than deleting a TD marker and creating an NR marker.
+            id=existing.id if existing else f"nr:{canonical_id}",
             type="train",
             name=name,
             subtitle=subtitle,

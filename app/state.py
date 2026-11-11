@@ -147,6 +147,7 @@ class LiveState:
         self,
         max_age_minutes: int = 45,
         bbox: tuple[float, float, float, float] | None = None,
+        train_bbox: tuple[float, float, float, float] | None = None,
         include_trains: bool = True,
         train_limit: int | None = None,
         cool_trains_only: bool = False,
@@ -189,7 +190,8 @@ class LiveState:
                 elif stored.last_updated < cutoff:
                     continue
 
-                if not _inside(stored.lat, stored.lon, bbox):
+                effective_bbox = train_bbox if stored.type == "train" and train_bbox is not None else bbox
+                if not _inside(stored.lat, stored.lon, effective_bbox):
                     continue
 
                 if stored.type == "train":

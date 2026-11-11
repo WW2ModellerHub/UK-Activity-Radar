@@ -4,6 +4,7 @@
   // to supply this value.
   const DEFAULT_MAP_VIEW = [54.1, -2.5];
   const map = L.map('map', { zoomControl: true, preferCanvas: true, maxZoom: 20, doubleClickZoom: false }).setView(DEFAULT_MAP_VIEW, 6);
+  map.attributionControl?.addAttribution?.('<a href="/data-licences">Rail data © Network Rail Infrastructure Ltd · Powered by National Rail Enquiries</a>');
   let lastKnownDeviceLocation = null;
   let deviceLocationMarker = null;
   // The navigation drawer owns the left edge of the map on every breakpoint.
@@ -116,6 +117,7 @@
 
   let activities = [];
   let activitiesById = new Map();
+  const deferredTrainRemovals = new Map();
   let globalCoolActivities = [];
   let globalCoolAvailability = {fullAccess:false,total:0,counts:{air:0,rail:0,rescue:0}};
   let globalCoolById = new Map();
@@ -3245,11 +3247,31 @@
     let streamed;
     if (isDelta) {
       const merged = new Map(activities.map(row=>[row.id,row]));
-      for (const id of payload.activity_delta.remove || []) merged.delete(id);
-      for (const row of payload.activity_delta.upsert || []) if (row?.id) merged.set(row.id,row);
+      for (const id of payload.activity_delta.remove || []) {
+        const current=merged.get(id);
+        if(current?.type==='train'){
+          if(deferredTrainRemovals.has(id))continue;
+          const timer=setTimeout(()=>{
+            deferredTrainRemovals.delete(id);
+            if(!activitiesById.has(id))return;
+            replaceActivities(activities.filter(row=>row.id!==id));
+            renderAll(latestSources);
+          },15000);
+          deferredTrainRemovals.set(id,timer);
+        }else merged.delete(id);
+      }
+      for (const row of payload.activity_delta.upsert || []) if (row?.id) {
+        const pending=deferredTrainRemovals.get(row.id);
+        if(pending){clearTimeout(pending);deferredTrainRemovals.delete(row.id);}
+        merged.set(row.id,row);
+      }
       streamed = [...merged.values()];
     } else {
       streamed = payload.activities || [...(payload.vehicles || []), ...(payload.events || [])];
+      for(const row of streamed){
+        const pending=deferredTrainRemovals.get(row?.id);
+        if(pending){clearTimeout(pending);deferredTrainRemovals.delete(row.id);}
+      }
     }
     const nextActivities = overheadActive
       ? [...new Map([...streamed,...nearbyAircraftRows].map(row=>[row.id,row])).values()]

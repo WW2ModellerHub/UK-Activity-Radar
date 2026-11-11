@@ -1,5 +1,19 @@
 # Codex stabilization changelog
 
+## 2026-11-11 — persistent and smoother live trains
+
+- Unified TRUST and Train Describer updates for the same scheduled service so a
+  TD-first train keeps one stable map identity when TRUST activates it later.
+- Converted mapped TD berth reports into continuous, explicitly estimated
+  movement along the published timetable path to the next mapped timing point.
+- Retained the last mapped position across unresolved signalling steps, added a
+  buffered rail viewport, and delayed removal after one missing stream delta so
+  transient feed gaps no longer make a marker blink off and back on.
+- Added the required Network Rail Infrastructure Limited licence wording and
+  linked “Powered by National Rail Enquiries” attribution.
+- Added backend and Playwright regressions for TD/TRUST identity hand-off,
+  unresolved berth continuity, path estimates and transient missing updates.
+
 ## 2026-11-10 — live aircraft and railway movement repair
 
 - Changed Aircraft above me from a one-off snapshot to an automatic eight-second

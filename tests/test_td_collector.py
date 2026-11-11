@@ -25,6 +25,8 @@ def test_td_movement_is_enriched_with_matching_schedule(tmp_path):
         {"tiploc_code": "LESTER", "scheduled_arrival": (now + timedelta(minutes=45)).strftime("%H%M")},
     ]
     with store._connect() as conn:
+        conn.execute("INSERT INTO tiplocs(tiploc,stanox,description,lat,lon) VALUES('CHFD','12345','Chesterfield',53.235,-1.421)")
+        conn.execute("INSERT INTO tiplocs(tiploc,stanox,description,lat,lon) VALUES('LESTER','12346','Leicester',52.631,-1.125)")
         conn.execute(
             """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,atoc_code,
                    signalling_id,origin_name,destination_name,locations_json)
@@ -49,6 +51,15 @@ def test_td_movement_is_enriched_with_matching_schedule(tmp_path):
     assert train.operator == "East Midlands Railway"
     assert train.origin == "Sheffield"
     assert train.destination == "Leicester"
+    assert train.next_location == "Leicester"
+    assert train.estimate_path == [[53.235, -1.421], [52.631, -1.125]]
+    assert train.estimate_due_at > train.estimate_started_at
+    first_started_at = train.estimate_started_at
+    collector.handle_message(json.dumps({"CA_MSG": {
+        "area_id": "DY", "from": "A001", "to": "A002", "descr": "2S53",
+        "time": int((now + timedelta(seconds=10)).timestamp() * 1000),
+    }}))
+    assert state.get("td:DY:2S53").estimate_started_at == first_started_at
 
 
 def bare_collector(tmp_path):
@@ -129,3 +140,14 @@ def test_td_step_with_only_origin_mapping_keeps_an_explicit_estimated_position(t
     assert train.lat == 52.631
     assert train.position_method == "estimated"
     assert "unresolved step" in train.position_label
+
+
+def test_unmapped_td_step_holds_the_same_marker_until_next_mapped_berth(tmp_path):
+    collector, state = bare_collector(tmp_path)
+    now = datetime.now(london_tz()).replace(microsecond=0)
+    td_message(collector, now)
+    td_message(collector, now + timedelta(seconds=12), **{"from": "UNKNOWN", "to": "UNKNOWN"})
+    train = state.get("td:DY:1F10")
+    assert train.lat == 52.631
+    assert train.last_updated == now + timedelta(seconds=12)
+    assert train.status == "TD live • next berth unresolved"

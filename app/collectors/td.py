@@ -63,6 +63,13 @@ class TDCollector(StompFeed):
         value = str(row.get("STANOX") or row.get("stanox") or "").strip()
         return value.zfill(5) if value.isdigit() else value
 
+    @staticmethod
+    def _message_time(msg: dict) -> datetime:
+        try:
+            return datetime.fromtimestamp(int(msg.get("time")) / 1000, tz=timezone.utc)
+        except (TypeError, ValueError, OSError):
+            return datetime.now(timezone.utc)
+
     def _resolve(self, area: str, msg_type: str, fr: str, to: str) -> tuple[dict | None, dict | None, bool]:
         row = None
         fallback = False
@@ -92,8 +99,24 @@ class TDCollector(StompFeed):
             return True
         if typ not in {"CA", "CC"}:
             return True
+        event_time = self._message_time(msg)
         row, station, fallback = self._resolve(area, typ, fr, to)
         if not station or not descr:
+            # A SMART gap must not make a train blink off the map.  If this is
+            # clearly the same TD-area/headcode we already hold, keep the last
+            # confirmed position fresh until a mappable berth arrives.
+            existing = self.state.find_train_by_headcode(descr) if descr else None
+            if (
+                existing
+                and existing.source == "Network Rail TD"
+                and str(existing.source_id or "").startswith(f"{area}:")
+                and event_time >= existing.last_updated
+            ):
+                existing.last_updated = event_time
+                existing.status = "TD live • next berth unresolved"
+                existing.position_method = "estimated"
+                existing.position_label = f"Holding the last mapped TD berth while {area} {fr or '—'}→{to or '—'} is unresolved"
+                self.state.upsert(existing)
             if not replay:
                 status.movements_unmapped += 1
                 with self._pending_lock:
@@ -103,10 +126,6 @@ class TDCollector(StompFeed):
         if replay and status.movements_unmapped > 0:
             status.movements_unmapped -= 1
         status.movements_mapped += 1
-        try:
-            event_time = datetime.fromtimestamp(int(msg.get("time")) / 1000, tz=timezone.utc)
-        except Exception:
-            event_time = datetime.now(timezone.utc)
         lat, lon = float(station["lat"]), float(station["lon"])
         location_name = station.get("name") or str((row or {}).get("STANME") or "TD location")
         schedule = None
@@ -136,13 +155,21 @@ class TDCollector(StompFeed):
             elif elapsed < 0:
                 return True
         if existing:
+            preserve_leg = bool(
+                not fallback
+                and existing.rail_stanox == self._row_stanox(row)
+                and existing.estimate_started_at
+                and existing.estimate_due_at
+                and existing.estimate_due_at > event_time
+            )
             existing.lat = lat; existing.lon = lon
             existing.reported_lat = lat; existing.reported_lon = lon
-            existing.next_lat = existing.next_lon = None
-            existing.estimate_path = None
-            existing.estimate_due_at = None
-            existing.estimate_started_at = None
-            existing.next_location = None
+            if not preserve_leg:
+                existing.next_lat = existing.next_lon = None
+                existing.estimate_path = None
+                existing.estimate_due_at = None
+                existing.estimate_started_at = None
+                existing.next_location = None
             existing.last_updated = event_time
             existing.position_method = "estimated" if fallback else "network_report"
             existing.position_label = (
@@ -166,8 +193,20 @@ class TDCollector(StompFeed):
                 existing.operating_characteristics = schedule.operating_characteristics
                 existing.service_date = schedule.running_date or existing.service_date
                 existing.schedule_id = schedule.schedule_id or existing.schedule_id
+                leg = self._schedule_leg(schedule.schedule_id, schedule.running_date, station.get("tiploc"), event_time)
+                if leg and not fallback and not preserve_leg:
+                    existing.next_lat = leg["next_lat"]; existing.next_lon = leg["next_lon"]
+                    existing.next_location = leg["next_name"]
+                    existing.estimate_path = leg["path"]
+                    existing.estimate_started_at = leg["started_at"]
+                    existing.estimate_due_at = leg["due_at"]
             self.state.upsert(existing)
         else:
+            leg = self._schedule_leg(
+                schedule.schedule_id if schedule else None,
+                schedule.running_date if schedule else None,
+                station.get("tiploc"), event_time,
+            ) if not fallback else None
             self.state.upsert(Vehicle(
                 id=f"td:{area}:{descr}", type="train", name=descr,
                 subtitle=(
@@ -195,8 +234,24 @@ class TDCollector(StompFeed):
                     if fallback else f"TD berth report • {area} {fr or '—'}→{to or '—'}"
                 ),
                 source="Network Rail TD", source_id=f"{area}:{fr if fallback else (to or fr)}", last_updated=event_time,
+                reported_lat=lat, reported_lon=lon,
+                next_lat=leg["next_lat"] if leg else None,
+                next_lon=leg["next_lon"] if leg else None,
+                next_location=leg["next_name"] if leg else None,
+                estimate_path=leg["path"] if leg else None,
+                estimate_started_at=leg["started_at"] if leg else None,
+                estimate_due_at=leg["due_at"] if leg else None,
             ))
         return True
+
+    def _schedule_leg(self, schedule_id, running_date, tiploc, observed_at):
+        if not self.schedules or not self.schedules.ready() or not schedule_id or not running_date:
+            return None
+        try:
+            service_day = datetime.fromisoformat(str(running_date)).date()
+            return self.schedules.estimate_leg_from(schedule_id, service_day, tiploc, observed_at)
+        except (TypeError, ValueError):
+            return None
 
     def _replay_pending(self) -> None:
         with self._pending_lock:

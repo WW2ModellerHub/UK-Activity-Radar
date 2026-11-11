@@ -423,6 +423,90 @@ class ScheduleStore:
             }
         return None
 
+    def estimate_leg_from(
+        self,
+        schedule_id: int | None,
+        running_date: date,
+        from_tiploc: str | None,
+        observed_at: datetime,
+    ) -> dict | None:
+        """Build the next mapped timetable leg after a confirmed rail report.
+
+        TD reports identify signalling berths, not GPS positions.  Once a berth
+        has been resolved to a timetable location, the booked runtime to the
+        next mapped timing point is the best honest basis for continuous map
+        presentation.  The observation time deliberately becomes the start of
+        the estimate so late-running trains do not instantly jump to the end of
+        a leg whose booked clock time has already passed.
+        """
+        if not schedule_id or not from_tiploc:
+            return None
+        start_code = str(from_tiploc).strip().upper()
+        try:
+            with self._connect() as conn:
+                row = conn.execute("SELECT * FROM schedules WHERE id=?", (int(schedule_id),)).fetchone()
+                if row is None:
+                    return None
+                locations = self.timed_locations(row, running_date)
+                codes = {
+                    str(item.get("tiploc_code") or "").strip().upper()
+                    for item in locations if isinstance(item, dict)
+                } - {""}
+                if not codes:
+                    return None
+                placeholders = ",".join("?" for _ in codes)
+                geo = {
+                    str(point["tiploc"]).strip().upper(): {
+                        "lat": float(point["lat"]), "lon": float(point["lon"]),
+                        "name": str(point["description"] or point["tiploc"]),
+                    }
+                    for point in conn.execute(
+                        f"SELECT tiploc,description,lat,lon FROM tiplocs WHERE tiploc IN ({placeholders}) AND lat IS NOT NULL AND lon IS NOT NULL",
+                        tuple(codes),
+                    )
+                }
+        except (OSError, sqlite3.Error, TypeError, ValueError):
+            return None
+
+        def call_time(location: dict) -> datetime | None:
+            return location.get("_departure_at") or location.get("_pass_at") or location.get("_arrival_at")
+
+        start_index = next((
+            index for index, location in enumerate(locations)
+            if str(location.get("tiploc_code") or "").strip().upper() == start_code
+        ), None)
+        if start_index is None:
+            return None
+        start_location = locations[start_index]
+        start_point = geo.get(start_code)
+        start_time = call_time(start_location)
+        if not start_point or not isinstance(start_time, datetime):
+            return None
+        for next_location in locations[start_index + 1:]:
+            next_code = str(next_location.get("tiploc_code") or "").strip().upper()
+            next_point = geo.get(next_code)
+            next_time = call_time(next_location)
+            if not next_point or not isinstance(next_time, datetime) or next_time <= start_time:
+                continue
+            runtime = next_time - start_time
+            if runtime < timedelta(seconds=30) or runtime > timedelta(hours=1):
+                continue
+            path = self.route_points(schedule_id, start_code, next_code)
+            first = [start_point["lat"], start_point["lon"]]
+            last = [next_point["lat"], next_point["lon"]]
+            if not path or path[0] != first:
+                path.insert(0, first)
+            if path[-1] != last:
+                path.append(last)
+            return {
+                "lat": start_point["lat"], "lon": start_point["lon"],
+                "next_lat": next_point["lat"], "next_lon": next_point["lon"],
+                "next_name": next_point["name"], "path": path,
+                "started_at": observed_at, "due_at": observed_at + runtime,
+                "tiploc": start_code,
+            }
+        return None
+
     @staticmethod
     def _clock_minutes(value: Any) -> float | None:
         raw = str(value or "").strip().upper().replace(":", "")
