@@ -218,11 +218,23 @@ test('trains move smoothly along mapped railway timing points between confirmed 
     })});
   });
   await expect(page.locator('.marker-wrap-train .marker-estimated')).toHaveCount(1);
+  await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-route-points','3');
+  await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-route-arrows','2');
+  await expect(page.locator('.train-live-leg-guide')).toHaveCount(1);
+  await expect(page.locator('.train-live-leg-progress')).toHaveCount(1);
+  await expect(page.locator('.train-route-arrow')).toHaveCount(2);
+  await expect(page.locator('#detail-trail')).toContainText('CURRENT RAIL LEG');
+  await expect(page.locator('#detail-trail')).toContainText('Towards Bletchley');
+  const progressBefore=Number(await page.locator('#map').getAttribute('data-selected-rail-route-progress'));
   const movesBefore=await page.evaluate(()=>window.__leafletStats.markerMoves);
   await page.waitForTimeout(3500);
   await expect.poll(()=>page.evaluate(()=>window.__leafletStats.markerMoves)).toBeGreaterThan(movesBefore);
+  await expect.poll(async()=>Number(await page.locator('#map').getAttribute('data-selected-rail-route-progress'))).toBeGreaterThan(progressBefore);
   await page.locator('.marker-wrap-train').first().evaluate(el=>el.dispatchEvent(new MouseEvent('mouseenter',{bubbles:true})));
   await expect(page.locator('.activity-tooltip')).toContainText('Estimated between reports');
+  await page.locator('#detail-close').click();
+  await expect(page.locator('.train-live-leg-guide')).toHaveCount(0);
+  await expect(page.locator('.train-route-arrow')).toHaveCount(0);
 });
 
 test('a 2,500-object streamed view refreshes incrementally', async ({ page }) => {

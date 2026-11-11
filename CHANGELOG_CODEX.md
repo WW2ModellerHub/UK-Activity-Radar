@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## 2026-11-11 — anchor selected trains to their live rail leg
+
+- Added a high-contrast selected-train rail leg beneath the marker so an
+  estimated position no longer appears to float over the pale basemap.
+- Separated the completed portion from the remaining leg, and added directional
+  arrows aligned to the published path without obscuring train markers.
+- Labelled the line as an estimate between railway reports, kept its progress in
+  step with the one-second marker presentation, and removed it with the detail
+  selection.
+- Added browser coverage for route visibility, direction arrows, progress and
+  clean-up.
+
 ## 2026-11-11 — correct signed rail progress and prevent visible dropouts
 
 - Applied Network Rail SMART arrival/departure semantics and signed berth offsets

@@ -51,6 +51,11 @@
   map.createPane('trafficPane');
   map.getPane('trafficPane').style.zIndex = '360';
   map.getPane('trafficPane').style.pointerEvents = 'none';
+  map.createPane('trainRoutePane');
+  // Keep the selected railway leg above road overlays, while train and place
+  // markers remain selectable above the route.
+  map.getPane('trainRoutePane').style.zIndex = '470';
+  map.getPane('trainRoutePane').style.pointerEvents = 'none';
   map.createPane('journeyPane');
   map.getPane('journeyPane').style.zIndex = '660';
   map.getPane('journeyPane').style.pointerEvents = 'none';
@@ -114,6 +119,7 @@
   let lastJourneyPayload = null;
   const movementHistory = new UKActivityMovementHistory({maxPoints:120,maxAgeMs:30*60*1000});
   let selectedTrailLayer = null;
+  let selectedTrainRoute = null;
 
   let activities = [];
   let activitiesById = new Map();
@@ -1563,7 +1569,7 @@
 
   const reduceLiveMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
-  function pathPosition(points, fraction) {
+  function pathSample(points, fraction) {
     const usable=(Array.isArray(points)?points:[])
       .map(point=>[Number(point?.[0]),Number(point?.[1])])
       .filter(point=>Number.isFinite(point[0])&&Number.isFinite(point[1]));
@@ -1578,7 +1584,40 @@
     const target=Math.max(0,Math.min(1,fraction))*total;
     const leg=legs.find(row=>target<=row.start+row.length)||legs[legs.length-1];
     const local=Math.max(0,Math.min(1,(target-leg.start)/leg.length));
-    return {lat:leg.from[0]+(leg.to[0]-leg.from[0])*local,lon:leg.from[1]+(leg.to[1]-leg.from[1])*local};
+    const lat=leg.from[0]+(leg.to[0]-leg.from[0])*local;
+    const lon=leg.from[1]+(leg.to[1]-leg.from[1])*local;
+    const lat1=leg.from[0]*Math.PI/180,lat2=leg.to[0]*Math.PI/180;
+    const deltaLon=(leg.to[1]-leg.from[1])*Math.PI/180;
+    const y=Math.sin(deltaLon)*Math.cos(lat2);
+    const x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(deltaLon);
+    const bearing=(Math.atan2(y,x)*180/Math.PI+360)%360;
+    const progress=[usable[0]];
+    for(const row of legs){
+      if(row.start+row.length>=target)break;
+      progress.push(row.to);
+    }
+    const last=progress[progress.length-1];
+    if(!last||Math.abs(last[0]-lat)>1e-8||Math.abs(last[1]-lon)>1e-8)progress.push([lat,lon]);
+    return {lat,lon,bearing,total,progress,points:usable};
+  }
+
+  function pathPosition(points, fraction) {
+    const sample=pathSample(points,fraction);
+    return sample ? {lat:sample.lat,lon:sample.lon} : null;
+  }
+
+  function trainEstimatePath(a) {
+    const supplied=Array.isArray(a?.estimate_path)&&a.estimate_path.length>=2
+      ? a.estimate_path
+      : [[a?.reported_lat,a?.reported_lon],[a?.next_lat,a?.next_lon]];
+    return supplied.map(point=>[Number(point?.[0]),Number(point?.[1])])
+      .filter(point=>Number.isFinite(point[0])&&Number.isFinite(point[1]));
+  }
+
+  function trainEstimateFraction(a, now=Date.now()) {
+    const started=Date.parse(a?.estimate_started_at||''),due=Date.parse(a?.estimate_due_at||'');
+    if(!Number.isFinite(started)||!Number.isFinite(due)||due<=started)return 0;
+    return Math.max(0,Math.min(1,(now-started)/(due-started)));
   }
 
   function projectPosition(lat,lon,bearing,distance) {
@@ -1706,6 +1745,7 @@
       const marker=markers.get(a.id);if(!marker)continue;
       const display=activityMapPresentation(a,now);
       const signature=markerPositionSignature(display);
+      if(selectedId===a.id&&a.type==='train')updateSelectedTrainRouteProgress(a,now);
       if(signature===marker.__positionSignature)continue;
       marker.setLatLng([display.lat,display.lon]);
       marker.__positionSignature=signature;
@@ -1941,16 +1981,84 @@
   function clearSelectedTrail() {
     if (selectedTrailLayer) map.removeLayer(selectedTrailLayer);
     selectedTrailLayer = null;
+    clearSelectedTrainRoute();
     const box = trailPanel();
     box?.classList.add('hidden');
+    box?.classList.remove('rail-leg');
     if (box) box.innerHTML = '';
     $('map')?.removeAttribute('data-selected-trail-points');
+  }
+
+  function clearSelectedTrainRoute() {
+    if(selectedTrainRoute?.group&&map.hasLayer(selectedTrainRoute.group))map.removeLayer(selectedTrainRoute.group);
+    selectedTrainRoute=null;
+    const mapNode=$('map');
+    mapNode?.removeAttribute('data-selected-rail-route-points');
+    mapNode?.removeAttribute('data-selected-rail-route-arrows');
+    mapNode?.removeAttribute('data-selected-rail-route-progress');
+  }
+
+  function updateSelectedTrainRouteProgress(a, now=Date.now()) {
+    if(!selectedTrainRoute||selectedTrainRoute.id!==a?.id)return;
+    const fraction=trainEstimateFraction(a,now);
+    const sample=pathSample(selectedTrainRoute.points,fraction);
+    if(!sample)return;
+    selectedTrainRoute.progress.setLatLngs(sample.progress);
+    const mapNode=$('map');
+    if(mapNode)mapNode.dataset.selectedRailRouteProgress=String(Math.round(fraction*100));
+  }
+
+  function renderSelectedTrainRoute(a, now=Date.now()) {
+    const points=trainEstimatePath(a);
+    if(points.length<2){clearSelectedTrainRoute();return false;}
+    const signature=`${a.id}|${points.map(point=>point.join(',')).join('|')}`;
+    if(selectedTrainRoute?.signature!==signature){
+      clearSelectedTrainRoute();
+      const outline=L.polyline(points,{pane:'trainRoutePane',color:'#07131b',weight:11,opacity:.78,interactive:false,className:'train-live-leg-outline'});
+      const guide=L.polyline(points,{pane:'trainRoutePane',color:'#8ee8f5',weight:6,opacity:.92,dashArray:'2 9',interactive:false,className:'train-live-leg-guide'});
+      const progress=L.polyline([points[0],points[0]],{pane:'trainRoutePane',color:'#ffd34e',weight:6,opacity:1,interactive:false,className:'train-live-leg-progress'});
+      const samples=(pathSample(points,.36)?.total||0)<2 ? [.58] : [.34,.72];
+      const arrows=samples.map(fraction=>{
+        const sample=pathSample(points,fraction);
+        if(!sample)return null;
+        return L.marker([sample.lat,sample.lon],{
+          pane:'trainRoutePane',interactive:false,keyboard:false,
+          icon:L.divIcon({
+            className:'train-route-arrow',
+            html:`<span aria-hidden="true" style="transform:rotate(${Math.round(sample.bearing-90)}deg)">➤</span>`,
+            iconSize:[24,24],iconAnchor:[12,12]
+          })
+        });
+      }).filter(Boolean);
+      const group=L.layerGroup([outline,guide,progress,...arrows]).addTo(map);
+      selectedTrainRoute={id:a.id,signature,points,outline,guide,progress,arrows,group};
+      const mapNode=$('map');
+      if(mapNode){
+        mapNode.dataset.selectedRailRoutePoints=String(points.length);
+        mapNode.dataset.selectedRailRouteArrows=String(arrows.length);
+      }
+    }
+    updateSelectedTrainRouteProgress(a,now);
+    return true;
   }
 
   function renderSelectedTrail(a = selectedId ? activityById(selectedId) : null) {
     if (selectedTrailLayer) map.removeLayer(selectedTrailLayer);
     selectedTrailLayer = null;
     const box = trailPanel();
+    if(a?.type==='train'){
+      const shown=renderSelectedTrainRoute(a);
+      $('map')?.removeAttribute('data-selected-trail-points');
+      if(!box)return;
+      box.classList.toggle('hidden',!shown);
+      box.classList.toggle('rail-leg',shown);
+      box.innerHTML=shown
+        ? `<strong>CURRENT RAIL LEG</strong><span>${esc(a.next_location?`Towards ${a.next_location}`:'Direction shown on map')}</span><small>Glow and arrows show the published direction. Position between railway reports is estimated.</small>`
+        : '';
+      return;
+    }
+    clearSelectedTrainRoute();
+    box?.classList.remove('rail-leg');
     if (!a || !['aircraft','sar'].includes(a.type)) {
       box?.classList.add('hidden');
       if (box) box.innerHTML = '';

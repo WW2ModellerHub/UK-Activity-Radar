@@ -11,6 +11,33 @@
 .detail-trail strong { color: #90d7ff; font-size: 8px; letter-spacing: .12em; }
 .detail-trail span { font-size: 9px; font-weight: 800; }
 .detail-trail small { color: #8ea4b2; font-size: 7.5px; line-height: 1.4; }
+.detail-trail.rail-leg {
+  border-color: rgba(255, 211, 78, .42);
+  background: linear-gradient(135deg, rgba(116, 89, 19, .24), rgba(8, 24, 35, .58));
+}
+.detail-trail.rail-leg strong { color: #ffd34e; }
+.train-live-leg-outline,.train-live-leg-guide,.train-live-leg-progress { stroke-linecap: round; stroke-linejoin: round; }
+.train-live-leg-guide { filter: drop-shadow(0 0 4px rgba(86, 214, 239, .92)); }
+.train-live-leg-progress { filter: drop-shadow(0 0 5px rgba(255, 211, 78, .96)); }
+.train-route-arrow { background: transparent; border: 0; }
+.train-route-arrow span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 2px solid #f7fbff;
+  border-radius: 50%;
+  background: #ffd34e;
+  color: #07131b;
+  box-shadow: 0 0 0 2px rgba(7, 19, 27, .86), 0 2px 8px rgba(0, 0, 0, .46);
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1;
+  transform-origin: 50% 50%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .train-live-leg-progress,.train-route-arrow span { transition: none!important; }
+}
 .rolling-stock-card {
   display: grid;
   gap: 7px;

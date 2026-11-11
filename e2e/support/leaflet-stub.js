@@ -54,7 +54,20 @@
     addLayer(layer) { this.layers.add(layer); layer._clustered = this.clustered; if (this._map) { layer._map = this._map; layer._attach?.(); if(layer._el)layer._el.dataset.clustered=String(this.clustered); } return this; }
     removeLayer(layer) { this.layers.delete(layer); layer._el?.remove(); layer._el = null; return this; }
     addTo(map) { super.addTo(map); this.layers.forEach(layer => { layer._map = map; layer._attach?.(); }); return this; }
+    _detach() { this.layers.forEach(layer => { layer._el?.remove(); layer._el = null; }); }
     refreshClusters() { stats.clusterRefreshes += 1; return this; }
+  }
+  class Polyline extends Layer {
+    constructor(points = [], options = {}) { super(); this.points = points; this.options = options; }
+    _attach() {
+      if (this._el || !this._map) return;
+      const el=document.createElement('div');
+      el.className=`leaflet-path ${this.options.className || ''}`;
+      el.dataset.pointCount=String(this.points.length);
+      el.setAttribute('aria-hidden','true');
+      this._map._container.appendChild(el);this._el=el;
+    }
+    setLatLngs(points = []) { this.points=points; if(this._el)this._el.dataset.pointCount=String(points.length); return this; }
   }
   class HeatLayer extends Layer {
     constructor(points = [], options = {}) {
@@ -100,7 +113,7 @@
     createPane(name) { const pane = document.createElement('div'); this._panes[name] = pane; return pane; }
     getPane(name) { return this._panes[name]; }
     hasLayer(layer) { return this._layers.has(layer); }
-    removeLayer(layer) { this._layers.delete(layer); if (layer._isHeatLayer) stats.heatLayersRemoved += 1; layer._el?.remove(); layer._el = null; return this; }
+    removeLayer(layer) { this._layers.delete(layer); if (layer._isHeatLayer) stats.heatLayersRemoved += 1; layer._detach?.(); layer._el?.remove(); layer._el = null; return this; }
     invalidateSize() { return this; }
   }
   const passive = () => new Layer();
@@ -109,11 +122,11 @@
     tileLayer: passive,
     marker: (latlng, options) => new Marker(latlng, options),
     markerClusterGroup: () => new Group(true),
-    layerGroup: () => new Group(),
+    layerGroup: (layers = []) => { const group=new Group(); layers.forEach(layer=>group.addLayer(layer)); return group; },
     divIcon: options => ({ options }),
     circle: passive,
     circleMarker: passive,
-    polyline: passive,
+    polyline: (points, options) => new Polyline(points, options),
     heatLayer: (points, options) => new HeatLayer(points, options),
     latLngBounds: value => value,
     popup: () => ({ setLatLng() { return this; }, setContent() { return this; }, openOn() { return this; } })
