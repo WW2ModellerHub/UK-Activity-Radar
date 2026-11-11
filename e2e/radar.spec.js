@@ -224,8 +224,10 @@ test('trains move smoothly along mapped railway timing points between confirmed 
   await expect(page.locator('#map')).toHaveAttribute('data-map-context','rail');
   await expect(page.locator('.train-published-route-guide')).toHaveCount(1);
   await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-route-points','5');
+  await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-route-coverage','100');
   await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-leg-points','0');
   await expect(page.locator('#detail-trail')).toContainText('PUBLISHED TRAIN ROUTE');
+  await expect(page.locator('#detail-trail')).toContainText('5 mapped railway junctions and timing points');
   await page.evaluate(() => {
     let now=Date.parse('2026-10-05T10:01:20Z');
     Date.now=()=>now+=1000;

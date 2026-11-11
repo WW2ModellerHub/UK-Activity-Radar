@@ -695,7 +695,8 @@ class SmartPlacesService:
         service_date = self.schedules.service_date(getattr(vehicle, 'service_date', None)) or datetime.now(london_tz()).date()
         run['service_date'] = service_date.isoformat()
         schedule_verified = False
-        if (uid or schedule_id) and self.schedules.db_path.exists():
+        schedule_recovered = False
+        if self.schedules.db_path.exists():
             try:
                 row = None
                 if schedule_id:
@@ -707,96 +708,116 @@ class SmartPlacesService:
                 if row is None and uid:
                     rows = self.schedules.effective_rows(service_date, train_uids=[uid])
                     row = rows[0] if rows else None
-                with sqlite3.connect(self.schedules.db_path) as con:
-                    con.row_factory = sqlite3.Row
-                    if row:
-                        schedule_verified = True
-                        locations = self.schedules.timed_locations(row, service_date)
-                        codes = sorted({str(item.get('tiploc_code') or '').strip() for item in locations if isinstance(item, dict) and item.get('tiploc_code')})
-                        geography = {}
-                        if codes:
-                            placeholders = ','.join('?' for _ in codes)
-                            geography = {
-                                r['tiploc']: {
-                                    "name": r['description'] or r['tiploc'],
-                                    "lat": r['lat'], "lon": r['lon'],
-                                }
-                                for r in con.execute(
-                                    f"SELECT tiploc,description,lat,lon FROM tiplocs WHERE tiploc IN ({placeholders})",
-                                    codes,
-                                )
-                            }
-                        calls = []
-                        route_path = []
-                        for item in locations:
-                            if not isinstance(item, dict):
-                                continue
-                            code = str(item.get('tiploc_code') or '').strip()
-                            point = geography.get(code) or {}
-                            lat, lon = point.get('lat'), point.get('lon')
-                            if lat is not None and lon is not None:
-                                coordinate = [float(lat), float(lon)]
-                                if not route_path or route_path[-1] != coordinate:
-                                    route_path.append(coordinate)
-                            # CIF includes non-passenger timing points used only
-                            # to regulate the working. The public journey card
-                            # should be a calling pattern, not every passed
-                            # junction, signal or timing location.
-                            is_stop = any(item.get(key) for key in (
-                                'public_arrival', 'public_departure',
-                                'scheduled_arrival', 'scheduled_departure',
-                            ))
-                            if not is_stop:
-                                continue
-                            clock = _clean_time(item.get('public_departure') or item.get('public_arrival') or item.get('scheduled_departure') or item.get('scheduled_arrival'))
-                            if not code:
-                                continue
-                            call = {
-                                "name": point.get('name') or code,
-                                "scheduled": clock,
-                                "event": "Stops",
-                            }
-                            if lat is not None and lon is not None:
-                                call.update({"lat": float(lat), "lon": float(lon)})
-                            calls.append(call)
-                            # Limit the passenger-facing calling pattern, not
-                            # the raw CIF timing records. Long-distance trains
-                            # can contain dozens of pass-through junctions
-                            # before their later passenger stops.
-                        run.update({
-                            "origin": row['origin_name'] or run['origin'],
-                            "destination": row['destination_name'] or run['destination'],
-                            "operator_code": row['atoc_code'],
-                            "operator": operator_name(row['atoc_code'], run['operator']),
-                            "service_code": row['service_code'],
-                            "train_category_code": row['train_category'],
-                            "power_type_code": row['power_type'],
-                            "power_type": power_type_name(row['power_type']),
-                            "timing_load": row['timing_load'],
-                            "booked_speed_mph": row['booked_speed'],
-                            "operating_characteristics": row['operating_characteristics'],
-                            "schedule_source": row['source'],
-                            "calling_points": calls,
-                            "route_path": route_path,
-                        })
-                        if headcode.upper().startswith('1Z'):
-                            run["service_label"] = (
-                                "Railtour / charter special" if is_charter_operator(row['atoc_code'])
-                                else "Special passenger service"
-                            )
-                        likely = infer_train_family(
-                            operator_code=row['atoc_code'], power_type=row['power_type'],
-                            origin=run['origin'], destination=run['destination'],
+                # TD identities can arrive before TRUST has supplied a UID.
+                # Recover the exact working from the live reporting location
+                # and time rather than withholding the route from those trains.
+                if row is None and headcode:
+                    matched = self.schedules.lookup_headcode(
+                        headcode,
+                        running_date=service_date,
+                        at_time=getattr(vehicle, 'last_updated', None),
+                        tiploc=getattr(vehicle, 'rail_tiploc', None),
+                        stanox=getattr(vehicle, 'rail_stanox', None),
+                    )
+                    if matched and matched.schedule_id:
+                        schedule_id = matched.schedule_id
+                        uid = matched.train_uid or uid
+                        run['train_uid'] = uid or run['train_uid']
+                        with sqlite3.connect(self.schedules.db_path) as schedule_con:
+                            schedule_con.row_factory = sqlite3.Row
+                            row = schedule_con.execute(
+                                "SELECT * FROM schedules WHERE id=?", (int(schedule_id),)
+                            ).fetchone()
+                        schedule_recovered = row is not None
+                if row:
+                    schedule_verified = True
+                    locations = self.schedules.timed_locations(row, service_date)
+                    codes = [
+                        str(item.get('tiploc_code') or '').strip().upper()
+                        for item in locations
+                        if isinstance(item, dict) and item.get('tiploc_code')
+                    ]
+                    geography = self.schedules.location_geography(codes)
+                    calls = []
+                    route_path = []
+                    mapped_timing_points = 0
+                    for item in locations:
+                        if not isinstance(item, dict):
+                            continue
+                        code = str(item.get('tiploc_code') or '').strip().upper()
+                        point = geography.get(code) or {}
+                        lat, lon = point.get('lat'), point.get('lon')
+                        if lat is not None and lon is not None:
+                            mapped_timing_points += 1
+                            coordinate = [float(lat), float(lon)]
+                            if not route_path or route_path[-1] != coordinate:
+                                route_path.append(coordinate)
+                        # CIF includes non-passenger timing points used only
+                        # to regulate the working. The public journey card
+                        # should be a calling pattern, not every passed
+                        # junction, signal or timing location.
+                        is_stop = any(item.get(key) for key in (
+                            'public_arrival', 'public_departure',
+                            'scheduled_arrival', 'scheduled_departure',
+                        ))
+                        if not is_stop:
+                            continue
+                        clock = _clean_time(item.get('public_departure') or item.get('public_arrival') or item.get('scheduled_departure') or item.get('scheduled_arrival'))
+                        if not code:
+                            continue
+                        call = {
+                            "name": point.get('name') or code,
+                            "scheduled": clock,
+                            "event": "Stops",
+                        }
+                        if lat is not None and lon is not None:
+                            call.update({"lat": float(lat), "lon": float(lon)})
+                        calls.append(call)
+                        # Limit the passenger-facing calling pattern, not
+                        # the raw CIF timing records. Long-distance trains
+                        # can contain dozens of pass-through junctions
+                        # before their later passenger stops.
+                    run.update({
+                        "origin": row['origin_name'] or run['origin'],
+                        "destination": row['destination_name'] or run['destination'],
+                        "operator_code": row['atoc_code'],
+                        "operator": operator_name(row['atoc_code'], run['operator']),
+                        "service_code": row['service_code'],
+                        "train_category_code": row['train_category'],
+                        "power_type_code": row['power_type'],
+                        "power_type": power_type_name(row['power_type']),
+                        "timing_load": row['timing_load'],
+                        "booked_speed_mph": row['booked_speed'],
+                        "operating_characteristics": row['operating_characteristics'],
+                        "schedule_source": row['source'],
+                        "calling_points": calls,
+                        "route_path": route_path,
+                        "route_resolution": {
+                            "kind": "published_timing_path",
+                            "timing_points": len(codes),
+                            "mapped_timing_points": mapped_timing_points,
+                            "coverage_percent": round(mapped_timing_points * 100 / len(codes)) if codes else 0,
+                            "schedule_recovered": schedule_recovered,
+                        },
+                    })
+                    if headcode.upper().startswith('1Z'):
+                        run["service_label"] = (
+                            "Railtour / charter special" if is_charter_operator(row['atoc_code'])
+                            else "Special passenger service"
                         )
-                        if likely:
-                            run["likely_train"] = likely
+                    likely = infer_train_family(
+                        operator_code=row['atoc_code'], power_type=row['power_type'],
+                        origin=run['origin'], destination=run['destination'],
+                    )
+                    if likely:
+                        run["likely_train"] = likely
             except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
                 pass
         return {
             "available": True, "mode": "network_rail", "source": "Live railway and timetable data",
             "runs": [run],
             "note": (
-                "The route and calling points come from today's published timetable. The marker remains at the last confirmed railway report."
+                "The route and calling points come from today's published timetable; the line follows mapped railway junctions and timing points. The marker remains at the last confirmed railway report."
                 if schedule_verified else
                 "No timetable identity could be verified for this live signalling report, so no route has been attached. The marker remains at the last confirmed railway report."
             ),

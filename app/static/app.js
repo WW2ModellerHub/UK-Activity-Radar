@@ -2098,6 +2098,7 @@
     mapNode?.removeAttribute('data-selected-rail-leg-points');
     mapNode?.removeAttribute('data-selected-rail-route-arrows');
     mapNode?.removeAttribute('data-selected-rail-route-progress');
+    mapNode?.removeAttribute('data-selected-rail-route-coverage');
   }
 
   function updateSelectedTrainRouteProgress(a, now=Date.now()) {
@@ -2148,6 +2149,9 @@
         mapNode.dataset.selectedRailRoutePoints=String(points.length);
         mapNode.dataset.selectedRailLegPoints=String(livePoints.length);
         mapNode.dataset.selectedRailRouteArrows=String(arrows.length);
+        if(selectedTrainPublishedRoute?.coveragePercent!=null){
+          mapNode.dataset.selectedRailRouteCoverage=String(selectedTrainPublishedRoute.coveragePercent);
+        }
       }
     }
     updateSelectedTrainRouteProgress(a,now);
@@ -2164,10 +2168,13 @@
       if(!box)return;
       box.classList.toggle('hidden',!shown);
       box.classList.toggle('rail-leg',shown);
+      const routePointSummary=selectedTrainPublishedRoute?.id===a.id&&selectedTrainPublishedRoute.mappedTimingPoints
+        ? `Cyan follows ${selectedTrainPublishedRoute.mappedTimingPoints} mapped railway junctions and timing points${selectedTrainPublishedRoute.coveragePercent!=null?` (${selectedTrainPublishedRoute.coveragePercent}% of this timetable)`:''}.`
+        : 'Cyan follows the mapped railway timing path.';
       box.innerHTML=shown
         ? `${selectedTrainPublishedRoute?.id===a.id
           ? `<strong>PUBLISHED TRAIN ROUTE</strong><span>${esc(selectedTrainPublishedRoute.origin&&selectedTrainPublishedRoute.destination?`${selectedTrainPublishedRoute.origin} → ${selectedTrainPublishedRoute.destination}`:(a.next_location?`Towards ${a.next_location}`:'Route shown on map'))}</span>`
-          : `<strong>CURRENT RAIL LEG</strong><span>${esc(a.next_location?`Towards ${a.next_location}`:'Direction shown on map')}</span>`}<small>Cyan follows the published railway timing path. Gold shows live estimated progress between confirmed reports.</small>`
+          : `<strong>CURRENT RAIL LEG</strong><span>${esc(a.next_location?`Towards ${a.next_location}`:'Direction shown on map')}</span>`}<small>${esc(routePointSummary)} Gold shows live estimated progress between confirmed reports.</small>`
         : '';
       return;
     }
@@ -2261,7 +2268,16 @@
         .map(point=>[Number(point?.[0]),Number(point?.[1])])
         .filter(point=>Number.isFinite(point[0])&&Number.isFinite(point[1]));
       const deduped=points.filter((point,index)=>index===0||point[0]!==points[index-1][0]||point[1]!==points[index-1][1]);
-      if(deduped.length>=2)return {points:deduped,origin:providerName(run?.origin),destination:providerName(run?.destination)};
+      if(deduped.length>=2){
+        const resolution=run?.route_resolution&&typeof run.route_resolution==='object'?run.route_resolution:{};
+        return {
+          points:deduped,
+          origin:providerName(run?.origin),
+          destination:providerName(run?.destination),
+          mappedTimingPoints:Number.isFinite(Number(resolution.mapped_timing_points))?Number(resolution.mapped_timing_points):null,
+          coveragePercent:Number.isFinite(Number(resolution.coverage_percent))?Number(resolution.coverage_percent):null,
+        };
+      }
     }
     return null;
   }

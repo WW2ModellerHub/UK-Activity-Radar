@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, time as clock_time, timedelta
@@ -46,6 +47,16 @@ class ScheduleStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # The national SCHEDULE file identifies every timing point, while
+        # NaPTAN only geocodes passenger stations. The independently cached
+        # rail geography fills those non-station TIPLOC gaps so map paths use
+        # junctions and timing points instead of long station-to-station
+        # chords. It is loaded lazily because reference sync can finish after
+        # this store is constructed during application startup.
+        self.rail_geo_path = self.db_path.parent / "public_rail_geo.json"
+        self._rail_geo_lock = threading.RLock()
+        self._rail_geo_mtime_ns: int | None = None
+        self._rail_geo_by_tiploc: dict[str, dict[str, Any]] = {}
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
@@ -112,6 +123,92 @@ class ScheduleStore:
             for column in ("train_category", "power_type", "timing_load", "booked_speed", "operating_characteristics"):
                 if column not in existing:
                     conn.execute(f"ALTER TABLE schedules ADD COLUMN {column} TEXT")
+
+    def _fallback_tiploc_geography(self) -> dict[str, dict[str, Any]]:
+        """Return cached broad TIPLOC geography without making a network call."""
+        try:
+            mtime_ns = self.rail_geo_path.stat().st_mtime_ns
+        except OSError:
+            return {}
+        with self._rail_geo_lock:
+            if self._rail_geo_mtime_ns == mtime_ns:
+                return self._rail_geo_by_tiploc
+            try:
+                payload = json.loads(self.rail_geo_path.read_text(encoding="utf-8"))
+                raw = payload.get("by_tiploc", {}) if isinstance(payload, dict) else {}
+                parsed: dict[str, dict[str, Any]] = {}
+                for raw_code, raw_point in raw.items():
+                    if not isinstance(raw_point, dict):
+                        continue
+                    code = str(raw_code or "").strip().upper()
+                    try:
+                        lat, lon = float(raw_point["lat"]), float(raw_point["lon"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    if not code or not (49.0 <= lat <= 61.8 and -9.9 <= lon <= 3.5):
+                        continue
+                    parsed[code] = {
+                        "name": str(raw_point.get("name") or code),
+                        "lat": lat,
+                        "lon": lon,
+                        "source": str(raw_point.get("source") or "Cached rail geography"),
+                    }
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                # Keep the previous last-known-good mapping when a concurrent
+                # atomic refresh briefly makes the new file unreadable.
+                return self._rail_geo_by_tiploc
+            self._rail_geo_mtime_ns = mtime_ns
+            self._rail_geo_by_tiploc = parsed
+            return parsed
+
+    def location_geography(self, codes: Iterable[str]) -> dict[str, dict[str, Any]]:
+        """Resolve timetable TIPLOCs using official rows plus broad rail data.
+
+        The SQLite timetable remains authoritative for names and identifiers.
+        Coordinates missing from its passenger-station geography are filled
+        from the local rail reference cache. No request is made from this hot
+        path, so live updates are not held up by a third-party service.
+        """
+        wanted = {str(code or "").strip().upper() for code in codes} - {""}
+        if not wanted:
+            return {}
+        placeholders = ",".join("?" for _ in wanted)
+        result: dict[str, dict[str, Any]] = {}
+        try:
+            with self._connect() as conn:
+                for row in conn.execute(
+                    f"SELECT tiploc,description,lat,lon FROM tiplocs WHERE tiploc IN ({placeholders})",
+                    tuple(wanted),
+                ):
+                    code = str(row["tiploc"] or "").strip().upper()
+                    result[code] = {
+                        "name": str(row["description"] or code),
+                        "lat": row["lat"],
+                        "lon": row["lon"],
+                        "source": "Network Rail timetable geography",
+                    }
+        except (OSError, sqlite3.Error):
+            result = {}
+
+        fallback = self._fallback_tiploc_geography()
+        for code in wanted:
+            point = result.get(code)
+            missing_coordinate = (
+                point is None or point.get("lat") is None or point.get("lon") is None
+            )
+            if not missing_coordinate:
+                point["lat"], point["lon"] = float(point["lat"]), float(point["lon"])
+                continue
+            alternate = fallback.get(code)
+            if alternate is None:
+                continue
+            result[code] = {
+                "name": (point or {}).get("name") or alternate["name"],
+                "lat": float(alternate["lat"]),
+                "lon": float(alternate["lon"]),
+                "source": alternate["source"],
+            }
+        return result
 
     def call_index_ready(self) -> bool:
         try:
@@ -346,16 +443,14 @@ class ScheduleStore:
                 wanted = [code for code in codes[first:last + 1] if code]
                 if not wanted:
                     return []
-                placeholders = ",".join("?" for _ in set(wanted))
-                geo = {
-                    str(point["tiploc"]).strip().upper(): [float(point["lat"]), float(point["lon"])]
-                    for point in conn.execute(
-                        f"SELECT tiploc,lat,lon FROM tiplocs WHERE tiploc IN ({placeholders}) AND lat IS NOT NULL AND lon IS NOT NULL",
-                        tuple(set(wanted)),
-                    )
-                }
         except (OSError, sqlite3.Error, TypeError, ValueError):
             return []
+        geography = self.location_geography(wanted)
+        geo = {
+            code: [float(point["lat"]), float(point["lon"])]
+            for code, point in geography.items()
+            if point.get("lat") is not None and point.get("lon") is not None
+        }
         points: list[list[float]] = []
         for code in wanted:
             point = geo.get(code)
@@ -379,19 +474,9 @@ class ScheduleStore:
                 } - {""}
                 if not codes:
                     return None
-                placeholders = ",".join("?" for _ in codes)
-                geo = {
-                    str(point["tiploc"]).strip().upper(): {
-                        "lat": float(point["lat"]), "lon": float(point["lon"]),
-                        "name": str(point["description"] or point["tiploc"]),
-                    }
-                    for point in conn.execute(
-                        f"SELECT tiploc,description,lat,lon FROM tiplocs WHERE tiploc IN ({placeholders}) AND lat IS NOT NULL AND lon IS NOT NULL",
-                        tuple(codes),
-                    )
-                }
         except (OSError, sqlite3.Error, TypeError, ValueError):
             return None
+        geo = self.location_geography(codes)
 
         mapped: list[tuple[dict, dict, datetime]] = []
         for location in locations:
@@ -461,19 +546,9 @@ class ScheduleStore:
                 } - {""}
                 if not codes:
                     return None
-                placeholders = ",".join("?" for _ in codes)
-                geo = {
-                    str(point["tiploc"]).strip().upper(): {
-                        "lat": float(point["lat"]), "lon": float(point["lon"]),
-                        "name": str(point["description"] or point["tiploc"]),
-                    }
-                    for point in conn.execute(
-                        f"SELECT tiploc,description,lat,lon FROM tiplocs WHERE tiploc IN ({placeholders}) AND lat IS NOT NULL AND lon IS NOT NULL",
-                        tuple(codes),
-                    )
-                }
         except (OSError, sqlite3.Error, TypeError, ValueError):
             return None
+        geo = self.location_geography(codes)
 
         def call_time(location: dict) -> datetime | None:
             return location.get("_departure_at") or location.get("_pass_at") or location.get("_arrival_at")

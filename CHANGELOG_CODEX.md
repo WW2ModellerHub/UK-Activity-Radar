@@ -1,5 +1,18 @@
 # Codex stabilization changelog
 
+## 2026-11-11 — align train routes to railway timing geography
+
+- Fill passenger-station gaps with the cached national TIPLOC geography so a
+  selected service follows its published junctions and timing points instead
+  of drawing a few long station-to-station chords across the map.
+- Use the same richer path for live between-report movement, keeping the marker
+  on the railway-shaped timetable corridor rather than interpolating directly
+  across towns and fields.
+- Recover missing TD routes from the headcode, reporting location and service
+  time when a train has not yet received its TRUST UID or schedule identity.
+- Report mapped timing-point coverage in the selected-route panel and retain an
+  honest current-leg fallback where no full timetable can be verified.
+
 ## 2026-11-11 — rail-focused map and persistent published train routes
 
 - Switch train and station contexts from the pale general Mapbox Light map to

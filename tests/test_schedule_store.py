@@ -309,6 +309,35 @@ def test_smart_departure_offset_starts_train_ahead_of_reporting_point(tmp_path):
     assert leg["next_tiploc"] == "NARBORO"
 
 
+def test_route_points_fill_non_station_tiplocs_from_cached_rail_geography(tmp_path):
+    store = ScheduleStore(tmp_path / "schedule.sqlite")
+    schedule_id = _schedule(store, locations=[
+        {"tiploc_code": "HINCKLY", "scheduled_departure": "0730"},
+        {"tiploc_code": "NARBJCN", "scheduled_pass": "0736"},
+        {"tiploc_code": "NARBORO", "scheduled_arrival": "0740"},
+    ])
+    with store._connect() as conn:
+        conn.executemany(
+            "INSERT INTO tiplocs(tiploc,description,lat,lon) VALUES(?,?,?,?)",
+            [
+                ("HINCKLY", "Hinckley", 52.535, -1.371),
+                ("NARBJCN", "Narborough Junction", None, None),
+                ("NARBORO", "Narborough", 52.571, -1.203),
+            ],
+        )
+    (tmp_path / "public_rail_geo.json").write_text(json.dumps({
+        "by_tiploc": {
+            "NARBJCN": {"name": "Narborough Junction", "lat": 52.556, "lon": -1.278},
+        },
+    }), encoding="utf-8")
+
+    assert store.route_points(schedule_id, "HINCKLY", "NARBORO") == [
+        [52.535, -1.371],
+        [52.556, -1.278],
+        [52.571, -1.203],
+    ]
+
+
 def test_confirmed_arrival_advances_after_published_station_dwell(tmp_path):
     store = ScheduleStore(tmp_path / "schedule.sqlite")
     schedule_id = _schedule(store, locations=[

@@ -173,6 +173,55 @@ def test_live_train_exact_schedule_id_supplies_route_without_uid(tmp_path: Path)
     assert 'route and calling points' in detail['note']
 
 
+def test_live_td_train_recovers_full_route_from_headcode_and_reporting_location(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    now=datetime.now(london_tz()).replace(second=0,microsecond=0)
+    locations=[
+        {'tiploc_code':'LESTER','scheduled_departure':now.strftime('%H%M')},
+        {'tiploc_code':'KNIGHTN','scheduled_pass':(now+timedelta(minutes=3)).strftime('%H%M')},
+        {'tiploc_code':'MARKTH','scheduled_arrival':(now+timedelta(minutes=15)).strftime('%H%M')},
+    ]
+    with store._connect() as con:
+        con.executemany(
+            "INSERT INTO tiplocs(tiploc,stanox,description,lat,lon) VALUES(?,?,?,?,?)",
+            [
+                ('LESTER','12345','Leicester',52.631,-1.125),
+                ('KNIGHTN','12346','Knighton Junction',None,None),
+                ('MARKTH','12347','Market Harborough',52.478,-0.908),
+            ],
+        )
+        con.execute(
+            """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,source,atoc_code,signalling_id,origin_name,destination_name,locations_json)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            ('RECOVER1',(now-timedelta(days=1)).date().isoformat(),(now+timedelta(days=1)).date().isoformat(),'1111111','P','SCHEDULE','EM','1C17','Sheffield','London St Pancras',json.dumps(locations)),
+        )
+    (tmp_path/'public_rail_geo.json').write_text(json.dumps({
+        'by_tiploc': {
+            'KNIGHTN': {'name':'Knighton Junction','lat':52.602,'lon':-1.118},
+        },
+    }),encoding='utf-8')
+    vehicle=Vehicle(
+        id='td:LE:1C17',type='train',name='1C17',headcode='1C17',
+        rail_tiploc='LESTER',rail_stanox='12345',last_updated=now,
+        lat=52.631,lon=-1.125,source='Network Rail TD',
+    )
+
+    detail=SmartPlacesService(tmp_path,store,FakeState()).train_vehicle_detail(vehicle)
+
+    run=detail['runs'][0]
+    assert run['train_uid']=='RECOVER1'
+    assert run['route_path']==[
+        [52.631,-1.125],[52.602,-1.118],[52.478,-0.908],
+    ]
+    assert run['route_resolution']=={
+        'kind':'published_timing_path',
+        'timing_points':3,
+        'mapped_timing_points':3,
+        'coverage_percent':100,
+        'schedule_recovered':True,
+    }
+
+
 def test_train_route_keeps_every_future_passenger_stop_after_the_current_station(tmp_path: Path):
     store=ScheduleStore(tmp_path/'schedule.sqlite')
     service_date=datetime.now(london_tz()).date().isoformat()
