@@ -2,6 +2,13 @@ import * as maplibregl from './vendor/maplibre/maplibre-gl.mjs';
 
 const MOVING_TYPES=new Set(['train','aircraft','sar']);
 
+export function frameInterval(objectCount,selected=false,reducedMotion=false){
+  if(reducedMotion)return 100;
+  if(selected||objectCount<=120)return 16;
+  if(objectCount<=600)return 33;
+  return 50;
+}
+
 function iconKind(activity){
   if(activity.type==='train')return 'train';
   const text=`${activity.aircraft_model||''} ${activity.aircraft_type_code||''} ${activity.kind||''}`.toLowerCase();
@@ -36,11 +43,19 @@ function drawIcon(kind,size=64){
 
 export class LiveObjectRenderer{
   constructor({container,leafMap,motionEngine,onReady}){
-    this.container=container;this.leafMap=leafMap;this.motionEngine=motionEngine;this.rows=[];this.selectedId=null;this.ready=false;this.frame=0;this.lastDraw=0;
+    this.container=container;this.leafMap=leafMap;this.motionEngine=motionEngine;this.rows=[];this.selectedId=null;this.ready=false;this.frame=0;this.syncFrame=0;this.lastDraw=0;
     const center=leafMap.getCenter();
     this.map=new maplibregl.Map({container,interactive:false,attributionControl:false,antialias:true,renderWorldCopies:true,
       style:{version:8,sources:{},layers:[]},center:[center.lng,center.lat],zoom:leafMap.getZoom()});
-    this.sync=()=>{const value=leafMap.getCenter();this.map.resize();this.map.jumpTo({center:[value.lng,value.lat],zoom:leafMap.getZoom(),bearing:0,pitch:0});};
+    this.sync=()=>{
+      if(this.syncFrame)return;
+      this.syncFrame=requestAnimationFrame(()=>{
+        this.syncFrame=0;
+        const value=leafMap.getCenter();
+        this.map.resize();
+        this.map.jumpTo({center:[value.lng,value.lat],zoom:leafMap.getZoom(),bearing:0,pitch:0});
+      });
+    };
     leafMap.on('move zoom resize',this.sync);
     this.map.on('load',()=>{
       for(const kind of ['train','airliner','propeller','helicopter','fastjet','heavy'])this.map.addImage(`live-${kind}`,drawIcon(kind),{pixelRatio:2});
@@ -61,8 +76,10 @@ export class LiveObjectRenderer{
     return hits[0]?.properties?.id||null;
   }
   draw(timestamp,force=false){
-    if(!this.ready||(!force&&timestamp-this.lastDraw<80))return;
-    this.lastDraw=timestamp;const now=Date.now();const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if(!this.ready)return;
+    const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if(!force&&timestamp-this.lastDraw<frameInterval(this.rows.length,Boolean(this.selectedId),reduced))return;
+    this.lastDraw=timestamp;const now=Date.now();
     const displayed=this.rows.map(row=>this.motionEngine.present(row,now,reduced)).filter(row=>Number.isFinite(Number(row.lat))&&Number.isFinite(Number(row.lon)));
     const groups=new Map();
     for(const row of displayed){
@@ -87,5 +104,5 @@ export class LiveObjectRenderer{
     this.map.getSource('live-objects')?.setData({type:'FeatureCollection',features});this.container.dataset.objectCount=String(features.length);
   }
   start(){const tick=time=>{this.draw(time);this.frame=requestAnimationFrame(tick);};this.frame=requestAnimationFrame(tick);}
-  destroy(){cancelAnimationFrame(this.frame);this.leafMap.off('move zoom resize',this.sync);this.map.remove();this.container.closest('.map-panel')?.classList.remove('maplibre-live-ready');}
+  destroy(){cancelAnimationFrame(this.frame);cancelAnimationFrame(this.syncFrame);this.leafMap.off('move zoom resize',this.sync);this.map.remove();this.container.closest('.map-panel')?.classList.remove('maplibre-live-ready');}
 }

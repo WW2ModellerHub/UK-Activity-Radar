@@ -208,14 +208,15 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     assert "/static/styles.css?v=15150" in index
     assert "/static/refinements.css?v=15151" in index
     assert "/static/app.js?v=15157" in index
-    assert "/static/motion-engine.js?v=15154" in index
-    assert "/static/live-object-renderer.js?v=15150" in index
+    assert "/static/motion-engine.js?v=15158" in index
+    assert "/static/live-object-renderer.js?v=15158" in index
     assert "/static/movement-history.css?v=15147" in index
     assert "NETWORK_FIRST_ASSETS" in worker
     assert "/static/refinements.css?v=15151" in worker
     assert "/static/app.js?v=15157" in worker
-    assert "/static/motion-engine.js?v=15154" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r57" in worker
+    assert "/static/motion-engine.js?v=15158" in worker
+    assert "/static/live-object-renderer.js?v=15158" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r58" in worker
 
 
 def test_sparse_reporting_interval_does_not_grey_live_trains():

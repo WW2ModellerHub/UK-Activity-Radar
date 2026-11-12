@@ -14,7 +14,8 @@ test('MapLibre live layer renders trains and aircraft from one motion clock', as
     if (pathname === '/static/motion-engine.js') return route.fulfill({contentType:'text/javascript',body:read('app/static/motion-engine.js')});
     if (pathname === '/static/vendor/maplibre/maplibre-gl.mjs') return route.fulfill({contentType:'text/javascript',body:read('app/static/vendor/maplibre/maplibre-gl.mjs')});
     return route.fulfill({contentType:'text/html',body:`<!doctype html><html><body><div class="map-panel"><div id="live" style="width:640px;height:420px"></div></div><script src="/static/motion-engine.js"></script><script type="module">
-      import {LiveObjectRenderer} from '/static/live-object-renderer.js';
+      import {LiveObjectRenderer,frameInterval} from '/static/live-object-renderer.js';
+      document.body.dataset.frameIntervals=[frameInterval(50),frameInterval(300),frameInterval(900),frameInterval(900,true)].join(',');
       class LeafMap { constructor(){this.events={};} getCenter(){return {lat:52.6,lng:-1.2};} getZoom(){return 9;} on(names,handler){for(const name of names.split(' '))this.events[name]=handler;} off(){} }
       const now=Date.now(),renderer=new LiveObjectRenderer({container:document.querySelector('#live'),leafMap:new LeafMap(),motionEngine:window.UKActivityMotionEngine});
       renderer.setActivities([
@@ -26,5 +27,6 @@ test('MapLibre live layer renders trains and aircraft from one motion clock', as
   await page.goto('http://radar.test/maplibre-test');
   await expect(page.locator('#live')).toHaveAttribute('data-renderer','ready',{timeout:10000}).catch(error=>{throw new Error(`${error.message}\nBrowser errors: ${errors.join(' | ')}`);});
   await expect(page.locator('#live')).toHaveAttribute('data-object-count','2');
+  await expect(page.locator('body')).toHaveAttribute('data-frame-intervals','16,33,50,16');
   await expect(page.locator('.map-panel')).toHaveClass(/maplibre-live-ready/);
 });

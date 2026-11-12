@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import app.collectors.bods as bods_module
 from app.collectors.bods import BODSCollector
-from app.collectors.stomp_client import MultiplexStompFeed, StompFeed, _MultiplexListener
+from app.collectors.stomp_client import MultiplexStompFeed, StompFeed, _MultiplexListener, _session_retry_seconds
 from app.reference_data import merge_station_file
 
 
@@ -97,14 +97,43 @@ def test_multiplex_stomp_dispatches_frames_identified_by_subscription_id():
     assert received == ["rail-frame"]
 
 
-def test_multiplex_uses_unique_process_session_identity():
-    settings = SimpleNamespace(network_rail_client_id="radar")
-    first = MultiplexStompFeed(settings, [])
-    second = MultiplexStompFeed(settings, [])
+def test_multiplex_uses_nondurable_broker_session(monkeypatch):
+    calls = {"connect": [], "subscribe": []}
+    settings = SimpleNamespace(
+        credentials_present=True, network_rail_host="feed.test", network_rail_port=61618,
+        network_rail_username="user", network_rail_password="secret",
+    )
+    feed = SimpleNamespace(
+        name="trust", topic="/topic/TRAIN_MVT_ALL_TOC",
+        set_status=lambda *args, **kwargs: None,
+    )
+    owner = MultiplexStompFeed(settings, [feed])
 
-    assert first._client_id.startswith("radar-")
-    assert second._client_id.startswith("radar-")
-    assert first._client_id != second._client_id
+    class Connection:
+        def set_listener(self, *args):
+            pass
+
+        def connect(self, **kwargs):
+            calls["connect"].append(kwargs)
+
+        def subscribe(self, **kwargs):
+            calls["subscribe"].append(kwargs)
+            owner._stop.set()
+
+        def is_connected(self):
+            return False
+
+    monkeypatch.setattr("app.collectors.stomp_client.stomp.Connection11", lambda *args, **kwargs: Connection())
+    owner._run()
+
+    assert calls["connect"] == [{"login": "user", "passcode": "secret", "wait": True}]
+    assert calls["subscribe"] == [{
+        "destination": "/topic/TRAIN_MVT_ALL_TOC", "id": "ukradar-trust", "ack": "auto",
+    }]
+
+
+def test_broker_session_retry_uses_bounded_exponential_backoff():
+    assert [_session_retry_seconds(attempt) for attempt in range(1, 8)] == [15, 30, 60, 120, 240, 300, 300]
 
 
 def test_successful_bods_snapshot_clears_predictions_removed_upstream(monkeypatch):

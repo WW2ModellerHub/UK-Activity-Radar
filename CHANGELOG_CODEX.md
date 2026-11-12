@@ -1,5 +1,20 @@
 # Codex stabilization changelog
 
+## 2026-11-12 — path-locked, high-frame-rate live movement
+
+- Replaced the fixed 12.5-fps live-object loop with an adaptive 60/30/20-fps
+  MapLibre renderer, keeping a selected train at 60 fps and coalescing map
+  synchronisation to one animation frame during pan and zoom.
+- Keep railway corrections on the server-validated route: a new report is
+  projected onto its mapped path and eased along that path, never across a
+  field or town. Unmapped trains remain honestly fixed at their confirmed
+  railway report instead of receiving invented straight-line motion.
+- Smooth incoming ADS-B corrections and freeze aircraft at the end of the safe
+  dead-reckoning window instead of snapping them back to an old coordinate.
+- Make the multiplexed Network Rail topics truly non-durable by omitting the
+  broker client identity, with bounded exponential recovery from stale broker
+  sessions. Added deterministic backend and browser regressions.
+
 ## 2026-11-11 — keep selected train routes visible on mobile
 
 - Split the mobile train-detail actions into a reversible route view and a true

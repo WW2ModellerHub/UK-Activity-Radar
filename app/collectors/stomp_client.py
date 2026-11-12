@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import threading
-import os
-import uuid
 
 import stomp
 
 from ..config import Settings
 from ..models import SourceStatus
 from ..state import LiveState
+
+
+def _session_retry_seconds(attempt: int) -> int:
+    """Bounded exponential backoff for broker-side session acquisition failures."""
+    return min(300, 15 * (2 ** max(0, int(attempt) - 1)))
 
 
 class _Listener(stomp.ConnectionListener):
@@ -170,12 +173,6 @@ class MultiplexStompFeed:
         self._connection = None
         self.last_error: str | None = None
         self.terminal_error: str | None = None
-        # Render can overlap old and new processes during a deploy. A fixed
-        # durable ActiveMQ identity makes the replacement process collide with
-        # the session that is still closing (AMQ339009). Keep one multiplexed
-        # connection, but give each process a unique non-durable identity.
-        base = str(settings.network_rail_client_id or "uk-activity-radar").strip()
-        self._client_id = f"{base}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
     def set_all(self, connected: bool, message: str) -> None:
         for feed in self.feeds:
@@ -217,11 +214,13 @@ class MultiplexStompFeed:
                 )
                 self._connection = connection
                 connection.set_listener("network-rail-multiplex", _MultiplexListener(self))
-                client_id = self._client_id
+                # These are deliberately non-durable subscriptions. A STOMP
+                # client-id is the durable-session identity in ActiveMQ and
+                # can make overlapping deploy processes contend for a session
+                # even when subscriptionName is absent.
                 connection.connect(
                     login=self.settings.network_rail_username,
-                    passcode=self.settings.network_rail_password,
-                    headers={"client-id": client_id}, wait=True,
+                    passcode=self.settings.network_rail_password, wait=True,
                 )
                 for feed in self.feeds:
                     connection.subscribe(
@@ -238,9 +237,10 @@ class MultiplexStompFeed:
                 if "amq339009" in fatal:
                     # Session acquisition failures are commonly a deployment
                     # overlap or a broker-side stale session, not bad account
-                    # details. Retry promptly with this process's unique ID.
+                    # details. Back off exponentially without pinning another
+                    # durable identity at the broker.
                     rejected_sessions += 1
-                    cooldown = min(120, 15 * rejected_sessions)
+                    cooldown = _session_retry_seconds(rejected_sessions)
                     self.terminal_error = (
                         f"Network Rail broker session was busy: {reason}. "
                         f"Retrying safely in {cooldown} seconds."
