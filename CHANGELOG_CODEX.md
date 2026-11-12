@@ -13,7 +13,9 @@
   dead-reckoning window instead of snapping them back to an old coordinate.
 - Make the multiplexed Network Rail topics truly non-durable by omitting the
   broker client identity, with bounded exponential recovery from stale broker
-  sessions. Added deterministic backend and browser regressions.
+  sessions, and send the required Network Rail hostname in the STOMP 1.1 host
+  header instead of the invalid generic `/` virtual host. Added deterministic
+  backend and browser regressions.
 
 ## 2026-11-11 — keep selected train routes visible on mobile
 

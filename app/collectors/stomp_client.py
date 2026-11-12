@@ -94,7 +94,10 @@ class StompFeed:
                     reconnect_attempts_max=1,
                     heartbeats=(5000, 5000),
                     keepalive=True,
-                    vhost="/",
+                    # STOMP 1.1 requires the virtual host in its host header.
+                    # Network Rail's broker expects its public feed hostname,
+                    # not the generic '/' value accepted by some brokers.
+                    vhost=self.settings.network_rail_host,
                 )
                 self._connection = connection
                 connection.set_listener(self.name, _Listener(self))
@@ -210,7 +213,7 @@ class MultiplexStompFeed:
                 connection = stomp.Connection11(
                     [(self.settings.network_rail_host, self.settings.network_rail_port)],
                     timeout=12, reconnect_attempts_max=1, heartbeats=(5000, 5000),
-                    keepalive=True, vhost="/",
+                    keepalive=True, vhost=self.settings.network_rail_host,
                 )
                 self._connection = connection
                 connection.set_listener("network-rail-multiplex", _MultiplexListener(self))

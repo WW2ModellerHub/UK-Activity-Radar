@@ -97,8 +97,8 @@ def test_multiplex_stomp_dispatches_frames_identified_by_subscription_id():
     assert received == ["rail-frame"]
 
 
-def test_multiplex_uses_nondurable_broker_session(monkeypatch):
-    calls = {"connect": [], "subscribe": []}
+def test_multiplex_uses_network_rail_host_and_nondurable_broker_session(monkeypatch):
+    calls = {"connection": [], "connect": [], "subscribe": []}
     settings = SimpleNamespace(
         credentials_present=True, network_rail_host="feed.test", network_rail_port=61618,
         network_rail_username="user", network_rail_password="secret",
@@ -123,9 +123,14 @@ def test_multiplex_uses_nondurable_broker_session(monkeypatch):
         def is_connected(self):
             return False
 
-    monkeypatch.setattr("app.collectors.stomp_client.stomp.Connection11", lambda *args, **kwargs: Connection())
+    def connection_factory(*args, **kwargs):
+        calls["connection"].append((args, kwargs))
+        return Connection()
+
+    monkeypatch.setattr("app.collectors.stomp_client.stomp.Connection11", connection_factory)
     owner._run()
 
+    assert calls["connection"][0][1]["vhost"] == "feed.test"
     assert calls["connect"] == [{"login": "user", "passcode": "secret", "wait": True}]
     assert calls["subscribe"] == [{
         "destination": "/topic/TRAIN_MVT_ALL_TOC", "id": "ukradar-trust", "ack": "auto",
