@@ -1077,10 +1077,7 @@
       });
     }
     const trainTheme=type==='train' ? trainLiveryTheme('',v.operator || v.operator_name || v.toc || v.owner) : null;
-    const staleTrain=type==='train'&&v.restored_snapshot===true;
-    const trainStyle=staleTrain
-      ? ' style="background:#53606b;border-color:#9aa5ad;color:#fff;filter:saturate(.25);opacity:.72"'
-      : trainTheme && trainTheme.key!=='reference'
+    const trainStyle=trainTheme && trainTheme.key!=='reference'
       ? ` style="background:${esc(trainTheme.primary)};border-color:${esc(trainTheme.accent)};color:${esc(trainTheme.ink)};box-shadow:0 4px 13px rgba(0,0,0,.38),0 0 0 3px ${esc(trainTheme.accent)}40"`
       : '';
     const coincidentCount=type==='train' ? Math.max(1,Number(v._coincidentCount)||1) : 1;
@@ -1096,7 +1093,7 @@
     const sharedNote=coincidentCount>1 ? ` • ${coincidentCount} trains share this reported point` : '';
     return L.divIcon({
       className: `marker-wrap marker-wrap-${esc(type)}${coincidentCount>1?' train-coincident-wrap':''}`,
-      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}${staleTrain?' marker-stale':''}"${trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}</div>${pointer}${speedTag}</div>`,
+      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}"${trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}</div>${pointer}${speedTag}</div>`,
       iconSize: [42,42], iconAnchor: [21-offsetX,21-offsetY],
       tooltipAnchor: type==='train' ? [offsetX,offsetY-17] : [0,0]
     });
