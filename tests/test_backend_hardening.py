@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import app.collectors.bods as bods_module
 from app.collectors.bods import BODSCollector
-from app.collectors.stomp_client import StompFeed, _MultiplexListener
+from app.collectors.stomp_client import MultiplexStompFeed, StompFeed, _MultiplexListener
 from app.reference_data import merge_station_file
 
 
@@ -95,6 +95,16 @@ def test_multiplex_stomp_dispatches_frames_identified_by_subscription_id():
     ))
 
     assert received == ["rail-frame"]
+
+
+def test_multiplex_uses_unique_process_session_identity():
+    settings = SimpleNamespace(network_rail_client_id="radar")
+    first = MultiplexStompFeed(settings, [])
+    second = MultiplexStompFeed(settings, [])
+
+    assert first._client_id.startswith("radar-")
+    assert second._client_id.startswith("radar-")
+    assert first._client_id != second._client_id
 
 
 def test_successful_bods_snapshot_clears_predictions_removed_upstream(monkeypatch):

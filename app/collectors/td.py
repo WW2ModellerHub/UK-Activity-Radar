@@ -131,6 +131,7 @@ class TDCollector(StompFeed):
                 and event_time >= existing.last_updated
             ):
                 advanced = self._advance_schedule_estimate(existing, event_time)
+                existing.restored_snapshot = False
                 existing.last_updated = event_time
                 existing.status = "TD live • next berth unresolved"
                 existing.position_method = "estimated"
@@ -182,6 +183,7 @@ class TDCollector(StompFeed):
             elif elapsed < 0:
                 return True
         if existing:
+            existing.restored_snapshot = False
             preserve_leg = bool(
                 not fallback
                 and existing.source == "Network Rail TD"

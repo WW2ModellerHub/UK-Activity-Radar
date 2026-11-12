@@ -41,6 +41,10 @@ class RailPositionSnapshot:
                 or updated > current + timedelta(minutes=5)
             ):
                 continue
+            vehicle.restored_snapshot = True
+            vehicle.status = "Last known • railway feed reconnecting"
+            vehicle.position_method = "estimated"
+            vehicle.position_label = "Saved last known railway position • awaiting a new live report"
             restored.append(vehicle)
         restored.sort(key=lambda row: row.last_updated, reverse=True)
         return restored

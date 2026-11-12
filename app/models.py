@@ -68,6 +68,10 @@ class Vehicle(BaseModel):
     cool_theme: str | None = None
     cool_icon: str | None = None
     cool_candidate: bool = False
+    # True only for a short-lived warm-start row loaded from disk.  It must not
+    # be presented as a current live observation until a broker message has
+    # replaced it.
+    restored_snapshot: bool = False
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Optional next-report metadata retained for context. ``next_tiploc`` lets

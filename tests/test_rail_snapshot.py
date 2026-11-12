@@ -26,6 +26,9 @@ def test_recent_network_rail_positions_survive_a_warm_restart(tmp_path):
     assert saved == 1
     assert [row.id for row in restored] == ["nr:recent"]
     assert restored[0].headcode == "2S53"
+    assert restored[0].restored_snapshot is True
+    assert restored[0].status == "Last known • railway feed reconnecting"
+    assert "awaiting a new live report" in restored[0].position_label
 
 
 def test_invalid_or_future_snapshot_rows_are_ignored(tmp_path):

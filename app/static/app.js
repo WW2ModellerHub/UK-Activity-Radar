@@ -692,7 +692,10 @@
     if (a.type === 'vessel' && a.vehicle_ref) pills.push(`<span class="tooltip-pill">MMSI ${esc(a.vehicle_ref)}</span>`);
     if (['sar','aircraft'].includes(a.type) && (a.aircraft_model || a.vehicle_ref)) pills.push(`<span class="tooltip-pill">${esc(a.aircraft_model || a.vehicle_ref)}</span>`);
     const badge = currentWorkspace === 'cool' ? coolBadgeHtml(a,true) : '';
-    return `<div class="activity-tooltip-card"><div class="tooltip-top"><strong>${icons[a.type] || '•'} ${esc(a.name)}</strong><span class="tooltip-live">${a.kind === 'event' ? 'EVENT' : 'LIVE'}</span></div>${badge}${route ? `<div class="tooltip-sub">${esc(route)}</div>` : ''}<div class="tooltip-pills">${pills.slice(0,4).join('')}</div><div class="tooltip-hint">${a.type==='train'?'Last railway report':'Updated'} ${esc(relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000)))} • click for detail</div></div>`;
+    const staleTrain=a.type==='train'&&(a.restored_snapshot===true||ageMinutes(a)>10);
+    if(staleTrain)pills.unshift('<span class="tooltip-pill warn">Last known position</span>');
+    const liveLabel=a.kind==='event'?'EVENT':staleTrain?'STALE':'LIVE';
+    return `<div class="activity-tooltip-card"><div class="tooltip-top"><strong>${icons[a.type] || '•'} ${esc(a.name)}</strong><span class="tooltip-live${staleTrain?' stale':''}">${liveLabel}</span></div>${badge}${route ? `<div class="tooltip-sub">${esc(route)}</div>` : ''}<div class="tooltip-pills">${pills.slice(0,4).join('')}</div><div class="tooltip-hint">${a.type==='train'?'Last railway report':'Updated'} ${esc(relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000)))} • click for detail</div></div>`;
   }
 
   function operatorTheme(a) {
@@ -1074,7 +1077,10 @@
       });
     }
     const trainTheme=type==='train' ? trainLiveryTheme('',v.operator || v.operator_name || v.toc || v.owner) : null;
-    const trainStyle=trainTheme && trainTheme.key!=='reference'
+    const staleTrain=type==='train'&&(v.restored_snapshot===true||ageMinutes(v)>10);
+    const trainStyle=staleTrain
+      ? ' style="background:#53606b;border-color:#9aa5ad;color:#fff;filter:saturate(.25);opacity:.72"'
+      : trainTheme && trainTheme.key!=='reference'
       ? ` style="background:${esc(trainTheme.primary)};border-color:${esc(trainTheme.accent)};color:${esc(trainTheme.ink)};box-shadow:0 4px 13px rgba(0,0,0,.38),0 0 0 3px ${esc(trainTheme.accent)}40"`
       : '';
     const coincidentCount=type==='train' ? Math.max(1,Number(v._coincidentCount)||1) : 1;
@@ -1090,7 +1096,7 @@
     const sharedNote=coincidentCount>1 ? ` • ${coincidentCount} trains share this reported point` : '';
     return L.divIcon({
       className: `marker-wrap marker-wrap-${esc(type)}${coincidentCount>1?' train-coincident-wrap':''}`,
-      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}"${trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}</div>${pointer}${speedTag}</div>`,
+      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}${staleTrain?' marker-stale':''}"${trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}</div>${pointer}${speedTag}</div>`,
       iconSize: [42,42], iconAnchor: [21-offsetX,21-offsetY],
       tooltipAnchor: type==='train' ? [offsetX,offsetY-17] : [0,0]
     });
@@ -2558,6 +2564,9 @@
     selectedId = id;
     const a = activityById(id);
     if (!a) return;
+    const detailFreshness=document.querySelector('#detail-panel .detail-head small');
+    const staleTrain=a.type==='train'&&(a.restored_snapshot===true||ageMinutes(a)>10);
+    if(detailFreshness)detailFreshness.textContent=staleTrain?'LAST KNOWN POSITION':'LIVE NOW';
     selectedActivitySnapshot=a;
     liveObjectRenderer?.setActivities(filteredActivities(),selectedId);
     setDetailRouteView(false);

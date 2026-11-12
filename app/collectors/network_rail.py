@@ -152,6 +152,7 @@ class TrustCollector(StompFeed):
                 self.activations[canonical_id].get("service_date"),
             )
         if isinstance(existing, Vehicle):
+            existing.restored_snapshot = False
             self._enrich_existing(existing, self.activations[canonical_id])
             self.state.upsert(existing)
         elif schedule and schedule.schedule_id and schedule.running_date:
@@ -403,6 +404,7 @@ class TrustCollector(StompFeed):
             source_id=stanox,
             tracking_count=0,
             interesting=False,
+            restored_snapshot=False,
             last_updated=event_time,
             reported_lat=float(station["lat"]),
             reported_lon=float(station["lon"]),

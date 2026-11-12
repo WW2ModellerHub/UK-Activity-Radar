@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import threading
+import os
+import uuid
 
 import stomp
 
@@ -168,6 +170,12 @@ class MultiplexStompFeed:
         self._connection = None
         self.last_error: str | None = None
         self.terminal_error: str | None = None
+        # Render can overlap old and new processes during a deploy. A fixed
+        # durable ActiveMQ identity makes the replacement process collide with
+        # the session that is still closing (AMQ339009). Keep one multiplexed
+        # connection, but give each process a unique non-durable identity.
+        base = str(settings.network_rail_client_id or "uk-activity-radar").strip()
+        self._client_id = f"{base}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
     def set_all(self, connected: bool, message: str) -> None:
         for feed in self.feeds:
@@ -199,6 +207,7 @@ class MultiplexStompFeed:
         while not self._stop.is_set():
             self.last_error = None
             self.terminal_error = None
+            connection = None
             self.set_all(False, "Connecting to Network Rail live feeds…")
             try:
                 connection = stomp.Connection11(
@@ -208,7 +217,7 @@ class MultiplexStompFeed:
                 )
                 self._connection = connection
                 connection.set_listener("network-rail-multiplex", _MultiplexListener(self))
-                client_id = self.settings.network_rail_client_id
+                client_id = self._client_id
                 connection.connect(
                     login=self.settings.network_rail_username,
                     passcode=self.settings.network_rail_password,
@@ -217,7 +226,6 @@ class MultiplexStompFeed:
                 for feed in self.feeds:
                     connection.subscribe(
                         destination=feed.topic, id=f"ukradar-{feed.name}", ack="auto",
-                        headers={"activemq.subscriptionName": f"{client_id}-{feed.name}"},
                     )
                     feed.set_status(True, f"Connected to {feed.topic}")
                 delay = 10.0
@@ -227,8 +235,22 @@ class MultiplexStompFeed:
             except Exception as exc:
                 reason = self.last_error or f"{type(exc).__name__}: {exc}".strip(": ")
                 fatal = reason.casefold()
+                if "amq339009" in fatal:
+                    # Session acquisition failures are commonly a deployment
+                    # overlap or a broker-side stale session, not bad account
+                    # details. Retry promptly with this process's unique ID.
+                    rejected_sessions += 1
+                    cooldown = min(120, 15 * rejected_sessions)
+                    self.terminal_error = (
+                        f"Network Rail broker session was busy: {reason}. "
+                        f"Retrying safely in {cooldown} seconds."
+                    )
+                    self.set_all(False, self.terminal_error)
+                    if self._stop.wait(cooldown):
+                        return
+                    continue
                 if any(marker in fatal for marker in (
-                    "amq339009", "bad credentials", "authentication", "not authorized", "unauthorized",
+                    "bad credentials", "authentication", "not authorized", "unauthorized",
                 )):
                     # Repeated rejected sessions can cause a temporary source-IP
                     # block. Keep static schedules available, but stop reconnecting
@@ -244,6 +266,13 @@ class MultiplexStompFeed:
                         return
                     continue
                 self.set_all(False, f"Network Rail connection failed: {reason}. Retrying in {int(delay)}s…")
+            finally:
+                try:
+                    if connection is not None and connection.is_connected():
+                        connection.disconnect()
+                except Exception:
+                    pass
+                self._connection = None
             if not self._stop.is_set():
                 self._stop.wait(delay)
                 delay = min(300.0, delay * 2)
