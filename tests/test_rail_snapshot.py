@@ -42,3 +42,14 @@ def test_invalid_or_future_snapshot_rows_are_ignored(tmp_path):
     )
 
     assert RailPositionSnapshot(path).load(now=now) == []
+
+
+def test_default_snapshot_horizon_survives_a_short_broker_outage(tmp_path):
+    now = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
+    cache = RailPositionSnapshot(tmp_path / "rail_positions.json")
+
+    assert cache.save([train("nr:continuity", now - timedelta(minutes=70))], now=now) == 1
+    restored = cache.load(now=now)
+
+    assert [row.id for row in restored] == ["nr:continuity"]
+    assert restored[0].restored_snapshot is True

@@ -12,7 +12,7 @@ from .models import Vehicle
 class RailPositionSnapshot:
     """Durable, short-lived warm start for Network Rail event streams."""
 
-    def __init__(self, path: Path, *, max_age_minutes: int = 45, max_rows: int = 5000) -> None:
+    def __init__(self, path: Path, *, max_age_minutes: int = 90, max_rows: int = 5000) -> None:
         self.path = Path(path)
         self.max_age = timedelta(minutes=max(1, int(max_age_minutes)))
         self.max_rows = max(1, int(max_rows))

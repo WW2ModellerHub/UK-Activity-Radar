@@ -1,5 +1,19 @@
 # Codex stabilization changelog
 
+## 2026-11-12 — resilient train continuity during short feed outages
+
+- Keep a timetable-matched train visible for up to 90 minutes when its last
+  confirmed TRUST/TD report passes the ordinary 45-minute live cutoff, but
+  only while it still has a current, multi-point railway projection.
+- Preserve the original railway timestamp and explicit estimated-position
+  label, so continuity during an upstream outage is never presented as GPS or
+  a fresh Network Rail report.
+- Extend the durable warm-start snapshot to the same bounded horizon and roll
+  elapsed timetable legs every second, eliminating the avoidable pause at a
+  timing point before the next verified schedule leg appears.
+- Added regressions proving a current railway projection survives a short
+  broker outage while an old or completed projection still expires.
+
 ## 2026-11-12 — path-locked, high-frame-rate live movement
 
 - Replaced the fixed 12.5-fps live-object loop with an adaptive 60/30/20-fps

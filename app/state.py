@@ -10,6 +10,11 @@ from .cool_classifier import apply_cool_classification
 from .models import Event, SourceStatus, Vehicle
 
 
+TRAIN_LIVE_REPORT_MINUTES = 45
+TRAIN_PROJECTION_MINUTES = 90
+TRAIN_ROLLOVER_GRACE_MINUTES = 10
+
+
 def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
     p1, p2 = radians(lat1), radians(lat2)
@@ -73,6 +78,29 @@ def _estimated_train_position(vehicle: Vehicle, now: datetime) -> tuple[float, f
         first[0] + (second[0] - first[0]) * local,
         first[1] + (second[1] - first[1]) * local,
     )
+
+
+def _train_has_current_projection(vehicle: Vehicle, now: datetime) -> bool:
+    """Keep a matched service continuous through a temporary feed outage.
+
+    A TRUST/TD timestamp remains the last *confirmed* railway report.  It must
+    not, however, make a train vanish at the generic 45-minute cutoff while a
+    bounded, track-shaped leg from that identified service is still current.
+    The 90-minute ceiling prevents an old timetable from being presented as a
+    live train indefinitely if the upstream feed stays unavailable.
+    """
+    if vehicle.type != "train" or not vehicle.schedule_id or not vehicle.service_date:
+        return False
+    if vehicle.last_updated < now - timedelta(minutes=TRAIN_PROJECTION_MINUTES):
+        return False
+    if not (
+        vehicle.estimate_started_at
+        and vehicle.estimate_due_at
+        and vehicle.estimate_due_at > vehicle.estimate_started_at
+        and vehicle.estimate_due_at >= now - timedelta(minutes=TRAIN_ROLLOVER_GRACE_MINUTES)
+    ):
+        return False
+    return _estimated_train_position(vehicle, now) is not None
 
 
 class LiveState:
@@ -156,9 +184,10 @@ class LiveState:
         return apply_cool_classification(copy)
 
     def _train_for_uid_unlocked(self, uid: str, service_date: str | None = None) -> Vehicle | None:
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=45)
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(minutes=TRAIN_LIVE_REPORT_MINUTES)
         candidates = [self._vehicles[key] for key in self._train_uid_index.get(uid, set()) if key in self._vehicles]
-        candidates = [item for item in candidates if item.last_updated >= cutoff
+        candidates = [item for item in candidates if (item.last_updated >= cutoff or _train_has_current_projection(item, now))
                       and (service_date is None or item.service_date == service_date)]
         return max(candidates, key=lambda item: item.last_updated, default=None)
 
@@ -220,7 +249,7 @@ class LiveState:
                 if stored.type == "train":
                     if (
                         not include_trains
-                        or stored.last_updated < cutoff
+                        or (stored.last_updated < cutoff and not _train_has_current_projection(stored, now))
                         or (cool_trains_only and not stored.cool_candidate)
                     ):
                         continue
@@ -447,7 +476,11 @@ class LiveState:
             vehicles = [v for v in self._vehicles.values() if v.type == type_name]
             if max_age_minutes is not None:
                 cutoff = now - timedelta(minutes=max_age_minutes)
-                vehicles = [v for v in vehicles if v.last_updated >= cutoff]
+                vehicles = [
+                    v for v in vehicles
+                    if v.last_updated >= cutoff
+                    or (v.type == "train" and _train_has_current_projection(v, now))
+                ]
             return len(vehicles) + sum(e.type == type_name for e in self._events.values())
 
     def type_counts(self, max_age_minutes: dict[str, int] | None = None) -> dict[str, int]:
@@ -459,7 +492,11 @@ class LiveState:
         with self._lock:
             for vehicle in self._vehicles.values():
                 type_cutoff = cutoffs.get(vehicle.type)
-                if type_cutoff is not None and vehicle.last_updated < type_cutoff:
+                if (
+                    type_cutoff is not None
+                    and vehicle.last_updated < type_cutoff
+                    and not (vehicle.type == "train" and _train_has_current_projection(vehicle, now))
+                ):
                     continue
                 counts[vehicle.type] = counts.get(vehicle.type, 0) + 1
             # Match count_type: event counts are snapshots and are not affected
@@ -470,7 +507,7 @@ class LiveState:
 
     def summary(self) -> dict:
         now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(minutes=45)
+        cutoff = now - timedelta(minutes=TRAIN_LIVE_REPORT_MINUTES)
         bus_cutoff = now - timedelta(minutes=5)
         vessel_cutoff = now - timedelta(minutes=10)
         cool_cutoff = now - timedelta(minutes=60)
@@ -490,7 +527,9 @@ class LiveState:
                 elif vehicle.type in {"vessel", "sar"} and vehicle.source == "AISStream":
                     if vehicle.last_updated < vessel_cutoff:
                         continue
-                elif vehicle.last_updated < cutoff:
+                elif vehicle.last_updated < cutoff and not (
+                    vehicle.type == "train" and _train_has_current_projection(vehicle, now)
+                ):
                     continue
                 visible += 1
                 if vehicle.type in moving_types:

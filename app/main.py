@@ -554,7 +554,9 @@ async def _rail_position_snapshot_loop() -> None:
 async def _rail_estimate_rollover_loop() -> None:
     """Keep all mapped trains moving across timetable legs between reports."""
     while True:
-        await asyncio.sleep(2)
+        # One second keeps a completed leg from visibly pausing at a station
+        # before its next mapped timetable leg is published to browsers.
+        await asyncio.sleep(1)
         collector = td_collector
         if collector is not None:
             await asyncio.to_thread(collector.advance_live_estimates)

@@ -117,3 +117,46 @@ def test_train_remains_streamed_when_estimate_is_visible_but_report_point_is_not
     )
 
     assert [row.id for row in rows] == ["td:WG:1P04"]
+
+
+def test_track_shaped_train_projection_survives_short_feed_outage():
+    state = LiveState()
+    now = datetime.now(timezone.utc)
+    train = _vehicle("nr:projected", "train", "1C17", age_minutes=61)
+    train.train_uid = "C1C17"
+    train.service_date = now.date().isoformat()
+    train.schedule_id = 17
+    train.reported_lat = train.lat
+    train.reported_lon = train.lon
+    train.next_lat = 52.10
+    train.next_lon = -0.90
+    train.estimate_path = [[52.0, -1.0], [52.04, -0.96], [52.10, -0.90]]
+    train.estimate_started_at = now - timedelta(minutes=3)
+    train.estimate_due_at = now + timedelta(minutes=7)
+    train.position_method = "estimated"
+    state.upsert(train)
+
+    rows = state.all(include_buses=False, include_vessels=False)
+
+    assert [row.id for row in rows] == ["nr:projected"]
+    assert state.find_train_by_uid("C1C17").id == "nr:projected"
+    assert state.count_type("train", max_age_minutes=45) == 1
+    assert state.type_counts({"train": 45})["train"] == 1
+    assert state.summary()["by_type"]["train"] == 1
+
+
+def test_old_or_finished_train_projection_cannot_live_forever():
+    state = LiveState()
+    now = datetime.now(timezone.utc)
+    train = _vehicle("nr:expired", "train", "1C17", age_minutes=91)
+    train.train_uid = "C1C17"
+    train.service_date = now.date().isoformat()
+    train.schedule_id = 17
+    train.estimate_path = [[52.0, -1.0], [52.10, -0.90]]
+    train.estimate_started_at = now - timedelta(minutes=20)
+    train.estimate_due_at = now - timedelta(minutes=11)
+    state.upsert(train)
+
+    assert state.all(include_buses=False, include_vessels=False) == []
+    assert state.find_train_by_uid("C1C17") is None
+    assert state.count_type("train", max_age_minutes=45) == 0
