@@ -71,7 +71,9 @@ def test_live_activation_is_visible_before_the_first_movement_report(tmp_path):
     assert train.position_method == "estimated"
     assert train.status == "Activated • awaiting first movement report"
     assert train.next_location == "Market Harborough"
-    assert train.estimate_path == []
+    assert len(train.estimate_path) > 10
+    assert abs(train.estimate_path[0][0] - 52.631) < 0.02
+    assert abs(train.estimate_path[-1][0] - 52.478) < 0.02
 
 
 def test_unknown_station_does_not_attach_a_headcode_schedule(tmp_path):
@@ -146,7 +148,10 @@ def test_departure_includes_a_mapped_railway_estimate_path(tmp_path):
         next_report_run_time="15",
     )
     train = state.get("nr:251F10MU05")
-    assert train.estimate_path == [[52.631, -1.125], [52.55, -1.02], [52.478, -0.908]]
+    assert len(train.estimate_path) > 10
+    assert abs(train.estimate_path[0][0] - 52.631) < 0.02
+    assert abs(train.estimate_path[-1][0] - 52.478) < 0.02
+    assert [52.55, -1.02] not in train.estimate_path
 
 
 def test_identity_change_reuses_original_vehicle_and_retains_uid(tmp_path):

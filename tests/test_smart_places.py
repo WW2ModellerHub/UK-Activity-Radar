@@ -130,9 +130,8 @@ def test_scheduled_train_detail_returns_calling_points_without_live_marker(tmp_p
     assert detail['runs'][0]['likely_train']['label']=='Class 220/221 Voyager family'
     assert [row['name'] for row in detail['runs'][0]['calling_points']]==['Nuneaton','Hinckley','Leicester']
     assert {row['event'] for row in detail['runs'][0]['calling_points']}=={'Stops'}
-    assert detail['runs'][0]['route_path']==[
-        [52.526,-1.464],[52.535,-1.371],[52.631,-1.125],
-    ]
+    assert detail['runs'][0]['route_path']==[]
+    assert detail['runs'][0]['route_resolution']['kind']=='unresolved_track_path'
 
 
 def test_live_train_exact_schedule_id_supplies_route_without_uid(tmp_path: Path):
@@ -169,8 +168,51 @@ def test_live_train_exact_schedule_id_supplies_route_without_uid(tmp_path: Path)
     assert run['origin']=='Sheffield'
     assert run['destination']=='London St Pancras'
     assert [row['name'] for row in run['calling_points']]==['Sheffield','Leicester','London St Pancras']
-    assert run['route_path']==[[53.378,-1.463],[52.631,-1.125],[51.53,-0.125]]
-    assert 'route and calling points' in detail['note']
+    assert run['route_path']==[]
+    assert run['route_resolution']['kind']=='unresolved_track_path'
+    assert 'calling points' in detail['note']
+
+
+def test_live_train_recovers_uid_route_after_atomic_schedule_id_rebuild(tmp_path: Path):
+    store=ScheduleStore(tmp_path/'schedule.sqlite')
+    now=datetime.now(london_tz()).replace(second=0,microsecond=0)
+    valid_locations=[
+        {'tiploc_code':'LESTER','scheduled_departure':now.strftime('%H%M')},
+        {'tiploc_code':'NARBRO','scheduled_arrival':(now+timedelta(minutes=8)).strftime('%H%M')},
+        {'tiploc_code':'BHAMNWS','scheduled_arrival':(now+timedelta(minutes=55)).strftime('%H%M')},
+    ]
+    with store._connect() as con:
+        con.executemany(
+            "INSERT INTO tiplocs(tiploc,description,lat,lon) VALUES(?,?,?,?)",
+            [
+                ('LESTER','Leicester',52.631,-1.125),
+                ('NARBRO','Narborough',52.571,-1.203),
+                ('BHAMNWS','Birmingham New Street',52.478,-1.899),
+            ],
+        )
+        stale=con.execute(
+            """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,source,atoc_code,signalling_id,origin_name,destination_name,locations_json)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            ('OTHER1',now.date().isoformat(),now.date().isoformat(),'1111111','P','SCHEDULE','ZZ','9Z99','Wrong origin','Wrong destination','[]'),
+        ).lastrowid
+        current=con.execute(
+            """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,source,atoc_code,signalling_id,origin_name,destination_name,locations_json)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            ('RIGHT1',now.date().isoformat(),now.date().isoformat(),'1111111','P','SCHEDULE','XC','1P24','Leicester','Birmingham New Street',json.dumps(valid_locations)),
+        ).lastrowid
+    assert stale != current
+    vehicle=Vehicle(
+        id='td:LR:1P24',type='train',name='1P24',headcode='1P24',train_uid='RIGHT1',
+        schedule_id=stale,service_date=now.date().isoformat(),lat=52.631,lon=-1.125,
+        source='Network Rail TD',
+    )
+
+    run=SmartPlacesService(tmp_path,store,FakeState()).train_vehicle_detail(vehicle)['runs'][0]
+
+    assert run['origin']=='Leicester'
+    assert run['destination']=='Birmingham New Street'
+    assert [row['name'] for row in run['calling_points']]==['Leicester','Narborough','Birmingham New Street']
+    assert run['route_resolution']['schedule_recovered'] is True
 
 
 def test_live_td_train_recovers_full_route_from_headcode_and_reporting_location(tmp_path: Path):
@@ -210,15 +252,15 @@ def test_live_td_train_recovers_full_route_from_headcode_and_reporting_location(
 
     run=detail['runs'][0]
     assert run['train_uid']=='RECOVER1'
-    assert run['route_path']==[
-        [52.631,-1.125],[52.602,-1.118],[52.478,-0.908],
-    ]
+    assert len(run['route_path']) > 3
+    assert run['route_resolution']['kind']=='physical_track_path'
     assert run['route_resolution']=={
-        'kind':'published_timing_path',
+        'kind':'physical_track_path',
         'timing_points':3,
         'mapped_timing_points':3,
         'coverage_percent':100,
         'schedule_recovered':True,
+        'track_locked':True,
     }
 
 

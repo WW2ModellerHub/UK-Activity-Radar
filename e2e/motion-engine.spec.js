@@ -89,3 +89,20 @@ test('reduced motion keeps confirmed train coordinates', async ({ page }) => {
   expect(result.lat).toBe(52);
   expect(result.lon).toBe(-1);
 });
+
+test('a train without proven track geometry stays at its confirmed report', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const now = Date.now();
+    return window.UKActivityMotionEngine.present({
+      id: 'train-unresolved', type: 'train', lat: 52, lon: -1,
+      reported_lat: 52, reported_lon: -1, next_lat: 53, next_lon: 0,
+      estimate_started_at: new Date(now - 50000).toISOString(),
+      estimate_due_at: new Date(now + 50000).toISOString(),
+    }, now, false);
+  });
+
+  expect(result.lat).toBe(52);
+  expect(result.lon).toBe(-1);
+  expect(result.position_method).not.toBe('estimated');
+});

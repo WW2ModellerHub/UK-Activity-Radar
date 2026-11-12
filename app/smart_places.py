@@ -705,9 +705,22 @@ class SmartPlacesService:
                         row = schedule_con.execute(
                             "SELECT * FROM schedules WHERE id=?", (int(schedule_id),)
                         ).fetchone()
+                    # Schedule databases are atomically rebuilt. A live object
+                    # can briefly retain the old numeric row id, so the UID is
+                    # the identity and the row id is only a lookup hint.
+                    if row is not None and (
+                        (uid and str(row['train_uid'] or '').strip().upper() != uid.upper())
+                        or str(row['stp_indicator'] or '').strip().upper() == 'C'
+                        or not str(row['locations_json'] or '').strip().strip('[]')
+                    ):
+                        row = None
+                        schedule_id = None
                 if row is None and uid:
                     rows = self.schedules.effective_rows(service_date, train_uids=[uid])
                     row = rows[0] if rows else None
+                    if row is not None:
+                        schedule_id = int(row['id'])
+                        schedule_recovered = True
                 # TD identities can arrive before TRUST has supplied a UID.
                 # Recover the exact working from the live reporting location
                 # and time rather than withholding the route from those trains.
@@ -739,7 +752,6 @@ class SmartPlacesService:
                     ]
                     geography = self.schedules.location_geography(codes)
                     calls = []
-                    route_path = []
                     mapped_timing_points = 0
                     for item in locations:
                         if not isinstance(item, dict):
@@ -749,9 +761,6 @@ class SmartPlacesService:
                         lat, lon = point.get('lat'), point.get('lon')
                         if lat is not None and lon is not None:
                             mapped_timing_points += 1
-                            coordinate = [float(lat), float(lon)]
-                            if not route_path or route_path[-1] != coordinate:
-                                route_path.append(coordinate)
                         # CIF includes non-passenger timing points used only
                         # to regulate the working. The public journey card
                         # should be a calling pattern, not every passed
@@ -777,6 +786,7 @@ class SmartPlacesService:
                         # the raw CIF timing records. Long-distance trains
                         # can contain dozens of pass-through junctions
                         # before their later passenger stops.
+                    route_path = self.schedules.published_route_points(schedule_id)
                     run.update({
                         "origin": row['origin_name'] or run['origin'],
                         "destination": row['destination_name'] or run['destination'],
@@ -793,11 +803,12 @@ class SmartPlacesService:
                         "calling_points": calls,
                         "route_path": route_path,
                         "route_resolution": {
-                            "kind": "published_timing_path",
+                            "kind": "physical_track_path" if len(route_path) >= 2 else "unresolved_track_path",
                             "timing_points": len(codes),
                             "mapped_timing_points": mapped_timing_points,
                             "coverage_percent": round(mapped_timing_points * 100 / len(codes)) if codes else 0,
                             "schedule_recovered": schedule_recovered,
+                            "track_locked": len(route_path) >= 2,
                         },
                     })
                     if headcode.upper().startswith('1Z'):
@@ -817,7 +828,7 @@ class SmartPlacesService:
             "available": True, "mode": "network_rail", "source": "Live railway and timetable data",
             "runs": [run],
             "note": (
-                "The route and calling points come from today's published timetable; the line follows mapped railway junctions and timing points. The marker remains at the last confirmed railway report."
+                "The calling points come from today's published timetable and the route follows physical railway geometry between confirmed reporting points."
                 if schedule_verified else
                 "No timetable identity could be verified for this live signalling report, so no route has been attached. The marker remains at the last confirmed railway report."
             ),

@@ -5,6 +5,8 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from app import schedule_store
 from app.schedule_store import ScheduleStore
 from app.timeutils import london_tz
@@ -305,7 +307,7 @@ def test_smart_departure_offset_starts_train_ahead_of_reporting_point(tmp_path):
     assert leg["event_kind"] == "departure"
     assert leg["started_at"] == observed - timedelta(seconds=82)
     assert leg["due_at"] == observed + timedelta(minutes=10, seconds=-82)
-    assert leg["path"] == []
+    assert len(leg["path"]) > 2
     assert leg["next_tiploc"] == "NARBORO"
 
 
@@ -331,11 +333,10 @@ def test_route_points_fill_non_station_tiplocs_from_cached_rail_geography(tmp_pa
         },
     }), encoding="utf-8")
 
-    assert store.route_points(schedule_id, "HINCKLY", "NARBORO") == [
-        [52.535, -1.371],
-        [52.556, -1.278],
-        [52.571, -1.203],
-    ]
+    path = store.route_points(schedule_id, "HINCKLY", "NARBORO")
+    assert len(path) > 3
+    assert path[0][0] == pytest.approx(52.535, abs=0.01)
+    assert path[-1][0] == pytest.approx(52.571, abs=0.01)
 
 
 def test_confirmed_arrival_advances_after_published_station_dwell(tmp_path):
@@ -365,7 +366,7 @@ def test_confirmed_arrival_advances_after_published_station_dwell(tmp_path):
     assert leg["due_at"] == datetime(2026, 11, 5, 8, 18, tzinfo=london_tz())
     assert leg["next_name"] == "Market Harborough"
     assert leg["next_tiploc"] == "MARKTH"
-    assert leg["path"] == []
+    assert len(leg["path"]) > 2
 
 
 def test_smart_arrival_offset_keeps_train_on_approach_leg(tmp_path):
@@ -393,7 +394,7 @@ def test_smart_arrival_offset_keeps_train_on_approach_leg(tmp_path):
 
     assert leg is not None
     assert leg["event_kind"] == "arrival"
-    assert leg["path"] == []
+    assert len(leg["path"]) > 2
     assert leg["due_at"] == datetime(2026, 11, 5, 7, 40, tzinfo=london_tz())
     assert leg["started_at"] == datetime(2026, 11, 5, 7, 30, tzinfo=london_tz())
     assert leg["next_name"] == "Narborough"

@@ -43,7 +43,7 @@ function drawIcon(kind,size=64){
 
 export class LiveObjectRenderer{
   constructor({container,leafMap,motionEngine,onReady}){
-    this.container=container;this.leafMap=leafMap;this.motionEngine=motionEngine;this.rows=[];this.selectedId=null;this.ready=false;this.frame=0;this.syncFrame=0;this.lastDraw=0;
+    this.container=container;this.leafMap=leafMap;this.motionEngine=motionEngine;this.rows=[];this.selectedId=null;this.ready=false;this.frame=0;this.syncFrame=0;this.lastDraw=0;this.lastFeatures=[];
     const center=leafMap.getCenter();
     this.map=new maplibregl.Map({container,interactive:false,attributionControl:false,antialias:true,renderWorldCopies:true,
       style:{version:8,sources:{},layers:[]},center:[center.lng,center.lat],zoom:leafMap.getZoom()});
@@ -72,8 +72,19 @@ export class LiveObjectRenderer{
   setActivities(rows,selectedId){this.rows=(rows||[]).filter(row=>MOVING_TYPES.has(row?.type));this.selectedId=selectedId||null;if(this.ready)this.draw(performance.now(),true);}
   featureAt(point){
     if(!this.ready||!point)return null;
-    const hits=this.map.queryRenderedFeatures([Number(point.x),Number(point.y)],{layers:['live-object-symbol','live-object-halo']});
-    return hits[0]?.properties?.id||null;
+    const x=Number(point.x),y=Number(point.y);
+    const hits=this.map.queryRenderedFeatures([[x-14,y-14],[x+14,y+14]],{layers:['live-object-symbol','live-object-halo']});
+    if(hits[0]?.properties?.id)return hits[0].properties.id;
+    // A source update can land between MapLibre render passes. Keep taps
+    // responsive during that tiny window by hit-testing the same displayed
+    // feature coordinates already used for the current frame.
+    let nearest=null;
+    for(const feature of this.lastFeatures){
+      const screen=this.map.project(feature.geometry.coordinates);
+      const distance=Math.hypot(Number(screen.x)-x,Number(screen.y)-y);
+      if(distance<=28&&(!nearest||distance<nearest.distance))nearest={distance,id:feature.properties.id};
+    }
+    return nearest?.id||null;
   }
   draw(timestamp,force=false){
     if(!this.ready)return;
@@ -88,7 +99,9 @@ export class LiveObjectRenderer{
     }
     const zoom=this.map.getZoom();
     const features=[];
+    let coincidentGroups=0,separatedObjects=0;
     for(const group of groups.values()){
+      if(group.length>1){coincidentGroups+=1;separatedObjects+=group.length;}
       group.forEach((row,index)=>{
         let lat=Number(row.lat),lon=Number(row.lon);
         if(group.length>1){
@@ -101,7 +114,11 @@ export class LiveObjectRenderer{
         features.push({type:'Feature',id:String(row.id),geometry:{type:'Point',coordinates:[lon,lat]},properties:{id:String(row.id),type:row.type,selected:row.id===this.selectedId,icon:`live-${iconKind(row)}`,rotation:Number(row.bearing||0)}});
       });
     }
-    this.map.getSource('live-objects')?.setData({type:'FeatureCollection',features});this.container.dataset.objectCount=String(features.length);
+    this.lastFeatures=features;
+    this.map.getSource('live-objects')?.setData({type:'FeatureCollection',features});
+    this.container.dataset.objectCount=String(features.length);
+    this.container.dataset.coincidentGroups=String(coincidentGroups);
+    this.container.dataset.separatedObjects=String(separatedObjects);
   }
   start(){const tick=time=>{this.draw(time);this.frame=requestAnimationFrame(tick);};this.frame=requestAnimationFrame(tick);}
   destroy(){cancelAnimationFrame(this.frame);cancelAnimationFrame(this.syncFrame);this.leafMap.off('move zoom resize',this.sync);this.map.remove();this.container.closest('.map-panel')?.classList.remove('maplibre-live-ready');}

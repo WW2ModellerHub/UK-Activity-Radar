@@ -4,7 +4,7 @@
   // to supply this value.
   const DEFAULT_MAP_VIEW = [54.1, -2.5];
   const map = L.map('map', { zoomControl: true, preferCanvas: true, maxZoom: 20, doubleClickZoom: false }).setView(DEFAULT_MAP_VIEW, 6);
-  map.attributionControl?.addAttribution?.('<a href="/data-licences">Rail data © Network Rail Infrastructure Ltd · Powered by National Rail Enquiries</a>');
+  map.attributionControl?.addAttribution?.('<a href="/data-licences">Rail data & track geometry licences</a>');
   let lastKnownDeviceLocation = null;
   let deviceLocationMarker = null;
   // The navigation drawer owns the left edge of the map on every breakpoint.
@@ -1717,9 +1717,10 @@
   }
 
   function trainEstimatePath(a) {
-    const supplied=Array.isArray(a?.estimate_path)&&a.estimate_path.length>=2
-      ? a.estimate_path
-      : [[a?.reported_lat,a?.reported_lon],[a?.next_lat,a?.next_lon]];
+    // Reporting points are only anchors, not a drawable railway. If the
+    // backend cannot prove a physical path, hold the confirmed marker rather
+    // than exposing a straight off-track live-leg guide.
+    const supplied=Array.isArray(a?.estimate_path)&&a.estimate_path.length>=2?a.estimate_path:[];
     return supplied.map(point=>[Number(point?.[0]),Number(point?.[1])])
       .filter(point=>Number.isFinite(point[0])&&Number.isFinite(point[1]));
   }
@@ -2286,8 +2287,8 @@
       box.classList.toggle('hidden',!shown);
       box.classList.toggle('rail-leg',shown);
       const routePointSummary=selectedTrainPublishedRoute?.id===a.id&&selectedTrainPublishedRoute.mappedTimingPoints
-        ? `Cyan follows ${selectedTrainPublishedRoute.mappedTimingPoints} mapped railway junctions and timing points${selectedTrainPublishedRoute.coveragePercent!=null?` (${selectedTrainPublishedRoute.coveragePercent}% of this timetable)`:''}.`
-        : 'Cyan follows the mapped railway timing path.';
+        ? `Cyan is locked to physical track through ${selectedTrainPublishedRoute.mappedTimingPoints} timetable points${selectedTrainPublishedRoute.coveragePercent!=null?` (${selectedTrainPublishedRoute.coveragePercent}% mapped)`:''}.`
+        : 'Cyan is locked to the physical railway for this live leg.';
       box.innerHTML=shown
         ? `${selectedTrainPublishedRoute?.id===a.id
           ? `<strong>PUBLISHED TRAIN ROUTE</strong><span>${esc(selectedTrainPublishedRoute.origin&&selectedTrainPublishedRoute.destination?`${selectedTrainPublishedRoute.origin} → ${selectedTrainPublishedRoute.destination}`:(a.next_location?`Towards ${a.next_location}`:'Route shown on map'))}</span>`
@@ -2380,8 +2381,10 @@
     const runs=Array.isArray(detail?.runs)?detail.runs:[];
     for(const run of runs){
       const supplied=Array.isArray(run?.route_path)?run.route_path:[];
-      const fallback=railCallingPoints(run).map(point=>[point?.lat,point?.lon]);
-      const points=(supplied.length>=2?supplied:fallback)
+      // Calling points constrain the service but are not track geometry.
+      // Joining them draws field-crossing chords and makes trains look as if
+      // they float. Only render a route proven by the physical rail graph.
+      const points=supplied
         .map(point=>[Number(point?.[0]),Number(point?.[1])])
         .filter(point=>Number.isFinite(point[0])&&Number.isFinite(point[1]));
       const deduped=points.filter((point,index)=>index===0||point[0]!==points[index-1][0]||point[1]!==points[index-1][1]);

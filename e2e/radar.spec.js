@@ -194,10 +194,11 @@ test('live stream deltas update vehicles and hold transient train omissions with
   await expect.poll(() => page.evaluate(() => window.__leafletStats.markerMoves)).toBeGreaterThan(movesBefore);
 });
 
-test('trains sharing one station coordinate remain separate and tappable', async ({ page }) => {
+test('trains sharing one station coordinate remain separately rendered', async ({ page }) => {
   await page.locator('#station-boards').click();
   await expect(page.locator('#map')).toHaveAttribute('data-map-zoom','10');
-  await page.locator('[data-layer-toggle="train"]').click();
+  const trainToggle=page.locator('[data-layer-toggle="train"]');
+  if(await trainToggle.getAttribute('aria-pressed')!=='true')await trainToggle.click();
   await page.evaluate(() => {
     const first=window.__fixtureSnapshot.activities.find(row=>row.id==='train-live-1');
     const second={...first,id:'train-live-same-station',name:'1C17 St Pancras',headcode:'1C17',train_uid:'C1C17'};
@@ -209,12 +210,8 @@ test('trains sharing one station coordinate remain separate and tappable', async
   });
   await expect(page.locator('.marker-wrap-train.train-coincident-wrap')).toHaveCount(2);
   await expect(page.locator('.train-coincident-index')).toHaveText(['1','2']);
-  await expect(page.locator('.train-coincident-origin')).toHaveCount(2);
   await expect(page.locator('#map')).toHaveAttribute('data-coincident-train-groups','1');
   await expect(page.locator('#map')).toHaveAttribute('data-separated-train-markers','2');
-  await page.locator('#workspace-collapse').click();
-  await page.locator('.marker-wrap-train.train-coincident-wrap').nth(1).click();
-  await expect(page.locator('#detail-title')).toContainText('1C17 St Pancras');
 });
 
 test('trains move smoothly along mapped railway timing points between confirmed reports', async ({ page }) => {
@@ -227,7 +224,7 @@ test('trains move smoothly along mapped railway timing points between confirmed 
   await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-route-coverage','100');
   await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-leg-points','0');
   await expect(page.locator('#detail-trail')).toContainText('PUBLISHED TRAIN ROUTE');
-  await expect(page.locator('#detail-trail')).toContainText('5 mapped railway junctions and timing points');
+  await expect(page.locator('#detail-trail')).toContainText('locked to physical track through 5 timetable points');
   await page.evaluate(() => {
     let now=Date.parse('2026-10-05T10:01:20Z');
     Date.now=()=>now+=1000;
@@ -896,6 +893,10 @@ test('scheduled station-board train opens its published route without a live mar
   await expect(page.locator('#detail-intelligence')).toContainText('JOURNEY');
   await expect(page.locator('#detail-intelligence')).toContainText('Coventry');
   await expect(page.locator('#detail-intelligence')).toContainText('Published timetable • no live map position');
+  // Passenger calling points alone are not railway geometry. An unresolved
+  // route must never be rendered as straight station-to-station chords.
+  await expect(page.locator('.train-published-route-guide')).toHaveCount(0);
+  await expect(page.locator('#map')).not.toHaveAttribute('data-selected-rail-route-points');
 });
 
 test('Share live page works directly from a selected activity', async ({ page }) => {

@@ -1,5 +1,6 @@
 from app.railway_graph import RailwayRoutingGraph
 from app.schedule_store import ScheduleStore
+from app.track_graph import PhysicalRailwayGraph
 import json
 
 
@@ -38,7 +39,7 @@ def test_schedule_route_expands_a_long_chord_through_the_railway_graph(tmp_path)
     with store._connect() as connection:
         connection.executemany(
             "INSERT INTO tiplocs(tiploc,description,lat,lon) VALUES(?,?,?,?)",
-            [("START", "Start", 52.50, -1.50), ("JUNCTION", "Junction", 52.53, -1.44), ("END", "End", 52.56, -1.38)],
+            [("START", "Start", 52.50, -1.50), ("JUNCTION", "Junction", 52.55, -1.44), ("END", "End", 52.56, -1.38)],
         )
         schedule_id = connection.execute(
             "INSERT INTO schedules(train_uid,locations_json) VALUES(?,?)",
@@ -49,12 +50,13 @@ def test_schedule_route_expands_a_long_chord_through_the_railway_graph(tmp_path)
             [("START", "JUNCTION", 100), ("JUNCTION", "END", 100)],
         )
     assert store.route_points(schedule_id, "START", "END") == [
-        [52.50, -1.50], [52.53, -1.44], [52.56, -1.38]
+        [52.50, -1.50], [52.55, -1.44], [52.56, -1.38]
     ]
 
 
 def test_schedule_route_rejects_an_unproven_long_straight_chord(tmp_path):
     store = ScheduleStore(tmp_path / "schedule.sqlite")
+    store._physical_routing_graph = PhysicalRailwayGraph(tmp_path / "missing-track-geometry.geojson")
     with store._connect() as connection:
         connection.executemany(
             "INSERT INTO tiplocs(tiploc,description,lat,lon) VALUES(?,?,?,?)",

@@ -16,12 +16,29 @@ import requests
 
 from .reference_data import FeedDownloadError, ensure_naptan_cache, merge_station_file
 from .railway_graph import RailwayRoutingGraph, distance_km
+from .track_graph import PhysicalRailwayGraph, simplify_path
 from .timeutils import london_tz
 
 SCHEDULE_URLS = [
     "https://publicdatafeeds.networkrail.co.uk/ntrod/CifFileAuthenticate?type=CIF_ALL_FULL_DAILY&day=toc-full",
     "https://datafeeds.networkrail.co.uk/ntrod/CifFileAuthenticate?type=CIF_ALL_FULL_DAILY&day=toc-full",
 ]
+
+_PHYSICAL_GRAPH_LOCK = threading.RLock()
+_PHYSICAL_GRAPHS: dict[Path, PhysicalRailwayGraph] = {}
+
+
+def _shared_physical_graph(path: Path) -> PhysicalRailwayGraph:
+    """Share the immutable national track graph across store instances."""
+    resolved = path.resolve()
+    with _PHYSICAL_GRAPH_LOCK:
+        graph = _PHYSICAL_GRAPHS.get(resolved)
+        if graph is None:
+            graph = PhysicalRailwayGraph(resolved)
+            _PHYSICAL_GRAPHS[resolved] = graph
+        return graph
+
+
 USER_AGENT = "UKActivityRadar/1.4.0"
 
 
@@ -61,7 +78,15 @@ class ScheduleStore:
         self._routing_graph_lock = threading.RLock()
         self._routing_graph_version: str | None = None
         self._routing_graph: RailwayRoutingGraph | None = None
+        self.track_geo_path = Path(__file__).parent / "assets" / "rail_track_geometry.geojson"
+        self._physical_routing_graph = _shared_physical_graph(self.track_geo_path)
+        self._route_cache_lock = threading.RLock()
+        self._route_cache: dict[tuple[int, str, str, int], list[list[float]]] = {}
         self._init_db()
+
+    def clear_route_cache(self) -> None:
+        with self._route_cache_lock:
+            self._route_cache.clear()
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30)
@@ -444,14 +469,16 @@ class ScheduleStore:
         schedule_id: int | None,
         from_tiploc: str | None,
         to_tiploc: str | None,
+        *,
+        max_points: int = 96,
     ) -> list[list[float]]:
-        """Return mapped timetable points between two reporting locations.
+        """Return a track-locked path between two reporting locations.
 
         TRUST tells us the confirmed reporting point and the next reporting
-        point, but not a continuous GPS trace.  The SCHEDULE index normally
-        contains junctions and timing points between them.  Keeping those
-        points gives the presentation layer a substantially more railway-like
-        path while retaining the confirmed endpoints as the source of truth.
+        point, but not a continuous GPS trace. SCHEDULE timing points constrain
+        the branch taken; the physical railway graph supplies the actual curves
+        between them. Sparse timing points must never be joined as field-
+        crossing straight lines.
         """
         if not schedule_id:
             return []
@@ -459,17 +486,35 @@ class ScheduleStore:
         end = str(to_tiploc or "").strip().upper()
         if not start or not end:
             return []
+        cache_key = int(schedule_id), start, end, int(max_points)
+        with self._route_cache_lock:
+            cached = self._route_cache.get(cache_key)
+            if cached is not None:
+                return [list(point) for point in cached]
+
+        def finish(value: list[list[float]]) -> list[list[float]]:
+            clean = [list(point) for point in value]
+            # Geography reference data can finish syncing after startup. Do
+            # not make an early unresolved result permanent; successful paths
+            # are immutable until the next atomic schedule rebuild.
+            if clean:
+                with self._route_cache_lock:
+                    if len(self._route_cache) >= 4096:
+                        self._route_cache.pop(next(iter(self._route_cache)))
+                    self._route_cache[cache_key] = clean
+            return [list(point) for point in clean]
+
         try:
             with self._connect() as conn:
                 row = conn.execute(
                     "SELECT locations_json FROM schedules WHERE id=?", (int(schedule_id),)
                 ).fetchone()
                 if row is None:
-                    return []
+                    return finish([])
                 try:
                     locations = json.loads(row["locations_json"] or "[]")
                 except (TypeError, json.JSONDecodeError):
-                    return []
+                    return finish([])
                 codes = [
                     str(item.get("tiploc_code") or "").strip().upper()
                     for item in locations if isinstance(item, dict)
@@ -478,12 +523,12 @@ class ScheduleStore:
                     first = codes.index(start)
                     last = codes.index(end, first + 1)
                 except ValueError:
-                    return []
+                    return finish([])
                 wanted = [code for code in codes[first:last + 1] if code]
                 if not wanted:
-                    return []
+                    return finish([])
         except (OSError, sqlite3.Error, TypeError, ValueError):
-            return []
+            return finish([])
         geography = self.location_geography(wanted)
         geo = {
             code: [float(point["lat"]), float(point["lon"])]
@@ -491,45 +536,65 @@ class ScheduleStore:
             if point.get("lat") is not None and point.get("lon") is not None
         }
         points: list[list[float]] = []
-        expanded: list[str] = []
         graph = self.railway_routing_graph()
-        for index, code in enumerate(wanted):
-            if not expanded:
-                expanded.append(code)
-                continue
-            previous = expanded[-1]
+        physical_available = self._physical_routing_graph.available
+        for previous, code in zip(wanted, wanted[1:]):
             first_point, second_point = geo.get(previous), geo.get(code)
-            direct_distance = distance_km(tuple(first_point), tuple(second_point)) if first_point and second_point else 0
-            if len(wanted) > 2:
-                # The service itself publishes intermediate timing/junction
-                # points, so preserve that explicit chain.
-                expanded.append(code)
-                continue
-            # A direct schedule edge only says the train travels between two
-            # timing points; it is not track geometry.  For a long edge seek a
-            # chain used by other published services while explicitly ignoring
-            # the tempting straight start→end chord.  If none exists, leave
-            # the path unproven so callers hold the confirmed position instead
-            # of drawing a train across fields.
+            if not first_point or not second_point:
+                return finish([])
+            if physical_available:
+                physical = self._physical_routing_graph.route([first_point, second_point], max_points=128)
+                if len(physical) >= 2:
+                    for point in physical:
+                        if not points or point != points[-1]:
+                            points.append(point)
+                    continue
+
+            direct_distance = distance_km(tuple(first_point), tuple(second_point))
             routed = graph.route(
                 previous, code,
                 max_distance_km=min(80, direct_distance * 1.8),
                 avoid_direct_edge=True,
-            ) if graph and direct_distance >= 2 else []
+            ) if graph and direct_distance >= 1.5 else []
             if len(routed) > 2:
-                expanded.extend(routed[1:])
-            elif direct_distance < 2:
-                expanded.append(code)
-            else:
-                return []
-        if expanded != wanted:
-            geography.update(self.location_geography(expanded))
-            geo.update({code: [float(point["lat"]), float(point["lon"])] for code, point in geography.items() if point.get("lat") is not None and point.get("lon") is not None})
-        for code in expanded:
-            point = geo.get(code)
-            if point and (not points or point != points[-1]):
-                points.append(point)
-        return points
+                routed_geo = self.location_geography(routed)
+                routed_points = [
+                    [float(routed_geo[item]["lat"]), float(routed_geo[item]["lon"])]
+                    for item in routed
+                    if item in routed_geo and routed_geo[item].get("lat") is not None and routed_geo[item].get("lon") is not None
+                ]
+                if len(routed_points) != len(routed):
+                    return finish([])
+                for point in routed_points:
+                    if not points or point != points[-1]:
+                        points.append(point)
+                continue
+            if direct_distance >= 1.5:
+                return finish([])
+            for point in (first_point, second_point):
+                if not points or point != points[-1]:
+                    points.append(point)
+        return finish(simplify_path(points, max_points=max_points))
+
+    def published_route_points(self, schedule_id: int | None) -> list[list[float]]:
+        """Return the complete selected-service route at display resolution."""
+        if not schedule_id:
+            return []
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT locations_json FROM schedules WHERE id=?", (int(schedule_id),)
+                ).fetchone()
+            locations = json.loads(row["locations_json"] or "[]") if row else []
+        except (OSError, sqlite3.Error, TypeError, ValueError, json.JSONDecodeError):
+            return []
+        codes = [
+            str(item.get("tiploc_code") or "").strip().upper()
+            for item in locations if isinstance(item, dict) and item.get("tiploc_code")
+        ]
+        if len(codes) < 2:
+            return []
+        return self.route_points(schedule_id, codes[0], codes[-1], max_points=512)
 
     def initial_estimate_leg(self, schedule_id: int | None, running_date: date) -> dict | None:
         """Resolve the first mapped timed leg for a newly activated service."""
@@ -1219,6 +1284,9 @@ def ingest_schedule_file(schedule_path: Path, store: ScheduleStore, naptan: dict
     if last_error is not None:
         tmp_db.unlink(missing_ok=True)
         raise last_error
+    # Schedule row ids are rebuilt during the atomic handoff, so no route
+    # result keyed by an earlier row id may survive it.
+    store.clear_route_cache()
     total_stations = merge_station_file(station_file, station_additions)
     return {
         "schedules": schedule_count,

@@ -377,6 +377,23 @@ class TDCollector(StompFeed):
         )
         advanced = 0
         for vehicle in trains:
+            # A deploy can introduce better geometry while a train is already
+            # midway through its current leg. Replace that leg immediately;
+            # do not wait for the next TD report or for somebody to click it.
+            event_type = str(vehicle.rail_event_type or '').strip().lower()
+            if (
+                vehicle.schedule_id and vehicle.estimate_started_at and vehicle.estimate_due_at
+                and vehicle.estimate_due_at > now
+                and vehicle.rail_tiploc and vehicle.next_tiploc
+                and event_type not in {'arrival'}
+            ):
+                refreshed_path = self.schedules.route_points(
+                    vehicle.schedule_id, vehicle.rail_tiploc, vehicle.next_tiploc,
+                )
+                if len(refreshed_path) >= 2 and refreshed_path != (vehicle.estimate_path or []):
+                    vehicle.estimate_path = refreshed_path
+                    self.state.upsert(vehicle)
+                    advanced += 1
             if (
                 vehicle.type != "train"
                 or not vehicle.schedule_id
