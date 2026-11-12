@@ -354,6 +354,48 @@ class TDCollector(StompFeed):
             advanced = True
         return advanced
 
+    def advance_live_estimates(self, observed_at: datetime | None = None) -> int:
+        """Roll elapsed timetable legs forward without waiting for a click.
+
+        TD and TRUST are reporting-point feeds rather than GPS.  A browser can
+        animate a known leg locally, but once that leg ends it needs the next
+        mapped timetable leg.  Previously that rollover only happened when a
+        later (often unmapped) TD message happened to arrive, so ordinary map
+        markers could sit at a station for several minutes and then jump.  Run
+        this small maintenance pass independently of viewers and only publish
+        rows whose identified schedule genuinely advanced.
+        """
+        now = observed_at or datetime.now(timezone.utc)
+        trains = self.state.all(
+            max_age_minutes=45,
+            include_trains=True,
+            train_limit=None,
+            include_buses=False,
+            include_vessels=False,
+        )
+        advanced = 0
+        for vehicle in trains:
+            if (
+                vehicle.type != "train"
+                or not vehicle.schedule_id
+                or not vehicle.service_date
+                or not vehicle.estimate_due_at
+                or now <= vehicle.estimate_due_at
+            ):
+                continue
+            if self._advance_schedule_estimate(vehicle, now):
+                # Keep last_updated as the last real railway report.  The new
+                # estimate fields change the websocket payload and therefore
+                # move every viewer, without pretending this was fresh GPS.
+                vehicle.position_method = "estimated"
+                vehicle.position_label = (
+                    f"Estimated along the matched published railway schedule after the "
+                    f"last confirmed {vehicle.source or 'railway'} report"
+                )
+                self.state.upsert(vehicle)
+                advanced += 1
+        return advanced
+
     def _replay_pending(self) -> None:
         with self._pending_lock:
             pending = list(self._pending)

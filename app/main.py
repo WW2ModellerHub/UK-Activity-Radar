@@ -551,6 +551,15 @@ async def _rail_position_snapshot_loop() -> None:
         await asyncio.to_thread(rail_position_snapshot.save, _recent_trains())
 
 
+async def _rail_estimate_rollover_loop() -> None:
+    """Keep all mapped trains moving across timetable legs between reports."""
+    while True:
+        await asyncio.sleep(2)
+        collector = td_collector
+        if collector is not None:
+            await asyncio.to_thread(collector.advance_live_estimates)
+
+
 async def _state_maintenance_loop() -> None:
     """Bound long-running in-memory state without touching current live rows."""
     while True:
@@ -617,6 +626,7 @@ async def lifespan(app: FastAPI):
         if settings.auto_sync_reference:
             tasks.append(asyncio.create_task(_reference_sync_loop()))
         tasks.append(asyncio.create_task(_rail_position_snapshot_loop()))
+        tasks.append(asyncio.create_task(_rail_estimate_rollover_loop()))
     elif not settings.demo_mode:
         state.set_source(SourceStatus(
             name="network_rail", enabled=False, connected=False, mode="setup",

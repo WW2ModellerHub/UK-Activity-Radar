@@ -217,3 +217,55 @@ def test_td_uses_smart_departure_offset_instead_of_restarting_at_station(tmp_pat
     assert advanced.estimate_started_at == now + timedelta(minutes=10, seconds=-82)
     assert advanced.position_method == "estimated"
     assert "matched published railway schedule" in advanced.position_label
+
+
+def test_elapsed_train_leg_advances_without_another_td_message_or_click(tmp_path):
+    now = datetime.now(london_tz()).replace(second=0, microsecond=0)
+    station_file = tmp_path / "stations.json"
+    station_file.write_text(json.dumps({
+        "59318": {"name": "Hinckley", "lat": 52.535, "lon": -1.371, "tiploc": "HINCKLY"},
+    }), encoding="utf-8")
+    smart_file = tmp_path / "smart.json"
+    smart_file.write_text(json.dumps([{
+        "TD": "WG", "FROMBERTH": "2976", "TOBERTH": "2970", "STANOX": "59318",
+        "EVENT": "B",
+    }]), encoding="utf-8")
+    store = ScheduleStore(tmp_path / "schedule.sqlite")
+    with store._connect() as conn:
+        conn.executemany(
+            "INSERT INTO tiplocs(tiploc,stanox,description,lat,lon) VALUES(?,?,?,?,?)",
+            [
+                ("HINCKLY", "59318", "Hinckley", 52.535, -1.371),
+                ("NARBORO", "59301", "Narborough", 52.571, -1.203),
+                ("LESTER", "59300", "Leicester", 52.631, -1.125),
+            ],
+        )
+        conn.execute(
+            """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,atoc_code,
+                   signalling_id,origin_name,destination_name,locations_json)
+               VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                "C1P04", (now-timedelta(days=1)).date().isoformat(),
+                (now+timedelta(days=1)).date().isoformat(), "1111111", "P", "XC",
+                "1P04", "Birmingham", "Leicester", json.dumps([
+                    {"tiploc_code": "HINCKLY", "scheduled_departure": now.strftime("%H%M")},
+                    {"tiploc_code": "NARBORO", "scheduled_arrival": (now+timedelta(minutes=5)).strftime("%H%M"),
+                     "scheduled_departure": (now+timedelta(minutes=6)).strftime("%H%M")},
+                    {"tiploc_code": "LESTER", "scheduled_arrival": (now+timedelta(minutes=12)).strftime("%H%M")},
+                ]),
+            ),
+        )
+    state = LiveState()
+    collector = TDCollector(SimpleNamespace(td_topic="/topic/TD"), state, station_file, smart_file, store)
+    td_message(collector, now, area_id="WG", **{"from": "2976", "to": "2970", "descr": "1P04"})
+
+    first = state.get("td:WG:1P04")
+    assert first.next_tiploc == "NARBORO"
+    assert collector.advance_live_estimates(now + timedelta(minutes=7)) == 1
+
+    moved = state.get("td:WG:1P04")
+    assert moved.reported_lat == 52.571
+    assert moved.next_tiploc == "LESTER"
+    assert moved.estimate_started_at == now + timedelta(minutes=6)
+    assert moved.last_updated == first.last_updated
+    assert "after the last confirmed" in moved.position_label
