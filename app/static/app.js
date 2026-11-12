@@ -1778,6 +1778,37 @@
     return [appearance,a.name,a.type,a.kind,a.origin,a.destination,a.route,a.subtitle,a.position_label,a.speed,a.speed_unit,a.bearing,a.delay_minutes,a.next_location,a.status,a.severity,a.vehicle_ref,a.aircraft_model,a.last_updated,a.cool_score,a.cool_badge].join('|');
   }
 
+  function trainMarkerDomMatches(marker,activity) {
+    if(activity?.type!=='train')return true;
+    const element=marker.getElement?.();
+    if(!element)return true;
+    const count=Math.max(1,Number(activity._coincidentCount)||1);
+    const expectedIndex=Math.max(0,Number(activity._coincidentSlot)||0)+1;
+    const badge=element.querySelector('.train-coincident-index');
+    if(count>1){
+      return element.classList.contains('train-coincident-wrap')
+        && badge?.textContent?.trim()===String(expectedIndex);
+    }
+    return !element.classList.contains('train-coincident-wrap')&&!badge;
+  }
+
+  function syncMarkerVisual(marker,activity,visualSignature,force=false) {
+    if(!force&&marker.__visualSignature===visualSignature&&trainMarkerDomMatches(marker,activity))return false;
+    marker.setIcon(markerIcon(activity));
+    marker.__visualSignature=visualSignature;
+    diagnostics.markerVisualUpdates+=1;
+    return true;
+  }
+
+  function repairCoincidentTrainMarkerDom(displayActivities) {
+    for(const activity of displayActivities){
+      if(activity?.type!=='train')continue;
+      const marker=markers.get(activity.id);
+      if(!marker||trainMarkerDomMatches(marker,activity))continue;
+      syncMarkerVisual(marker,activity,markerVisualSignature(activity),true);
+    }
+  }
+
   function renderMap() {
     const startedAt = performance.now();
     let rows = filteredActivities();
@@ -1837,11 +1868,7 @@
           if (intendedGroup === markerGroup) clusterDirty = true;
           diagnostics.markerMoves += 1;
         }
-        if (marker.__visualSignature !== visualSignature) {
-          marker.setIcon(markerIcon(displayActivity));
-          marker.__visualSignature = visualSignature;
-          diagnostics.markerVisualUpdates += 1;
-        }
+        syncMarkerVisual(marker,displayActivity,visualSignature);
         if (marker.__tooltipSignature !== tooltipSignature && marker.getTooltip()) {
           marker.setTooltipContent(tooltipHtml(displayActivity));
           marker.__tooltipSignature = tooltipSignature;
@@ -1851,6 +1878,10 @@
       }
     }
     if (clusterDirty && typeof markerGroup.refreshClusters === 'function') markerGroup.refreshClusters();
+    repairCoincidentTrainMarkerDom(presentations.map((row,index)=>withTrainCoincidentLayout(row,coincidentLayouts.get(rows[index]?.id))));
+    requestAnimationFrame(()=>repairCoincidentTrainMarkerDom(
+      presentations.map((row,index)=>withTrainCoincidentLayout(row,coincidentLayouts.get(rows[index]?.id)))
+    ));
     renderHeatmap();
     diagnostics.lastRenderMs = Math.round((performance.now() - startedAt) * 10) / 10;
     $('map').dataset.activityCount = String(rows.length);
@@ -1880,11 +1911,7 @@
         marker.__positionSignature=signature;
         diagnostics.markerMoves+=1;
       }
-      if(visualSignature!==marker.__visualSignature){
-        marker.setIcon(markerIcon(display));
-        marker.__visualSignature=visualSignature;
-        diagnostics.markerVisualUpdates+=1;
-      }
+      syncMarkerVisual(marker,display,visualSignature);
     }
   }
 

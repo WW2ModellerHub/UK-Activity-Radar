@@ -11,6 +11,9 @@
   railway report instead of receiving invented straight-line motion.
 - Smooth incoming ADS-B corrections and freeze aircraft at the end of the safe
   dead-reckoning window instead of snapping them back to an old coordinate.
+- Repair Leaflet train icons after marker-cluster redraws when their outer
+  coincident wrapper and inner numbered badge fall out of sync, preventing
+  overlapping services from becoming visually indistinguishable.
 - Make the multiplexed Network Rail topics truly non-durable by omitting the
   broker client identity, with bounded exponential recovery from stale broker
   sessions, and send the required Network Rail hostname in the STOMP 1.1 host
