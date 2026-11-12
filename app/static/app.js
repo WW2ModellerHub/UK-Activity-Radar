@@ -692,7 +692,7 @@
     if (a.type === 'vessel' && a.vehicle_ref) pills.push(`<span class="tooltip-pill">MMSI ${esc(a.vehicle_ref)}</span>`);
     if (['sar','aircraft'].includes(a.type) && (a.aircraft_model || a.vehicle_ref)) pills.push(`<span class="tooltip-pill">${esc(a.aircraft_model || a.vehicle_ref)}</span>`);
     const badge = currentWorkspace === 'cool' ? coolBadgeHtml(a,true) : '';
-    const staleTrain=a.type==='train'&&(a.restored_snapshot===true||ageMinutes(a)>10);
+    const staleTrain=a.type==='train'&&a.restored_snapshot===true;
     if(staleTrain)pills.unshift('<span class="tooltip-pill warn">Last known position</span>');
     const liveLabel=a.kind==='event'?'EVENT':staleTrain?'STALE':'LIVE';
     return `<div class="activity-tooltip-card"><div class="tooltip-top"><strong>${icons[a.type] || '•'} ${esc(a.name)}</strong><span class="tooltip-live${staleTrain?' stale':''}">${liveLabel}</span></div>${badge}${route ? `<div class="tooltip-sub">${esc(route)}</div>` : ''}<div class="tooltip-pills">${pills.slice(0,4).join('')}</div><div class="tooltip-hint">${a.type==='train'?'Last railway report':'Updated'} ${esc(relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000)))} • click for detail</div></div>`;
@@ -1077,7 +1077,7 @@
       });
     }
     const trainTheme=type==='train' ? trainLiveryTheme('',v.operator || v.operator_name || v.toc || v.owner) : null;
-    const staleTrain=type==='train'&&(v.restored_snapshot===true||ageMinutes(v)>10);
+    const staleTrain=type==='train'&&v.restored_snapshot===true;
     const trainStyle=staleTrain
       ? ' style="background:#53606b;border-color:#9aa5ad;color:#fff;filter:saturate(.25);opacity:.72"'
       : trainTheme && trainTheme.key!=='reference'
@@ -2565,7 +2565,7 @@
     const a = activityById(id);
     if (!a) return;
     const detailFreshness=document.querySelector('#detail-panel .detail-head small');
-    const staleTrain=a.type==='train'&&(a.restored_snapshot===true||ageMinutes(a)>10);
+    const staleTrain=a.type==='train'&&a.restored_snapshot===true;
     if(detailFreshness)detailFreshness.textContent=staleTrain?'LAST KNOWN POSITION':'LIVE NOW';
     selectedActivitySnapshot=a;
     liveObjectRenderer?.setActivities(filteredActivities(),selectedId);
