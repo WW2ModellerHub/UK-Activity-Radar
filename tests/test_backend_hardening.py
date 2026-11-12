@@ -138,7 +138,7 @@ def test_multiplex_uses_network_rail_host_and_nondurable_broker_session(monkeypa
 
 
 def test_broker_session_retry_uses_bounded_exponential_backoff():
-    assert [_session_retry_seconds(attempt) for attempt in range(1, 8)] == [15, 30, 60, 120, 240, 300, 300]
+    assert [_session_retry_seconds(attempt) for attempt in range(1, 7)] == [900, 1800, 3600, 7200, 7200, 7200]
 
 
 def test_successful_bods_snapshot_clears_predictions_removed_upstream(monkeypatch):

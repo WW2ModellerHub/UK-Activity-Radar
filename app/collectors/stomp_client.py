@@ -10,8 +10,8 @@ from ..state import LiveState
 
 
 def _session_retry_seconds(attempt: int) -> int:
-    """Bounded exponential backoff for broker-side session acquisition failures."""
-    return min(300, 15 * (2 ** max(0, int(attempt) - 1)))
+    """Back off long enough for Network Rail's stale-session block to expire."""
+    return min(7200, 900 * (2 ** max(0, int(attempt) - 1)))
 
 
 class _Listener(stomp.ConnectionListener):
@@ -240,8 +240,9 @@ class MultiplexStompFeed:
                 if "amq339009" in fatal:
                     # Session acquisition failures are commonly a deployment
                     # overlap or a broker-side stale session, not bad account
-                    # details. Back off exponentially without pinning another
-                    # durable identity at the broker.
+                    # details. Network Rail can firewall accounts for hours if
+                    # they reconnect while the old STOMP session still exists,
+                    # so a short retry loop actively prolongs the outage.
                     rejected_sessions += 1
                     cooldown = _session_retry_seconds(rejected_sessions)
                     self.terminal_error = (

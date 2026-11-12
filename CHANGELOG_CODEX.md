@@ -15,7 +15,9 @@
   broker client identity, with bounded exponential recovery from stale broker
   sessions, and send the required Network Rail hostname in the STOMP 1.1 host
   header instead of the invalid generic `/` virtual host. Added deterministic
-  backend and browser regressions.
+  backend and browser regressions. A stale-session rejection now cools down for
+  15 minutes and then exponentially up to two hours, because Network Rail's
+  firewall can extend an account block when a failed client reconnects rapidly.
 
 ## 2026-11-11 — keep selected train routes visible on mobile
 
