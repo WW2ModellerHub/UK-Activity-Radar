@@ -1742,10 +1742,8 @@
       const started=Date.parse(a.estimate_started_at||''),due=Date.parse(a.estimate_due_at||'');
       if(Number.isFinite(started)&&Number.isFinite(due)&&due>started&&now>=started){
         const fraction=Math.max(0,Math.min(1,(now-started)/(due-started)));
-        const path=Array.isArray(a.estimate_path)&&a.estimate_path.length>=2
-          ? a.estimate_path
-          : [[a.reported_lat,a.reported_lon],[a.next_lat,a.next_lon]];
-        const point=pathPosition(path,fraction);
+        const path=Array.isArray(a.estimate_path)&&a.estimate_path.length>=2?a.estimate_path:[];
+        const point=path.length>=2?pathPosition(path,fraction):null;
         if(point)return {...a,...point,position_method:'estimated',position_label:`Estimated along the published railway path between confirmed reports • ${a.position_label||''}`};
       }
     }

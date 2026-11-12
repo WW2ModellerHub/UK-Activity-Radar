@@ -500,10 +500,28 @@ class ScheduleStore:
             previous = expanded[-1]
             first_point, second_point = geo.get(previous), geo.get(code)
             direct_distance = distance_km(tuple(first_point), tuple(second_point)) if first_point and second_point else 0
-            # Only replace suspiciously long timetable chords. Short published
-            # legs remain authoritative and avoid accidental branch detours.
-            routed = graph.route(previous, code, max_distance_km=min(80, direct_distance * 1.8)) if graph and direct_distance >= 5 else []
-            expanded.extend(routed[1:] if len(routed) > 2 else [code])
+            if len(wanted) > 2:
+                # The service itself publishes intermediate timing/junction
+                # points, so preserve that explicit chain.
+                expanded.append(code)
+                continue
+            # A direct schedule edge only says the train travels between two
+            # timing points; it is not track geometry.  For a long edge seek a
+            # chain used by other published services while explicitly ignoring
+            # the tempting straight start→end chord.  If none exists, leave
+            # the path unproven so callers hold the confirmed position instead
+            # of drawing a train across fields.
+            routed = graph.route(
+                previous, code,
+                max_distance_km=min(80, direct_distance * 1.8),
+                avoid_direct_edge=True,
+            ) if graph and direct_distance >= 2 else []
+            if len(routed) > 2:
+                expanded.extend(routed[1:])
+            elif direct_distance < 2:
+                expanded.append(code)
+            else:
+                return []
         if expanded != wanted:
             geography.update(self.location_geography(expanded))
             geo.update({code: [float(point["lat"]), float(point["lon"])] for code, point in geography.items() if point.get("lat") is not None and point.get("lon") is not None})
@@ -552,8 +570,6 @@ class ScheduleStore:
             first_code = str(first_location.get("tiploc_code") or "").strip().upper()
             second_code = str(second_location.get("tiploc_code") or "").strip().upper()
             path = self.route_points(schedule_id, first_code, second_code)
-            if not path:
-                path = [[first_point["lat"], first_point["lon"]], [second_point["lat"], second_point["lon"]]]
             return {
                 "lat": first_point["lat"], "lon": first_point["lon"],
                 "next_lat": second_point["lat"], "next_lon": second_point["lon"],
@@ -657,9 +673,9 @@ class ScheduleStore:
                 path = self.route_points(schedule_id, previous_code, start_code)
                 first = [previous_point["lat"], previous_point["lon"]]
                 last = [start_point["lat"], start_point["lon"]]
-                if not path or path[0] != first:
+                if path and path[0] != first:
                     path.insert(0, first)
-                if path[-1] != last:
+                if path and path[-1] != last:
                     path.append(last)
                 return {
                     "lat": previous_point["lat"], "lon": previous_point["lon"],
@@ -683,9 +699,9 @@ class ScheduleStore:
             path = self.route_points(schedule_id, start_code, next_code)
             first = [start_point["lat"], start_point["lon"]]
             last = [next_point["lat"], next_point["lon"]]
-            if not path or path[0] != first:
+            if path and path[0] != first:
                 path.insert(0, first)
-            if path[-1] != last:
+            if path and path[-1] != last:
                 path.append(last)
             return {
                 "lat": start_point["lat"], "lon": start_point["lon"],

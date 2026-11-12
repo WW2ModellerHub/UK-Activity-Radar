@@ -50,10 +50,11 @@
     if(activity.type==='train'){
       const started=Date.parse(activity.estimate_started_at||''),due=Date.parse(activity.estimate_due_at||'');
       if(Number.isFinite(started)&&Number.isFinite(due)&&due>started&&now>=started){
+        // Never invent railway geometry from a pair of report coordinates.
+        // Only a server-validated mapped path may move a train between reports.
         const path=Array.isArray(activity.estimate_path)&&activity.estimate_path.length>=2
-          ? activity.estimate_path
-          : [[activity.reported_lat,activity.reported_lon],[activity.next_lat,activity.next_lon]];
-        const sample=samplePath(path,(now-started)/(due-started));
+          ? activity.estimate_path : [];
+        const sample=path.length>=2?samplePath(path,(now-started)/(due-started)):null;
         if(sample)return {...activity,lat:sample.lat,lon:sample.lon,bearing:sample.bearing,
           position_method:'estimated',position_label:`Estimated along the published railway path between confirmed reports • ${activity.position_label||''}`};
       }

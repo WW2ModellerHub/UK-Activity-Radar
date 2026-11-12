@@ -71,7 +71,7 @@ def test_live_activation_is_visible_before_the_first_movement_report(tmp_path):
     assert train.position_method == "estimated"
     assert train.status == "Activated • awaiting first movement report"
     assert train.next_location == "Market Harborough"
-    assert train.estimate_path == [[52.631, -1.125], [52.478, -0.908]]
+    assert train.estimate_path == []
 
 
 def test_unknown_station_does_not_attach_a_headcode_schedule(tmp_path):

@@ -47,13 +47,10 @@ def _estimated_train_position(vehicle: Vehicle, now: datetime) -> tuple[float, f
             continue
         if -90 <= lat <= 90 and -180 <= lon <= 180:
             points.append((lat, lon))
+    # Report endpoints are not railway geometry.  Falling back to their
+    # straight chord can put a train miles away from the physical track.
     if len(points) < 2:
-        if None in {vehicle.reported_lat, vehicle.reported_lon, vehicle.next_lat, vehicle.next_lon}:
-            return None
-        points = [
-            (float(vehicle.reported_lat), float(vehicle.reported_lon)),
-            (float(vehicle.next_lat), float(vehicle.next_lon)),
-        ]
+        return None
     total_seconds = (vehicle.estimate_due_at - vehicle.estimate_started_at).total_seconds()
     fraction = max(0.0, min(1.0, (now - vehicle.estimate_started_at).total_seconds() / total_seconds))
     legs: list[tuple[tuple[float, float], tuple[float, float], float, float]] = []

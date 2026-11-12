@@ -315,6 +315,7 @@ class TrustCollector(StompFeed):
         next_station = self.stations.get(next_stanox)
         next_lat = next_lon = None
         estimate_path = None
+        leg = None
         due_at = None
         next_name = None
         next_tiploc = None
@@ -332,9 +333,9 @@ class TrustCollector(StompFeed):
             ) if self.schedules.ready() else []
             start_point = [float(station["lat"]), float(station["lon"])]
             end_point = [float(next_station["lat"]), float(next_station["lon"])]
-            if not route_points or route_points[0] != start_point:
+            if route_points and route_points[0] != start_point:
                 route_points.insert(0, start_point)
-            if route_points[-1] != end_point:
+            if route_points and route_points[-1] != end_point:
                 route_points.append(end_point)
             estimate_path = route_points
         elif event_type == "Arrival" and activation.get("schedule_id") and activation.get("service_date") and station.get("tiploc"):
@@ -365,7 +366,7 @@ class TrustCollector(StompFeed):
 
         name = headcode or identity
         position_label = f"Confirmed report at {location_name}"
-        if event_type == "Arrival" and estimate_path:
+        if event_type == "Arrival" and leg:
             position_label += " • onward estimate starts after the published station dwell"
         vehicle = Vehicle(
             # TD can see a service before TRUST activation/movement arrives.
@@ -408,7 +409,7 @@ class TrustCollector(StompFeed):
             next_lat=next_lat,
             next_lon=next_lon,
             estimate_path=estimate_path,
-            estimate_started_at=(leg["started_at"] if event_type == "Arrival" and estimate_path else event_time) if due_at else None,
+            estimate_started_at=(leg["started_at"] if event_type == "Arrival" and leg else event_time) if due_at else None,
             estimate_due_at=due_at,
         )
         self.state.upsert(vehicle)

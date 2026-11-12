@@ -52,7 +52,7 @@ def test_td_movement_is_enriched_with_matching_schedule(tmp_path):
     assert train.origin == "Sheffield"
     assert train.destination == "Leicester"
     assert train.next_location == "Leicester"
-    assert train.estimate_path == [[53.235, -1.421], [52.631, -1.125]]
+    assert train.estimate_path == []
     assert train.estimate_due_at > train.estimate_started_at
     first_started_at = train.estimate_started_at
     collector.handle_message(json.dumps({"CA_MSG": {

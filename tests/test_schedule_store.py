@@ -305,7 +305,7 @@ def test_smart_departure_offset_starts_train_ahead_of_reporting_point(tmp_path):
     assert leg["event_kind"] == "departure"
     assert leg["started_at"] == observed - timedelta(seconds=82)
     assert leg["due_at"] == observed + timedelta(minutes=10, seconds=-82)
-    assert leg["path"] == [[52.535, -1.371], [52.571, -1.203]]
+    assert leg["path"] == []
     assert leg["next_tiploc"] == "NARBORO"
 
 
@@ -365,7 +365,7 @@ def test_confirmed_arrival_advances_after_published_station_dwell(tmp_path):
     assert leg["due_at"] == datetime(2026, 11, 5, 8, 18, tzinfo=london_tz())
     assert leg["next_name"] == "Market Harborough"
     assert leg["next_tiploc"] == "MARKTH"
-    assert leg["path"] == [[52.631, -1.125], [52.478, -0.908]]
+    assert leg["path"] == []
 
 
 def test_smart_arrival_offset_keeps_train_on_approach_leg(tmp_path):
@@ -393,7 +393,7 @@ def test_smart_arrival_offset_keeps_train_on_approach_leg(tmp_path):
 
     assert leg is not None
     assert leg["event_kind"] == "arrival"
-    assert leg["path"] == [[52.535, -1.371], [52.571, -1.203]]
+    assert leg["path"] == []
     assert leg["due_at"] == datetime(2026, 11, 5, 7, 40, tzinfo=london_tz())
     assert leg["started_at"] == datetime(2026, 11, 5, 7, 30, tzinfo=london_tz())
     assert leg["next_name"] == "Narborough"

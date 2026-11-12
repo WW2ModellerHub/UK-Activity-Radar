@@ -36,7 +36,10 @@ class RailwayRoutingGraph:
             self.adjacency[first].append((second, weight))
             self.adjacency[second].append((first, weight))
 
-    def route(self, start: str, end: str, *, max_nodes: int = 48, max_distance_km: float = 80) -> list[str]:
+    def route(
+        self, start: str, end: str, *, max_nodes: int = 48,
+        max_distance_km: float = 80, avoid_direct_edge: bool = False,
+    ) -> list[str]:
         start, end = str(start).upper(), str(end).upper()
         if start == end:
             return [start]
@@ -51,6 +54,8 @@ class RailwayRoutingGraph:
             if cost > best.get(node, float("inf")) or len(path) >= max_nodes or cost > max_distance_km:
                 continue
             for neighbour, weight in self.adjacency.get(node, []):
+                if avoid_direct_edge and node == start and neighbour == end:
+                    continue
                 if neighbour in path:
                     continue
                 next_cost = cost + weight
