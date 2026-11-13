@@ -14,6 +14,10 @@
   const tileSets = {standard:null,rail:null};
   let currentBase = null;
   let liveObjectRenderer = null;
+  // Hover cards only make sense with a mouse. On touch screens a tap would open
+  // the card and the detail panel together, showing the same thing twice.
+  const hoverCards = !!window.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches;
+  function bindHoverCard(marker, html, options) { if (hoverCards) marker.bindTooltip(html, options); return marker; }
 
   function baseTileLayer(config) {
     const direct=Boolean(config?.configured && config?.tile_url);
@@ -816,10 +820,12 @@
     const delay = delayN == null ? null : (delayN === 0 ? 'On time' : `${delayN > 0 ? '+' : ''}${delayN} min`);
     const movement = [heading, speed].filter(Boolean).join(' • ');
     const next = a.next_location ? `Next ${a.next_location}` : null;
-    const status = a.status || a.severity || null;
+    const isTrain = a.type === 'train';
+    const status = isTrain ? null : (a.status || a.severity || null);
     const pills = [];
     if (status) pills.push(`<span class="tooltip-pill">${esc(status)}</span>`);
-    if (delay) pills.push(`<span class="tooltip-pill ${delayN > 5 ? 'warn' : 'good'}">${esc(delay)}</span>`);
+    if (isTrain) { const label = trainStatusLabel(a); if (label !== 'Live') pills.push(`<span class="tooltip-pill ${/late/.test(label) && delayN > 5 ? 'warn' : 'good'}">${esc(label)}</span>`); }
+    else if (delay) pills.push(`<span class="tooltip-pill ${delayN > 5 ? 'warn' : 'good'}">${esc(delay)}</span>`);
     if (movement) pills.push(`<span class="tooltip-pill">${esc(movement)}</span>`);
     if (next) pills.push(`<span class="tooltip-pill">${esc(next)}</span>`);
     if (a.type === 'train' && a.position_method === 'estimated') pills.push('<span class="tooltip-pill warn">Estimated between reports</span>');
@@ -1293,7 +1299,7 @@
       let marker = cameraMarkers.get(camera.id);
       if (!marker) {
         marker = L.marker([camera.lat,camera.lon], {icon:cameraMarkerIcon(camera),riseOnHover:true});
-        marker.bindTooltip(`<div class="activity-tooltip-card"><div class="tooltip-top"><strong>${esc(camera.name)}</strong><span class="tooltip-live">LIVE CAM</span></div><div class="tooltip-sub">${esc([camera.view,camera.source].filter(Boolean).join(' • '))}</div><div class="tooltip-hint">Click for the source-backed image or video</div></div>`,{direction:'top',offset:[0,-11],opacity:.97,className:'activity-tooltip'});
+        bindHoverCard(marker,`<div class="activity-tooltip-card"><div class="tooltip-top"><strong>${esc(camera.name)}</strong><span class="tooltip-live">LIVE CAM</span></div><div class="tooltip-sub">${esc([camera.view,camera.source].filter(Boolean).join(' • '))}</div><div class="tooltip-hint">Click for the source-backed image or video</div></div>`,{direction:'top',offset:[0,-11],opacity:.97,className:'activity-tooltip'});
         marker.on('click',()=>{ const current=cameras.find(row=>row.id===camera.id) || camera; selectCamera(current,true); });
         cameraMarkerGroup.addLayer(marker); cameraMarkers.set(camera.id,marker);
       } else {
@@ -1349,7 +1355,7 @@
       const positionSignature=`${Number(p.lat).toFixed(6)}|${Number(p.lon).toFixed(6)}`;
       if (!marker) {
         marker=L.marker([p.lat,p.lon],{icon:placeMarkerIcon(p),pane:'placePane',riseOnHover:true,zIndexOffset:1600});
-        marker.bindTooltip(`<div class="activity-tooltip-card"><strong>${placeIcons[p.place_type]||iconSvg('pin')} ${esc(p.name)}</strong><span>${esc(p.subtitle || p.source || 'Smart place')}</span><small>Click for live board / context</small></div>`,{direction:'top',offset:[0,-11],opacity:.97,className:'activity-tooltip'});
+        bindHoverCard(marker,`<div class="activity-tooltip-card"><strong>${placeIcons[p.place_type]||iconSvg('pin')} ${esc(p.name)}</strong><span>${esc(p.subtitle || p.source || 'Smart place')}</span><small>Click for live board / context</small></div>`,{direction:'top',offset:[0,-11],opacity:.97,className:'activity-tooltip'});
         marker.on('click',()=>selectPlace(p.id,true));
         marker.__positionSignature=positionSignature;
         placeGroup.addLayer(marker); placeMarkers.set(p.id,marker);clusterDirty=true;
@@ -2044,8 +2050,8 @@
       const tooltipSignature = markerTooltipSignature(displayActivity);
       if (!marker) {
         marker = L.marker([displayActivity.lat, displayActivity.lon], { icon: markerIcon(displayActivity), riseOnHover: true });
-        marker.bindTooltip(tooltipHtml(displayActivity), { direction: 'top', offset: [0,-13], opacity: 0.97, className: 'activity-tooltip', sticky: true });
-        marker.on('click', () => selectActivity(a.id, true));
+        bindHoverCard(marker, tooltipHtml(displayActivity), { direction: 'top', offset: [0,-13], opacity: 0.97, className: 'activity-tooltip', sticky: true });
+        marker.on('click', () => { marker.closeTooltip?.(); selectActivity(a.id, true); });
         marker.__activityGroup = intendedGroup;
         marker.__activityType = a.type;
         marker.__positionSignature = positionSignature;
@@ -2121,9 +2127,8 @@
     if(liveObjectRenderer?.ready&&['train','aircraft','sar'].includes(a?.type))return;
     if (!a || markers.has(a.id)) return;
     focusMarker=L.marker([a.lat,a.lon],{icon:markerIcon(a),riseOnHover:true,zIndexOffset:1200}).addTo(map);
-    focusMarker.bindTooltip(tooltipHtml(a),{direction:'top',offset:[0,-13],opacity:.97,className:'activity-tooltip'});
+    bindHoverCard(focusMarker,tooltipHtml(a),{direction:'top',offset:[0,-13],opacity:.97,className:'activity-tooltip'});
     focusMarker.on('click',()=>selectActivity(a.id,false));
-    focusMarker.openTooltip();
   }
 
   function renderHeatmap() {

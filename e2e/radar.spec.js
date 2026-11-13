@@ -1190,3 +1190,16 @@ test('mobile nearby aircraft leaves the map visible and uses a compact toast', a
   await page.locator('#nearby-bar').click();
   await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
 });
+
+test.describe('on a touch screen', () => {
+  test.use({ hasTouch:true, isMobile:true, viewport:{ width:390, height:844 } });
+
+  test('tapping a train opens one panel and no floating map card', async ({ page }) => {
+    await page.locator('[data-layer-chip="train"]').click();
+    const marker = page.locator('.marker-bubble.marker-train').first();
+    await marker.evaluate(el => el.closest('.leaflet-marker-icon').dispatchEvent(new MouseEvent('mouseenter')));
+    await marker.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+    await expect(page.locator('#detail-title')).toContainText('London Express');
+    await expect(page.locator('.activity-tooltip')).toHaveCount(0);
+  });
+});

@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## One panel per tap
+
+- Touch screens no longer show the floating map card when a train, bus, station or camera is tapped; the detail panel is the only view. Mouse users keep the hover card.
+- The selected item no longer opens its map card automatically.
+- Train hover cards show "On time" / "N min late" instead of internal signalling text such as "TD live • next berth unresolved".
+
 ## 2026-11-13 — station board, Discover clean-up, punctuality
 
 - **Station board.** Rebuilt as one list with Departures / Arrivals tabs,
