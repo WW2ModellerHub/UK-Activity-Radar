@@ -1,6 +1,6 @@
 # Codex stabilization changelog
 
-## One panel per tap
+## 2026-11-13 — one panel per tap
 
 - Touch screens no longer show the floating map card when a train, bus, station or camera is tapped; the detail panel is the only view. Mouse users keep the hover card.
 - The selected item no longer opens its map card automatically.
