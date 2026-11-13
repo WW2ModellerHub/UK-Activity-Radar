@@ -72,6 +72,10 @@ class Vehicle(BaseModel):
     # be presented as a current live observation until a broker message has
     # replaced it.
     restored_snapshot: bool = False
+    # When the railway reported this service finished (TRUST termination, or
+    # a matched train reaching its timetabled destination). Later berth steps
+    # for the same stock must not bring a finished service back onto the map.
+    terminated_at: datetime | None = None
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Optional next-report metadata retained for context. ``next_tiploc`` lets

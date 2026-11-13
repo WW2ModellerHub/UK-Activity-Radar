@@ -81,6 +81,78 @@ def _bearing_to(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def _angle_diff(a: float, b: float) -> float:
     return abs((a-b+180)%360-180)
 
+def _location_event_time(location: dict, event: str) -> datetime | None:
+    if event == 'arrival':
+        order = ('_arrival_at', '_pass_at', '_departure_at')
+    else:
+        order = ('_departure_at', '_pass_at', '_arrival_at')
+    return next((location.get(key) for key in order if location.get(key)), None)
+
+
+def _train_progress(vehicle, locations: list[dict], codes: list[str], calls: list[dict]) -> dict:
+    """Place a live train within its calling pattern and estimate lateness.
+
+    Each call gains ``state`` (passed / current / next / upcoming) and, while
+    the train is running late, an ``expected`` time. Lateness comes from the
+    TRUST report when that was the last source; otherwise it is the signalling
+    report time at the current timing point minus that point's booked time.
+    """
+    here = str(getattr(vehicle, 'rail_tiploc', '') or '').strip().upper()
+    reported_at = getattr(vehicle, 'last_updated', None)
+    event = str(getattr(vehicle, 'rail_event_type', '') or '').strip().lower()
+    current = None
+    if here and here in codes:
+        matches = [index for index, code in enumerate(codes) if code == here]
+        if len(matches) == 1 or reported_at is None:
+            current = matches[0]
+        else:
+            def gap(index):
+                at = _location_event_time(locations[index], event)
+                return abs((at - reported_at).total_seconds()) if at else float('inf')
+            current = min(matches, key=gap)
+
+    delay = None
+    delay_source = None
+    source = str(getattr(vehicle, 'source', '') or '')
+    trust_delay = getattr(vehicle, 'delay_minutes', None)
+    if source.startswith('Network Rail TRUST') and isinstance(trust_delay, int):
+        delay, delay_source = trust_delay, 'trust'
+    elif current is not None and reported_at is not None:
+        booked = _location_event_time(locations[current], event)
+        if booked is not None:
+            minutes = round((reported_at - booked).total_seconds() / 60)
+            if abs(minutes) <= 720:
+                delay, delay_source = minutes, 'signalling'
+    if delay is None and isinstance(trust_delay, int):
+        delay, delay_source = trust_delay, 'trust'
+
+    late = max(0, delay or 0)
+    now = datetime.now(timezone.utc)
+    seen_next = False
+    for call in calls:
+        index = call.get('_index')
+        booked = call.get('_at')
+        if current is not None and index is not None:
+            if index < current:
+                state = 'passed'
+            elif index == current:
+                state = 'passed' if event in {'departure', 'pass'} else 'current'
+            else:
+                state = 'upcoming'
+        else:
+            expected_at = booked + timedelta(minutes=late) if booked else None
+            state = 'passed' if expected_at and expected_at < now - timedelta(minutes=1) else 'upcoming'
+        if state == 'current':
+            seen_next = True
+        elif state == 'upcoming' and not seen_next:
+            state, seen_next = 'next', True
+        call['state'] = state
+        if state != 'passed' and booked is not None and late >= 1:
+            call['expected'] = (booked + timedelta(minutes=late)).astimezone(london_tz()).strftime('%H:%M')
+    result = {'delay_minutes': delay, 'delay_source': delay_source}
+    return result
+
+
 def _clean_time(value: str | None) -> str | None:
     if not value:
         return None
@@ -753,7 +825,7 @@ class SmartPlacesService:
                     geography = self.schedules.location_geography(codes)
                     calls = []
                     mapped_timing_points = 0
-                    for item in locations:
+                    for location_index, item in enumerate(locations):
                         if not isinstance(item, dict):
                             continue
                         code = str(item.get('tiploc_code') or '').strip().upper()
@@ -778,7 +850,15 @@ class SmartPlacesService:
                             "name": point.get('name') or code,
                             "scheduled": clock,
                             "event": "Stops",
+                            "_index": location_index,
+                            "_at": (
+                                item.get('_public_departure_at') or item.get('_public_arrival_at')
+                                or item.get('_departure_at') or item.get('_arrival_at')
+                            ),
                         }
+                        platform = str(item.get('platform') or '').strip()
+                        if platform:
+                            call["platform"] = platform
                         if lat is not None and lon is not None:
                             call.update({"lat": float(lat), "lon": float(lon)})
                         calls.append(call)
@@ -786,7 +866,12 @@ class SmartPlacesService:
                         # the raw CIF timing records. Long-distance trains
                         # can contain dozens of pass-through junctions
                         # before their later passenger stops.
+                    progress = _train_progress(vehicle, locations, codes, calls)
+                    for call in calls:
+                        call.pop('_index', None)
+                        call.pop('_at', None)
                     route_path = self.schedules.published_route_points(schedule_id)
+                    run.update(progress)
                     run.update({
                         "origin": row['origin_name'] or run['origin'],
                         "destination": row['destination_name'] or run['destination'],

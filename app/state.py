@@ -16,6 +16,27 @@ TRAIN_ROLLOVER_GRACE_MINUTES = 10
 # How long a train restored from the warm-start snapshot may be shown before a
 # live report replaces it.
 RESTORED_SNAPSHOT_MINUTES = 15
+# A finished service stays visible briefly so a viewer sees it arrive.
+TERMINATED_VISIBLE_MINUTES = 2
+# A Train Describer headcode that never matched a timetable and has not moved
+# for this long is usually stock stabled or laid over in a platform.
+UNMATCHED_TD_IDLE_MINUTES = 20
+
+
+def _train_finished(vehicle: Vehicle, now: datetime) -> bool:
+    """True for a train that has finished running and should leave the map."""
+    if vehicle.type != "train":
+        return False
+    finished_before = now - timedelta(minutes=TERMINATED_VISIBLE_MINUTES)
+    if vehicle.terminated_at is not None and vehicle.terminated_at <= finished_before:
+        return True
+    if str(vehicle.status or "").lower().startswith("terminated") and vehicle.last_updated < finished_before:
+        return True
+    return bool(
+        vehicle.source == "Network Rail TD"
+        and not vehicle.schedule_id
+        and vehicle.last_updated < now - timedelta(minutes=UNMATCHED_TD_IDLE_MINUTES)
+    )
 
 
 def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -93,6 +114,8 @@ def _train_has_current_projection(vehicle: Vehicle, now: datetime) -> bool:
     live train indefinitely if the upstream feed stays unavailable.
     """
     if vehicle.type != "train" or not vehicle.schedule_id or not vehicle.service_date:
+        return False
+    if vehicle.terminated_at is not None:
         return False
     if vehicle.last_updated < now - timedelta(minutes=TRAIN_PROJECTION_MINUTES):
         return False
@@ -320,7 +343,7 @@ class LiveState:
                         current = self._train_for_uid_unlocked(str(stored.train_uid).strip(), stored.service_date)
                         if current is not None and current.id != stored.id:
                             continue
-                    if stored.status.lower().startswith('terminated') and stored.last_updated < now - timedelta(minutes=2):
+                    if _train_finished(stored, now):
                         continue
                     if stored.restored_snapshot and stored.last_updated < restored_cutoff:
                         # A warm-start row that no live report has replaced is
@@ -475,6 +498,7 @@ class LiveState:
                 vehicle for vehicle in self._vehicles.values()
                 if vehicle.cool_candidate
                 and vehicle.last_updated >= vehicle_cutoff
+                and not _train_finished(vehicle, now)
                 and (not wanted or str(vehicle.cool_category or "").lower() == wanted)
             ]
             candidates.extend(
@@ -557,7 +581,7 @@ class LiveState:
     def count_type(self, type_name: str, max_age_minutes: int | None = None) -> int:
         now = datetime.now(timezone.utc)
         with self._lock:
-            vehicles = [v for v in self._vehicles.values() if v.type == type_name]
+            vehicles = [v for v in self._vehicles.values() if v.type == type_name and not _train_finished(v, now)]
             if max_age_minutes is not None:
                 cutoff = now - timedelta(minutes=max_age_minutes)
                 vehicles = [
@@ -575,6 +599,8 @@ class LiveState:
         counts: dict[str, int] = {}
         with self._lock:
             for vehicle in self._vehicles.values():
+                if _train_finished(vehicle, now):
+                    continue
                 type_cutoff = cutoffs.get(vehicle.type)
                 if (
                     type_cutoff is not None
@@ -605,6 +631,8 @@ class LiveState:
         # removed tens of thousands of deep copies from every WebSocket tick.
         with self._lock:
             for vehicle in self._vehicles.values():
+                if _train_finished(vehicle, now):
+                    continue
                 if vehicle.type == "bus":
                     if vehicle.last_updated < bus_cutoff:
                         continue

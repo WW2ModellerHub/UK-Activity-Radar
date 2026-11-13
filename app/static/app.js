@@ -134,6 +134,7 @@
   placeGroup.addTo(map);
   let places = [];
   let placeMode = 'off';
+  let fetchedPlaceMode = 'off';
   let placeFetchSeq = 0;
   let selectedPlaceId = null;
   let returnPlaceId = null;
@@ -577,6 +578,7 @@
     });
     const clear = $('clear-map');
     if (clear) clear.disabled = !enabledActivityTypes.size && placeMode === 'off' && trafficMode === 'off' && heatMode === 'off' && !webcamsEnabled;
+    if (effectivePlaceMode() !== fetchedPlaceMode) fetchPlaces();
     syncBaseMap();
   }
 
@@ -1108,6 +1110,13 @@
     const markerContent=isBusStop
       ? '<span class="bus-stop-sign" aria-hidden="true"><i>STOP</i><b></b></span>'
       : esc(icon);
+    if(p.place_type==='rail_station'){
+      return L.divIcon({
+        className: 'place-marker-wrap station-marker-wrap',
+        html: `<div class="place-marker place-rail_station station-marker" title="${esc(p.name)}"><i aria-hidden="true"></i></div><span class="station-label">${esc(p.name)}</span>`,
+        iconSize:[16,16], iconAnchor:[8,8]
+      });
+    }
     return L.divIcon({
       className: 'place-marker-wrap',
       html: `<div class="place-marker place-${esc(p.place_type || 'other')}" title="${esc(p.name)}">${markerContent}</div>`,
@@ -1216,11 +1225,22 @@
     if (clusterDirty&&typeof placeGroup.refreshClusters === 'function') placeGroup.refreshClusters();
   }
 
+  function effectivePlaceMode() {
+    // Stations are part of the railway picture: show them whenever trains are
+    // on, in addition to anything chosen under "Stations and stops".
+    if(!enabledActivityTypes.has('train'))return placeMode;
+    if(placeMode==='off')return 'rail';
+    if(placeMode==='bus')return 'all';
+    return placeMode;
+  }
+
   async function fetchPlaces() {
-    if (placeMode === 'off') { placeFetchSeq+=1; places=[]; renderPlaces(); return; }
+    const placeModeNow=effectivePlaceMode();
+    fetchedPlaceMode=placeModeNow;
+    if (placeModeNow === 'off') { placeFetchSeq+=1; places=[]; renderPlaces(); return; }
     const b=map.getBounds(), seq=++placeFetchSeq;
     try {
-      const u=`/api/places?west=${encodeURIComponent(b.getWest())}&south=${encodeURIComponent(b.getSouth())}&east=${encodeURIComponent(b.getEast())}&north=${encodeURIComponent(b.getNorth())}&zoom=${encodeURIComponent(map.getZoom())}&mode=${encodeURIComponent(placeMode)}`;
+      const u=`/api/places?west=${encodeURIComponent(b.getWest())}&south=${encodeURIComponent(b.getSouth())}&east=${encodeURIComponent(b.getEast())}&north=${encodeURIComponent(b.getNorth())}&zoom=${encodeURIComponent(map.getZoom())}&mode=${encodeURIComponent(placeModeNow)}`;
       const r=await fetch(u,{cache:'no-store'}); if(!r.ok) throw new Error('places unavailable');
       const payload=await r.json(); if(seq!==placeFetchSeq)return;
       places=(payload.places||[]).filter(place=>place.place_type!=='ferry_terminal'); renderPlaces(); return places;
@@ -2442,13 +2462,27 @@
     const power=providerName(run?.power_type);
     const bookedSpeed=run?.booked_speed_mph ? `${run.booked_speed_mph} mph booked speed` : '';
     const platform=providerName(progress.platform || run?.platform);
-    const points=railCallingPoints(run).map((point,pointIndex)=>{
+    const callingPoints=railCallingPoints(run);
+    const hasProgress=callingPoints.some(point=>point?.state);
+    const atStation=callingPoints.some(point=>point?.state==='current');
+    const anyPassed=callingPoints.some(point=>point?.state==='passed');
+    const points=callingPoints.map((point,pointIndex)=>{
       const name=providerName(point?.station || point?.location || point?.name);
-      const clock=providerClock(point?.expected || point?.actual || point?.time || point?.scheduled);
-      const pointStatus=providerName(point?.status || point?.event);
-      if(!name && !clock)return '';
-      return `<li><i></i><span><strong>${esc(name || `Call ${pointIndex+1}`)}</strong><small>${esc(pointStatus)}</small></span><b>${esc(clock)}</b></li>`;
+      const booked=providerClock(point?.scheduled || point?.expected || point?.actual || point?.time);
+      const expected=point?.scheduled&&point?.expected ? providerClock(point.expected) : '';
+      const lateClock=expected&&expected!==booked ? expected : '';
+      const platform=providerName(point?.platform);
+      const detail=platform ? `Platform ${platform}` : (hasProgress ? '' : providerName(point?.status || point?.event));
+      if(!name && !booked)return '';
+      const state=['passed','current','next','upcoming'].includes(point?.state) ? point.state : '';
+      // Between stations the train sits on the line before its next stop.
+      const trainHere=state==='next'&&!atStation&&anyPassed
+        ? '<li class="train-here" aria-label="Train is here"><i></i><span><small>Train is here</small></span><b></b></li>'
+        : '';
+      return `${trainHere}<li class="${state}"${state==='current'?' aria-label="Train is at this station"':''}><i></i><span><strong>${esc(name || `Call ${pointIndex+1}`)}</strong>${detail?`<small>${esc(detail)}</small>`:''}</span><b>${esc(booked)}${lateClock?`<em class="stop-late">${esc(lateClock)}</em>`:''}</b></li>`;
     }).filter(Boolean).join('');
+    const delay=Number.isFinite(Number(run?.delay_minutes)) && run?.delay_minutes!==null ? Math.round(Number(run.delay_minutes)) : null;
+    const punctuality=delay===null ? '' : delay>=1 ? `${delay} min late` : delay<=-1 ? `${-delay} min early` : 'On time';
     const route=origin||destination ? `${origin || 'Origin not supplied'} → ${destination || 'Destination not supplied'}` : '';
     const pills=[status,position?`At ${position}`:null,next?`Next ${next}`:null,platform?`Platform ${platform}`:null,power,bookedSpeed].filter(Boolean);
     const hasFacts=route || pills.length || points;
@@ -2457,7 +2491,7 @@
     const operator=providerName(train.operator || run?.operator || run?.operator_code);
     const operatorTheme=trainLiveryTheme('',operator);
     const operatorStyle=operatorTheme.key!=='reference' ? ` style="--train-primary:${operatorTheme.primary};--train-secondary:${operatorTheme.secondary};--train-accent:${operatorTheme.accent};--train-ink:${operatorTheme.ink}"` : '';
-    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${route?`<p class="transport-route"><strong>${esc(route)}</strong></p>`:''}${serviceLabel&&route?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${identity}${pills.length?`<div class="transport-facts">${pills.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points?`<ol class="transport-stops train-full-route">${points}</ol>`:''}${unknown}${!hasFacts?'<p class="transport-empty">No further journey details are available.</p>':''}</article>`;
+    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${route?`<p class="transport-route"><strong>${esc(route)}</strong></p>`:''}${serviceLabel&&route?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${identity}${punctuality?`<p class="train-punctuality ${delay>=1?'is-late':delay<=-1?'is-early':'is-on-time'}">${esc(punctuality)}</p>`:''}${pills.length?`<div class="transport-facts">${pills.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points?`<ol class="transport-stops train-full-route${hasProgress?' has-progress':''}">${points}</ol>`:''}${unknown}${!hasFacts?'<p class="transport-empty">No further journey details are available.</p>':''}</article>`;
   }
 
   function trainLiveryTheme(livery, operator) {
@@ -4058,7 +4092,8 @@
     clearTimeout(mapSettledTimer);
     mapSettledTimer=setTimeout(()=>{
       queueViewport();
-      if(placeMode!=='off')fetchPlaces();
+      map.getContainer().classList.toggle('show-station-labels',map.getZoom()>=11);
+      if(effectivePlaceMode()!=='off')fetchPlaces();
       if(webcamsEnabled)fetchCameras(false);
       renderNearbySummary();
     },80);
