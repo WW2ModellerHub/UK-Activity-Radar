@@ -580,11 +580,11 @@ body:has(.detail-sidebar:not(.is-empty):not(.route-view)) #recenter { right: cal
 .coverage-loading { color: var(--muted); font-size: 13px; }
 .coverage-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .coverage-link, .coverage-article { display: block; padding: 10px 0; border-bottom: 1px solid var(--line); text-decoration: none; color: var(--text); }
-.detail-route-peek { display: flex; align-items: center; gap: 6px; padding: 8px; }
+.detail-route-peek { display: flex; align-items: center; gap: 6px; height: 56px; padding: 0 8px; overflow: hidden; }
 .detail-route-restore { flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 10px; border: 0; background: transparent; text-align: left; padding: 0 6px; }
 .detail-route-restore span { display: grid; min-width: 0; }
-.detail-route-restore strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.detail-route-restore small { color: var(--muted); }
+.detail-route-restore strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.25; }
+.detail-route-restore small { color: var(--muted); font-size: 12px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detail-route-fit { min-height: 36px; padding: 0 12px; border-radius: 18px; border: 1px solid var(--line); background: var(--surface); font-weight: 600; }
 .detail-route-peek-close { width: 36px; height: 36px; border-radius: 18px; border: 0; background: var(--subtle); font-size: 20px; }
 .detail-sidebar.route-view { bottom: auto; }
@@ -726,7 +726,7 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
   #recenter { bottom: calc(var(--nav-h) + 12px + 56px + 12px); }
   .traffic-legend { bottom: calc(var(--nav-h) + 84px); right: 68px; }
   .leaflet-control-attribution { margin-bottom: calc(var(--nav-h) + 80px) !important; }
-  .bus-zoom-note, .watch-toast { top: 124px; max-width: calc(100% - 24px); }
+  .bus-zoom-note, .watch-toast { top: 124px; max-width: calc(100% - 24px); padding: 8px 12px; font-size: 13px; line-height: 1.3; }
   .nearby-note { top: 172px; }
   .journey-route-clear { top: 124px; }
 
@@ -778,7 +778,7 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
   .detail-panel { padding: 8px 16px 24px; }
   .detail-sidebar.route-view { top: auto; bottom: calc(var(--nav-h) + 8px); left: 8px; right: 8px; width: auto; border: 1px solid var(--line); border-radius: 12px; max-height: none; }
   .detail-sidebar.route-view::before { display: none; }
-  .detail-route-peek { padding: 4px 6px; }
+  .detail-route-peek { padding: 0 6px; }
   .plan-cards { grid-template-columns: 1fr; }
   dialog { max-height: calc(100dvh - 24px); }
 }
