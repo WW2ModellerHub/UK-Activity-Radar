@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from collections import deque
 
 import stomp
 
@@ -154,10 +155,65 @@ class _MultiplexListener(stomp.ConnectionListener):
         ), None)
         if target is None:
             return
+        enqueue = getattr(self.owner, "enqueue", None)
+        if enqueue is not None:
+            # Never do timetable/database work on the socket reader thread:
+            # a slow handler stops the client reading, the broker sees a slow
+            # consumer and ends the session.
+            enqueue(target, frame.body)
+            return
         try:
             target.handle_message(frame.body)
         except Exception as exc:
             target.set_status(True, f"Message parse error: {type(exc).__name__}: {exc}")
+
+
+class _FrameQueue:
+    """Hand-off between the socket reader and the message worker.
+
+    Feeds marked ``drop_stale_backlog`` (Train Describer) carry positional
+    steps that newer steps supersede, so their oldest frames are discarded
+    once the backlog is full. Other feeds (TRUST, VSTP) are never dropped
+    short of a much larger safety bound.
+    """
+
+    def __init__(self, *, droppable_limit: int = 1500, retained_limit: int = 50000) -> None:
+        self._condition = threading.Condition()
+        self._retained: deque = deque()
+        self._droppable: deque = deque()
+        self._droppable_limit = max(1, int(droppable_limit))
+        self._retained_limit = max(1, int(retained_limit))
+        self.dropped = 0
+
+    def put(self, feed, body) -> None:
+        with self._condition:
+            if getattr(feed, "drop_stale_backlog", False):
+                queue, limit = self._droppable, self._droppable_limit
+            else:
+                queue, limit = self._retained, self._retained_limit
+            if len(queue) >= limit:
+                stale_feed, _ = queue.popleft()
+                self.dropped += 1
+                try:
+                    stale_feed.backlog_dropped = int(getattr(stale_feed, "backlog_dropped", 0)) + 1
+                except Exception:
+                    pass
+            queue.append((feed, body))
+            self._condition.notify()
+
+    def get(self, timeout: float):
+        with self._condition:
+            if not self._retained and not self._droppable:
+                self._condition.wait(timeout)
+            if self._retained:
+                return self._retained.popleft()
+            if self._droppable:
+                return self._droppable.popleft()
+            return None
+
+    def __len__(self) -> int:
+        with self._condition:
+            return len(self._retained) + len(self._droppable)
 
 
 class MultiplexStompFeed:
@@ -176,6 +232,28 @@ class MultiplexStompFeed:
         self._connection = None
         self.last_error: str | None = None
         self.terminal_error: str | None = None
+        self._frames = _FrameQueue()
+        self._worker: threading.Thread | None = None
+
+    def enqueue(self, feed, body) -> None:
+        self._frames.put(feed, body)
+
+    def backlog(self) -> int:
+        return len(self._frames)
+
+    def _work(self) -> None:
+        while not self._stop.is_set():
+            item = self._frames.get(0.5)
+            if item is None:
+                continue
+            feed, body = item
+            try:
+                feed.handle_message(body)
+            except Exception as exc:
+                try:
+                    feed.set_status(True, f"Message parse error: {type(exc).__name__}: {exc}")
+                except Exception:
+                    pass
 
     def set_all(self, connected: bool, message: str) -> None:
         for feed in self.feeds:
@@ -187,6 +265,8 @@ class MultiplexStompFeed:
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, name="network-rail-multiplex", daemon=True)
         self._thread.start()
+        self._worker = threading.Thread(target=self._work, name="network-rail-worker", daemon=True)
+        self._worker.start()
 
     def stop(self) -> None:
         self._stop.set()
@@ -197,6 +277,8 @@ class MultiplexStompFeed:
             pass
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3)
+        if self._worker and self._worker.is_alive():
+            self._worker.join(timeout=3)
 
     def _run(self) -> None:
         if not self.settings.credentials_present:
@@ -230,7 +312,10 @@ class MultiplexStompFeed:
                         destination=feed.topic, id=f"ukradar-{feed.name}", ack="auto",
                     )
                     feed.set_status(True, f"Connected to {feed.topic}")
-                delay = 10.0
+                # Once a session has been established, give the broker time
+                # to release it before reconnecting: an immediate retry is
+                # answered with AMQ339009 and costs a 15 minute cool-down.
+                delay = 30.0
                 rejected_sessions = 0
                 while connection.is_connected() and not self._stop.wait(5):
                     pass

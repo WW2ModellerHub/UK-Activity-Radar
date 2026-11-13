@@ -1,5 +1,55 @@
 # Codex stabilization changelog
 
+## 2026-11-13 — live rail feed could not keep up and was dropped by the broker
+
+Observed on the hosted service: the Network Rail session connected, ran for
+about eight minutes while handling ~20 Train Describer messages a second,
+was ended by the broker, and the reconnect was refused with `AMQ339009`,
+starting the 15-minute cool-down. Trains on the map were warm-start snapshot
+rows up to 45+ minutes old.
+
+Root cause: message handling ran on the STOMP socket-reader thread and cost
+tens of milliseconds per berth step, on a single-CPU instance that was also
+deep-copying every train once a second. The client fell behind real time
+until the broker treated it as a slow consumer.
+
+- **Reader/worker split** (`stomp_client.py`): the listener now only queues
+  frames; a worker thread processes them. If Train Describer processing still
+  falls behind, its oldest (superseded) frames are discarded; TRUST and VSTP
+  frames are not. After an established session ends the client waits 30 s
+  before reconnecting instead of 10 s.
+- **No national headcode search per step** (`td.py` `_known_schedule`,
+  `schedule_store.py` `schedule_calling_at`): a train already matched to a
+  schedule keeps that identity while its new location is on that schedule's
+  route. Only new or off-route trains run the full search.
+- **Cheap readiness and lookups** (`schedule_store.py`): `ready()` no longer
+  counts ~730,000 rows per message; STANOX→TIPLOC lookups are cached;
+  unroutable legs are remembered for two minutes instead of being re-searched
+  on every report and every maintenance pass.
+- **Maintenance loop** (`td.py` `advance_live_estimates`,
+  `state.py` `trains_where`): copies only trains whose leg has elapsed,
+  re-checks geometry every five minutes rather than every second, and retries
+  a leg with no onward timetable leg every 30 s rather than every second.
+- **State reads** (`state.py`): headcode index instead of scanning every bus
+  and train; shallow copies in `all()`; the estimate path is walked only when
+  the confirmed point is off-screen.
+- **Stale ghosts**: a train restored from the warm-start snapshot is hidden
+  after 15 minutes if no live report has replaced it (was 45–90 minutes).
+
+Measured locally (730,817-schedule database, 15,000 buses, 3,300 trains):
+
+| Path | Before | After |
+| --- | --- | --- |
+| Train Describer steps handled per second | 35 | 387 |
+| All-trains read (was run every second) | 359 ms | 28 ms |
+| Viewport read, 800 trains (per viewer, per second) | 137 ms | 13 ms |
+| Headcode lookup | 2.0 ms | 0.17 ms |
+
+Tests: `tests/test_rail_ingest_throughput.py` (14 new).
+
+Not changed: the 15-minute `AMQ339009` cool-down itself, and the hosted
+instance size (one CPU).
+
 ## 2026-11-13 — trains no longer blink off the map or jump between reports
 
 Root causes found and fixed:
