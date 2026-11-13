@@ -9,7 +9,7 @@
   let deviceLocationMarker = null;
   // The navigation drawer owns the left edge of the map on every breakpoint.
   // Keep Leaflet's controls on the opposite edge so they can never sit over it.
-  map.zoomControl?.setPosition?.('topright');
+  map.zoomControl?.setPosition?.('bottomright');
 
   const tileSets = {standard:null,rail:null};
   let currentBase = null;
@@ -565,6 +565,9 @@
   }
 
   function updateLayerToggleUi() {
+    document.querySelectorAll('[data-layer-chip]').forEach(chip => {
+      chip.setAttribute('aria-pressed', String(enabledActivityTypes.has(chip.dataset.layerChip)));
+    });
     document.querySelectorAll('[data-layer-toggle]').forEach(button => {
       const visible = enabledActivityTypes.has(button.dataset.layerToggle);
       button.classList.toggle('active', visible);
@@ -1975,6 +1978,18 @@
     $('stat-tracking').textContent = fmt(tracking);
     $('stat-moving').textContent = fmt(moving);
     $('stat-interesting').textContent = fmt(interesting);
+    renderNearbyBar(shown);
+  }
+
+  function renderNearbyBar(shown=filteredActivities()) {
+    const target=$('nearby-bar-text');
+    if(!target)return;
+    if(currentWorkspace==='useful'&&!enabledActivityTypes.size){target.textContent='Choose what to show on the map';return;}
+    const bounds=map.getBounds?.();
+    const inView=bounds?shown.filter(a=>Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon))&&bounds.contains([Number(a.lat),Number(a.lon)])):shown;
+    const labels=[['train','train','trains'],['bus','bus','buses'],['aircraft','aircraft','aircraft'],['sar','rescue flight','rescue flights'],['road','roadwork','roadworks'],['incident','incident','incidents'],['weather','warning','warnings'],['flood','flood warning','flood warnings']];
+    const parts=labels.map(([type,one,many])=>{const n=inView.filter(a=>a.type===type).length;return n?`${fmt(n)} ${n===1?one:many}`:null;}).filter(Boolean);
+    target.textContent=parts.length?parts.slice(0,3).join(' · '):'Nothing live in this view yet';
   }
 
   function renderStreamZoomNote() {
@@ -2637,7 +2652,7 @@
     $('detail-panel')?.classList.add('has-selection');
     $('detail-sidebar')?.classList.remove('is-empty');
     sendWatching(id);
-    if (pan) trackProduct('activity_selected', a.type);
+    if (pan) { trackProduct('activity_selected', a.type); collapseWorkspaceOnPhone(); }
     const detailCool=coolInfo(a);
     const titleIcon=String(a.category||'').toLowerCase()==='live motorway sign'?'▣':(icons[a.type] || '•');
     $('detail-title').innerHTML = `${currentWorkspace==='cool' && detailCool.score>=45 ? coolBadgeHtml(a,true)+' ' : ''}${titleIcon} ${esc(a.name)}`;
@@ -2833,8 +2848,18 @@
     setTimeout(()=>map.invalidateSize(),190);
   }
 
+  function isPhoneLayout() {
+    return window.matchMedia('(max-width: 760px)').matches;
+  }
+
   function collapseWorkspaceOnPhone() {
-    if(window.matchMedia('(max-width: 560px)').matches)setWorkspaceCollapsed(true);
+    if(isPhoneLayout())setWorkspaceCollapsed(true);
+  }
+
+  function openMapPanel(focusSelector) {
+    activateWorkspace('useful',false);
+    const target=focusSelector?document.querySelector(focusSelector):null;
+    if(target)requestAnimationFrame(()=>target.scrollIntoView({block:'start'}));
   }
 
   function renderNearbyOverlay() {
@@ -4300,7 +4325,27 @@
   $('commute-alert-enable')?.addEventListener('click',enableCommuteAlerts);
   $('commute-alert-disable')?.addEventListener('click',disableCommuteAlerts);
 
-  document.querySelectorAll('.workspace-tab[data-workspace]').forEach(btn=>btn.addEventListener('click',()=>activateWorkspace(btn.dataset.workspace,true)));
+  document.querySelectorAll('.workspace-tab[data-workspace]').forEach(btn=>btn.addEventListener('click',()=>{
+    // On a phone a tab is a new screen: put the detail sheet away. A train
+    // keeps its route on the map as the compact route bar.
+    if(isPhoneLayout()&&!$('detail-sidebar')?.classList.contains('is-empty')){
+      if(selectedTrainActivity())setDetailRouteView(true);
+      else closeDetailSelection();
+    }
+    activateWorkspace(btn.dataset.workspace,true);
+    if(btn.dataset.workspace==='useful')collapseWorkspaceOnPhone();
+  }));
+  document.querySelectorAll('[data-layer-chip]').forEach(chip=>chip.addEventListener('click',()=>{
+    document.querySelector(`.layer-toggle[data-layer-toggle="${chip.dataset.layerChip}"]`)?.click();
+  }));
+  $('nearby-bar')?.addEventListener('click',()=>openMapPanel());
+  $('map-layers-open')?.addEventListener('click',()=>openMapPanel('.useful-layer-switches'));
+  const modePill=$('mode-pill');
+  const syncLiveState=()=>{
+    const text=String(modePill?.textContent||'').toUpperCase();
+    document.body.dataset.liveState=/LIVE|FIXTURE|DEMO/.test(text)&&!/ERROR/.test(text)?'live':/RECONNECT|ERROR|OFFLINE|DOWN/.test(text)?'down':'starting';
+  };
+  if(modePill){new MutationObserver(syncLiveState).observe(modePill,{childList:true,characterData:true,subtree:true});syncLiveState();}
   $('workspace-collapse')?.addEventListener('click',()=>setWorkspaceCollapsed(!$('workspace-shell')?.classList.contains('collapsed')));
   const setFocusMode=(active)=>{
     const layout=document.querySelector('.v12-layout'),button=$('focus-map');
@@ -4320,6 +4365,7 @@
   renderDiscoveryExperience();
   // A predictable clean launch is more useful than restoring a crowded map.
   activateWorkspace('useful', false);
+  collapseWorkspaceOnPhone();
   updateLayerToggleUi();
 
   $('radar-plus')?.addEventListener('click',openPlusDialog);

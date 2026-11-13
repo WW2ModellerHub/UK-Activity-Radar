@@ -19,17 +19,16 @@
   <meta name="twitter:title" content="UK Activity Radar">
   <meta name="twitter:description" content="Live UK trains, buses, aircraft, roads and traffic on one map.">
   <meta name="twitter:image" content="{{PUBLIC_BASE_URL}}/static/icon-512.png">
-  <meta name="theme-color" content="#091018">
+  <meta name="theme-color" content="#FFFFFF">
   <link rel="manifest" href="/static/manifest.webmanifest">
   <link rel="icon" href="/static/icon-192.png">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
   <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="/static/vendor/markercluster/MarkerCluster.css">
   <link rel="stylesheet" href="/static/vendor/markercluster/MarkerCluster.Default.css">
-  <link rel="stylesheet" href="/static/styles.css?v=15150">
-  <link rel="stylesheet" href="/static/refinements.css?v=15151">
   <link rel="stylesheet" href="/static/vendor/maplibre/maplibre-gl.css?v=6.17.0">
-  <link rel="stylesheet" href="/static/movement-history.css?v=15147">
+  <link rel="stylesheet" href="/static/map-markers.css?v=16000">
+  <link rel="stylesheet" href="/static/app.css?v=16000">
   <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"{{PUBLIC_BASE_URL}}/#website","url":"{{PUBLIC_BASE_URL}}/","name":"UK Activity Radar","description":"Live UK transport and activity map for trains, buses, aircraft, roads and traffic","inLanguage":"en-GB"},{"@type":"WebApplication","@id":"{{PUBLIC_BASE_URL}}/#app","name":"UK Activity Radar","url":"{{PUBLIC_BASE_URL}}/","applicationCategory":"TravelApplication","operatingSystem":"Any","browserRequirements":"Requires a modern web browser with JavaScript","isAccessibleForFree":true,"description":"An interactive live map of UK trains, buses, aircraft, road incidents and traffic."}]}</script>
 </head>
 <body data-ga4-measurement-id="{{GA4_MEASUREMENT_ID}}">
@@ -45,15 +44,15 @@
 <main class="layout v12-layout">
   <aside class="leftbar v12-leftbar" id="workspace-shell">
     <nav class="workspace-rail" aria-label="Radar experiences">
-      <button class="workspace-tab active" data-workspace="useful" title="Live information"><span class="rail-symbol">◉</span><span>Live</span></button>
-      <button class="workspace-tab cool-tab" data-workspace="cool" title="Interesting and unusual activity"><span class="rail-symbol">⚡</span><span>Discover</span></button>
-      <button class="workspace-tab" data-workspace="live" title="Your saved live radar"><span class="rail-symbol">◎</span><span>My Radar</span></button>
-      <button class="workspace-tab" data-workspace="settings" title="Map options and data health"><span class="rail-symbol">⌁</span><span>Network</span></button>
-      <button id="workspace-collapse" class="workspace-tab workspace-collapse" title="Collapse controls" aria-expanded="true">‹<span>Close</span></button>
+      <button class="workspace-tab active" data-workspace="useful" type="button" title="Everyday live map"><span class="rail-symbol"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg></span><span>Map</span></button>
+      <button class="workspace-tab cool-tab" data-workspace="cool" type="button" title="Unusual live activity"><span class="rail-symbol"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.6 5.6L20 9.5l-4 4 1 5.5-5-2.8-5 2.8 1-5.5-4-4 5.4-.9z"/></svg></span><span>Discover</span></button>
+      <button class="workspace-tab" data-workspace="live" type="button" title="Your saved stations and stops"><span class="rail-symbol"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"/></svg></span><span>Saved</span></button>
+      <button class="workspace-tab" data-workspace="settings" type="button" title="Map options, live data and Radar+"><span class="rail-symbol"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></span><span>More</span></button>
+      <button id="workspace-collapse" class="workspace-tab workspace-collapse" type="button" title="Collapse controls" aria-expanded="true">‹<span>Hide panel</span></button>
     </nav>
     <div class="workspace-drawer">
       <section class="workspace-panel active" data-workspace-panel="useful">
-        <div class="experience-hero useful-hero"><div class="experience-kicker">LIVE</div><h1>Live UK transport and activity map</h1><p>Trains, buses, aircraft, roads and traffic across Britain.</p></div>
+        <div class="experience-hero useful-hero"><div class="experience-kicker">Map</div><h1>Live UK transport and activity map</h1><p>Trains, buses, aircraft, roads and traffic across Britain.</p></div>
         <section class="today-radar-card"><div class="today-radar-head"><div><small>RADAR NOW</small><strong>What matters right now</strong></div><button id="today-refresh" class="mini-button" type="button" aria-label="Refresh Radar Now">Refresh</button></div><div id="today-radar" class="today-radar" aria-live="polite"><p class="left-empty">Checking live activity…</p></div></section>
         <section class="location-quick-actions" aria-label="Use my location">
           <button id="near-me" class="location-quick-action bus-near-action" type="button"><span>🚌</span><div><strong>Buses near me</strong><small>Nearest stop and live departures</small></div><b>›</b></button>
@@ -67,7 +66,7 @@
       </section>
 
       <section class="workspace-panel" data-workspace-panel="cool">
-        <div class="experience-hero cool-hero"><div class="experience-kicker">DISCOVER</div><h2>Interesting now</h2><p>Unusual live activity from across Britain.</p></div>
+        <div class="experience-hero cool-hero"><div class="experience-kicker">Discover</div><h2>Interesting now</h2><p>Unusual trains, aircraft and rescues live now.</p></div>
         <nav class="cool-inner-nav launch-discovery-nav" aria-label="Discover live activity" role="tablist">
           <button class="cool-inner-tab active" data-cool-view="now" type="button" role="tab" aria-selected="true"><span>⌁</span><strong>Now</strong><small>Live finds</small></button>
           <button class="cool-inner-tab" data-cool-view="guide" type="button" role="tab" aria-selected="false"><span>▦</span><strong>Field Guide</strong><small id="field-guide-nav-count">0 found</small></button>
@@ -101,7 +100,7 @@
       </section>
 
       <section class="workspace-panel" data-workspace-panel="live">
-        <div class="experience-hero live-hero"><div class="experience-kicker">MY PLACES</div><h2>Your regular stops</h2><p>Save a station or bus stop, see what is next and optionally turn on alerts.</p></div>
+        <div class="experience-hero live-hero"><div class="experience-kicker">Saved</div><h2>Your regular stops</h2><p>Save a station or bus stop, see what is next and optionally turn on alerts.</p></div>
         <section class="left-section my-radar-step"><div class="section-heading"><div><small>PLACES</small><h2>Saved stations and stops</h2></div><span id="saved-places-count" class="count-badge">0</span></div><div id="saved-places-list" class="my-radar-list"></div></section>
         <section class="passing-next-card"><div class="passing-next-head"><div><small>LIVE TIMES</small><strong>What is due next?</strong></div><button id="passing-next-refresh" class="mini-button" type="button">Refresh</button></div><div class="passing-next-controls"><select id="passing-next-place"><option value="">Save a station or stop first</option></select></div><div id="passing-next" class="passing-next"><p class="my-radar-empty">Save a station or bus stop to see what is due.</p></div></section>
         <section class="left-section my-radar-step"><div class="section-heading"><div><small>NEAR YOUR PLACES</small><h2>Live now</h2></div></div><div id="my-radar-area" class="my-radar-area"><p class="left-empty">Save a place to start.</p></div></section>
@@ -110,13 +109,14 @@
       </section>
 
       <section class="workspace-panel" data-workspace-panel="settings">
-        <div class="workspace-head"><small>MAP & DATA</small><h2>Map options</h2><p>Extra map views and a simple live-data check.</p></div>
+        <div class="workspace-head"><small>More</small><h2>Map options</h2><p>Extra map views, live data status and Radar+.</p></div>
         <div class="live-context-actions"><button id="live-webcams" class="live-context-card" type="button"><b>◉</b><span><strong>Traffic cameras</strong><small>Show available live cameras</small></span></button><button class="live-context-card" data-layer-toggle="roadfeature" type="button" aria-pressed="false"><b>☎</b><span><strong>Roadside equipment</strong><small>Emergency phones and road facilities</small></span><em>OFF</em></button></div>
         <div class="control-grid"><label for="heat-mode">Density overlay</label><select id="heat-mode" class="tool-select"><option value="off">Off</option><option value="all">All activity</option><option value="train">Rail</option><option value="bus">Bus</option><option value="road">Roadworks</option><option value="incident">Incidents</option><option value="weather">Weather</option></select></div>
         <details class="left-details"><summary>Live data status <span id="health-badge" class="health-badge starting">STARTING</span></summary><div id="health-summary" class="health-summary">Checking live sources…</div><details class="feed-diagnostics"><summary>Technical feed details</summary><div id="feed-status" class="feed-status-compact"></div></details></details>
         <section class="left-section product-panel compact-product"><div class="section-heading"><div><small>RADAR+</small><h2>Advanced access</h2></div></div><div id="product-summary" class="product-summary">Checking your access…</div><button id="network-upgrade" class="plus-button" type="button">View Radar+</button></section>
         <section id="analytics-preferences" class="left-section analytics-preferences hidden"><div class="section-heading"><div><small>PRIVACY</small><h2>Site analytics</h2></div></div><p>Choose whether anonymous Google Analytics measurement is allowed on this device.</p><button id="analytics-settings" class="mini-button" type="button">Analytics settings</button></section>
         <section class="left-section feedback-panel"><div class="section-heading"><div><small>HELP</small><h2>Found a problem?</h2></div></div><p>Tell us what happened so it can be investigated.</p><a class="tool-button feedback-link" href="https://github.com/WW2ModellerHub/UK-Activity-Radar/issues/new?template=bug_report.yml" target="_blank" rel="noopener">Report a bug ↗</a></section>
+        <nav class="more-links" aria-label="About this service"><a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/data-licences">Data licences</a></nav>
       </section>
     </div>
   </aside>
@@ -124,6 +124,9 @@
   <section class="map-panel v12-map-panel">
     <div id="map" aria-label="Live activity map"></div>
     <div id="live-object-map" aria-hidden="true"></div>
+    <div class="layer-chips" role="group" aria-label="Show on map"><button class="layer-chip" data-layer-chip="train" type="button" aria-pressed="false">Trains</button><button class="layer-chip" data-layer-chip="bus" type="button" aria-pressed="false">Buses</button><button class="layer-chip" data-layer-chip="aircraft" type="button" aria-pressed="false">Aircraft</button><button class="layer-chip" data-layer-chip="road" type="button" aria-pressed="false">Roadworks</button><button class="layer-chip" data-layer-chip="incident" type="button" aria-pressed="false">Incidents</button><button class="layer-chip" data-layer-chip="weather" type="button" aria-pressed="false">Weather</button><button class="layer-chip" data-layer-chip="flood" type="button" aria-pressed="false">Floods</button></div>
+    <div class="map-controls" role="group" aria-label="Map controls"><button id="map-layers-open" class="map-control" type="button" aria-label="Map options" title="Map options"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg></button></div>
+    <button id="nearby-bar" class="nearby-bar" type="button" aria-controls="workspace-shell"><span><small>Nearby now</small><strong id="nearby-bar-text">Choose what to show on the map</strong></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
     <button id="focus-map" class="focus-map-button" type="button" aria-pressed="false" title="Hide panels and focus on the map">⛶ <span>Focus map</span></button>
     <div id="bus-zoom-note" class="bus-zoom-note hidden"></div><div id="nearby-note" class="nearby-note hidden"></div><div id="watch-toast" class="watch-toast hidden" role="status"></div><button id="journey-route-clear" class="journey-route-clear hidden" type="button">× Clear route</button>
     <div class="map-legend v12-map-legend"><span><i class="dot gps"></i> live position</span><span><i class="dot report"></i> confirmed report</span><span><i class="dot estimate"></i> estimate</span><span>Hover for facts • click to investigate</span></div>
@@ -141,5 +144,5 @@
 <dialog id="plus-dialog" class="plus-dialog"><div class="plus-shell"><div class="plus-head"><div><small>RADAR+</small><h2>See more of what is happening</h2></div><button id="plus-close" class="dialog-close" type="button" aria-label="Close Radar+">×</button></div><p class="plus-intro">The live map stays free. Radar+ adds tracking, traffic and more live finds.</p><div id="plan-cards" class="plan-cards"><article class="plan-card"><h3>Free</h3><p>Live map, saved places and a Discover preview.</p></article><article class="plan-card highlight radar-plus-shell"><h3>Radar+ <span id="plus-price"></span></h3><ul><li>Track live activity and see more movement detail</li><li>Live traffic, cameras and journey planning</li><li>More Discover results and saved places</li></ul><button id="radar-plus-checkout" class="primary-button" type="button">Get Radar+</button><button id="radar-plus-portal" class="ghost-button hidden" type="button">Manage subscription</button><button id="radar-plus-logout" class="ghost-button hidden" type="button">Sign out of this device</button><form id="radar-plus-preview" class="preview-access hidden"><label for="radar-plus-preview-code">Launch preview code</label><div><input id="radar-plus-preview-code" type="password" autocomplete="one-time-code" placeholder="Enter preview code"><button type="submit">Unlock</button></div></form></article></div><div id="plus-note" class="plus-note">Checking access…</div></div></dialog>
 <dialog id="journey-dialog" class="journey-dialog"><div class="journey-shell"><div class="plus-head journey-head"><div><small>JOURNEY PLANNER</small><h2>Plan across Britain</h2></div><button id="journey-close" class="dialog-close" type="button" aria-label="Close journey planner">×</button></div><form id="journey-form" class="journey-form"><label><span>From</span><input id="journey-origin" name="origin" type="search" autocomplete="off" placeholder="Place or station" required minlength="2"></label><button id="journey-swap" class="journey-swap" type="button" aria-label="Swap origin and destination">⇅</button><label><span>To</span><input id="journey-destination" name="destination" type="search" autocomplete="off" placeholder="Place or station" required minlength="2"></label><label class="journey-mode"><span>Travel by</span><select id="journey-mode" name="mode"><option value="transit" selected>Public transport</option><option value="walk">Walk</option><option value="bike">Cycle</option><option value="car">Drive</option></select></label><button id="journey-submit" class="primary-button journey-submit" type="submit">Find journeys</button></form><div id="journey-results" class="journey-results" aria-live="polite"><div class="journey-empty"><strong>Where are you going?</strong><span>Enter two places to compare routes.</span></div></div></div></dialog>
 <noscript><p class="noscript-note">UK Activity Radar needs JavaScript for the interactive live map. <a href="/about">Learn what the radar shows</a>.</p></noscript>
-<script src="/static/vendor/leaflet/leaflet.js"></script><script src="/static/vendor/markercluster/leaflet.markercluster.js"></script><script src="/static/vendor/leaflet-heat/leaflet-heat.js"></script><script src="/static/movement-history.js?v=15141"></script><script src="/static/motion-engine.js?v=15161"></script><script type="module">window.UKActivityLiveRendererModule=import('/static/live-object-renderer.js?v=15160');</script><script src="/static/app.js?v=15162" defer></script>
+<script src="/static/vendor/leaflet/leaflet.js"></script><script src="/static/vendor/markercluster/leaflet.markercluster.js"></script><script src="/static/vendor/leaflet-heat/leaflet-heat.js"></script><script src="/static/movement-history.js?v=15141"></script><script src="/static/motion-engine.js?v=15161"></script><script type="module">window.UKActivityLiveRendererModule=import('/static/live-object-renderer.js?v=15160');</script><script src="/static/app.js?v=16000" defer></script>
 </body></html>

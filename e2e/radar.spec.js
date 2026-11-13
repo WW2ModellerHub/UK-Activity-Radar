@@ -975,9 +975,13 @@ test('mobile viewport keeps core navigation, map, and details usable', async ({ 
   expect(box.x + box.width).toBeLessThanOrEqual(390);
   expect(box.height).toBeLessThan(500);
   expect(await page.locator('.transport-run-card').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-  const mobileRail = await page.locator('#workspace-shell').boundingBox();
-  expect(mobileRail.width).toBeLessThanOrEqual(52);
-  expect(box.x).toBeGreaterThanOrEqual(60);
+  // Flat mobile layout: details are a full-width bottom sheet that leaves
+  // the upper map visible, and navigation is a bottom tab bar.
+  expect(box.width).toBe(390);
+  expect(box.y).toBeGreaterThanOrEqual(300);
+  const tabBar = await page.locator('.workspace-rail').boundingBox();
+  expect(tabBar.height).toBeLessThanOrEqual(72);
+  expect(tabBar.y + tabBar.height).toBeGreaterThanOrEqual(840);
   const mapBox = await page.locator('#map').boundingBox();
   expect(mapBox.y + mapBox.height).toBeGreaterThan(820);
   await page.locator('#detail-close').click();
@@ -1019,6 +1023,39 @@ test('tapping bare map on mobile minimizes train details but keeps its route vis
   await page.locator('#detail-route-close').click();
   await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
   await expect(page.locator('.train-published-route-guide')).toHaveCount(0);
+});
+
+test('map chips switch layers in step with the panel switches', async ({ page }) => {
+  const chip = page.locator('[data-layer-chip="train"]');
+  await expect(chip).toHaveAttribute('aria-pressed', 'false');
+  await chip.click();
+  await expect(chip).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-layer-toggle="train"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.marker-wrap-train').first()).toBeAttached();
+  await page.locator('[data-layer-toggle="train"]').click();
+  await expect(chip).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('mobile nearby bar summarises the map and opens the Map panel', async ({ page }) => {
+  await page.setViewportSize({ width:390, height:844 });
+  await page.locator('[data-workspace="useful"]').click();
+  await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
+  await expect(page.locator('#nearby-bar')).toContainText('Choose what to show');
+  await page.locator('[data-layer-chip="train"]').click();
+  await expect(page.locator('#nearby-bar-text')).toContainText(/train/);
+  await page.locator('#nearby-bar').click();
+  await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
+  await expect(page.locator('#near-me')).toBeVisible();
+});
+
+test('mobile tabs put an open detail sheet away', async ({ page }) => {
+  await page.setViewportSize({ width:390, height:844 });
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
+  await page.locator('#near-me').click();
+  await expect(page.locator('#detail-sidebar')).not.toHaveClass(/is-empty/);
+  await page.locator('[data-workspace="settings"]').click();
+  await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
+  await expect(page.locator('[data-workspace-panel="settings"]')).toBeVisible();
 });
 
 test('double tapping the mobile map zooms towards the tapped point', async ({ page }) => {
@@ -1064,11 +1101,11 @@ test('mobile nearby aircraft leaves the map visible and uses a compact toast', a
   const toast=await page.locator('#watch-toast').boundingBox();
   expect(toast.width).toBeLessThanOrEqual(370);
   expect(toast.height).toBeLessThan(90);
-  await expect.poll(async()=>Number((await page.locator('#workspace-shell').boundingBox()).width)).toBeLessThan(80);
+  // Collapsed on a phone means only the bottom tab bar remains over the map.
+  await expect.poll(async()=>Number((await page.locator('#workspace-shell').boundingBox()).height)).toBeLessThanOrEqual(72);
   const shell=await page.locator('#workspace-shell').boundingBox();
-  expect(shell.x).toBeLessThanOrEqual(12);
-  expect(shell.height).toBeGreaterThan(150);
+  expect(shell.y+shell.height).toBeGreaterThanOrEqual(840);
   await expect(page.locator('[data-workspace="live"]')).toBeVisible();
-  await page.locator('#workspace-collapse').click();
+  await page.locator('#nearby-bar').click();
   await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
 });
