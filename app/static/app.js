@@ -791,7 +791,9 @@
     if(panel)panel.style.cssText=`--operator-primary:${theme.primary};--operator-accent:${theme.accent};--operator-ink:${theme.ink}`;
     const movement=a.type==='aircraft'
       ? [a.aircraft_model||a.aircraft_type_code,a.vehicle_ref].filter(Boolean).join(' • ')
-      : [a.route?`Route ${a.route}`:null,a.vehicle_ref?`Vehicle ${a.vehicle_ref}`:null].filter(Boolean).join(' • ');
+      : a.type==='train'
+        ? (a.headcode && a.headcode!==a.name ? a.headcode : '')
+        : [a.route?`Route ${a.route}`:null,a.vehicle_ref?`Vehicle ${a.vehicle_ref}`:null].filter(Boolean).join(' • ');
     box.innerHTML=`<i aria-hidden="true"></i><span><small>${esc(theme.kind)}</small><strong>${esc(theme.name)}</strong>${movement?`<b>${esc(movement)}</b>`:''}</span>`;
   }
 
@@ -1498,7 +1500,7 @@
     $('detail-subtitle').textContent=p.subtitle || ({rail_station:'Rail station',bus_stop:'Bus stop',rain_gauge:'Rain gauge'}[p.place_type]||'Smart place');
     $('detail-fields').innerHTML=[field('Type',(p.place_type||'').replaceAll('_',' ')),field('Code',p.crs||p.atco_code||p.naptan_code),field('Operator',p.operator),field('Source',p.source),field('Latitude',Number(p.lat).toFixed(5)),field('Longitude',Number(p.lon).toFixed(5))].join('');
     $('follow').classList.add('hidden'); $('track-activity')?.classList.add('hidden'); $('share-activity')?.classList.add('hidden');
-    const savePlace=$('save-place'); if(savePlace){savePlace.classList.remove('hidden');savePlace.textContent=savedPlaces.has(p.id)?'Saved place ✓':'◇ Save place';}
+    const savePlace=$('save-place'); if(savePlace){savePlace.classList.remove('hidden');savePlace.textContent=savedPlaces.has(p.id)?'Saved ✓':'Save place';}
     clearCoverage(); clearDiscoveryDetail();
     for(const id2 of ['detail-insight','detail-photo','detail-related']){const el=$(id2);if(el){el.classList.add('hidden');el.innerHTML='';}}
     const box=$('detail-placeboard'); box.classList.remove('hidden');
@@ -2065,10 +2067,23 @@
     });
   }
 
+  // Lateness the server works out for signalling-only trains, kept so a
+  // live update does not blank the Status cell until the journey reloads.
+  const railDelayById = new Map();
+
+  function trainStatusLabel(a) {
+    if (a?.restored_snapshot === true) return 'Last known';
+    if (a?.terminated_at) return 'Arrived';
+    const raw = Number.isFinite(Number(a?.delay_minutes)) && a?.delay_minutes !== null ? Number(a.delay_minutes) : railDelayById.get(a?.id);
+    if (raw == null || !Number.isFinite(Number(raw))) return 'Live';
+    const delay = Math.round(Number(raw));
+    return delay >= 1 ? `${delay} min late` : delay <= -1 ? `${-delay} min early` : 'On time';
+  }
+
   function field(label, value) {
     if (value === undefined || value === null || value === '') return '';
     const technical = new Set(['Source','ICAO / source ref','Latitude','Longitude','Train UID','Headcode','Journey ref','Tracking','Bearing','Code','Type','Registration','MMSI','Identified as','Identity confidence','Position','Operator']);
-    return `<div class="detail-field${technical.has(label) ? ' is-technical' : ''}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+    return `<div class="detail-field${technical.has(label) ? ' is-technical' : ''}" data-field="${esc(label)}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
   }
 
   function clearCoverage() {
@@ -2140,6 +2155,9 @@
   function renderRelated(a) {
     const box = $('detail-related');
     if (!box) return;
+    // Removed from the detail panel: a list of whatever else is within
+    // 25 km rarely related to the selected item and pushed details down.
+    box.classList.add('hidden'); box.innerHTML=''; return;
     const related = activities.filter(x => x.id !== a.id).map(x => ({x, km: distanceKm(Number(a.lat), Number(a.lon), Number(x.lat), Number(x.lon))})).filter(row => row.km <= 25).sort((m,n)=>m.km-n.km).slice(0,8);
     if (!related.length) { box.classList.add('hidden'); box.innerHTML=''; return; }
     const counts = {};
@@ -2164,7 +2182,7 @@
     button.classList.remove('hidden');
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', String(active));
-    button.textContent = active ? '■ Stop tracking' : '◎ Track on map';
+    button.textContent = active ? 'Stop following' : 'Follow on map';
   }
 
   function trailPanel() {
@@ -2320,8 +2338,11 @@
       const shown=renderSelectedTrainRoute(a);
       $('map')?.removeAttribute('data-selected-trail-points');
       if(!box)return;
-      box.classList.toggle('hidden',!shown);
-      box.classList.toggle('rail-leg',shown);
+      // The route is drawn on the map; no explanatory box is needed.
+      box.classList.add('hidden');
+      box.classList.remove('rail-leg');
+      box.innerHTML='';
+      return;
       const routePointSummary=selectedTrainPublishedRoute?.id===a.id&&selectedTrainPublishedRoute.mappedTimingPoints
         ? `Cyan is locked to physical track through ${selectedTrainPublishedRoute.mappedTimingPoints} timetable points${selectedTrainPublishedRoute.coveragePercent!=null?` (${selectedTrainPublishedRoute.coveragePercent}% mapped)`:''}.`
         : 'Cyan is locked to the physical railway for this live leg.';
@@ -2379,8 +2400,26 @@
     return providerName(value.name || value.station || value.location || value.display_name || value.crs || value.code);
   }
 
+  const KEEP_UPPER=new Set(['LNER','GWR','SWR','TFL','TFW','DLR','LUL','LU','NR','BR','RAF','RNLI','HM','HMS','USAF','NHS','UK','BBC','LO','CTRL','MK','XC','EMR','TPE','ATC','DMU','EMU','HST','IET']);
+  const KEEP_LOWER=new Set(['of','on','upon','the','and','in','by','le','la','de','under','over','next','sea','super']);
+  function tidyCapitals(text) {
+    // CORPUS and timetable names arrive in capitals ("BIRMINGHAM NEW STREET").
+    // Mixed-case text and codes with digits (1V17, M6) are left as they are.
+    if(!/[A-Z]{3}/.test(text)||/[a-z]/.test(text))return text;
+    let first=true;
+    return text.replace(/[A-Za-z]+(?:'[A-Za-z]+)?/g,word=>{
+      const upper=word.toUpperCase();
+      let out;
+      if(KEEP_UPPER.has(upper))out=upper;
+      else if(!first&&KEEP_LOWER.has(word.toLowerCase())&&word.length<=5)out=word.toLowerCase();
+      else out=word.charAt(0).toUpperCase()+word.slice(1).toLowerCase();
+      first=false;
+      return out;
+    });
+  }
+
   function humanTransitLabel(value) {
-    return String(value ?? '').replace(/_s(?=_|$)/gi,"'s").replace(/[_\s]+/g,' ').trim();
+    return tidyCapitals(String(value ?? '').replace(/_s(?=_|$)/gi,"'s").replace(/[_\s]+/g,' ').trim());
   }
 
   function providerClock(value) {
@@ -2452,27 +2491,26 @@
   function renderRailRun(run, index) {
     const train=run?.train && typeof run.train==='object' ? run.train : {};
     const progress=run?.progress && typeof run.progress==='object' ? run.progress : {};
-    const origin=providerName(run?.origin || train.origin);
-    const destination=providerName(run?.destination || train.destination);
-    const status=providerName(progress.type || progress.status || run?.status || train.status);
-    const position=providerName(progress.location || progress.current_location || run?.current_location || run?.location);
     const next=providerName(progress.next_location || progress.next || run?.next_location);
     const serviceLabel=providerName(run?.service_name || run?.service_label);
-    const likely=run?.likely_train && typeof run.likely_train==='object' ? run.likely_train : null;
-    const power=providerName(run?.power_type);
-    const bookedSpeed=run?.booked_speed_mph ? `${run.booked_speed_mph} mph booked speed` : '';
-    const platform=providerName(progress.platform || run?.platform);
     const callingPoints=railCallingPoints(run);
     const hasProgress=callingPoints.some(point=>point?.state);
-    const atStation=callingPoints.some(point=>point?.state==='current');
+    let atStation=callingPoints.some(point=>point?.state==='current');
     const anyPassed=callingPoints.some(point=>point?.state==='passed');
+    // Always show the train somewhere: at the first stop before it leaves,
+    // at the last stop once every stop is behind it.
+    if(hasProgress&&!atStation){
+      const allPassed=callingPoints.length&&callingPoints.every(point=>point?.state==='passed');
+      const target=!anyPassed ? callingPoints[0] : (allPassed ? callingPoints[callingPoints.length-1] : null);
+      if(target){callingPoints.splice(callingPoints.indexOf(target),1,{...target,state:'current'});atStation=true;}
+    }
     const points=callingPoints.map((point,pointIndex)=>{
       const name=providerName(point?.station || point?.location || point?.name);
       const booked=providerClock(point?.scheduled || point?.expected || point?.actual || point?.time);
       const expected=point?.scheduled&&point?.expected ? providerClock(point.expected) : '';
       const lateClock=expected&&expected!==booked ? expected : '';
       const platform=providerName(point?.platform);
-      const detail=platform ? `Platform ${platform}` : (hasProgress ? '' : providerName(point?.status || point?.event));
+      const detail=platform ? `Platform ${platform}` : '';
       if(!name && !booked)return '';
       const state=['passed','current','next','upcoming'].includes(point?.state) ? point.state : '';
       // Between stations the train sits on the line before its next stop.
@@ -2481,17 +2519,15 @@
         : '';
       return `${trainHere}<li class="${state}"${state==='current'?' aria-label="Train is at this station"':''}><i></i><span><strong>${esc(name || `Call ${pointIndex+1}`)}</strong>${detail?`<small>${esc(detail)}</small>`:''}</span><b>${esc(booked)}${lateClock?`<em class="stop-late">${esc(lateClock)}</em>`:''}</b></li>`;
     }).filter(Boolean).join('');
-    const delay=Number.isFinite(Number(run?.delay_minutes)) && run?.delay_minutes!==null ? Math.round(Number(run.delay_minutes)) : null;
-    const punctuality=delay===null ? '' : delay>=1 ? `${delay} min late` : delay<=-1 ? `${-delay} min early` : 'On time';
-    const route=origin||destination ? `${origin || 'Origin not supplied'} → ${destination || 'Destination not supplied'}` : '';
-    const pills=[status,position?`At ${position}`:null,next?`Next ${next}`:null,platform?`Platform ${platform}`:null,power,bookedSpeed].filter(Boolean);
-    const hasFacts=route || pills.length || points;
-    const unknown=!route&&!points ? '<p class="transport-empty">Route not published for this live service.</p>' : '';
-    const identity=likely ? `<div class="train-service-identity"><div><b>${esc(String(likely.confidence||'possible').toUpperCase())}</b><span>${esc(likely.label)}</span><p>${esc(likely.explanation)}</p></div></div>` : '';
+    // Only facts a traveller uses: lateness, the stops and, for special
+    // workings, what kind of service it is. The route is already the panel
+    // subtitle; data-source and inference notes are not shown.
+    const facts=points ? [] : [next?`Next: ${next}`:null].filter(Boolean);
+    const unknown=!points ? '<p class="transport-empty">Stops not published for this service.</p>' : '';
     const operator=providerName(train.operator || run?.operator || run?.operator_code);
     const operatorTheme=trainLiveryTheme('',operator);
     const operatorStyle=operatorTheme.key!=='reference' ? ` style="--train-primary:${operatorTheme.primary};--train-secondary:${operatorTheme.secondary};--train-accent:${operatorTheme.accent};--train-ink:${operatorTheme.ink}"` : '';
-    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${route?`<p class="transport-route"><strong>${esc(route)}</strong></p>`:''}${serviceLabel&&route?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${identity}${punctuality?`<p class="train-punctuality ${delay>=1?'is-late':delay<=-1?'is-early':'is-on-time'}">${esc(punctuality)}</p>`:''}${pills.length?`<div class="transport-facts">${pills.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points?`<ol class="transport-stops train-full-route${hasProgress?' has-progress':''}">${points}</ol>`:''}${unknown}${!hasFacts?'<p class="transport-empty">No further journey details are available.</p>':''}</article>`;
+    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${serviceLabel?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${facts.length?`<div class="transport-facts">${facts.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points?`<ol class="transport-stops train-full-route${hasProgress?' has-progress':''}">${points}</ol>`:''}${unknown}</article>`;
   }
 
   function trainLiveryTheme(livery, operator) {
@@ -2559,10 +2595,9 @@
 
   function renderRailIntelligence(detail) {
     const runs=Array.isArray(detail?.runs) ? detail.runs : [];
-    const source=detail?.source || 'Rail data';
     const terms=detail?.terms_url ? safeUrl(detail.terms_url) : null;
     const cards=runs.slice(0,3).map(renderRailRun).join('');
-    const message='Live position available; route not published.';
+    const message='This service has no published stops.';
     const stock=detail?.rolling_stock;
     const stockUrl=stock?.source_url ? safeUrl(stock.source_url) : null;
     const livery=stock?.matched ? trainLiveryStyle(stock) : null;
@@ -2572,9 +2607,9 @@
       ['Depot',stock.depot],['Built',stock.year_built],['Works no.',stock.works_number],
       ['Pool',stock.pool_code],['Preserved at',stock.preserved_at],['Stored at',stock.stored_at],
     ].filter(([,value])=>value) : [];
-    const stockCard=stock?.matched ? `<article class="rolling-stock-card" data-livery-theme="${esc(livery.key)}" style="${livery.css}"><div class="rolling-stock-stripe" aria-hidden="true"><i></i><i></i><i></i></div><small>IDENTIFIED ROLLING STOCK</small><strong>${esc(stockTitle)}</strong>${stock.livery?`<b class="rolling-stock-livery">${esc(stock.livery)}</b>`:''}${stockFacts.length?`<dl>${stockFacts.map(([label,value])=>`<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`:''}<p>Reference details, not a live allocation guarantee.</p>${stockUrl?`<a target="_blank" rel="noopener" href="${esc(stockUrl)}">${esc(stock.source || 'reference source')} ↗</a>`:''}</article>` : '';
-    const liveState=detail?.live_marker===false?'<p class="transport-note">Published timetable • no live map position</p>':'';
-    return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}><small>JOURNEY</small>${stockCard}${cards || `<div class="transport-unavailable"><strong>Route not published</strong><span>${esc(message)}</span></div>`}${liveState}<p class="transport-source">${esc(source)}${terms?` • <a target="_blank" rel="noopener" href="${esc(terms)}">terms ↗</a>`:''}</p></div>`;
+    const stockCard=stock?.matched ? `<article class="rolling-stock-card" data-livery-theme="${esc(livery.key)}" style="${livery.css}"><div class="rolling-stock-stripe" aria-hidden="true"><i></i><i></i><i></i></div><small>Rolling stock</small><strong>${esc(stockTitle)}</strong>${stock.livery?`<b class="rolling-stock-livery">${esc(stock.livery)}</b>`:''}${stockFacts.length?`<dl>${stockFacts.map(([label,value])=>`<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`:''}${stockUrl?`<a target="_blank" rel="noopener" href="${esc(stockUrl)}">${esc(stock.source || 'reference source')} ↗</a>`:''}</article>` : '';
+    const liveState=detail?.live_marker===false?'<p class="transport-note">Timetable only · not live on the map</p>':'';
+    return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}>${liveState}${cards || `<div class="transport-unavailable"><strong>Stops not published</strong><span>${esc(message)}</span></div>`}${stockCard}${terms?`<p class="transport-source"><a target="_blank" rel="noopener" href="${esc(terms)}">Data terms ↗</a></p>`:''}</div>`;
   }
 
   function renderBusIntelligence(detail) {
@@ -2632,7 +2667,15 @@
       }
       if(!response.ok)throw new Error(payload?.detail || 'route detail unavailable');
       const detail=payload?.detail && typeof payload.detail==='object' ? payload.detail : payload;
-      if(a.type==='train')applySelectedTrainPublishedRoute(a,detail);
+      if(a.type==='train'){
+        applySelectedTrainPublishedRoute(a,detail);
+        const runDelay=Array.isArray(detail?.runs)?detail.runs[0]?.delay_minutes:null;
+        if(runDelay!=null&&Number.isFinite(Number(runDelay))){
+          railDelayById.set(a.id,Number(runDelay));
+          const cell=document.querySelector('#detail-fields [data-field="Status"] strong');
+          if(cell)cell.textContent=trainStatusLabel(activityById(a.id)||a);
+        }
+      }
       const html=a.type==='train' ? renderRailIntelligence(detail) : renderBusIntelligence(detail);
       if(box.innerHTML!==html){const panel=$('detail-panel'),scrollTop=panel?.scrollTop||0;box.innerHTML=html;if(panel)panel.scrollTop=scrollTop;}
     } catch {
@@ -2674,8 +2717,9 @@
     if (!a) return;
     const detailFreshness=document.querySelector('#detail-panel .detail-head small');
     const staleTrain=a.type==='train'&&a.restored_snapshot===true;
-    if(detailFreshness)detailFreshness.textContent=staleTrain?'LAST KNOWN POSITION':'LIVE NOW';
+    if(detailFreshness)detailFreshness.textContent=staleTrain?'Last known position':'';
     selectedActivitySnapshot=a;
+    $('detail-panel')?.classList.toggle('is-train',a.type==='train');
     liveObjectRenderer?.setActivities(filteredActivities(),selectedId);
     setDetailRouteView(false);
     syncDetailRouteControl(a);
@@ -2688,8 +2732,7 @@
     sendWatching(id);
     if (pan) { trackProduct('activity_selected', a.type); collapseWorkspaceOnPhone(); }
     const detailCool=coolInfo(a);
-    const titleIcon=String(a.category||'').toLowerCase()==='live motorway sign'?'▣':(icons[a.type] || '•');
-    $('detail-title').innerHTML = `${currentWorkspace==='cool' && detailCool.score>=45 ? coolBadgeHtml(a,true)+' ' : ''}${titleIcon} ${esc(a.name)}`;
+    $('detail-title').innerHTML = `${currentWorkspace==='cool' && detailCool.score>=45 ? coolBadgeHtml(a,true)+' ' : ''}${esc(a.name)}`;
     $('detail-subtitle').textContent = humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
     renderOperatorIdentity(a);
     renderInsight(a);
@@ -2704,7 +2747,7 @@
     if (a.kind === 'event') {
       $('detail-fields').innerHTML = [field('Category', a.category), field('Status', a.status), field('Severity', a.severity), field('Road', a.road), field('Direction', a.direction), field('Lanes', a.lanes_closed), field('Reason', a.reason), field('Started', timeText(a.start_time)), field('Ends', timeText(a.end_time)), field('Location', a.position_label), field('Source', a.source), field('Updated', timeText(a.last_updated))].join('');
       $('follow').classList.remove('hidden');
-      $('follow').textContent = followed.has(id) ? 'Following ✓' : 'Follow incident';
+      $('follow').textContent = followed.has(id) ? 'Saved ✓' : 'Save';
       loadCoverage(a);
     } else {
       const speed = a.speed == null ? null : `${a.speed} ${a.speed_unit || ''}`.trim();
@@ -2715,9 +2758,20 @@
       const isAircraft=['sar','aircraft'].includes(a.type);
       const aircraftType=isAircraft ? (a.aircraft_model || a.aircraft_type_code || 'Type not identified by live feed') : null;
       const publishedRoute=a.route || (a.origin&&a.destination?`${a.origin} → ${a.destination}`:null);
+      if (a.type === 'train') {
+        // A traveller's three facts, as in the agreed design. Identifiers and
+        // positions stay available behind "More details".
+        const age = relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000));
+        $('detail-fields').innerHTML = [
+          field('Status', trainStatusLabel(a)), field('Next', humanTransitLabel(a.next_location)), field('Updated', age),
+          field('Headcode', a.headcode), field('Train UID', a.train_uid), field('Position', a.position_label),
+          field('Source', a.source), field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null),
+          field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null),
+        ].join('');
+      } else
       $('detail-fields').innerHTML = [field('Route', publishedRoute || (isAircraft?'Not published by this ADS-B feed':null)), field(identityLabel, a.vehicle_ref), field('Identified as', a.identity_label), field('Identity confidence', a.identity_confidence==='type'?'Type identified':(a.identity_confidence==='exact'?'Exact live identifier':null)), field('Aircraft type', aircraftType), field('ICAO type code', a.aircraft_type_code), field('Altitude', altitude), field('Headcode', a.headcode), field('Train UID', a.train_uid), field('Journey ref', a.journey_ref), field('Status', a.status), field('Position', a.position_label), field('Next report', a.next_location), field('Speed', speed), field('Bearing', bearing), field('Delay', delay), field('Occupancy', a.occupancy), field('Operator', a.operator), field('Source', a.source), field('ICAO / source ref', a.source_id), field('Tracking', fmt(a.tracking_count)), field('Updated', timeText(a.last_updated)), field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null), field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null)].join('');
       $('follow').classList.remove('hidden');
-      $('follow').textContent = followed.has(id) ? 'Following ✓' : 'Follow activity';
+      $('follow').textContent = followed.has(id) ? 'Saved ✓' : 'Save';
       clearCoverage();
     }
     renderTrackingControl(a);
@@ -3233,14 +3287,14 @@
     if(a.type==='train'&&identity.level==='type'){
       box.classList.add('hidden');box.innerHTML='';
       save.classList.remove('hidden');share.classList.remove('hidden');
-      save.disabled=discoveryClaimPending;save.textContent=record?'Field Guide ✓':'◇ Save discovery';
+      save.disabled=discoveryClaimPending;save.textContent=record?'Field Guide ✓':'Save to Field Guide';
       return;
     }
     const plainIdentity=identity.label;
     box.innerHTML=`<div class="discovery-truth-row"><b class="identity-pill ${identity.level}">${esc(plainIdentity)}</b><span>Updated ${esc(freshness)}</span></div>${identity.level==='type'?`<small>${esc(identity.note)}</small>`:''}`;
     save.classList.remove('hidden');share.classList.remove('hidden');
     save.disabled=discoveryClaimPending;
-    save.textContent=record?'Field Guide ✓':'◇ Save discovery';
+    save.textContent=record?'Field Guide ✓':'Save to Field Guide';
   }
 
   function storeDiscovery(record) {
@@ -4330,7 +4384,7 @@
     if (wasFollowing) followed.delete(selectedId); else followed.add(selectedId);
     saveFollowed(); renderMyRadar();
     const selected = activityById(selectedId);
-    $('follow').textContent = followed.has(selectedId) ? 'Following ✓' : (selected?.kind === 'event' ? 'Follow incident' : 'Follow activity');
+    $('follow').textContent = followed.has(selectedId) ? 'Saved ✓' : 'Save';
     trackProduct(wasFollowing ? 'activity_unfollowed' : 'activity_followed', selected?.type || 'other');
   });
   $('track-activity')?.addEventListener('click', () => {
@@ -4352,7 +4406,7 @@
     const place=places.find(row=>row.id===selectedPlaceId);if(!place)return;
     if(savedPlaces.has(place.id)){savedPlaces.delete(place.id);showToast(`${place.name} removed from My Radar.`);}
     else {if(!billingState.plus&&savedPlaces.size>=2){openPlusDialog();showToast('Free My Radar includes two saved places. Radar+ unlocks more.');return;}savedPlaces.set(place.id,{id:place.id,name:place.name,subtitle:place.subtitle,place_type:place.place_type,lat:Number(place.lat),lon:Number(place.lon),crs:place.crs,atco_code:place.atco_code,source:place.source});showToast(`${place.name} saved to My Radar.`);}
-    saveMyRadarPreferences();renderMyRadar();$('save-place').textContent=savedPlaces.has(place.id)?'Saved place ✓':'◇ Save place';trackProduct('place_saved',place.place_type||'place');
+    saveMyRadarPreferences();renderMyRadar();$('save-place').textContent=savedPlaces.has(place.id)?'Saved ✓':'Save place';trackProduct('place_saved',place.place_type||'place');
   });
   $('today-refresh')?.addEventListener('click',()=>loadTodayRadar(true));
   $('passing-next-refresh')?.addEventListener('click',loadPassingNext);

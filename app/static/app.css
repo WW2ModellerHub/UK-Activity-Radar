@@ -546,6 +546,8 @@ body:has(.detail-sidebar:not(.is-empty):not(.route-view)) #recenter { right: cal
 .detail-head { display: flex; align-items: flex-start; gap: 10px; }
 .detail-head > div:first-child { flex: 1; min-width: 0; }
 .detail-head small { display: block; font-size: 12px; font-weight: 600; color: var(--good); margin-bottom: 2px; }
+.detail-head small:empty { display: none; }
+.detail-head small { color: var(--warn); }
 .detail-head h2 { font-size: 21px; line-height: 1.25; font-weight: 700; overflow-wrap: anywhere; }
 .detail-head h2 .cool-badge { margin-right: 4px; vertical-align: 3px; }
 .detail-head-actions { display: flex; gap: 6px; flex: none; }
@@ -585,7 +587,18 @@ body:has(.detail-sidebar:not(.is-empty):not(.route-view)) #recenter { right: cal
 .detail-tech-toggle { justify-self: start; }
 .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .detail-actions > * { flex: 1 1 auto; }
-.detail-actions .primary-button { flex-basis: 100%; }
+.detail-actions .primary-button { flex: 1 1 auto; }
+/* Train panel follows the agreed design: who and where, three facts, the
+   actions, then the stops. */
+.detail-panel.is-train > * { order: 6; }
+.detail-panel.is-train > .detail-head { order: 0; }
+.detail-panel.is-train > #detail-subtitle { order: 1; }
+.detail-panel.is-train > .detail-operator { order: 2; }
+.detail-panel.is-train > .detail-fields { order: 3; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.detail-panel.is-train > .detail-actions { order: 4; }
+.detail-panel.is-train > .detail-intelligence { order: 5; }
+.detail-panel.is-train .detail-field { border-right: 1px solid var(--line); }
+.detail-panel.is-train .detail-field:nth-child(3n) { border-right: 0; }
 .detail-related, .detail-coverage { display: grid; gap: 8px; font-size: 14px; }
 .related-list { display: grid; }
 .related-summary { color: var(--muted); font-size: 13px; }
