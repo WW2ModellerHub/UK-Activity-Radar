@@ -1,5 +1,30 @@
 # Codex stabilization changelog
 
+## 2026-11-13 — station board, Discover clean-up, punctuality
+
+- **Station board.** Rebuilt as one list with Departures / Arrivals tabs,
+  replacing two squeezed columns. Each row shows the booked time (HH:MM, not
+  "13 Nov at 21:31"), the full destination in normal case, "Platform N ·
+  Operator", and one status: the expected time in red when late, "On time",
+  "Cancelled", or "Live". The whole row is tappable; "View live train ›" and
+  "View route ›" are gone. The server now sends the operator's full name and
+  no longer passes internal TD status text to the board.
+- **Discover.** One All / Air / Rail / Rescue switch with "Map on" beside it,
+  then one list of finds. No longer shown: the "NEW / 0/3 Field Guide"
+  chips, the AIR/RAIL/RESCUE scoreboard, the Visible/Moving/Cool now/Tracking
+  box, the duplicate "Cool stuff now" ranking, the preview note and the
+  category counts.
+- **Removed:** the scrolling desktop ticker (it repeated names already in the
+  lists). "More details" only appears when there is something more to show.
+- **Punctuality.** Train markers get a corner dot: green within 1 minute,
+  amber up to 5 minutes late, red beyond. There is no dot when lateness is
+  unknown. Signalling-only trains now get lateness from each timetabled berth
+  report (`schedule_store._lateness_minutes`), so the dot, the train panel's
+  Status and station boards work beyond TRUST-reported trains.
+
+Tests: board tabs and status, punctuality dots and signalling lateness.
+Python 352 passed; browser 75 passed.
+
 ## 2026-11-13 — one base map
 
 The map used Mapbox Light normally and switched to Mapbox Streets when trains

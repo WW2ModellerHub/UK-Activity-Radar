@@ -61,6 +61,15 @@ class ScheduleInfo:
     schedule_id: int | None = None
 
 
+def _lateness_minutes(reported_at: datetime, booked_at: datetime) -> int | None:
+    """Minutes a live report is behind (positive) or ahead of its booked time."""
+    try:
+        minutes = round((reported_at - booked_at).total_seconds() / 60)
+    except (TypeError, AttributeError):
+        return None
+    return minutes if abs(minutes) <= 720 else None
+
+
 class ScheduleStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
@@ -847,6 +856,7 @@ class ScheduleStore:
                     "started_at": recorded_at - runtime, "due_at": recorded_at,
                     "tiploc": previous_code, "report_tiploc": start_code,
                     "event_kind": event_kind, "berth_offset_seconds": offset,
+                    "delay_minutes": _lateness_minutes(recorded_at, start_time),
                 }
             return None
 
@@ -873,6 +883,7 @@ class ScheduleStore:
                 "started_at": recorded_at, "due_at": recorded_at + runtime,
                 "tiploc": start_code, "report_tiploc": start_code,
                 "event_kind": event_kind or None, "berth_offset_seconds": offset,
+                "delay_minutes": _lateness_minutes(recorded_at, start_time),
             }
         return None
 

@@ -860,3 +860,61 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 .cool-filter-icon.air, .field-guide-icon.air { color: #1f5fa8; }
 .cool-filter-icon.rail, .field-guide-icon.rail { color: #6e2c6b; }
 .cool-filter-icon.rescue, .field-guide-icon.rescue, .field-guide-icon.sea { color: #8f4310; }
+
+/* ---------- Station and stop boards (v2) ---------- */
+.board-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: var(--radius); background: var(--subtle); }
+.board-switch button { min-height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 14px; font-weight: 500; }
+.board-switch button[aria-selected="true"] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(18, 22, 26, .08); }
+.board-list { display: grid; }
+.board-list[hidden] { display: none; }
+.board-heading { font-size: 13px; font-weight: 600; color: var(--muted); }
+.board-row { grid-template-columns: 52px minmax(0, 1fr) auto; min-height: 58px; padding: 10px 0; }
+.board-time { font-size: 16px; font-weight: 700; }
+.board-main strong { font-size: 15px; font-weight: 600; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.25; }
+.board-main strong small { font-size: 13px; font-weight: 400; color: var(--muted); }
+.board-main > span { white-space: nowrap; }
+.board-status { font-size: 14px; font-weight: 600; color: var(--muted); min-width: 0; }
+.board-status.is-good { color: var(--good); }
+.board-status.is-late, .board-status.is-bad { color: var(--bad); }
+.board-row.is-live .board-main strong::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 4px; background: #1e9e6a; vertical-align: 2px; }
+
+/* ---------- Discover, simplified ---------- */
+/* One category switch and one list. Status chips, the category scoreboard,
+   the totals box and the duplicate ranking list are not shown. */
+.cool-view[data-cool-view-panel="now"] .discovery-now-status,
+.cool-view[data-cool-view-panel="now"] .cool-scoreboard,
+.cool-view[data-cool-view-panel="now"] .cool-stats,
+.cool-view[data-cool-view-panel="now"] .cool-ranking,
+.cool-preview-note { display: none !important; }
+.cool-view[data-cool-view-panel="now"].active { gap: 14px; }
+.cool-view[data-cool-view-panel="now"] .cool-map-controls { order: 1; gap: 8px; }
+.cool-view[data-cool-view-panel="now"] .cool-subfilter-bar { order: 2; }
+.cool-view[data-cool-view-panel="now"] .cool-summary { order: 3; }
+.cool-control-head { justify-content: flex-end; margin: 0; }
+.cool-control-head > div { display: none; }
+.cool-map-controls .cool-filter-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px;
+  border-radius: var(--radius); background: var(--subtle);
+}
+.cool-map-controls .cool-filter {
+  min-height: 36px; padding: 0 4px; justify-content: center; border: 0; border-radius: 8px; background: transparent;
+}
+.cool-map-controls .cool-filter .cool-filter-icon, .cool-map-controls .cool-filter small { display: none; }
+.cool-map-controls .cool-filter strong { font-size: 14px; font-weight: 500; color: var(--muted); }
+.cool-map-controls .cool-filter.active { background: var(--surface); box-shadow: 0 1px 2px rgba(18, 22, 26, .08); }
+.cool-map-controls .cool-filter.active strong { color: var(--text); font-weight: 600; }
+.cool-find-head strong { text-transform: none; }
+
+/* The desktop ticker repeated names already in the lists. */
+.live-ticker { display: none !important; }
+.cool-map-controls .cool-filter .layer-count { display: none; }
+.cool-view[data-cool-view-panel="now"] .cool-map-controls { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.cool-map-controls .cool-control-head { grid-column: 2; grid-row: 1; }
+.cool-map-controls .cool-filter-grid { grid-column: 1; grid-row: 1; }
+.cool-map-switch { min-height: 36px; white-space: nowrap; }
+
+/* Train punctuality: a small dot on the marker's corner. */
+.train-punctuality { position: absolute; top: -5px; right: -5px; width: 11px; height: 11px; border-radius: 6px; border: 2px solid #fff; }
+.train-punctuality.is-on-time { background: #1e9e6a; }
+.train-punctuality.is-late { background: #d4a017; }
+.train-punctuality.is-very-late { background: #d64545; }

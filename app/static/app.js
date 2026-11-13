@@ -1226,10 +1226,12 @@
       ? `<i class="train-coincident-stem" style="width:${stemLength.toFixed(1)}px;transform:rotate(${stemAngle.toFixed(1)}deg)"></i><i class="train-coincident-origin" style="transform:translate(${-offsetX}px,${-offsetY}px)"></i>`
       : '';
     const trainIndex=coincidentCount>1 ? `<b class="train-coincident-index" aria-hidden="true">${coincidentSlot+1}</b>` : '';
+    const punctuality=type==='train' ? punctualityClass(v.delay_minutes) : '';
+    const punctualityDot=punctuality ? `<i class="train-punctuality ${punctuality}" aria-hidden="true"></i>` : '';
     const sharedNote=coincidentCount>1 ? ` • ${coincidentCount} trains share this reported point` : '';
     return L.divIcon({
       className: `marker-wrap marker-wrap-${esc(type)}${coincidentCount>1?' train-coincident-wrap':''}`,
-      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}"${trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}</div>${pointer}${speedTag}</div>`,
+      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}"${trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}${punctualityDot}</div>${pointer}${speedTag}</div>`,
       iconSize: [42,42], iconAnchor: [21-offsetX,21-offsetY],
       tooltipAnchor: type==='train' ? [offsetX,offsetY-17] : [0,0]
     });
@@ -1399,13 +1401,31 @@
     return true;
   }
 
+  function boardClock(value) {
+    if(!value)return '';
+    const text=String(value);
+    if(!text.includes('T'))return text.slice(0,5);
+    const parsed=new Date(text);
+    return Number.isFinite(parsed.getTime()) ? parsed.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '';
+  }
+
   function boardRow(row, kind) {
-    const rawClock=row.actual || row.expected || row.clock || row.scheduled || '';
-    const clock=rawClock && String(rawClock).includes('T') ? (timeText(rawClock)||rawClock) : rawClock;
-    const baseStatus=row.status || (row.minutes!=null ? `${row.minutes} min` : '');
-    const status=(kind==='bus' && row.minutes!=null && !String(baseStatus).toLowerCase().includes('live')) ? `${baseStatus} • ${row.minutes}m` : baseStatus;
-    const place=kind==='arrival' ? (row.origin || row.operator || '') : (row.destination || row.operator || row.route || '');
-    const platform=row.platform ? `Plat ${row.platform}` : '';
+    // One readable line per service: booked time, where it goes (or comes
+    // from), platform and operator, and a plain status on the right.
+    const booked=boardClock(row.scheduled || row.clock || row.expected || row.actual) || (row.minutes!=null?`${row.minutes} min`:'—');
+    const expected=boardClock(row.expected);
+    const delay=Number(row.delay_minutes);
+    const statusText=String(row.status || '').trim();
+    let status='', statusClass='';
+    if(/cancel/i.test(statusText)){status='Cancelled';statusClass='is-bad';}
+    else if(Number.isFinite(delay)&&delay>=1&&expected&&expected!==booked){status=expected;statusClass='is-late';}
+    else if(Number.isFinite(delay)&&delay<=0){status='On time';statusClass='is-good';}
+    else if(/^arrived$/i.test(statusText)){status='Arrived';}
+    else if(kind==='bus'&&row.minutes!=null){status=row.minutes<=0?'Due':`${row.minutes} min`;statusClass=/live/i.test(statusText)?'is-good':'';}
+    else if(/^live$/i.test(statusText)){status='Live';statusClass='is-good';}
+    const place=kind==='arrival' ? humanTransitLabel(row.origin || '') : humanTransitLabel(row.destination || row.route || row.name || '');
+    const operator=humanTransitLabel(row.operator_name || (kind==='bus'?row.operator:'') || '');
+    const facts=[row.platform?`Platform ${row.platform}`:null, kind==='bus'&&row.route?`Route ${row.route}`:null, operator||null].filter(Boolean).join(' · ');
     const live=row.live_train_id || row.live_vehicle_id;
     const serviceRef=live || row.headcode || row.trip_id || row.vehicle_ref;
     const attrs=[
@@ -1419,11 +1439,11 @@
       row.destination?`data-destination="${esc(row.destination)}"`:'',
       row.operator?`data-operator="${esc(row.operator)}"`:'',
       row.platform?`data-platform="${esc(row.platform)}"`:'',
-      status?`data-status="${esc(status)}"`:'',
+      statusText?`data-status="${esc(statusText)}"`:'',
       `data-activity-type="${kind==='bus'?'bus':'train'}"`,
     ].filter(Boolean).join(' ');
-    const liveHint=live?`<em class="board-live-link">View live ${kind==='bus'?'bus':'train'} ›</em>`:(row.train_uid?'<em class="board-live-link">View route ›</em>':(kind!=='bus'&&row.headcode?'<em class="board-live-link">Find train ›</em>':''));
-    return `<button type="button" class="board-row board-${kind}${serviceRef?' board-clickable':''}" ${attrs}><span class="board-time">${esc(clock || (row.minutes!=null?`${row.minutes}m`:'—'))}</span><span class="board-main"><strong>${esc(humanTransitLabel(place || row.route || row.name || 'Service'))}</strong><span>${esc([row.headcode,humanTransitLabel(row.route),humanTransitLabel(row.operator)].filter(Boolean).join(' • '))}${liveHint}</span></span><span class="board-status">${esc([status,platform].filter(Boolean).join(' • '))}</span></button>`;
+    const label=[kind==='arrival'?`From ${place||'unknown origin'}`:(place||'Service'),booked,status].filter(Boolean).join(', ');
+    return `<button type="button" class="board-row board-${kind}${serviceRef?' board-clickable':''}${live?' is-live':''}" aria-label="${esc(label)}" ${attrs}><span class="board-time">${esc(booked)}</span><span class="board-main"><strong>${kind==='arrival'&&place?`<small>from</small> `:''}${esc(place || 'Service')}</strong>${facts?`<span>${esc(facts)}</span>`:''}</span><span class="board-status ${statusClass}">${esc(status)}</span></button>`;
   }
 
   async function openScheduledTrain(btn) {
@@ -1546,6 +1566,15 @@
     if(!map.getBounds().contains([a.lat,a.lon])) map.fitBounds(bounds,{maxZoom:13,padding:[55,55]});
   }
 
+  const boardTabByPlace=new Map();
+  // "More details" only when there is something more to show.
+  const detailFieldsBox=$('detail-fields');
+  if(detailFieldsBox){
+    const syncTechToggle=()=>$('detail-tech-toggle')?.classList.toggle('hidden',!detailFieldsBox.querySelector('.is-technical'));
+    new MutationObserver(syncTechToggle).observe(detailFieldsBox,{childList:true});
+    syncTechToggle();
+  }
+
   function renderPlaceBoard(place, payload) {
     const box=$('detail-placeboard'); if(!box)return;
     box.classList.remove('rail-departure-board','bus-departure-board');
@@ -1555,9 +1584,10 @@
       const deps=(board.departures||[]).map(r=>boardRow(r,'departure')).join('');
       const arrivalRows=(board.arrivals&&board.arrivals.length ? board.arrivals : (board.recent_arrivals||[]));
       const arr=arrivalRows.map(r=>boardRow(r,'arrival')).join('');
-      const arrivalLabel=(board.arrivals&&board.arrivals.length)?'Next arrivals':'Recent actual arrivals';
+      const arrivalLabel=(board.arrivals&&board.arrivals.length)?'Arrivals':'Recent arrivals';
       const waiting=board.mode==='schedule_sync'?'<p class="board-empty board-waiting">Timetable loading…</p>':'';
-      html=`<div class="board-mast"><span>DEPARTURES & ARRIVALS</span><b>${esc(place.name)}</b><em>${esc(place.crs||'')}</em></div>${waiting}<div class="board-tabs"><div><strong>DEPARTURES</strong>${deps||'<p class="board-empty">No departures due.</p>'}</div><div><strong>${esc(arrivalLabel.toUpperCase())}</strong>${arr||'<p class="board-empty">No arrivals due.</p>'}</div></div>`;
+      const tab=boardTabByPlace.get(place.id)||'departures';
+      html=`${waiting}<div class="board-switch" role="tablist" aria-label="Departures or arrivals"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button></div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>`;
     } else if(place.place_type==='bus_stop') {
       box.classList.add('bus-departure-board');
       const rows=(board.rows||[]).map(r=>boardRow(r,'bus')).join('');
@@ -1568,8 +1598,8 @@
       else if(board.mode==='live_next_stop') mode='Live bus targeting this stop';
       else if(board.mode==='timetable_sync') mode='Loading timetable…';
       else mode='No due services found';
-      const targetBlock=targeted?`<div class="board-secondary"><strong>ALSO APPROACHING</strong>${targeted}</div>`:'';
-      html=`<div class="board-mast"><span>BUS TIMES</span><b>${esc(place.name)}</b><em>LIVE</em></div><strong class="board-heading">${esc(mode)}</strong>${rows||'<p class="board-empty">No buses due.</p>'}${targetBlock}`;
+      const targetBlock=targeted?`<div class="board-secondary"><p class="board-heading">Also approaching</p>${targeted}</div>`:'';
+      html=`<p class="board-heading">${esc(mode)}</p>${rows||'<p class="board-empty">No buses due.</p>'}${targetBlock}`;
     }
     box.classList.remove('hidden');
     const nextHtml=html||'<p class="board-empty">Nothing due right now.</p>';
@@ -1579,6 +1609,12 @@
       const focusKey=focused&&box.contains(focused)?[focused.dataset.trainUid,focused.dataset.liveId,focused.dataset.headcode,focused.dataset.serviceDate,focused.className].join('|'):null;
       const panel=$('detail-panel'),scrollTop=panel?.scrollTop || 0;
       box.innerHTML=nextHtml;bindBoardLiveLinks(box);
+      box.querySelectorAll('[data-board-tab]').forEach(button=>button.addEventListener('click',()=>{
+        const tab=button.dataset.boardTab;
+        boardTabByPlace.set(place.id,tab);
+        box.querySelectorAll('[data-board-tab]').forEach(other=>other.setAttribute('aria-selected',String(other===button)));
+        box.querySelectorAll('[data-board-list]').forEach(list=>{list.hidden=list.dataset.boardList!==tab;});
+      }));
       if(focusKey){const replacement=[...box.querySelectorAll('.board-row')].find(row=>[row.dataset.trainUid,row.dataset.liveId,row.dataset.headcode,row.dataset.serviceDate,row.className].join('|')===focusKey);replacement?.focus({preventScroll:true});}
       if(panel)panel.scrollTop=scrollTop;
     }
@@ -1919,6 +1955,14 @@
     return a;
   }
 
+  function punctualityClass(delay) {
+    // Green on time, amber a few minutes late, red badly late. No dot when
+    // lateness is unknown rather than implying the train is on time.
+    if (delay === null || delay === undefined || delay === '' || !Number.isFinite(Number(delay))) return '';
+    const minutes = Number(delay);
+    return minutes <= 1 ? 'is-on-time' : minutes <= 5 ? 'is-late' : 'is-very-late';
+  }
+
   function markerVisualSignature(a) {
     const zoomBand = map.getZoom() >= 12 ? 2 : map.getZoom() >= 9 ? 1 : 0;
     const appearance = currentWorkspace === 'cool' ? 'cool' : 'standard';
@@ -1927,7 +1971,7 @@
     const speed = zoomBand >= 1 ? a.speed : '';
     const speedUnit = zoomBand >= 2 ? a.speed_unit : '';
     const movementPosition=['aircraft','sar'].includes(a.type)?`${a.lat}|${a.lon}`:'';
-    return [a.type,a.position_method,a.name,a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon,a._coincidentCount,a._coincidentSlot,a._coincidentX,a._coincidentY].join('|');
+    return [a.type,a.position_method,a.name,punctualityClass(a.delay_minutes),a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon,a._coincidentCount,a._coincidentSlot,a._coincidentX,a._coincidentY].join('|');
   }
 
   function markerTooltipSignature(a) {
@@ -3779,7 +3823,7 @@
     const top=candidates[0];
     const more=candidates.slice(1,6);
     const emptyScope=radius==null?'in the current UK live feed':`within ${Math.round(radius/1.609344)} miles`;
-    const moreHtml=more.length?`<div class="cool-find-list"><div class="cool-find-head"><strong>MORE LIVE FINDS</strong><span>${candidates.length} matched live</span></div>${more.map(x=>`<button type="button" class="cool-find-row${isNewDiscoveryActivity(x.a)?' is-new':''}" data-cool-find="${esc(x.a.id)}"><span>${coolBadgeHtml(x.a,true)}</span><span><strong>${isNewDiscoveryActivity(x.a)?'<em class="discovery-new-tag">NEW</em> ':''}${esc(x.a.name)}${activityMatchesInterests(x.a)?' <em class="interest-match">MY INTEREST</em>':''}</strong><small>${esc(x.c.reasons[0]||x.a.subtitle||'Unusual live movement')} • updated ${esc(discoveryFreshness(x.a))}</small></span><b>›</b></button>`).join('')}</div>`:'';
+    const moreHtml=more.length?`<div class="cool-find-list"><div class="cool-find-head"><strong>More finds</strong><span>${candidates.length} matched live</span></div>${more.map(x=>`<button type="button" class="cool-find-row${isNewDiscoveryActivity(x.a)?' is-new':''}" data-cool-find="${esc(x.a.id)}"><span>${coolBadgeHtml(x.a,true)}</span><span><strong>${isNewDiscoveryActivity(x.a)?'<em class="discovery-new-tag">NEW</em> ':''}${esc(x.a.name)}${activityMatchesInterests(x.a)?' <em class="interest-match">MY INTEREST</em>':''}</strong><small>${esc(x.c.reasons[0]||x.a.subtitle||'Unusual live movement')} • updated ${esc(discoveryFreshness(x.a))}</small></span><b>›</b></button>`).join('')}</div>`:'';
     const previewNote=!globalCoolAvailability.fullAccess&&globalCoolAvailability.total>candidates.length?`<p class="cool-preview-note">Showing a balanced ${candidates.length}-item preview from ${globalCoolAvailability.total} live Discover matches. Radar+ shows the full set.</p>`:'';
     box.innerHTML=`<div class="cool-scoreboard">${counts.map(x=>`<div><span class="cool-mini-icon cool-${x.theme}">${x.theme==='air'?'▲':x.theme==='rail'?'◆':'✚'}</span><strong>${x.n}</strong><small>${x.label}</small></div>`).join('')}</div>${previewNote}${top?`<button class="cool-hero-hit${isNewDiscoveryActivity(top.a)?' is-new':''}" type="button" data-cool-top="${esc(top.a.id)}"><span>${coolBadgeHtml(top.a,false)}</span><div><small>${isNewDiscoveryActivity(top.a)?'NEW • ':''}${activityIsCollectible(top.a)?'BEST LIVE FIND':'LIVE INCIDENT'} • updated ${esc(discoveryFreshness(top.a))}</small><strong>${esc(top.a.name)}${activityMatchesInterests(top.a)?' <em class="interest-match">MY INTEREST</em>':''}</strong><p>${esc(top.c.reasons[0]||top.a.subtitle||'Unusual live movement')}${activityIsCollectible(top.a)?` • ${top.km<1?'<1':Math.round(top.km)} km from map centre`:''}</p></div><b>›</b></button>${moreHtml}`:`<div class="cool-empty">Nothing unusual spotted ${emptyScope} right now.</div>`}`;
     box.querySelector('[data-cool-top]')?.addEventListener('click',e=>selectActivity(e.currentTarget.dataset.coolTop,true,11));

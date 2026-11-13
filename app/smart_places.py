@@ -650,7 +650,7 @@ class SmartPlacesService:
                 common={
                     "headcode":row['signalling_id'],"train_uid":row['train_uid'],
                     "service_date":service_date.isoformat(),"schedule_id":int(row['id']),
-                    "operator":row['atoc_code'],"origin":row['origin_name'],
+                    "operator":row['atoc_code'],"operator_name":operator_name(row['atoc_code']),"origin":row['origin_name'],
                     "destination":row['destination_name'],"platform":loc.get('platform'),
                 }
                 for bucket,kind in ((arr,'arrival'),(dep,'departure')):
@@ -684,14 +684,17 @@ class SmartPlacesService:
             if live is not None:
                 item['live_train_id']=live.id
                 delay=getattr(live,'delay_minutes',None)
-                live_status=str(getattr(live,'status',None) or '').strip()
                 if delay is not None:
                     expected_at=item['_scheduled_at']+timedelta(minutes=int(delay))
                     item['expected']=expected_at.isoformat()
                     item['delay_minutes']=int(delay)
-                    item['status']='On time' if int(delay)==0 else f"{int(delay):+d} min"
-                elif live_status:
-                    item['status']=live_status
+                    item['status']='On time' if int(delay)<=0 else f"{int(delay)} min late"
+                elif getattr(live,'terminated_at',None):
+                    item['status']='Arrived'
+                else:
+                    # Internal feed text ("TD live • next berth unresolved")
+                    # means nothing to a traveller: the train is simply live.
+                    item['status']='Live'
             item.pop('_scheduled_at',None)
         return {"departures":dep[:limit],"arrivals":arr[:limit]}
 

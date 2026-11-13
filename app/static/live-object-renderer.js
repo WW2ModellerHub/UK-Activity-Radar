@@ -9,6 +9,14 @@ export function frameInterval(objectCount,selected=false,reducedMotion=false){
   return 50;
 }
 
+function punctuality(activity){
+  if(activity.type!=='train')return {};
+  const delay=activity.delay_minutes;
+  if(delay===null||delay===undefined||!Number.isFinite(Number(delay)))return {};
+  const minutes=Number(delay);
+  return {punctuality:minutes<=1?'on-time':minutes<=5?'late':'very-late'};
+}
+
 function iconKind(activity){
   if(activity.type==='train')return 'train';
   const text=`${activity.aircraft_model||''} ${activity.aircraft_type_code||''} ${activity.kind||''}`.toLowerCase();
@@ -61,6 +69,7 @@ export class LiveObjectRenderer{
       for(const kind of ['train','airliner','propeller','helicopter','fastjet','heavy'])this.map.addImage(`live-${kind}`,drawIcon(kind),{pixelRatio:2});
       this.map.addSource('live-objects',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
       this.map.addLayer({id:'live-object-halo',type:'circle',source:'live-objects',paint:{'circle-radius':['case',['get','selected'],23,19],'circle-color':['case',['==',['get','type'],'train'],'rgba(77,22,69,.88)','rgba(8,29,42,.82)'],'circle-stroke-width':['case',['get','selected'],4,2],'circle-stroke-color':['case',['get','selected'],'#ffe27a','#effaff'],'circle-blur':.12}});
+      this.map.addLayer({id:'live-object-punctuality',type:'circle',source:'live-objects',filter:['has','punctuality'],paint:{'circle-radius':5,'circle-translate':[11,-11],'circle-color':['match',['get','punctuality'],'on-time','#1e9e6a','late','#d4a017','#d64545'],'circle-stroke-width':2,'circle-stroke-color':'#ffffff'}});
       this.map.addLayer({id:'live-object-symbol',type:'symbol',source:'live-objects',layout:{'icon-image':['get','icon'],'icon-size':.52,'icon-allow-overlap':true,'icon-ignore-placement':true,'icon-rotate':['get','rotation'],'icon-rotation-alignment':'map'}});
       this.ready=true;this.container.closest('.map-panel')?.classList.add('maplibre-live-ready');this.container.dataset.renderer='ready';onReady?.();this.start();
     });
@@ -111,7 +120,7 @@ export class LiveObjectRenderer{
           lat+=Math.sin(angle)*radiusMetres/111320;
           lon+=Math.cos(angle)*radiusMetres/(111320*Math.max(.2,Math.cos(lat*Math.PI/180)));
         }
-        features.push({type:'Feature',id:String(row.id),geometry:{type:'Point',coordinates:[lon,lat]},properties:{id:String(row.id),type:row.type,selected:row.id===this.selectedId,icon:`live-${iconKind(row)}`,rotation:Number(row.bearing||0)}});
+        features.push({type:'Feature',id:String(row.id),geometry:{type:'Point',coordinates:[lon,lat]},properties:{id:String(row.id),type:row.type,selected:row.id===this.selectedId,icon:`live-${iconKind(row)}`,rotation:Number(row.bearing||0),...punctuality(row)}});
       });
     }
     this.lastFeatures=features;

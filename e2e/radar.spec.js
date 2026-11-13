@@ -914,9 +914,14 @@ test('journey planner resolves places and renders a real multimodal itinerary', 
 test('Station Board opens a real fixture station and departure', async ({ page }) => {
   await page.locator('#station-boards').click();
   await expect(page.locator('#detail-title')).toContainText('Milton Keynes Central');
-  await expect(page.locator('#detail-placeboard')).toContainText('DEPARTURES & ARRIVALS');
+  await expect(page.locator('#detail-placeboard [data-board-tab="departures"]')).toHaveAttribute('aria-selected','true');
   await expect(page.locator('#detail-placeboard')).toContainText('Manchester Piccadilly');
-  await expect(page.locator('#detail-placeboard')).toContainText('View live');
+  await expect(page.locator('#detail-placeboard [data-live-id="train-live-1"]')).toHaveClass(/is-live/);
+  // Arrivals are one tap away rather than squeezed into a second column.
+  await expect(page.locator('#detail-placeboard [data-board-list="arrivals"]')).toBeHidden();
+  await page.locator('#detail-placeboard [data-board-tab="arrivals"]').click();
+  await expect(page.locator('#detail-placeboard [data-board-list="arrivals"]')).toContainText('Birmingham New Street');
+  await page.locator('#detail-placeboard [data-board-tab="departures"]').click();
   await page.locator('#detail-placeboard [data-live-id="train-live-1"]').click();
   await expect(page.locator('#detail-title')).toContainText('London Express');
   await expect(page.locator('#detail-intelligence')).toContainText('Rolling stock');
@@ -930,7 +935,7 @@ test('Station Board opens a real fixture station and departure', async ({ page }
 
 test('scheduled station-board train opens its published route without a live marker', async ({ page }) => {
   await page.locator('#station-boards').click();
-  await expect(page.locator('#detail-placeboard')).toContainText('View route');
+  await expect(page.locator('#detail-placeboard [data-train-uid="C99999"]')).toHaveClass(/board-clickable/);
   await page.locator('#detail-placeboard [data-train-uid="C99999"]').click();
   await expect(page.locator('#detail-title')).toContainText('1Z80');
   await expect(page.locator('#detail-intelligence')).toContainText('Coventry');
@@ -1046,6 +1051,22 @@ test('the railway network is drawn with the train layer and cleared without it',
   expect(requests).toContain('/api/rail/lines/national');
   await page.locator('[data-layer-chip="train"]').click();
   await expect(page.locator('#map')).toHaveAttribute('data-rail-lines', '0');
+});
+
+test('train markers show punctuality only when lateness is known', async ({ page }) => {
+  await page.locator('[data-layer-chip="train"]').click();
+  await waitForViewportRequestsToSettle(page);
+  await page.evaluate(() => {
+    const first = window.__fixtureSnapshot.activities.find(row => row.id === 'train-live-1');
+    const late = { ...first, id:'train-late', name:'1K31', delay_minutes:8, lat:52.3, lon:-1.2 };
+    const onTime = { ...first, id:'train-on-time', name:'1P32', delay_minutes:0, lat:52.5, lon:-1.4 };
+    const unknown = { ...first, id:'train-unknown', name:'1P34', delay_minutes:null, lat:52.7, lon:-1.6 };
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[late,onTime,unknown], stream:{ ...window.__fixtureSnapshot.stream, selected_types:['train'] } }) });
+  });
+  await expect(page.locator('.marker-wrap-train')).toHaveCount(3);
+  await expect(page.locator('.train-punctuality.is-very-late')).toHaveCount(1);
+  await expect(page.locator('.train-punctuality.is-on-time')).toHaveCount(1);
+  await expect(page.locator('.train-punctuality')).toHaveCount(2);
 });
 
 test('rail stations appear with the train layer and go when it is turned off', async ({ page }) => {
