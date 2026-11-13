@@ -89,8 +89,56 @@ def test_duplicate_sources_collapse_only_within_the_same_dated_service():
     td=_vehicle('td:berth','train','1F10');td.train_uid='SAME01';td.service_date='2026-11-06';td.last_updated=now-timedelta(seconds=5)
     tomorrow=_vehicle('nr:tomorrow','train','1F10');tomorrow.train_uid='SAME01';tomorrow.service_date='2026-11-07';tomorrow.last_updated=now-timedelta(seconds=10)
     state.upsert(td);state.upsert(trust);state.upsert(tomorrow)
-    ids={item.id for item in state.all(include_buses=False,include_vessels=False)}
-    assert ids=={'nr:trust','nr:tomorrow'}
+    rows={item.id:item for item in state.all(include_buses=False,include_vessels=False)}
+    # The first identity seen for a dated service is kept (so the browser
+    # moves one marker) while it carries the newest report's data.
+    assert set(rows)=={'td:berth','nr:tomorrow'}
+    assert rows['td:berth'].last_updated==now
+    assert state.get('nr:trust') is None
+
+
+def test_dated_service_keeps_one_identity_when_sources_alternate():
+    state=LiveState()
+    now=datetime.now(timezone.utc)
+    seen=[]
+    for step in range(6):
+        source_id='td:WG:1F10' if step%2==0 else 'nr:1F10X'
+        train=_vehicle(source_id,'train','1F10');train.train_uid='ALT001';train.service_date='2026-11-06'
+        train.last_updated=now-timedelta(seconds=60-step*10)
+        state.upsert(train)
+        seen.append(tuple(item.id for item in state.all(include_buses=False,include_vessels=False)))
+    assert set(seen)=={('td:WG:1F10',)}
+
+
+def test_late_duplicate_report_does_not_replace_newer_service_position():
+    state=LiveState()
+    now=datetime.now(timezone.utc)
+    td=_vehicle('td:WG:1F10','train','1F10');td.train_uid='LATE01';td.service_date='2026-11-06';td.last_updated=now;td.lat=52.5
+    trust=_vehicle('nr:1F10X','train','1F10');trust.train_uid='LATE01';trust.service_date='2026-11-06';trust.last_updated=now-timedelta(minutes=2);trust.lat=52.0
+    state.upsert(td);state.upsert(trust)
+    rows=state.all(include_buses=False,include_vessels=False)
+    assert [(row.id,row.lat) for row in rows]==[('td:WG:1F10',52.5)]
+
+
+def test_train_stream_cap_keeps_already_streamed_trains_stable():
+    state=LiveState()
+    now=datetime.now(timezone.utc)
+    for index in range(6):
+        train=_vehicle(f'td:XX:{index}','train',f'1A{index:02d}')
+        train.last_updated=now-timedelta(seconds=60-index)
+        state.upsert(train)
+    first={row.id for row in state.all(include_buses=False,include_vessels=False,train_limit=3)}
+    assert first=={'td:XX:3','td:XX:4','td:XX:5'}
+    # Older trains report again; without priority they would evict the
+    # trains already on the viewer's map.
+    for index in range(3):
+        train=_vehicle(f'td:XX:{index}','train',f'1A{index:02d}')
+        train.last_updated=now+timedelta(seconds=index+1)
+        state.upsert(train)
+    stable={row.id for row in state.all(include_buses=False,include_vessels=False,train_limit=3,train_priority_ids=first)}
+    assert stable==first
+    reshuffled={row.id for row in state.all(include_buses=False,include_vessels=False,train_limit=3)}
+    assert reshuffled=={'td:XX:0','td:XX:1','td:XX:2'}
 
 
 def test_train_remains_streamed_when_estimate_is_visible_but_report_point_is_not():

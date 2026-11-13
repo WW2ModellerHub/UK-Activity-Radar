@@ -2092,6 +2092,7 @@ async def websocket_updates(websocket: WebSocket):
     last_activity_signature = None
     last_activity_payload: dict[str, dict] = {}
     last_send_at = 0.0
+    streamed_train_ids: set[str] = set()
     try:
         while True:
             current_state_revision = state.revision
@@ -2143,6 +2144,7 @@ async def websocket_updates(websocket: WebSocket):
                 bus_limit=bus_limit,
                 include_vessels=include_vessels,
                 vessel_limit=vessel_limit,
+                train_priority_ids=streamed_train_ids | ({watched_id} if watched_id else set()),
             )
             if not all_types:
                 streamed_vehicles = [row for row in streamed_vehicles if row.type in visible_types]
@@ -2206,6 +2208,10 @@ async def websocket_updates(websocket: WebSocket):
             payload = {
                 **activity_transport,
                 "summary": summary_payload,
+                # Rail estimates are timed on the server clock. The browser
+                # uses this to correct for a fast/slow device clock, which
+                # otherwise makes every train start late, run ahead or jump.
+                "server_time_ms": int(time.time() * 1000),
                 "sources": [_source_payload(s) for s in state.sources()],
                 "stream": {
                     "train_min_zoom": settings.train_min_map_zoom,
@@ -2239,6 +2245,7 @@ async def websocket_updates(websocket: WebSocket):
             last_viewport_revision = current_viewport_revision
             last_activity_signature = activity_signature
             last_activity_payload = activity_payload
+            streamed_train_ids = {v.id for v in streamed_vehicles if v.type == "train"}
             last_send_at = now_monotonic
             await wait_for_refresh()
     except (WebSocketDisconnect, asyncio.CancelledError):
