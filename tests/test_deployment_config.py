@@ -249,7 +249,9 @@ def test_map_provider_configuration_cannot_pin_the_old_fallback_in_cache():
     assert '"Cache-Control": "no-store"' in map_route
     assert '"base_map_provider": "Mapbox" if settings.mapbox_public_token' in main
     assert "mapbox/streets-v12" in map_route
-    assert '"rail_tile_url"' in map_route
+    # The same base map is used with or without trains.
+    assert "light-v11" not in map_route
+    assert '"rail_tile_url": None' in map_route
 
 
 def test_optional_traffic_control_does_not_mislabel_the_basemap_as_tomtom():

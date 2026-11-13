@@ -1,5 +1,13 @@
 # Codex stabilization changelog
 
+## 2026-11-13 — one base map
+
+The map used Mapbox Light normally and switched to Mapbox Streets when trains
+were on, to make railways visible. Railways are now drawn by the app's own
+rail line layer, so Streets is used everywhere and the map no longer changes
+style when the train layer is toggled. `rail_tile_url` is kept as `null` for
+pages cached before the change.
+
 ## 2026-11-13 — calmer train map
 
 - **Markers:** 26 px coloured squares with a thin white edge and a white
