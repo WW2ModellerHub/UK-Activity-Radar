@@ -106,3 +106,73 @@ test('a train without proven track geometry stays at its confirmed report', asyn
   expect(result.lon).toBe(-1);
   expect(result.position_method).not.toBe('estimated');
 });
+
+test('a device clock that runs fast does not push trains ahead of the server estimate', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const deviceNow = Date.now();
+    const serverNow = deviceNow - 40000; // device is 40 seconds fast
+    engine.setServerTime(serverNow, deviceNow);
+    const train = {
+      id: 'train-clock', type: 'train', lat: 52, lon: -1, estimate_path: [[52, -1], [52, -0.9]],
+      estimate_started_at: new Date(serverNow - 50000).toISOString(),
+      estimate_due_at: new Date(serverNow + 50000).toISOString(),
+    };
+    return engine.present(train, deviceNow, false);
+  });
+  // Halfway along the leg on the server clock, not 90% of the way.
+  expect(result.lon).toBeCloseTo(-0.95, 3);
+});
+
+test('a train that loses its estimate glides to the confirmed report instead of teleporting', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const now = Date.now();
+    const moving = {
+      id: 'train-glide', type: 'train', lat: 52, lon: -1, estimate_path: [[52, -1], [52, -0.98]],
+      estimate_started_at: new Date(now - 50000).toISOString(),
+      estimate_due_at: new Date(now + 50000).toISOString(),
+    };
+    const before = engine.present(moving, now, false);
+    const confirmed = { id: 'train-glide', type: 'train', lat: 52, lon: -0.98, position_method: 'network_report' };
+    const start = engine.present(confirmed, now + 100, false);
+    const during = engine.present(confirmed, now + 500, false);
+    const settled = engine.present(confirmed, now + 5000, false);
+    return { before, start, during, settled };
+  });
+  expect(result.before.lon).toBeCloseTo(-0.99, 4);
+  expect(result.start.lon).toBeCloseTo(-0.99, 4);
+  expect(result.during.lon).toBeGreaterThan(-0.99);
+  expect(result.during.lon).toBeLessThan(-0.98);
+  expect(result.settled.lon).toBe(-0.98);
+  expect(result.settled.position_method).toBe('network_report');
+});
+
+test('a slightly late report holds the train instead of reversing it along the track', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const now = Date.now();
+    const path = [[52, -1], [52, -0.98]]; // ~1.4 km
+    const first = {
+      id: 'train-hold', type: 'train', lat: 52, lon: -1, estimate_path: path,
+      estimate_started_at: new Date(now - 60000).toISOString(),
+      estimate_due_at: new Date(now + 40000).toISOString(),
+    };
+    const shown = engine.present(first, now, false);
+    // A new leg says the train is only 40% along: hold rather than reverse.
+    const late = { ...first, estimate_started_at: new Date(now - 40000).toISOString(), estimate_due_at: new Date(now + 60000).toISOString() };
+    const held = engine.present(late, now + 500, false);
+    const stillHeld = engine.present(late, now + 15000, false);
+    const resumed = engine.present(late, now + 40000, false);
+    return { shown, held, stillHeld, resumed };
+  });
+  expect(result.held.lon).toBeCloseTo(result.shown.lon, 6);
+  expect(result.stillHeld.lon).toBeCloseTo(result.shown.lon, 6);
+  expect(result.resumed.lon).toBeGreaterThan(result.shown.lon);
+});

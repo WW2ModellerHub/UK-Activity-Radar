@@ -96,33 +96,98 @@
     return state;
   }
 
-  function trainPresentation(activity,now,reducedMotion){
+  // Server-minus-device clock offset. Rail estimate windows are stamped on
+  // the server clock; a device a few seconds fast or slow otherwise starts
+  // every train late, runs it ahead, then yanks it back on the next report.
+  let clockOffsetMs=0;
+  function setServerTime(serverMs,receivedAt=Date.now()){
+    const offset=Number(serverMs)-Number(receivedAt);
+    if(!Number.isFinite(offset)||Math.abs(offset)>6*3600000)return clockOffsetMs;
+    // Smooth network jitter; adopt large first corrections immediately.
+    clockOffsetMs=Math.abs(offset-clockOffsetMs)>5000?offset:clockOffsetMs*.8+offset*.2;
+    return clockOffsetMs;
+  }
+  function clockOffset(){return clockOffsetMs;}
+
+  // An off-path correction (e.g. a report arriving without a track leg) this
+  // short glides for under a second, which at map scale stays on the railway.
+  // Anything further is placed directly rather than slid across countryside.
+  const TRAIN_GLIDE_MAX_KM=1.5;
+  // Corrections along the railway itself never leave the track, so they may
+  // cover more ground before a direct placement is preferable.
+  const TRAIN_PATH_GLIDE_MAX_KM=30;
+  // A new report that puts the train slightly *behind* where it is drawn is
+  // normal timetable/reporting noise. Hold position until the estimate catches
+  // up instead of visibly reversing along the track.
+  const TRAIN_HOLD_MAX_KM=1.5;
+  // The drawn marker counts as "on" a new path within this distance.
+  const TRAIN_ON_PATH_KM=.35;
+
+  function trainTarget(activity,serverNow){
     const started=Date.parse(activity.estimate_started_at||''),due=Date.parse(activity.estimate_due_at||'');
     const path=usablePath(activity.estimate_path);
-    if(reducedMotion||path.length<2||!Number.isFinite(started)||!Number.isFinite(due)||due<=started||now<started)return activity;
-    const targetFraction=clamp((now-started)/(due-started));
-    const target=samplePath(path,targetFraction);
+    if(path.length>=2&&Number.isFinite(started)&&Number.isFinite(due)&&due>started&&serverNow>=started){
+      const fraction=clamp((serverNow-started)/(due-started));
+      const sample=samplePath(path,fraction);
+      if(sample)return {mode:'path',path,fraction,sample,
+        key:`path|${activity.estimate_started_at||''}|${activity.estimate_due_at||''}|${JSON.stringify(path)}`};
+    }
+    const lat=Number(activity.lat),lon=Number(activity.lon);
+    if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;
+    return {mode:'point',sample:{lat,lon,bearing:activity.bearing},key:`point|${lat.toFixed(6)}|${lon.toFixed(6)}`};
+  }
+
+  function beginTrainCorrection(state,target,now){
+    const from=state.displayed;
+    state.key=target.key;
+    delete state.fromFraction;delete state.holdFraction;delete state.from;
+    delete state.correctionStarted;delete state.correctionMs;
+    if(!from)return;
+    if(target.mode==='path'){
+      const projected=nearestPathFraction(target.path,from.lat,from.lon);
+      if(projected&&projected.distance<=TRAIN_ON_PATH_KM){
+        const along=Math.abs(projected.fraction-target.fraction)*target.sample.total;
+        if(projected.fraction>target.fraction&&along<=TRAIN_HOLD_MAX_KM){state.holdFraction=projected.fraction;return;}
+        if(along>TRAIN_PATH_GLIDE_MAX_KM)return;
+        state.fromFraction=projected.fraction;state.correctionStarted=now;state.correctionMs=correctionDuration(along);
+        return;
+      }
+    }
+    const gap=distanceKm(from.lat,from.lon,target.sample.lat,target.sample.lon);
+    if(gap<.001||gap>TRAIN_GLIDE_MAX_KM)return;
+    state.from={lat:from.lat,lon:from.lon,bearing:from.bearing};state.correctionStarted=now;state.correctionMs=correctionDuration(gap);
+  }
+
+  function trainPresentation(activity,now,reducedMotion){
+    if(reducedMotion)return activity;
+    const target=trainTarget(activity,now+clockOffsetMs);
     if(!target)return activity;
     const key=stateKey(activity);
-    const signature=`${activity.estimate_started_at||''}|${activity.estimate_due_at||''}|${JSON.stringify(path)}`;
     let state=motionStates.get(key);
     if(!state||state.kind!=='train'){
-      state=remember(key,{kind:'train',signature,displayed:target},now);
-    }else if(state.signature!==signature){
-      const projected=nearestPathFraction(path,state.displayed?.lat,state.displayed?.lon);
-      const fromFraction=projected?.fraction??targetFraction;
-      const from=samplePath(path,fromFraction)||target;
-      state={kind:'train',signature,displayed:from,fromFraction,correctionStarted:now,
-        correctionMs:correctionDuration(distanceKm(from.lat,from.lon,target.lat,target.lon))};
-      remember(key,state,now);
+      state={kind:'train',key:target.key};
+    }else if(state.key!==target.key){
+      beginTrainCorrection(state,target,now);
     }
-    let sample=target;
-    if(Number.isFinite(state.correctionStarted)){
-      const progress=clamp((now-state.correctionStarted)/state.correctionMs);
-      sample=samplePath(path,state.fromFraction+(targetFraction-state.fromFraction)*ease(progress))||target;
-      if(progress>=1){delete state.correctionStarted;delete state.correctionMs;delete state.fromFraction;}
+    let sample=target.sample;
+    if(target.mode==='path'&&Number.isFinite(state.holdFraction)){
+      if(target.fraction>=state.holdFraction)delete state.holdFraction;
+      else sample=samplePath(target.path,state.holdFraction)||sample;
+    }else if(Number.isFinite(state.correctionStarted)){
+      const progress=clamp((now-state.correctionStarted)/state.correctionMs),amount=ease(progress);
+      if(target.mode==='path'&&Number.isFinite(state.fromFraction)){
+        sample=samplePath(target.path,state.fromFraction+(target.fraction-state.fromFraction)*amount)||sample;
+      }else if(state.from){
+        sample={...sample,lat:state.from.lat+(sample.lat-state.from.lat)*amount,lon:state.from.lon+(sample.lon-state.from.lon)*amount,
+          bearing:Number.isFinite(Number(state.from.bearing))?state.from.bearing:sample.bearing};
+      }
+      if(progress>=1){delete state.correctionStarted;delete state.correctionMs;delete state.fromFraction;delete state.from;}
     }
-    state.displayed=sample;remember(key,state,now);
+    state.displayed={lat:sample.lat,lon:sample.lon,bearing:sample.bearing};remember(key,state,now);
+    if(target.mode!=='path'){
+      if(!Number.isFinite(state.correctionStarted))return activity;
+      return {...activity,lat:sample.lat,lon:sample.lon};
+    }
     return {...activity,lat:sample.lat,lon:sample.lon,bearing:sample.bearing,
       position_method:'estimated',position_label:`Estimated along the published railway path between confirmed reports • ${activity.position_label||''}`};
   }
@@ -130,7 +195,7 @@
   function aircraftPresentation(activity,now,reducedMotion){
     if(reducedMotion)return activity;
     const updated=Date.parse(activity.last_updated||''),speed=Number(activity.speed),bearing=Number(activity.bearing);
-    const rawAge=(now-updated)/1000;
+    const rawAge=(now+clockOffsetMs-updated)/1000;
     if(!Number.isFinite(updated)||!Number.isFinite(speed)||!Number.isFinite(bearing)||rawAge<=0||speed<5||speed>800)return activity;
     // Freeze at the end of the safe dead-reckoning window. The previous code
     // jumped back to the old ADS-B coordinate as soon as 22 seconds elapsed.
@@ -164,7 +229,7 @@
     return activity;
   }
 
-  function reset(){motionStates.clear();lastPrune=0;}
+  function reset(){motionStates.clear();lastPrune=0;clockOffsetMs=0;}
 
-  root.UKActivityMotionEngine={distanceKm,samplePath,nearestPathFraction,projectPosition,present,reset};
+  root.UKActivityMotionEngine={distanceKm,samplePath,nearestPathFraction,projectPosition,present,reset,setServerTime,clockOffset};
 })(window);

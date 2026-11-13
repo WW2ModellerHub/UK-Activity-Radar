@@ -1728,7 +1728,8 @@
   function trainEstimateFraction(a, now=Date.now()) {
     const started=Date.parse(a?.estimate_started_at||''),due=Date.parse(a?.estimate_due_at||'');
     if(!Number.isFinite(started)||!Number.isFinite(due)||due<=started)return 0;
-    return Math.max(0,Math.min(1,(now-started)/(due-started)));
+    const serverNow=now+(Number(window.UKActivityMotionEngine?.clockOffset?.())||0);
+    return Math.max(0,Math.min(1,(serverNow-started)/(due-started)));
   }
 
   function projectPosition(lat,lon,bearing,distance) {
@@ -3943,7 +3944,13 @@
     socket = new WebSocket(`${scheme}://${location.host}/ws`);
     socket.onopen = () => { clearTimeout(reconnectTimer); reconnectTimer=null; sendViewport(); sendWatching(selectedId); };
     socket.onmessage = (event) => {
-      try { queueSocketPayload(JSON.parse(event.data)); }
+      try {
+        const payload=JSON.parse(event.data);
+        // Align rail/aircraft estimates with the server clock at receipt time,
+        // before the payload waits for the next animation frame.
+        if(payload?.server_time_ms!=null)window.UKActivityMotionEngine?.setServerTime?.(payload.server_time_ms,Date.now());
+        queueSocketPayload(payload);
+      }
       catch { $('mode-pill').textContent = 'LIVE DATA ERROR'; }
     };
     socket.onclose = () => {

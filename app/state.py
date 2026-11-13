@@ -128,15 +128,51 @@ class LiveState:
             previous=self._vehicles.get(vehicle.id)
             if previous is not None and stored.type == 'train' and stored.last_updated < previous.last_updated:
                 return
+            if stored.type == 'train' and stored.train_uid:
+                # One railway service must keep one map identity. TD and TRUST
+                # can briefly create separate records before the timetable
+                # match is known; once both carry the same UID/service date the
+                # visible marker used to flip between ids on every report,
+                # which the browser saw as a remove + add (a "blinking" train).
+                incumbent = self._duplicate_service_unlocked(stored)
+                if incumbent is not None:
+                    self._drop_vehicle_unlocked(stored.id)
+                    if stored.last_updated < incumbent.last_updated:
+                        # The incumbent already holds a newer report for this
+                        # service; the late duplicate adds nothing visible.
+                        self._touch_unlocked()
+                        return
+                    stored.id = incumbent.id
+                    previous = incumbent
             if previous is not None and previous.type=='train' and previous.train_uid:
                 old_uid=str(previous.train_uid).strip()
-                self._train_uid_index.get(old_uid, set()).discard(vehicle.id)
+                self._train_uid_index.get(old_uid, set()).discard(stored.id)
                 if not self._train_uid_index.get(old_uid):
                     self._train_uid_index.pop(old_uid, None)
-            self._vehicles[vehicle.id] = stored
+            self._vehicles[stored.id] = stored
             if stored.type=='train' and stored.train_uid:
                 self._train_uid_index.setdefault(str(stored.train_uid).strip(), set()).add(stored.id)
             self._touch_unlocked()
+
+    def _duplicate_service_unlocked(self, stored: Vehicle) -> Vehicle | None:
+        uid = str(stored.train_uid or '').strip()
+        for key in sorted(self._train_uid_index.get(uid, set())):
+            other = self._vehicles.get(key)
+            if (
+                other is None or key == stored.id or other.type != 'train'
+                or not stored.service_date or other.service_date != stored.service_date
+            ):
+                continue
+            return other
+        return None
+
+    def _drop_vehicle_unlocked(self, vehicle_id: str) -> None:
+        removed = self._vehicles.pop(vehicle_id, None)
+        if removed is not None and removed.type == 'train' and removed.train_uid:
+            uid = str(removed.train_uid).strip()
+            self._train_uid_index.get(uid, set()).discard(vehicle_id)
+            if not self._train_uid_index.get(uid):
+                self._train_uid_index.pop(uid, None)
 
     def upsert_event(self, event: Event) -> None:
         stored = apply_cool_classification(deepcopy(event))
@@ -233,6 +269,7 @@ class LiveState:
         bus_limit: int | None = None,
         include_vessels: bool = True,
         vessel_limit: int | None = None,
+        train_priority_ids: set[str] | frozenset[str] | None = None,
     ) -> list[Vehicle]:
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(minutes=max_age_minutes)
@@ -287,7 +324,14 @@ class LiveState:
             # Apply high-volume limits before copying/classifying records.  The
             # old order deep-copied every visible bus and only then discarded
             # most of them, which made each browser update needlessly costly.
-            train_refs.sort(key=lambda x: x.last_updated, reverse=True)
+            # When more trains are eligible than the stream cap, ordering by
+            # report time alone reshuffles the selection on every TD step: a
+            # train that has not reported for a few seconds falls below the
+            # cut, is removed from the browser, then returns on its next step.
+            # Trains already on this viewer's map (and the one being watched)
+            # keep their place while they remain eligible.
+            priority = train_priority_ids or ()
+            train_refs.sort(key=lambda x: (x.id in priority, x.last_updated), reverse=True)
             bus_refs.sort(key=lambda x: x.last_updated, reverse=True)
             vessel_refs.sort(key=lambda x: x.last_updated, reverse=True)
             if train_limit is not None:

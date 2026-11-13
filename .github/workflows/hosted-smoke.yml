@@ -11,7 +11,9 @@ permissions:
 jobs:
   hosted-smoke:
     if: ${{ vars.RADAR_BASE_URL != '' }}
-    runs-on: ubuntu-latest
+    # Pinned with CI's browser job: Playwright 1.55.1 cannot install
+    # Chromium on the Ubuntu 26.04 image behind ubuntu-latest.
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     env:
       RADAR_BASE_URL: ${{ vars.RADAR_BASE_URL }}

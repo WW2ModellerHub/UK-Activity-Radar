@@ -1,5 +1,47 @@
 # Codex stabilization changelog
 
+## 2026-11-13 — trains no longer blink off the map or jump between reports
+
+Root causes found and fixed:
+
+- **Stream cap churn** (`app/state.py` `LiveState.all`, `app/main.py`
+  `/ws`): when more trains were eligible than the zoom-dependent cap
+  (800 below zoom 9, 1400 below zoom 10), selection was purely "most recent
+  report first". Every TD berth step reshuffled the cut, so trains were
+  removed from the browser and re-added moments later. Trains already on a
+  viewer's map, plus the watched train, now keep their place while eligible.
+- **Identity flip-flop** (`LiveState.upsert`): TD and TRUST could hold two
+  records for the same dated service (UID + service date). The visible one
+  alternated with whichever reported last, which the browser saw as a remove
+  plus an add. A second record for a dated service is now folded into the
+  first identity seen, carrying the newest report. A late (older) duplicate
+  is discarded. `test_duplicate_sources_collapse_only_within_the_same_dated_service`
+  was updated: it pinned the old "newest id wins" behaviour.
+- **Device clock skew** (`motion-engine.js`, `app.js`): estimate windows are
+  stamped on the server clock but were evaluated against `Date.now()`, so a
+  fast or slow device ran trains ahead or behind, then yanked them back on the
+  next report. Each websocket payload now carries `server_time_ms` and the
+  motion engine applies a smoothed offset (route progress bar too).
+- **Teleports when an estimate ends** (`motion-engine.js`
+  `trainPresentation`): a report without a track leg made the marker jump
+  straight from its animated position to the report point, and the motion
+  state went stale. Short (≤1.5 km) off-path corrections now ease into place
+  in under ~1.2 s; larger gaps are still placed directly so trains are never
+  slid across countryside.
+- **Backward jitter**: a new leg that puts the train slightly behind its drawn
+  position (≤1.5 km along the track, ordinary reporting noise) now holds the
+  marker until the estimate catches up instead of reversing it. Along-track
+  corrections up to 30 km still ease along the railway.
+
+Tests: `tests/test_live_state_fast_paths.py` (3 new),
+`tests/test_websocket_train_stream.py` (new, websocket-level cap stability
+and server clock), `e2e/motion-engine.spec.js` (3 new: clock skew, glide,
+hold). Asset versions bumped (`app.js`/`motion-engine.js` v15161, shell r62).
+
+Known, pre-existing: `e2e/radar.spec.js` tests "trains sharing one station
+coordinate…" and "live stream deltas…" are timing-flaky under parallel load
+on the unchanged baseline as well; they pass when run alone.
+
 ## 2026-11-12 — resilient train continuity during short feed outages
 
 - Keep a timetable-matched train visible for up to 90 minutes when its last
