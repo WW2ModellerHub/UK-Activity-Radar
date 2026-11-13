@@ -69,6 +69,7 @@ from .train_reference import UKTrainReference
 from .schedule_store import ScheduleStore, sync_schedule_data
 from .request_budget import FixedWindowBudget
 from .rail_snapshot import RailPositionSnapshot
+from .rail_lines import RailLineLayer
 from .open_trip_planner import OpenTripPlannerClient
 from .tomtom_routing import TomTomRoutingClient
 from .billing import (
@@ -141,6 +142,7 @@ billing_store: BillingStore | None = None
 billing_service: StripeBillingService | None = None
 commute_alert_store: CommuteAlertStore | None = None
 rail_position_snapshot = RailPositionSnapshot(RAIL_POSITION_SNAPSHOT)
+rail_line_layer = RailLineLayer(Path(__file__).parent / "assets" / "rail_track_geometry.geojson")
 world_collectors: list = []
 media_lookup = WikimediaLookup(settings.wikimedia_api_url, enabled=settings.wikimedia_enabled)
 activity_search = ActivitySearch(state, settings.nominatim_url, enabled=settings.nominatim_enabled, tomtom_api_key=settings.tomtom_traffic_api_key, tomtom_base_url=settings.tomtom_traffic_base_url)
@@ -1774,6 +1776,27 @@ def rail_schedule(request: Request, train_uid: str, headcode: str | None = None,
     if smart_places is None:
         raise HTTPException(status_code=503, detail="Rail intelligence is not ready")
     return {"train_uid": train_uid, "detail": smart_places.scheduled_train_detail(train_uid, headcode, service_date)}
+
+
+_RAIL_LINE_CACHE = "public, max-age=86400, stale-while-revalidate=604800"
+
+
+@app.get("/api/rail/lines/national")
+def rail_lines_national(request: Request):
+    """Simplified railway network for national zooms (drawn when trains are on)."""
+    _enforce_public_budget(request, tile_request_budget)
+    return JSONResponse(rail_line_layer.national(), headers={"Cache-Control": _RAIL_LINE_CACHE})
+
+
+@app.get("/api/rail/lines/{level}/{cx}/{cy}")
+def rail_lines_cell(request: Request, level: int, cx: int, cy: int):
+    """Detailed railway lines for one half-degree map cell."""
+    _enforce_public_budget(request, tile_request_budget)
+    try:
+        payload = rail_line_layer.cell(level, cx, cy)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(payload, headers={"Cache-Control": _RAIL_LINE_CACHE})
 
 
 @app.get("/api/rail/locate")

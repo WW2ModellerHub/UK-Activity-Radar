@@ -1,5 +1,30 @@
 # Codex stabilization changelog
 
+## 2026-11-13 — railway network on the map, one icon set
+
+- **Railway lines.** With trains on, the national railway network is drawn
+  as navy lines with a white outline, above the base map and below train
+  routes and markers. It uses the bundled Network Rail track geometry that
+  already routes live trains (`app/rail_lines.py`), simplified to three
+  levels:
+  - nationally, one ~140 KB response (`/api/rail/lines/national`);
+  - zoomed in, half-degree cells (`/api/rail/lines/{level}/{cx}/{cy}`),
+    cacheable for a day.
+
+  Outlines and lines are drawn on separate canvases so junctions join
+  cleanly. The layer is removed when trains are turned off.
+- **Icons.** Emoji and typographic symbols are replaced by one line-icon set
+  (`ICON_PATHS` in `app.js`): map markers (white icon on a coloured square),
+  tooltips, lists, search results, Discover badges and markers, Field Guide,
+  interests, feed status, journey planner and the panel buttons. Discover
+  icons follow the server's category (rail / air / sea / rescue). Emoji
+  inside sentences (toasts, the camera title, the bus zoom note, "Why this is
+  cool") are removed.
+
+Tests: `tests/test_rail_lines.py` and a browser test for the rail layer.
+Browser locators that found markers by emoji now use the marker type class.
+Python 351 passed; browser 74 passed.
+
 ## 2026-11-13 — cleaner detail panel
 
 The train panel now follows the agreed design. Order: title and route,

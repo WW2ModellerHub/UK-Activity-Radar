@@ -424,9 +424,9 @@ details[open] > summary::after { transform: rotate(180deg); }
 }
 .cool-badge b { font-weight: 400; font-size: 12px; }
 .cool-badge em { font-style: normal; }
-.cool-badge.cool-rail { background: #f4e6f3; color: #6e2c6b; }
+.cool-badge.cool-rail, .cool-badge.cool-steam { background: #f4e6f3; color: #6e2c6b; }
 .cool-badge.cool-air { background: #e3eefa; color: #1f5fa8; }
-.cool-badge.cool-rescue, .cool-badge.cool-sea { background: #fbebdd; color: #8f4310; }
+.cool-badge.cool-rescue, .cool-badge.cool-sea, .cool-badge.cool-naval { background: #fbebdd; color: #8f4310; }
 .discovery-new-tag, .interest-match { font-style: normal; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
 .cool-map-controls { display: grid; gap: 10px; }
 .cool-map-switch { min-height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
@@ -829,3 +829,26 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
   .plan-cards { grid-template-columns: 1fr; }
   dialog { max-height: calc(100dvh - 24px); }
 }
+
+/* ---------- Icons ---------- */
+.ico { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.marker-bubble { color: #fff; }
+.marker-bubble > span { display: grid; place-items: center; }
+.marker-bubble .ico { width: 16px; height: 16px; }
+.cool-map-marker > span { display: grid; place-items: center; }
+.cool-map-marker .ico { width: 15px; height: 15px; }
+.camera-map-marker { display: grid; place-items: center; color: #fff; }
+.camera-map-marker .ico { width: 14px; height: 14px; }
+.journey-issue-icon span { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--road); color: #fff; }
+.journey-issue-icon .ico { width: 16px; height: 16px; }
+.cool-badge b { display: inline-grid; place-items: center; }
+.cool-badge .ico { width: 13px; height: 13px; }
+.tooltip-top strong .ico { width: 15px; height: 15px; vertical-align: -2px; margin-right: 4px; }
+.feed-icon { display: grid; place-items: center; color: var(--muted); }
+.feed-icon .ico, .interest-chips .ico, .my-radar-interests .ico { width: 15px; height: 15px; }
+.search-result-icon .ico, .field-guide-icon .ico, .cool-filter-icon .ico { width: 17px; height: 17px; }
+.journey-leg-icon .ico { width: 16px; height: 16px; }
+.ticker-item .ico { width: 15px; height: 15px; vertical-align: -3px; margin-right: 4px; color: var(--muted); }
+.cool-filter-icon.air, .field-guide-icon.air { color: #1f5fa8; }
+.cool-filter-icon.rail, .field-guide-icon.rail { color: #6e2c6b; }
+.cool-filter-icon.rescue, .field-guide-icon.rescue, .field-guide-icon.sea { color: #8f4310; }
