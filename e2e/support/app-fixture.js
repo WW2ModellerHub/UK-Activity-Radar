@@ -141,9 +141,8 @@ async function installAppFixture(page) {
       if (pathname === '/static/live-object-renderer.js') return route.fulfill({ contentType: 'text/javascript', body: 'export class LiveObjectRenderer {}' });
       if (pathname === '/static/share.js') return route.fulfill({ contentType: 'text/javascript', body: read('app/static/share.js') });
       if (pathname === '/static/share.css') return route.fulfill({ contentType: 'text/css', body: read('app/static/share.css') });
-      if (pathname === '/static/styles.css') return route.fulfill({ contentType: 'text/css', body: read('app/static/styles.css') });
-      if (pathname === '/static/refinements.css') return route.fulfill({ contentType: 'text/css', body: read('app/static/refinements.css') });
-      if (pathname === '/static/movement-history.css') return route.fulfill({ contentType: 'text/css', body: read('app/static/movement-history.css') });
+      if (pathname === '/static/app.css') return route.fulfill({ contentType: 'text/css', body: read('app/static/app.css') });
+      if (pathname === '/static/map-markers.css') return route.fulfill({ contentType: 'text/css', body: read('app/static/map-markers.css') });
       if (pathname === '/static/service-worker.js') return route.fulfill({ contentType: 'text/javascript', body: 'self.addEventListener("fetch",()=>{});' });
       if (pathname === '/static/manifest.webmanifest') return route.fulfill({ contentType: 'application/manifest+json', body: '{}' });
       if (pathname.startsWith('/static/icon-')) return route.fulfill({ contentType: 'image/png', body: Buffer.alloc(0) });

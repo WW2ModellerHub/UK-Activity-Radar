@@ -9,7 +9,7 @@
   let deviceLocationMarker = null;
   // The navigation drawer owns the left edge of the map on every breakpoint.
   // Keep Leaflet's controls on the opposite edge so they can never sit over it.
-  map.zoomControl?.setPosition?.('topright');
+  map.zoomControl?.setPosition?.('bottomright');
 
   const tileSets = {standard:null,rail:null};
   let currentBase = null;
@@ -565,6 +565,9 @@
   }
 
   function updateLayerToggleUi() {
+    document.querySelectorAll('[data-layer-chip]').forEach(chip => {
+      chip.setAttribute('aria-pressed', String(enabledActivityTypes.has(chip.dataset.layerChip)));
+    });
     document.querySelectorAll('[data-layer-toggle]').forEach(button => {
       const visible = enabledActivityTypes.has(button.dataset.layerToggle);
       button.classList.toggle('active', visible);
@@ -1975,6 +1978,18 @@
     $('stat-tracking').textContent = fmt(tracking);
     $('stat-moving').textContent = fmt(moving);
     $('stat-interesting').textContent = fmt(interesting);
+    renderNearbyBar(shown);
+  }
+
+  function renderNearbyBar(shown=filteredActivities()) {
+    const target=$('nearby-bar-text');
+    if(!target)return;
+    if(currentWorkspace==='useful'&&!enabledActivityTypes.size){target.textContent='Choose what to show on the map';return;}
+    const bounds=map.getBounds?.();
+    const inView=bounds?shown.filter(a=>Number.isFinite(Number(a.lat))&&Number.isFinite(Number(a.lon))&&bounds.contains([Number(a.lat),Number(a.lon)])):shown;
+    const labels=[['train','train','trains'],['bus','bus','buses'],['aircraft','aircraft','aircraft'],['sar','rescue flight','rescue flights'],['road','roadwork','roadworks'],['incident','incident','incidents'],['weather','warning','warnings'],['flood','flood warning','flood warnings']];
+    const parts=labels.map(([type,one,many])=>{const n=inView.filter(a=>a.type===type).length;return n?`${fmt(n)} ${n===1?one:many}`:null;}).filter(Boolean);
+    target.textContent=parts.length?parts.slice(0,3).join(' · '):'Nothing live in this view yet';
   }
 
   function renderStreamZoomNote() {
@@ -2559,11 +2574,24 @@
     const box=$('detail-intelligence');
     if(!box)return;
     const requestId=++intelligenceRequest;
+    let keepRefreshing=true;
     if(!force){box.classList.remove('hidden');box.innerHTML=`<small>${a.type==='train'?'LIVE TRAIN JOURNEY':'LIVE BUS JOURNEY'}</small><p class="coverage-loading">Loading route…</p>`;}
     try {
       const response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/${a.type==='train'?'rail':'bus'}`,{cache:'no-store',signal:controller.signal});
       const payload=await response.json().catch(()=>({}));
       if(requestId!==intelligenceRequest || selectedId!==a.id)return;
+      if(response.status===404&&a.type==='train'){
+        // The server no longer holds this id: the service was merged into
+        // another live identity, or a restored "last known" train expired.
+        // Re-link to the same service if it is still running; otherwise stop
+        // asking every 10 seconds for a train that cannot come back.
+        keepRefreshing=false;
+        const relinked=await relinkSelectedTrain(a);
+        if(requestId!==intelligenceRequest || selectedId!==a.id)return;
+        if(relinked)return;
+        box.innerHTML=`<small>LIVE TRAIN JOURNEY</small><div class="transport-unavailable"><strong>No longer reporting</strong><span>This train has no current live railway position. It may have finished its journey.</span></div>`;
+        return;
+      }
       if(response.status===402){
         box.innerHTML=`<small>${a.type==='train'?'LIVE TRAIN JOURNEY':'LIVE BUS JOURNEY'}</small><div class="transport-unavailable radar-plus-locked"><strong>Available with Radar+</strong><span>Upgrade to unlock this advanced live transport detail.</span></div>`;
         return;
@@ -2579,9 +2607,27 @@
     } finally {
       if(requestId===intelligenceRequest){
         intelligenceController=null;
-        if(selectedId===a.id)intelligenceRefreshTimer=setTimeout(()=>{const current=activityById(a.id);if(current)loadActivityIntelligence(current,true);},a.type==='train'?10000:20000);
+        if(keepRefreshing&&selectedId===a.id)intelligenceRefreshTimer=setTimeout(()=>{const current=activityById(a.id);if(current)loadActivityIntelligence(current,true);},a.type==='train'?10000:20000);
       }
     }
+  }
+
+  async function relinkSelectedTrain(a) {
+    const uid=String(a?.train_uid||'').trim();
+    if(!uid)return false;
+    try{
+      const params=new URLSearchParams({train_uid:uid});
+      if(a.service_date)params.set('service_date',a.service_date);
+      const response=await fetch(`/api/rail/locate?${params}`,{cache:'no-store',signal:AbortSignal.timeout(10000)});
+      const payload=await response.json().catch(()=>({}));
+      const found=payload?.activity;
+      if(!response.ok||!found?.id||found.id===a.id||selectedId!==a.id)return false;
+      if(String(found.train_uid||'').trim()!==uid)return false;
+      if(a.service_date&&found.service_date&&found.service_date!==a.service_date)return false;
+      globalCoolById.set(found.id,found);
+      selectActivity(found.id,false);
+      return true;
+    }catch{return false;}
   }
 
   function selectActivity(id, pan, focusZoom=null) {
@@ -2606,7 +2652,7 @@
     $('detail-panel')?.classList.add('has-selection');
     $('detail-sidebar')?.classList.remove('is-empty');
     sendWatching(id);
-    if (pan) trackProduct('activity_selected', a.type);
+    if (pan) { trackProduct('activity_selected', a.type); collapseWorkspaceOnPhone(); }
     const detailCool=coolInfo(a);
     const titleIcon=String(a.category||'').toLowerCase()==='live motorway sign'?'▣':(icons[a.type] || '•');
     $('detail-title').innerHTML = `${currentWorkspace==='cool' && detailCool.score>=45 ? coolBadgeHtml(a,true)+' ' : ''}${titleIcon} ${esc(a.name)}`;
@@ -2802,8 +2848,18 @@
     setTimeout(()=>map.invalidateSize(),190);
   }
 
+  function isPhoneLayout() {
+    return window.matchMedia('(max-width: 760px)').matches;
+  }
+
   function collapseWorkspaceOnPhone() {
-    if(window.matchMedia('(max-width: 560px)').matches)setWorkspaceCollapsed(true);
+    if(isPhoneLayout())setWorkspaceCollapsed(true);
+  }
+
+  function openMapPanel(focusSelector) {
+    activateWorkspace('useful',false);
+    const target=focusSelector?document.querySelector(focusSelector):null;
+    if(target)requestAnimationFrame(()=>target.scrollIntoView({block:'start'}));
   }
 
   function renderNearbyOverlay() {
@@ -4269,7 +4325,27 @@
   $('commute-alert-enable')?.addEventListener('click',enableCommuteAlerts);
   $('commute-alert-disable')?.addEventListener('click',disableCommuteAlerts);
 
-  document.querySelectorAll('.workspace-tab[data-workspace]').forEach(btn=>btn.addEventListener('click',()=>activateWorkspace(btn.dataset.workspace,true)));
+  document.querySelectorAll('.workspace-tab[data-workspace]').forEach(btn=>btn.addEventListener('click',()=>{
+    // On a phone a tab is a new screen: put the detail sheet away. A train
+    // keeps its route on the map as the compact route bar.
+    if(isPhoneLayout()&&!$('detail-sidebar')?.classList.contains('is-empty')){
+      if(selectedTrainActivity())setDetailRouteView(true);
+      else closeDetailSelection();
+    }
+    activateWorkspace(btn.dataset.workspace,true);
+    if(btn.dataset.workspace==='useful')collapseWorkspaceOnPhone();
+  }));
+  document.querySelectorAll('[data-layer-chip]').forEach(chip=>chip.addEventListener('click',()=>{
+    document.querySelector(`.layer-toggle[data-layer-toggle="${chip.dataset.layerChip}"]`)?.click();
+  }));
+  $('nearby-bar')?.addEventListener('click',()=>openMapPanel());
+  $('map-layers-open')?.addEventListener('click',()=>openMapPanel('.useful-layer-switches'));
+  const modePill=$('mode-pill');
+  const syncLiveState=()=>{
+    const text=String(modePill?.textContent||'').toUpperCase();
+    document.body.dataset.liveState=/LIVE|FIXTURE|DEMO/.test(text)&&!/ERROR/.test(text)?'live':/RECONNECT|ERROR|OFFLINE|DOWN/.test(text)?'down':'starting';
+  };
+  if(modePill){new MutationObserver(syncLiveState).observe(modePill,{childList:true,characterData:true,subtree:true});syncLiveState();}
   $('workspace-collapse')?.addEventListener('click',()=>setWorkspaceCollapsed(!$('workspace-shell')?.classList.contains('collapsed')));
   const setFocusMode=(active)=>{
     const layout=document.querySelector('.v12-layout'),button=$('focus-map');
@@ -4289,6 +4365,7 @@
   renderDiscoveryExperience();
   // A predictable clean launch is more useful than restoring a crowded map.
   activateWorkspace('useful', false);
+  collapseWorkspaceOnPhone();
   updateLayerToggleUi();
 
   $('radar-plus')?.addEventListener('click',openPlusDialog);

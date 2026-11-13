@@ -1,6 +1,18 @@
 const { test, expect } = require('@playwright/test');
 const { installAppFixture } = require('./support/app-fixture');
 
+// Map moves and layer changes send a debounced (120 ms) viewport request, and
+// the fixture socket answers each one with its standard snapshot. A test that
+// injects its own snapshot must wait for those answers first, or a late one
+// overwrites the injected data on slower machines.
+async function waitForViewportRequestsToSettle(page) {
+  await expect.poll(async () => {
+    const before = await page.evaluate(() => window.__fixtureSocketMessages.length);
+    await page.waitForTimeout(300);
+    return before === await page.evaluate(() => window.__fixtureSocketMessages.length);
+  }).toBe(true);
+}
+
 test.beforeEach(async ({ page }) => {
   await installAppFixture(page);
   await page.goto('/');
@@ -164,6 +176,7 @@ test('live stream deltas update vehicles and hold transient train omissions with
   await page.locator('[data-layer-toggle="train"]').click();
   await page.locator('[data-layer-toggle="bus"]').click();
   await expect(page.locator('.marker-bubble')).toHaveCount(3);
+  await waitForViewportRequestsToSettle(page);
   const movesBefore = await page.evaluate(() => window.__leafletStats.markerMoves);
   await page.evaluate(() => {
     const bus = window.__fixtureSnapshot.activities.find(row => row.id === 'bus-live-7');
@@ -199,6 +212,7 @@ test('trains sharing one station coordinate remain separately rendered', async (
   await expect(page.locator('#map')).toHaveAttribute('data-map-zoom','10');
   const trainToggle=page.locator('[data-layer-toggle="train"]');
   if(await trainToggle.getAttribute('aria-pressed')!=='true')await trainToggle.click();
+  await waitForViewportRequestsToSettle(page);
   await page.evaluate(() => {
     const first=window.__fixtureSnapshot.activities.find(row=>row.id==='train-live-1');
     const second={...first,id:'train-live-same-station',name:'1C17 St Pancras',headcode:'1C17',train_uid:'C1C17'};
@@ -829,6 +843,36 @@ test('activity marker hover shows facts and click opens and closes detail', asyn
   await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
 });
 
+test('a selected train that the server no longer holds stops polling and says so', async ({ page }) => {
+  const railRequests = [];
+  await page.route('**/api/activity/train-live-1/rail', route => {
+    railRequests.push(Date.now());
+    return route.fulfill({ status: 404, json: { detail: 'Train activity not found' } });
+  });
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-intelligence')).toContainText('No longer reporting');
+  const settled = railRequests.length;
+  // The old code re-requested every 10 seconds, indefinitely.
+  await page.waitForTimeout(11500);
+  expect(railRequests.length).toBe(settled);
+});
+
+test('a selected train merged into another live identity is re-linked to it', async ({ page }) => {
+  await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ status: 404, json: { detail: 'Train activity not found' } }));
+  await page.route('**/api/rail/locate?**', route => {
+    const url = new URL(route.request().url());
+    expect(url.searchParams.get('train_uid')).toBe('C12345');
+    return page.evaluate(() => window.__fixtureSnapshot.activities.find(row => row.id === 'train-live-1'))
+      .then(train => route.fulfill({ json: { live: true, activity: { ...train, id: 'td:XX:1A23', name: '1A23 relinked' } } }));
+  });
+  await page.route('**/api/activity/td%3AXX%3A1A23/rail', route => route.fulfill({ json: { activity: 'td:XX:1A23', detail: { available: true, source: 'Live railway and timetable data', runs: [{ headcode: '1A23', origin: 'Milton Keynes Central', destination: 'London Euston', status: 'On time', next_location: 'Watford Junction', calling_points: [{ station: 'Watford Junction', expected: '2026-10-05T10:34:00Z', status: 'Expected' }] }] } } }));
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-title')).toContainText('1A23 relinked');
+  await expect(page.locator('#detail-intelligence')).toContainText('Watford Junction');
+});
+
 test('clicked trains and buses load source-backed route intelligence', async ({ page }) => {
   await page.locator('[data-layer-toggle="train"]').click();
   await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
@@ -945,9 +989,13 @@ test('mobile viewport keeps core navigation, map, and details usable', async ({ 
   expect(box.x + box.width).toBeLessThanOrEqual(390);
   expect(box.height).toBeLessThan(500);
   expect(await page.locator('.transport-run-card').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-  const mobileRail = await page.locator('#workspace-shell').boundingBox();
-  expect(mobileRail.width).toBeLessThanOrEqual(52);
-  expect(box.x).toBeGreaterThanOrEqual(60);
+  // Flat mobile layout: details are a full-width bottom sheet that leaves
+  // the upper map visible, and navigation is a bottom tab bar.
+  expect(box.width).toBe(390);
+  expect(box.y).toBeGreaterThanOrEqual(300);
+  const tabBar = await page.locator('.workspace-rail').boundingBox();
+  expect(tabBar.height).toBeLessThanOrEqual(72);
+  expect(tabBar.y + tabBar.height).toBeGreaterThanOrEqual(840);
   const mapBox = await page.locator('#map').boundingBox();
   expect(mapBox.y + mapBox.height).toBeGreaterThan(820);
   await page.locator('#detail-close').click();
@@ -989,6 +1037,39 @@ test('tapping bare map on mobile minimizes train details but keeps its route vis
   await page.locator('#detail-route-close').click();
   await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
   await expect(page.locator('.train-published-route-guide')).toHaveCount(0);
+});
+
+test('map chips switch layers in step with the panel switches', async ({ page }) => {
+  const chip = page.locator('[data-layer-chip="train"]');
+  await expect(chip).toHaveAttribute('aria-pressed', 'false');
+  await chip.click();
+  await expect(chip).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-layer-toggle="train"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.marker-wrap-train').first()).toBeAttached();
+  await page.locator('[data-layer-toggle="train"]').click();
+  await expect(chip).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('mobile nearby bar summarises the map and opens the Map panel', async ({ page }) => {
+  await page.setViewportSize({ width:390, height:844 });
+  await page.locator('[data-workspace="useful"]').click();
+  await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
+  await expect(page.locator('#nearby-bar')).toContainText('Choose what to show');
+  await page.locator('[data-layer-chip="train"]').click();
+  await expect(page.locator('#nearby-bar-text')).toContainText(/train/);
+  await page.locator('#nearby-bar').click();
+  await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
+  await expect(page.locator('#near-me')).toBeVisible();
+});
+
+test('mobile tabs put an open detail sheet away', async ({ page }) => {
+  await page.setViewportSize({ width:390, height:844 });
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
+  await page.locator('#near-me').click();
+  await expect(page.locator('#detail-sidebar')).not.toHaveClass(/is-empty/);
+  await page.locator('[data-workspace="settings"]').click();
+  await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
+  await expect(page.locator('[data-workspace-panel="settings"]')).toBeVisible();
 });
 
 test('double tapping the mobile map zooms towards the tapped point', async ({ page }) => {
@@ -1034,11 +1115,11 @@ test('mobile nearby aircraft leaves the map visible and uses a compact toast', a
   const toast=await page.locator('#watch-toast').boundingBox();
   expect(toast.width).toBeLessThanOrEqual(370);
   expect(toast.height).toBeLessThan(90);
-  await expect.poll(async()=>Number((await page.locator('#workspace-shell').boundingBox()).width)).toBeLessThan(80);
+  // Collapsed on a phone means only the bottom tab bar remains over the map.
+  await expect.poll(async()=>Number((await page.locator('#workspace-shell').boundingBox()).height)).toBeLessThanOrEqual(72);
   const shell=await page.locator('#workspace-shell').boundingBox();
-  expect(shell.x).toBeLessThanOrEqual(12);
-  expect(shell.height).toBeGreaterThan(150);
+  expect(shell.y+shell.height).toBeGreaterThanOrEqual(840);
   await expect(page.locator('[data-workspace="live"]')).toBeVisible();
-  await page.locator('#workspace-collapse').click();
+  await page.locator('#nearby-bar').click();
   await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
 });
