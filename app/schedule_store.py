@@ -82,11 +82,93 @@ class ScheduleStore:
         self._physical_routing_graph = _shared_physical_graph(self.track_geo_path)
         self._route_cache_lock = threading.RLock()
         self._route_cache: dict[tuple[int, str, str, int], list[list[float]]] = {}
+        # Hot-path caches. Train Describer delivers a national stream of berth
+        # steps; these lookups ran uncached for every message and made the
+        # live feed fall behind real time until the broker dropped it.
+        self._route_miss: dict[tuple[int, str, str, int], float] = {}
+        self._ready_until = 0.0
+        self._stanox_tiplocs: dict[str, tuple[frozenset[str], float]] = {}
+        self._schedule_calls: dict[tuple[int, str], tuple[frozenset[str], ScheduleInfo | None, float]] = {}
         self._init_db()
+
+    ROUTE_MISS_SECONDS = 120.0
+    READY_SECONDS = 60.0
+    STANOX_SECONDS = 900.0
+    SCHEDULE_CALLS_SECONDS = 600.0
 
     def clear_route_cache(self) -> None:
         with self._route_cache_lock:
             self._route_cache.clear()
+            self._route_miss.clear()
+            self._stanox_tiplocs.clear()
+            self._schedule_calls.clear()
+            self._ready_until = 0.0
+
+    def tiplocs_for_stanox(self, stanox: str | None) -> frozenset[str]:
+        code = str(stanox or "").strip()
+        if not code:
+            return frozenset()
+        code = code.zfill(5)
+        tick = time.monotonic()
+        with self._route_cache_lock:
+            cached = self._stanox_tiplocs.get(code)
+            if cached and cached[1] > tick:
+                return cached[0]
+        try:
+            with self._connect() as conn:
+                found = frozenset(
+                    str(row[0]).strip().upper()
+                    for row in conn.execute("SELECT tiploc FROM tiplocs WHERE stanox=?", (code,))
+                    if str(row[0] or "").strip()
+                )
+        except sqlite3.Error:
+            return frozenset()
+        with self._route_cache_lock:
+            if len(self._stanox_tiplocs) >= 20000:
+                self._stanox_tiplocs.clear()
+            self._stanox_tiplocs[code] = (found, tick + self.STANOX_SECONDS)
+        return found
+
+    def schedule_calling_at(
+        self, schedule_id: int | None, running_date: str | None, tiplocs: Iterable[str],
+    ) -> ScheduleInfo | None:
+        """Confirm an already matched schedule still explains a new report.
+
+        Returns the schedule only when it is still current (not cancelled or
+        deleted) and one of ``tiplocs`` is on its route. This is a single
+        indexed row read, so a train that has been identified once does not
+        need the national headcode search repeated for each berth step.
+        """
+        wanted = {str(code or "").strip().upper() for code in tiplocs} - {""}
+        if not schedule_id or not running_date or not wanted:
+            return None
+        key = (int(schedule_id), str(running_date))
+        tick = time.monotonic()
+        with self._route_cache_lock:
+            cached = self._schedule_calls.get(key)
+        if cached is None or cached[2] <= tick:
+            codes: frozenset[str] = frozenset()
+            info: ScheduleInfo | None = None
+            try:
+                service_day = date.fromisoformat(str(running_date))
+                with self._connect() as conn:
+                    row = conn.execute("SELECT * FROM schedules WHERE id=?", (int(schedule_id),)).fetchone()
+                if row is not None and str(row["stp_indicator"] or "").strip().upper() != "C":
+                    locations = json.loads(row["locations_json"] or "[]")
+                    codes = frozenset(
+                        str(item.get("tiploc_code") or "").strip().upper()
+                        for item in locations if isinstance(item, dict)
+                    ) - {""}
+                    info = self._info_from_row(row, service_day)
+            except (OSError, sqlite3.Error, TypeError, ValueError):
+                return None
+            cached = (codes, info, tick + self.SCHEDULE_CALLS_SECONDS)
+            with self._route_cache_lock:
+                if len(self._schedule_calls) >= 8192:
+                    self._schedule_calls.pop(next(iter(self._schedule_calls)))
+                self._schedule_calls[key] = cached
+        codes, info, _expires = cached
+        return info if info is not None and wanted & codes else None
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30)
@@ -321,14 +403,21 @@ class ScheduleStore:
             return self._rebuild_call_index_on(conn)
 
     def ready(self) -> bool:
+        # Called for every live rail message. Counting ~730,000 rows each time
+        # was a full index scan per message; existence is all that matters,
+        # and a positive answer stays true until the next rebuild.
+        if time.monotonic() < self._ready_until:
+            return True
         if not self.db_path.exists():
             return False
         try:
             with self._connect() as conn:
-                n = conn.execute("SELECT COUNT(*) FROM schedules").fetchone()[0]
-            return n > 0
+                found = conn.execute("SELECT 1 FROM schedules LIMIT 1").fetchone() is not None
         except sqlite3.Error:
             return False
+        if found:
+            self._ready_until = time.monotonic() + self.READY_SECONDS
+        return found
 
     def count(self) -> int:
         try:
@@ -491,17 +580,26 @@ class ScheduleStore:
             cached = self._route_cache.get(cache_key)
             if cached is not None:
                 return [list(point) for point in cached]
+            if self._route_miss.get(cache_key, 0.0) > time.monotonic():
+                return []
 
         def finish(value: list[list[float]]) -> list[list[float]]:
             clean = [list(point) for point in value]
             # Geography reference data can finish syncing after startup. Do
             # not make an early unresolved result permanent; successful paths
-            # are immutable until the next atomic schedule rebuild.
-            if clean:
-                with self._route_cache_lock:
-                    if len(self._route_cache) >= 4096:
+            # are immutable until the next atomic schedule rebuild. A miss is
+            # remembered briefly so an unroutable leg is not re-searched for
+            # every report and every maintenance pass.
+            with self._route_cache_lock:
+                if clean:
+                    if len(self._route_cache) >= 8192:
                         self._route_cache.pop(next(iter(self._route_cache)))
                     self._route_cache[cache_key] = clean
+                    self._route_miss.pop(cache_key, None)
+                else:
+                    if len(self._route_miss) >= 8192:
+                        self._route_miss.clear()
+                    self._route_miss[cache_key] = time.monotonic() + self.ROUTE_MISS_SECONDS
             return [list(point) for point in clean]
 
         try:
@@ -923,10 +1021,7 @@ class ScheduleStore:
             now = now.astimezone(london_tz())
         location_codes = {str(tiploc or "").strip().upper()} - {""}
         if stanox:
-            with self._connect() as conn:
-                location_codes.update(str(row[0]).strip().upper() for row in conn.execute(
-                    "SELECT tiploc FROM tiplocs WHERE stanox=?", (str(stanox).strip().zfill(5),),
-                ))
+            location_codes.update(self.tiplocs_for_stanox(stanox))
         # A four-character signalling ID is reused across the network and
         # across service days. Without the live berth's TIPLOC it is not an
         # identity and must never be used to attach a passenger journey.

@@ -1,21 +1,29 @@
 from __future__ import annotations
 
 import json
+import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import RLock
 
 from ..config import Settings
 from ..models import SourceStatus, Vehicle
 from ..schedule_store import ScheduleStore
-from ..state import LiveState
+from ..state import TRAIN_PROJECTION_MINUTES, LiveState
 from ..train_identity import operator_name
 from .stomp_client import StompFeed
 from .network_rail import _km
 
 
 class TDCollector(StompFeed):
+    # Train Describer steps are positional: when processing falls behind, the
+    # newest steps matter and a stale backlog may be discarded.
+    drop_stale_backlog = True
+    backlog_dropped = 0
+    PATH_REFRESH_SECONDS = 300.0
+    ROLLOVER_RETRY_SECONDS = 30.0
+
     def __init__(self, settings: Settings, state: LiveState, station_file: Path, smart_file: Path, schedules: ScheduleStore | None = None) -> None:
         super().__init__(settings, state, name="td", topic=settings.td_topic)
         self.station_file = station_file
@@ -27,6 +35,8 @@ class TDCollector(StompFeed):
         self.by_to: dict[tuple[str, str], dict] = {}
         self._pending: deque[dict] = deque(maxlen=12000)
         self._pending_lock = RLock()
+        self._last_path_refresh = float("-inf")
+        self._rollover_retry_at: dict[str, tuple[datetime, float]] = {}
         self.reload_references()
 
     def reload_references(self) -> None:
@@ -158,6 +168,8 @@ class TDCollector(StompFeed):
         source_id = f"{area}:{fr if fallback else (to or fr)}"
         schedule = None
         if self.schedules is not None and self.schedules.ready():
+            schedule = self._known_schedule(descr, station, self._row_stanox(row), event_time)
+        if schedule is None and self.schedules is not None and self.schedules.ready():
             try:
                 schedule = self.schedules.lookup_headcode(
                     descr,
@@ -289,6 +301,28 @@ class TDCollector(StompFeed):
             ))
         return True
 
+    def _known_schedule(self, descr: str, station: dict, stanox: str, event_time: datetime):
+        """Reuse the timetable identity of a train this describer already tracks.
+
+        The national headcode search costs tens of milliseconds and ran for
+        every berth step. A nearby, recent train with the same headcode whose
+        matched schedule calls at this location is the same service; only new
+        or ambiguous trains need the full search.
+        """
+        prior = self.state.find_train_by_headcode(descr, float(station["lat"]), float(station["lon"]))
+        if not prior or not prior.schedule_id or not prior.train_uid or not prior.service_date:
+            return None
+        elapsed = (event_time - prior.last_updated).total_seconds()
+        if elapsed < 0 or elapsed > 1800:
+            return None
+        if _km({"lat": prior.lat, "lon": prior.lon}, station) > min(100.0, 5.0 + elapsed / 15.0):
+            return None
+        codes = {str(station.get("tiploc") or "")} | set(self.schedules.tiplocs_for_stanox(stanox))
+        try:
+            return self.schedules.schedule_calling_at(prior.schedule_id, prior.service_date, codes)
+        except Exception:
+            return None
+
     def _schedule_leg(
         self, schedule_id, running_date, tiploc, observed_at, *,
         event_code=None, berth_offset_seconds=None,
@@ -368,13 +402,35 @@ class TDCollector(StompFeed):
         rows whose identified schedule genuinely advanced.
         """
         now = observed_at or datetime.now(timezone.utc)
-        trains = self.state.all(
-            max_age_minutes=45,
-            include_trains=True,
-            train_limit=None,
-            include_buses=False,
-            include_vessels=False,
-        )
+        tick = time.monotonic()
+        # Geometry can improve after a deploy or reference sync, so current
+        # legs are re-checked - but occasionally, not for every train every
+        # second, which kept one CPU busy and starved the live feed.
+        refresh_paths = tick - self._last_path_refresh >= self.PATH_REFRESH_SECONDS
+        if refresh_paths:
+            self._last_path_refresh = tick
+        oldest = now - timedelta(minutes=TRAIN_PROJECTION_MINUTES)
+        retry_at = self._rollover_retry_at
+
+        def needs_work(vehicle: Vehicle) -> bool:
+            if (
+                not vehicle.schedule_id or vehicle.last_updated < oldest
+                or str(vehicle.status or "").lower().startswith("terminated")
+            ):
+                return False
+            due_at = vehicle.estimate_due_at
+            if due_at and vehicle.service_date and now > due_at:
+                # A leg with no onward timetable leg is retried sparingly.
+                held = retry_at.get(vehicle.id)
+                return not (held and held[0] == due_at and held[1] > tick)
+            return bool(
+                refresh_paths and vehicle.estimate_started_at and due_at
+                and vehicle.rail_tiploc and vehicle.next_tiploc
+            )
+
+        trains = self.state.trains_where(needs_work)
+        if len(retry_at) > 20000:
+            retry_at.clear()
         advanced = 0
         for vehicle in trains:
             # A deploy can introduce better geometry while a train is already
@@ -382,7 +438,8 @@ class TDCollector(StompFeed):
             # do not wait for the next TD report or for somebody to click it.
             event_type = str(vehicle.rail_event_type or '').strip().lower()
             if (
-                vehicle.schedule_id and vehicle.estimate_started_at and vehicle.estimate_due_at
+                refresh_paths
+                and vehicle.schedule_id and vehicle.estimate_started_at and vehicle.estimate_due_at
                 and vehicle.estimate_due_at > now
                 and vehicle.rail_tiploc and vehicle.next_tiploc
                 and event_type not in {'arrival'}
@@ -412,7 +469,10 @@ class TDCollector(StompFeed):
                     f"last confirmed {vehicle.source or 'railway'} report"
                 )
                 self.state.upsert(vehicle)
+                retry_at.pop(vehicle.id, None)
                 advanced += 1
+            else:
+                retry_at[vehicle.id] = (vehicle.estimate_due_at, tick + self.ROLLOVER_RETRY_SECONDS)
         return advanced
 
     def _replay_pending(self) -> None:
@@ -452,4 +512,6 @@ class TDCollector(StompFeed):
         status.last_message_at = datetime.now(timezone.utc)
         status.connected = True
         status.message = f"TD live • {status.messages_seen:,} messages • {status.movements_mapped:,} SMART-mapped steps • {status.movements_unmapped:,} unresolved"
+        if self.backlog_dropped:
+            status.message += f" • {self.backlog_dropped:,} stale frames skipped under load"
         self.state.set_source(status)

@@ -13,6 +13,9 @@ from .models import Event, SourceStatus, Vehicle
 TRAIN_LIVE_REPORT_MINUTES = 45
 TRAIN_PROJECTION_MINUTES = 90
 TRAIN_ROLLOVER_GRACE_MINUTES = 10
+# How long a train restored from the warm-start snapshot may be shown before a
+# live report replaces it.
+RESTORED_SNAPSHOT_MINUTES = 15
 
 
 def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -108,6 +111,7 @@ class LiveState:
         self._lock = RLock()
         self._vehicles: dict[str, Vehicle] = {}
         self._train_uid_index: dict[str, set[str]] = {}
+        self._train_headcode_index: dict[str, set[str]] = {}
         self._events: dict[str, Event] = {}
         self._sources: dict[str, SourceStatus] = {}
         self._unmapped: deque[dict] = deque(maxlen=500)
@@ -121,6 +125,29 @@ class LiveState:
 
     def _touch_unlocked(self) -> None:
         self._revision += 1
+
+    def _index_unlocked(self, vehicle: Vehicle) -> None:
+        if vehicle.type != 'train':
+            return
+        if vehicle.train_uid:
+            self._train_uid_index.setdefault(str(vehicle.train_uid).strip(), set()).add(vehicle.id)
+        code = (vehicle.headcode or '').strip().upper()
+        if code:
+            self._train_headcode_index.setdefault(code, set()).add(vehicle.id)
+
+    def _unindex_unlocked(self, vehicle: Vehicle) -> None:
+        if vehicle.type != 'train':
+            return
+        if vehicle.train_uid:
+            uid = str(vehicle.train_uid).strip()
+            self._train_uid_index.get(uid, set()).discard(vehicle.id)
+            if not self._train_uid_index.get(uid):
+                self._train_uid_index.pop(uid, None)
+        code = (vehicle.headcode or '').strip().upper()
+        if code:
+            self._train_headcode_index.get(code, set()).discard(vehicle.id)
+            if not self._train_headcode_index.get(code):
+                self._train_headcode_index.pop(code, None)
 
     def upsert(self, vehicle: Vehicle) -> None:
         stored = apply_cool_classification(deepcopy(vehicle))
@@ -144,14 +171,10 @@ class LiveState:
                         return
                     stored.id = incumbent.id
                     previous = incumbent
-            if previous is not None and previous.type=='train' and previous.train_uid:
-                old_uid=str(previous.train_uid).strip()
-                self._train_uid_index.get(old_uid, set()).discard(stored.id)
-                if not self._train_uid_index.get(old_uid):
-                    self._train_uid_index.pop(old_uid, None)
+            if previous is not None:
+                self._unindex_unlocked(previous)
             self._vehicles[stored.id] = stored
-            if stored.type=='train' and stored.train_uid:
-                self._train_uid_index.setdefault(str(stored.train_uid).strip(), set()).add(stored.id)
+            self._index_unlocked(stored)
             self._touch_unlocked()
 
     def _duplicate_service_unlocked(self, stored: Vehicle) -> Vehicle | None:
@@ -168,11 +191,8 @@ class LiveState:
 
     def _drop_vehicle_unlocked(self, vehicle_id: str) -> None:
         removed = self._vehicles.pop(vehicle_id, None)
-        if removed is not None and removed.type == 'train' and removed.train_uid:
-            uid = str(removed.train_uid).strip()
-            self._train_uid_index.get(uid, set()).discard(vehicle_id)
-            if not self._train_uid_index.get(uid):
-                self._train_uid_index.pop(uid, None)
+        if removed is not None:
+            self._unindex_unlocked(removed)
 
     def upsert_event(self, event: Event) -> None:
         stored = apply_cool_classification(deepcopy(event))
@@ -209,7 +229,12 @@ class LiveState:
         if not headcode:
             return None
         with self._lock:
-            candidates = [v for v in self._vehicles.values() if v.type == "train" and (v.headcode or "").upper() == headcode]
+            # Indexed: this runs for every Train Describer step, and a scan
+            # of every bus and train per message starved the feed thread.
+            candidates = [
+                self._vehicles[key] for key in self._train_headcode_index.get(headcode, ())
+                if key in self._vehicles
+            ]
             if not candidates:
                 return None
             if lat is not None and lon is not None:
@@ -276,6 +301,7 @@ class LiveState:
         bus_cutoff = now - timedelta(minutes=5)
         vessel_cutoff = now - timedelta(minutes=10)
         cool_cutoff = now - timedelta(minutes=60)
+        restored_cutoff = now - timedelta(minutes=RESTORED_SNAPSHOT_MINUTES)
 
         with self._lock:
             regular_refs: list[Vehicle] = []
@@ -296,6 +322,11 @@ class LiveState:
                             continue
                     if stored.status.lower().startswith('terminated') and stored.last_updated < now - timedelta(minutes=2):
                         continue
+                    if stored.restored_snapshot and stored.last_updated < restored_cutoff:
+                        # A warm-start row that no live report has replaced is
+                        # not a live train: it has usually finished its journey
+                        # during the restart. Do not show it for 45-90 minutes.
+                        continue
                 elif stored.type == "bus":
                     if not include_buses or stored.last_updated < bus_cutoff:
                         continue
@@ -306,11 +337,13 @@ class LiveState:
                     continue
 
                 effective_bbox = train_bbox if stored.type == "train" and train_bbox is not None else bbox
-                visible_position = _estimated_train_position(stored, now) if stored.type == "train" else None
-                if not _inside(stored.lat, stored.lon, effective_bbox) and not (
-                    visible_position and _inside(visible_position[0], visible_position[1], effective_bbox)
-                ):
-                    continue
+                if not _inside(stored.lat, stored.lon, effective_bbox):
+                    # Only walk the estimate path when the confirmed point is
+                    # off-screen; doing it for every train on every call was
+                    # a fifth of this function's cost.
+                    visible_position = _estimated_train_position(stored, now) if stored.type == "train" else None
+                    if not (visible_position and _inside(visible_position[0], visible_position[1], effective_bbox)):
+                        continue
 
                 if stored.type == "train":
                     train_refs.append(stored)
@@ -340,10 +373,14 @@ class LiveState:
                 bus_refs = bus_refs[:bus_limit]
             if vessel_limit is not None:
                 vessel_refs = vessel_refs[:vessel_limit]
-            result = deepcopy(regular_refs)
-            trains = deepcopy(train_refs)
-            buses = deepcopy(bus_refs)
-            vessels = deepcopy(vessel_refs)
+            # Shallow copies: every Vehicle field is an immutable scalar
+            # except ``estimate_path``, which writers replace rather than
+            # mutate. Deep-copying thousands of paths while holding the state
+            # lock (once a second per viewer) blocked the live rail feed.
+            result = [item.model_copy() for item in regular_refs]
+            trains = [item.model_copy() for item in train_refs]
+            buses = [item.model_copy() for item in bus_refs]
+            vessels = [item.model_copy() for item in vessel_refs]
 
         for v in [*result, *trains, *buses, *vessels]:
             # TRUST is a reporting-point feed, not GPS. Never draw a train on
@@ -376,6 +413,19 @@ class LiveState:
         result.extend(buses)
         result.extend(vessels)
         return result
+
+    def trains_where(self, predicate) -> list[Vehicle]:
+        """Copy only the trains a maintenance pass actually needs to change.
+
+        ``predicate`` is evaluated on stored rows under the lock and must be
+        cheap and side-effect free. This replaces copying every train once a
+        second just to find the handful whose timetable leg has elapsed.
+        """
+        with self._lock:
+            return [
+                deepcopy(item) for item in self._vehicles.values()
+                if item.type == "train" and predicate(item)
+            ]
 
     def all_events(
         self,
@@ -451,13 +501,8 @@ class LiveState:
 
     def remove(self, vehicle_id: str) -> None:
         with self._lock:
-            removed = self._vehicles.pop(vehicle_id, None)
-            if removed is not None:
-                if removed.type == 'train' and removed.train_uid:
-                    uid=str(removed.train_uid).strip()
-                    self._train_uid_index.get(uid, set()).discard(vehicle_id)
-                    if not self._train_uid_index.get(uid):
-                        self._train_uid_index.pop(uid, None)
+            if vehicle_id in self._vehicles:
+                self._drop_vehicle_unlocked(vehicle_id)
                 self._touch_unlocked()
 
     def prune_stale(self, *, now: datetime | None = None) -> int:
@@ -481,12 +526,7 @@ class LiveState:
                 keep_for = retention.get(vehicle.type, timedelta(hours=3))
                 if vehicle.last_updated >= current - keep_for:
                     continue
-                self._vehicles.pop(activity_id, None)
-                if vehicle.type == "train" and vehicle.train_uid:
-                    uid = str(vehicle.train_uid).strip()
-                    self._train_uid_index.get(uid, set()).discard(activity_id)
-                    if not self._train_uid_index.get(uid):
-                        self._train_uid_index.pop(uid, None)
+                self._drop_vehicle_unlocked(activity_id)
                 removed += 1
             if removed:
                 self._touch_unlocked()
