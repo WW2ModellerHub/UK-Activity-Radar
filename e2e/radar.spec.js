@@ -829,6 +829,36 @@ test('activity marker hover shows facts and click opens and closes detail', asyn
   await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
 });
 
+test('a selected train that the server no longer holds stops polling and says so', async ({ page }) => {
+  const railRequests = [];
+  await page.route('**/api/activity/train-live-1/rail', route => {
+    railRequests.push(Date.now());
+    return route.fulfill({ status: 404, json: { detail: 'Train activity not found' } });
+  });
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-intelligence')).toContainText('No longer reporting');
+  const settled = railRequests.length;
+  // The old code re-requested every 10 seconds, indefinitely.
+  await page.waitForTimeout(11500);
+  expect(railRequests.length).toBe(settled);
+});
+
+test('a selected train merged into another live identity is re-linked to it', async ({ page }) => {
+  await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ status: 404, json: { detail: 'Train activity not found' } }));
+  await page.route('**/api/rail/locate?**', route => {
+    const url = new URL(route.request().url());
+    expect(url.searchParams.get('train_uid')).toBe('C12345');
+    return page.evaluate(() => window.__fixtureSnapshot.activities.find(row => row.id === 'train-live-1'))
+      .then(train => route.fulfill({ json: { live: true, activity: { ...train, id: 'td:XX:1A23', name: '1A23 relinked' } } }));
+  });
+  await page.route('**/api/activity/td%3AXX%3A1A23/rail', route => route.fulfill({ json: { activity: 'td:XX:1A23', detail: { available: true, source: 'Live railway and timetable data', runs: [{ headcode: '1A23', origin: 'Milton Keynes Central', destination: 'London Euston', status: 'On time', next_location: 'Watford Junction', calling_points: [{ station: 'Watford Junction', expected: '2026-10-05T10:34:00Z', status: 'Expected' }] }] } } }));
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-title')).toContainText('1A23 relinked');
+  await expect(page.locator('#detail-intelligence')).toContainText('Watford Junction');
+});
+
 test('clicked trains and buses load source-backed route intelligence', async ({ page }) => {
   await page.locator('[data-layer-toggle="train"]').click();
   await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));

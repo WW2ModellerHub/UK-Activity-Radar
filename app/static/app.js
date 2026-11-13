@@ -2559,11 +2559,24 @@
     const box=$('detail-intelligence');
     if(!box)return;
     const requestId=++intelligenceRequest;
+    let keepRefreshing=true;
     if(!force){box.classList.remove('hidden');box.innerHTML=`<small>${a.type==='train'?'LIVE TRAIN JOURNEY':'LIVE BUS JOURNEY'}</small><p class="coverage-loading">Loading route…</p>`;}
     try {
       const response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/${a.type==='train'?'rail':'bus'}`,{cache:'no-store',signal:controller.signal});
       const payload=await response.json().catch(()=>({}));
       if(requestId!==intelligenceRequest || selectedId!==a.id)return;
+      if(response.status===404&&a.type==='train'){
+        // The server no longer holds this id: the service was merged into
+        // another live identity, or a restored "last known" train expired.
+        // Re-link to the same service if it is still running; otherwise stop
+        // asking every 10 seconds for a train that cannot come back.
+        keepRefreshing=false;
+        const relinked=await relinkSelectedTrain(a);
+        if(requestId!==intelligenceRequest || selectedId!==a.id)return;
+        if(relinked)return;
+        box.innerHTML=`<small>LIVE TRAIN JOURNEY</small><div class="transport-unavailable"><strong>No longer reporting</strong><span>This train has no current live railway position. It may have finished its journey.</span></div>`;
+        return;
+      }
       if(response.status===402){
         box.innerHTML=`<small>${a.type==='train'?'LIVE TRAIN JOURNEY':'LIVE BUS JOURNEY'}</small><div class="transport-unavailable radar-plus-locked"><strong>Available with Radar+</strong><span>Upgrade to unlock this advanced live transport detail.</span></div>`;
         return;
@@ -2579,9 +2592,27 @@
     } finally {
       if(requestId===intelligenceRequest){
         intelligenceController=null;
-        if(selectedId===a.id)intelligenceRefreshTimer=setTimeout(()=>{const current=activityById(a.id);if(current)loadActivityIntelligence(current,true);},a.type==='train'?10000:20000);
+        if(keepRefreshing&&selectedId===a.id)intelligenceRefreshTimer=setTimeout(()=>{const current=activityById(a.id);if(current)loadActivityIntelligence(current,true);},a.type==='train'?10000:20000);
       }
     }
+  }
+
+  async function relinkSelectedTrain(a) {
+    const uid=String(a?.train_uid||'').trim();
+    if(!uid)return false;
+    try{
+      const params=new URLSearchParams({train_uid:uid});
+      if(a.service_date)params.set('service_date',a.service_date);
+      const response=await fetch(`/api/rail/locate?${params}`,{cache:'no-store',signal:AbortSignal.timeout(10000)});
+      const payload=await response.json().catch(()=>({}));
+      const found=payload?.activity;
+      if(!response.ok||!found?.id||found.id===a.id||selectedId!==a.id)return false;
+      if(String(found.train_uid||'').trim()!==uid)return false;
+      if(a.service_date&&found.service_date&&found.service_date!==a.service_date)return false;
+      globalCoolById.set(found.id,found);
+      selectActivity(found.id,false);
+      return true;
+    }catch{return false;}
   }
 
   function selectActivity(id, pan, focusZoom=null) {
