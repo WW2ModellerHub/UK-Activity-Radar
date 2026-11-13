@@ -326,12 +326,12 @@ test('Useful map layers can independently turn trains and buses off and on', asy
   await page.locator('[data-layer-toggle="train"]').click();
   await expect(page.locator('[data-layer-toggle="train"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#map')).toHaveAttribute('data-map-context','rail');
-  await expect(page.locator('.marker-bubble').filter({ hasText: '🚆' })).toHaveCount(2);
-  await expect(page.locator('.marker-bubble').filter({ hasText: '🚌' })).toHaveCount(0);
+  await expect(page.locator('.marker-bubble.marker-train')).toHaveCount(2);
+  await expect(page.locator('.marker-bubble.marker-bus')).toHaveCount(0);
   await page.locator('[data-layer-toggle="bus"]').click();
-  await expect(page.locator('.marker-bubble').filter({ hasText: '🚌' })).toHaveCount(1);
+  await expect(page.locator('.marker-bubble.marker-bus')).toHaveCount(1);
   await page.locator('[data-layer-toggle="train"]').click();
-  await expect(page.locator('.marker-bubble').filter({ hasText: '🚆' })).toHaveCount(0);
+  await expect(page.locator('.marker-bubble.marker-train')).toHaveCount(0);
   await expect(page.locator('#map')).toHaveAttribute('data-map-context','standard');
   const viewport = await page.evaluate(() => window.__fixtureSocketMessages.filter(row => row.action === 'viewport').at(-1));
   expect(viewport.types).toEqual(['bus']);
@@ -410,7 +410,7 @@ test('every density choice requests its live data and renders or explains the re
 
 test('density is additive and Off restores the selected Useful layers', async ({ page }) => {
   await page.locator('[data-layer-toggle="train"]').click();
-  await expect(page.locator('.marker-bubble').filter({ hasText: '🚆' })).toHaveCount(2);
+  await expect(page.locator('.marker-bubble.marker-train')).toHaveCount(2);
 
   await page.locator('.workspace-tab[data-workspace="settings"]').click();
   await expect.poll(() => page.evaluate(() =>
@@ -422,15 +422,15 @@ test('density is additive and Off restores the selected Useful layers', async ({
     window.__fixtureSocketMessages.filter(row => row.action === 'viewport').at(-1)?.types
   )).toEqual(['train', 'bus']);
   await expect(page.locator('.leaflet-heat-layer')).toHaveAttribute('data-point-count', '1');
-  await expect(page.locator('.marker-bubble').filter({ hasText: '🚆' })).toHaveCount(2);
-  await expect(page.locator('.marker-bubble').filter({ hasText: '🚌' })).toHaveCount(0);
+  await expect(page.locator('.marker-bubble.marker-train')).toHaveCount(2);
+  await expect(page.locator('.marker-bubble.marker-bus')).toHaveCount(0);
 
   await page.locator('#heat-mode').selectOption('off');
   await expect.poll(() => page.evaluate(() =>
     window.__fixtureSocketMessages.filter(row => row.action === 'viewport').at(-1)?.types
   )).toEqual(['train']);
   await expect(page.locator('.leaflet-heat-layer')).toHaveCount(0);
-  await expect(page.locator('.marker-bubble').filter({ hasText: '🚆' })).toHaveCount(2);
+  await expect(page.locator('.marker-bubble.marker-train')).toHaveCount(2);
 });
 
 test('removed CARTO dark mode falls back to the standard map', async ({ page }) => {
@@ -653,7 +653,7 @@ test('Live cameras appear on the map and open their current provider media', asy
 
 test('road incidents show the closest verified camera', async ({ page }) => {
   await page.locator('[data-layer-toggle="incident"]').click();
-  await page.locator('.marker-bubble').filter({ hasText: '⚠️' }).evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await page.locator('.marker-bubble.marker-incident').evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-title')).toContainText('M1 collision');
   await expect(page.locator('#detail-photo')).toContainText('Nearest live camera');
   await expect(page.locator('#detail-photo')).toContainText('1.2 km');
@@ -661,7 +661,7 @@ test('road incidents show the closest verified camera', async ({ page }) => {
 
 test('live detail can track a moving object across snapshots', async ({ page }) => {
   await page.locator('[data-layer-toggle="bus"]').click();
-  await page.locator('.marker-bubble').filter({ hasText: '🚌' }).evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await page.locator('.marker-bubble.marker-bus').evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await page.locator('#track-activity').click();
   await expect(page.locator('#track-activity')).toHaveAttribute('aria-pressed', 'true');
   const before = await page.evaluate(() => window.__radarDiagnostics.appliedSnapshots);
@@ -832,7 +832,7 @@ test('commercial aircraft use operator colours and an exact licensed photo', asy
 
 test('activity marker hover shows facts and click opens and closes detail', async ({ page }) => {
   await page.locator('[data-layer-toggle="train"]').click();
-  const marker = page.locator('.marker-bubble').filter({ hasText: '🚆' }).first();
+  const marker = page.locator('.marker-bubble.marker-train').first();
   await marker.evaluate(el => el.closest('.leaflet-marker-icon').dispatchEvent(new MouseEvent('mouseenter')));
   await expect(page.locator('.activity-tooltip')).toContainText('London Express');
   await marker.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
@@ -849,7 +849,7 @@ test('a selected train that the server no longer holds stops polling and says so
     return route.fulfill({ status: 404, json: { detail: 'Train activity not found' } });
   });
   await page.locator('[data-layer-toggle="train"]').click();
-  await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-intelligence')).toContainText('No longer reporting');
   const settled = railRequests.length;
   // The old code re-requested every 10 seconds, indefinitely.
@@ -867,21 +867,21 @@ test('a selected train merged into another live identity is re-linked to it', as
   });
   await page.route('**/api/activity/td%3AXX%3A1A23/rail', route => route.fulfill({ json: { activity: 'td:XX:1A23', detail: { available: true, source: 'Live railway and timetable data', runs: [{ headcode: '1A23', origin: 'Milton Keynes Central', destination: 'London Euston', status: 'On time', next_location: 'Watford Junction', calling_points: [{ station: 'Watford Junction', expected: '2026-10-05T10:34:00Z', status: 'Expected' }] }] } } }));
   await page.locator('[data-layer-toggle="train"]').click();
-  await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-title')).toContainText('1A23 relinked');
   await expect(page.locator('#detail-intelligence')).toContainText('Watford Junction');
 });
 
 test('clicked trains and buses load source-backed route intelligence', async ({ page }) => {
   await page.locator('[data-layer-toggle="train"]').click();
-  await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-intelligence .train-full-route')).toBeVisible();
   await expect(page.locator('#detail-intelligence')).toContainText('Watford Junction');
   await expect(page.locator('#detail-intelligence')).not.toContainText('Ledburn Junction');
 
   await page.locator('#detail-close').click();
   await page.locator('[data-layer-toggle="bus"]').click();
-  await page.locator('.marker-bubble').filter({ hasText: '🚌' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await page.locator('.marker-bubble.marker-bus').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-intelligence')).toContainText('LIVE BUS JOURNEY');
   await expect(page.locator('#detail-intelligence')).toContainText('Central Station Stop A');
   await expect(page.locator('#detail-intelligence')).toContainText('2 min');
@@ -943,7 +943,7 @@ test('scheduled station-board train opens its published route without a live mar
 
 test('Share live page works directly from a selected activity', async ({ page }) => {
   await page.locator('[data-layer-toggle="train"]').click();
-  await page.locator('.marker-bubble').filter({hasText:'🚆'}).first().evaluate(el=>el.dispatchEvent(new MouseEvent('click',{bubbles:true})));
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el=>el.dispatchEvent(new MouseEvent('click',{bubbles:true})));
   await page.locator('#share-activity').click();
   await expect.poll(()=>page.evaluate(()=>window.__sharedPayload?.url || '')).toContain('/live/train-live-1');
   await expect.poll(()=>page.evaluate(()=>window.__sharedPayload?.text || '')).toContain('London Express');
@@ -980,7 +980,7 @@ test('mobile viewport keeps core navigation, map, and details usable', async ({ 
   await expect(page.locator('#map')).toBeVisible();
   await expect(page.locator('#workspace-shell')).toBeVisible();
   await page.locator('[data-layer-toggle="train"]').click();
-  await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-sidebar')).toBeVisible();
   const box = await page.locator('#detail-sidebar').boundingBox();
   expect(box.x).toBeGreaterThanOrEqual(0);
@@ -1005,7 +1005,7 @@ test('mobile viewport keeps core navigation, map, and details usable', async ({ 
 test('tapping bare map on mobile minimizes train details but keeps its route visible', async ({ page }) => {
   await page.setViewportSize({width:390,height:844});
   await page.locator('[data-layer-toggle="train"]').click();
-  await page.locator('.marker-bubble').filter({hasText:'🚆'}).first().evaluate(el=>el.dispatchEvent(new MouseEvent('click',{bubbles:true})));
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el=>el.dispatchEvent(new MouseEvent('click',{bubbles:true})));
   await expect(page.locator('#detail-sidebar')).not.toHaveClass(/is-empty/);
   await expect(page.locator('#detail-route-view')).toBeVisible();
   await expect(page.locator('.train-published-route-guide')).toHaveCount(1);
@@ -1037,6 +1037,17 @@ test('tapping bare map on mobile minimizes train details but keeps its route vis
   await expect(page.locator('.train-published-route-guide')).toHaveCount(0);
 });
 
+test('the railway network is drawn with the train layer and cleared without it', async ({ page }) => {
+  const requests = [];
+  page.on('request', request => { const url = new URL(request.url()); if (url.pathname.startsWith('/api/rail/lines/')) requests.push(url.pathname); });
+  await expect(page.locator('#map')).not.toHaveAttribute('data-rail-lines', /[1-9]/);
+  await page.locator('[data-layer-chip="train"]').click();
+  await expect(page.locator('#map')).toHaveAttribute('data-rail-lines', '2');
+  expect(requests).toContain('/api/rail/lines/national');
+  await page.locator('[data-layer-chip="train"]').click();
+  await expect(page.locator('#map')).toHaveAttribute('data-rail-lines', '0');
+});
+
 test('rail stations appear with the train layer and go when it is turned off', async ({ page }) => {
   const placeModes = [];
   page.on('request', request => {
@@ -1063,7 +1074,7 @@ test('the train journey shows where the train is, platforms and expected times',
       ] }],
   } } }));
   await page.locator('[data-layer-toggle="train"]').click();
-  await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   const stops = page.locator('.train-full-route.has-progress > li');
   await expect(stops).toHaveCount(5);
   await expect(stops.nth(1)).toHaveClass(/train-here/);
