@@ -34,6 +34,14 @@ the layer chips, the "Nearby now" bar and tabs dismissing the sheet. The
 deployment test now checks the new asset names and that the retired
 stylesheets are gone. Python 338 passed; browser 71 passed.
 
+Root cause of two long-standing intermittent browser failures: map moves
+and layer changes send a debounced viewport request, and the test fixture
+answers each with its standard snapshot. "Trains sharing one station
+coordinate" and "live stream deltas" injected their own snapshot before
+that answer arrived, so a late answer could overwrite it. Slower machines,
+including CI's runner with its wider fallback font, lost the race every
+time. Both tests now wait for viewport requests to settle first.
+
 ## 2026-11-13 — live rail feed could not keep up and was dropped by the broker
 
 Observed on the hosted service: the Network Rail session connected, ran for
@@ -122,9 +130,9 @@ Tests: `tests/test_live_state_fast_paths.py` (3 new),
 and server clock), `e2e/motion-engine.spec.js` (3 new: clock skew, glide,
 hold). Asset versions bumped (`app.js`/`motion-engine.js` v15161, shell r62).
 
-Known, pre-existing: `e2e/radar.spec.js` tests "trains sharing one station
-coordinate…" and "live stream deltas…" are timing-flaky under parallel load
-on the unchanged baseline as well; they pass when run alone.
+Previously noted as timing-flaky, now fixed (see the interface redesign
+entry): `e2e/radar.spec.js` tests "trains sharing one station coordinate…"
+and "live stream deltas…".
 
 ## 2026-11-12 — resilient train continuity during short feed outages
 

@@ -1,6 +1,18 @@
 const { test, expect } = require('@playwright/test');
 const { installAppFixture } = require('./support/app-fixture');
 
+// Map moves and layer changes send a debounced (120 ms) viewport request, and
+// the fixture socket answers each one with its standard snapshot. A test that
+// injects its own snapshot must wait for those answers first, or a late one
+// overwrites the injected data on slower machines.
+async function waitForViewportRequestsToSettle(page) {
+  await expect.poll(async () => {
+    const before = await page.evaluate(() => window.__fixtureSocketMessages.length);
+    await page.waitForTimeout(300);
+    return before === await page.evaluate(() => window.__fixtureSocketMessages.length);
+  }).toBe(true);
+}
+
 test.beforeEach(async ({ page }) => {
   await installAppFixture(page);
   await page.goto('/');
@@ -164,6 +176,7 @@ test('live stream deltas update vehicles and hold transient train omissions with
   await page.locator('[data-layer-toggle="train"]').click();
   await page.locator('[data-layer-toggle="bus"]').click();
   await expect(page.locator('.marker-bubble')).toHaveCount(3);
+  await waitForViewportRequestsToSettle(page);
   const movesBefore = await page.evaluate(() => window.__leafletStats.markerMoves);
   await page.evaluate(() => {
     const bus = window.__fixtureSnapshot.activities.find(row => row.id === 'bus-live-7');
@@ -199,6 +212,7 @@ test('trains sharing one station coordinate remain separately rendered', async (
   await expect(page.locator('#map')).toHaveAttribute('data-map-zoom','10');
   const trainToggle=page.locator('[data-layer-toggle="train"]');
   if(await trainToggle.getAttribute('aria-pressed')!=='true')await trainToggle.click();
+  await waitForViewportRequestsToSettle(page);
   await page.evaluate(() => {
     const first=window.__fixtureSnapshot.activities.find(row=>row.id==='train-live-1');
     const second={...first,id:'train-live-same-station',name:'1C17 St Pancras',headcode:'1C17',train_uid:'C1C17'};
