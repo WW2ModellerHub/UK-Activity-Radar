@@ -237,8 +237,8 @@ test('trains move smoothly along mapped railway timing points between confirmed 
   await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-route-points','5');
   await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-route-coverage','100');
   await expect(page.locator('#map')).toHaveAttribute('data-selected-rail-leg-points','0');
-  await expect(page.locator('#detail-trail')).toContainText('PUBLISHED TRAIN ROUTE');
-  await expect(page.locator('#detail-trail')).toContainText('locked to physical track through 5 timetable points');
+  // The route is drawn on the map; no explanatory text box accompanies it.
+  await expect(page.locator('#detail-trail')).toHaveClass(/hidden/);
   await page.evaluate(() => {
     let now=Date.parse('2026-10-05T10:01:20Z');
     Date.now=()=>now+=1000;
@@ -266,8 +266,7 @@ test('trains move smoothly along mapped railway timing points between confirmed 
   await expect(page.locator('.train-live-leg-guide')).toHaveCount(1);
   await expect(page.locator('.train-live-leg-progress')).toHaveCount(1);
   await expect(page.locator('.train-route-arrow')).toHaveCount(2);
-  await expect(page.locator('#detail-trail')).toContainText('PUBLISHED TRAIN ROUTE');
-  await expect(page.locator('#detail-trail')).toContainText('Milton Keynes Central → London Euston');
+  await expect(page.locator('#detail-trail')).toHaveClass(/hidden/);
   const progressBefore=Number(await page.locator('#map').getAttribute('data-selected-rail-route-progress'));
   const movesBefore=await page.evaluate(()=>window.__leafletStats.markerMoves);
   await page.waitForTimeout(3500);
@@ -593,7 +592,7 @@ test('a rejected discovery claim cannot unlock the Field Guide', async ({ page }
 
   await expect(page.locator('#watch-toast')).toContainText('nothing was saved');
   await expect(page.locator('#save-discovery')).toBeEnabled();
-  await expect(page.locator('#save-discovery')).toHaveText('◇ Save discovery');
+  await expect(page.locator('#save-discovery')).toHaveText('Save to Field Guide');
   expect(rejectedClaims).toBe(1);
   expect(await page.evaluate(() => localStorage.getItem('ukRadarDiscoveryCollectionV1'))).toBeNull();
 
@@ -676,7 +675,7 @@ test('live detail can track a moving object across snapshots', async ({ page }) 
   });
   await expect(page.locator('#map')).toHaveAttribute('data-map-center', '52.25,-0.45');
   await expect.poll(() => page.evaluate(() => window.__radarDiagnostics.appliedSnapshots)).toBe(before + 1);
-  await expect(page.locator('#track-activity')).toContainText('Stop tracking');
+  await expect(page.locator('#track-activity')).toContainText('Stop following');
 });
 
 test('aircraft media is not restarted on every live snapshot', async ({ page }) => {
@@ -876,7 +875,7 @@ test('a selected train merged into another live identity is re-linked to it', as
 test('clicked trains and buses load source-backed route intelligence', async ({ page }) => {
   await page.locator('[data-layer-toggle="train"]').click();
   await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
-  await expect(page.locator('#detail-intelligence')).toContainText('JOURNEY');
+  await expect(page.locator('#detail-intelligence .train-full-route')).toBeVisible();
   await expect(page.locator('#detail-intelligence')).toContainText('Watford Junction');
   await expect(page.locator('#detail-intelligence')).not.toContainText('Ledburn Junction');
 
@@ -920,7 +919,7 @@ test('Station Board opens a real fixture station and departure', async ({ page }
   await expect(page.locator('#detail-placeboard')).toContainText('View live');
   await page.locator('#detail-placeboard [data-live-id="train-live-1"]').click();
   await expect(page.locator('#detail-title')).toContainText('London Express');
-  await expect(page.locator('#detail-intelligence')).toContainText('IDENTIFIED ROLLING STOCK');
+  await expect(page.locator('#detail-intelligence')).toContainText('Rolling stock');
   await expect(page.locator('#detail-intelligence')).toContainText('Class 43');
   await expect(page.locator('.rolling-stock-card')).toHaveAttribute('data-livery-theme', 'intercity');
   await expect(page.locator('.rolling-stock-card')).toContainText('InterCity');
@@ -934,9 +933,8 @@ test('scheduled station-board train opens its published route without a live mar
   await expect(page.locator('#detail-placeboard')).toContainText('View route');
   await page.locator('#detail-placeboard [data-train-uid="C99999"]').click();
   await expect(page.locator('#detail-title')).toContainText('1Z80');
-  await expect(page.locator('#detail-intelligence')).toContainText('JOURNEY');
   await expect(page.locator('#detail-intelligence')).toContainText('Coventry');
-  await expect(page.locator('#detail-intelligence')).toContainText('Published timetable • no live map position');
+  await expect(page.locator('#detail-intelligence')).toContainText('Timetable only · not live on the map');
   // Passenger calling points alone are not railway geometry. An unresolved
   // route must never be rendered as straight station-to-station chords.
   await expect(page.locator('.train-published-route-guide')).toHaveCount(0);
@@ -1073,7 +1071,7 @@ test('the train journey shows where the train is, platforms and expected times',
   await expect(stops.nth(2)).toContainText('Platform 6');
   await expect(stops.nth(2).locator('.stop-late')).toHaveText('20:13');
   await expect(stops.nth(0).locator('.stop-late')).toHaveCount(0);
-  await expect(page.locator('.train-punctuality')).toHaveText('4 min late');
+  await expect(page.locator('#detail-fields [data-field="Status"] strong')).toHaveText('4 min late');
 });
 
 test('map chips switch layers in step with the panel switches', async ({ page }) => {

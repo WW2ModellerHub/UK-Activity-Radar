@@ -1,5 +1,36 @@
 # Codex stabilization changelog
 
+## 2026-11-13 — cleaner detail panel
+
+The train panel now follows the agreed design. Order: title and route,
+operator and headcode, then a Status / Next / Updated row, then
+Share · Follow on map · Save, then the stop timeline with the train marked.
+
+Removed from the panel:
+- the "Published train route … cyan is locked to physical track…" box;
+- the inferred-unit block ("POSSIBLE … inferred from…");
+- the technical pills (TD status text, power type, booked speed);
+- "Stops" under each station, and the duplicated route line;
+- the "JOURNEY" and "LIVE NOW" labels, the emoji in the title, and the
+  data-source line;
+- the "Also nearby … within 25 km" list.
+
+Identifiers and positions stay under "More details".
+
+Other changes:
+- Text that arrives entirely in capitals is title-cased: "LEICESTER →
+  GLOUCESTER" becomes "Leicester → Gloucester". Headcodes and acronyms such
+  as LNER, GWR and RAF are kept.
+- The train marker always appears in the timeline: at the first stop before
+  departure, between stops while running, at the last stop on arrival.
+- Status uses the server's lateness for signalling-only trains.
+- Buttons use plain words: Follow on map, Share, Save, Save place, Save to
+  Field Guide.
+
+Tests: browser assertions that pinned the removed wording now check the
+hidden route box, the timeline and the Status cell. Python 346 passed;
+browser 73 passed.
+
 ## 2026-11-13 — live train timeline, finished trains, stations with trains
 
 - **Where the train is.** `/api/activity/{id}/rail` now places the train in
