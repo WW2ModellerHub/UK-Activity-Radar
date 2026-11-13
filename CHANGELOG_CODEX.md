@@ -1,5 +1,16 @@
 # Codex stabilization changelog
 
+## 2026-11-13 — calmer train map
+
+- **Markers:** 26 px coloured squares with a thin white edge and a white
+  icon. Train markers use only the operator colour: no accent border or
+  glow. Heading sticks and speed tags are hidden.
+- **Trains at one reporting point:** they sit 14 px apart side by side. The
+  numbered badges, connector stalks and origin dot are no longer shown.
+- **Stations:** 12 px navy squares. Names are in normal case, at 12 px,
+  centred beneath the square, from zoom 12 (was 11), so trains standing at a
+  station do not cover the name.
+
 ## 2026-11-13 — railway network on the map, one icon set
 
 - **Railway lines.** With trains on, the national railway network is drawn

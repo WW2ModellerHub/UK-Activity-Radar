@@ -294,21 +294,29 @@ body:has(.layout.focus-mode) #mode-pill { left: 12px; }
 .tooltip-pill.warn { background: var(--warn-soft); color: var(--warn); }
 .tooltip-hint { color: var(--muted); font-size: 12px; }
 
-/* Flat map markers (shape and icons come from map-markers.css). */
-.marker-bubble { border: 2px solid #fff !important; border-radius: 8px !important; box-shadow: 0 1px 3px rgba(18, 22, 26, .35) !important; }
+/* Flat map markers: a small coloured square with a white icon. */
+.marker-bubble {
+  width: 26px !important; height: 26px !important; left: 8px !important; top: 8px !important;
+  border: 2px solid #fff !important; border-radius: 7px !important;
+  box-shadow: 0 1px 2px rgba(18, 22, 26, .35) !important; color: #fff !important;
+}
+.marker-bubble .ico { width: 14px !important; height: 14px !important; }
+/* Shared reporting points: no badges or stalks, the markers just sit apart. */
+.train-coincident-index, .train-coincident-stem, .train-coincident-origin { display: none !important; }
+.motion-pointer, .motion-speed { display: none !important; }
 .marker-bubble > span { filter: none !important; }
 .marker-gps, .marker-network_report, .marker-estimated { outline: 0 !important; }
 /* Rail stations: a small square with the name beside it when zoomed in. */
 .station-marker-wrap { overflow: visible; }
 .place-marker.station-marker {
-  width: 16px; height: 16px; border: 0; border-radius: 2px; background: #1f3a52; box-shadow: none;
-  display: grid; place-items: center;
+  width: 12px; height: 12px; border: 2px solid #fff; border-radius: 3px; background: #1f3a52;
+  box-shadow: 0 0 0 1px rgba(31, 58, 82, .25); display: grid; place-items: center;
 }
-.station-marker i { width: 8px; height: 8px; background: #fff6c8; }
+.station-marker i { display: none; }
 .station-label {
-  display: none; position: absolute; left: 22px; top: -1px; white-space: nowrap; pointer-events: none;
-  font: 600 13px/1.2 var(--font); color: #1f3a52;
-  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 4px #fff;
+  display: none; position: absolute; left: 50%; top: 14px; transform: translateX(-50%); white-space: nowrap; pointer-events: none;
+  font: 500 12px/1.2 var(--font); color: #1f3a52;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff;
 }
 .show-station-labels .station-label { display: block; }
 

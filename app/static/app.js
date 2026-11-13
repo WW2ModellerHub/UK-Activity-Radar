@@ -1214,7 +1214,7 @@
     }
     const trainTheme=type==='train' ? trainLiveryTheme('',v.operator || v.operator_name || v.toc || v.owner) : null;
     const trainStyle=trainTheme && trainTheme.key!=='reference'
-      ? ` style="background:${esc(trainTheme.primary)};border-color:${esc(trainTheme.accent)};color:${esc(trainTheme.ink)};box-shadow:0 4px 13px rgba(0,0,0,.38),0 0 0 3px ${esc(trainTheme.accent)}40"`
+      ? ` style="background:${esc(trainTheme.primary)}"`
       : '';
     const coincidentCount=type==='train' ? Math.max(1,Number(v._coincidentCount)||1) : 1;
     const coincidentSlot=type==='train' ? Math.max(0,Number(v._coincidentSlot)||0) : 0;
@@ -1244,8 +1244,8 @@
     if(p.place_type==='rail_station'){
       return L.divIcon({
         className: 'place-marker-wrap station-marker-wrap',
-        html: `<div class="place-marker place-rail_station station-marker" title="${esc(p.name)}"><i aria-hidden="true"></i></div><span class="station-label">${esc(p.name)}</span>`,
-        iconSize:[16,16], iconAnchor:[8,8]
+        html: `<div class="place-marker place-rail_station station-marker" title="${esc(p.name)}"><i aria-hidden="true"></i></div><span class="station-label">${esc(humanTransitLabel(p.name))}</span>`,
+        iconSize:[12,12], iconAnchor:[6,6]
       });
     }
     return L.divIcon({
@@ -1803,7 +1803,8 @@
         groupCount+=1;separatedCount+=group.length;
         const ordered=[...group].sort((a,b)=>String(a.id).localeCompare(String(b.id)));
         const count=ordered.length;
-        const radius=count===2?20:Math.min(44,Math.max(24,18/Math.sin(Math.PI/count)));
+        // Trains at one reporting point sit just apart, side by side.
+        const radius=count===2?14:Math.min(34,Math.max(18,14/Math.sin(Math.PI/count)));
         const start=count===2?0:-Math.PI/2;
         ordered.forEach((row,index)=>{
           const angle=start+(Math.PI*2*index/count);
@@ -4275,7 +4276,7 @@
     clearTimeout(mapSettledTimer);
     mapSettledTimer=setTimeout(()=>{
       queueViewport();
-      map.getContainer().classList.toggle('show-station-labels',map.getZoom()>=11);
+      map.getContainer().classList.toggle('show-station-labels',map.getZoom()>=12);
       if(enabledActivityTypes.has('train'))updateRailLines();
       if(effectivePlaceMode()!=='off')fetchPlaces();
       if(webcamsEnabled)fetchCameras(false);
