@@ -302,6 +302,10 @@ class TrustCollector(StompFeed):
 
         event_type = str(body.get("event_type") or body.get("planned_event_type") or "Movement").title()
         variation_status = str(body.get("variation_status") or "Reported").replace("_", " ").title()
+        # TRUST sends the variation as an unsigned number of minutes and puts
+        # its direction in variation_status. Store it signed: negative = early.
+        if delay is not None and variation_status.upper() == "EARLY":
+            delay = -abs(delay)
         platform = str(body.get("platform") or "").strip()
         location_name = station.get("name") or f"STANOX {stanox}"
         subtitle = f"{event_type} • {location_name}"
@@ -405,6 +409,7 @@ class TrustCollector(StompFeed):
             tracking_count=0,
             interesting=False,
             restored_snapshot=False,
+            terminated_at=event_time if str(body.get("train_terminated", "false")).lower() == "true" else None,
             last_updated=event_time,
             reported_lat=float(station["lat"]),
             reported_lon=float(station["lon"]),

@@ -1039,6 +1039,43 @@ test('tapping bare map on mobile minimizes train details but keeps its route vis
   await expect(page.locator('.train-published-route-guide')).toHaveCount(0);
 });
 
+test('rail stations appear with the train layer and go when it is turned off', async ({ page }) => {
+  const placeModes = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname === '/api/places') placeModes.push(url.searchParams.get('mode'));
+  });
+  await expect(page.locator('.station-marker')).toHaveCount(0);
+  await page.locator('[data-layer-chip="train"]').click();
+  await expect(page.locator('.station-marker').first()).toBeAttached();
+  expect(placeModes).toContain('rail');
+  await page.locator('[data-layer-chip="train"]').click();
+  await expect(page.locator('.station-marker')).toHaveCount(0);
+});
+
+test('the train journey shows where the train is, platforms and expected times', async ({ page }) => {
+  await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { activity:'train-live-1', detail:{
+    available:true, source:'Live railway and timetable data',
+    runs:[{ headcode:'1A23', origin:'Leicester', destination:'Birmingham New Street', delay_minutes:4, delay_source:'signalling',
+      calling_points:[
+        { name:'Leicester', scheduled:'19:50', platform:'4A', event:'Stops', state:'passed' },
+        { name:'Nuneaton', scheduled:'20:09', expected:'20:13', platform:'6', event:'Stops', state:'next' },
+        { name:'Coleshill Parkway', scheduled:'20:25', expected:'20:29', platform:'1', event:'Stops', state:'upcoming' },
+        { name:'Birmingham New Street', scheduled:'20:38', expected:'20:42', platform:'10A', event:'Stops', state:'upcoming' },
+      ] }],
+  } } }));
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble').filter({ hasText: '🚆' }).first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  const stops = page.locator('.train-full-route.has-progress > li');
+  await expect(stops).toHaveCount(5);
+  await expect(stops.nth(1)).toHaveClass(/train-here/);
+  await expect(stops.nth(2)).toContainText('Nuneaton');
+  await expect(stops.nth(2)).toContainText('Platform 6');
+  await expect(stops.nth(2).locator('.stop-late')).toHaveText('20:13');
+  await expect(stops.nth(0).locator('.stop-late')).toHaveCount(0);
+  await expect(page.locator('.train-punctuality')).toHaveText('4 min late');
+});
+
 test('map chips switch layers in step with the panel switches', async ({ page }) => {
   const chip = page.locator('[data-layer-chip="train"]');
   await expect(chip).toHaveAttribute('aria-pressed', 'false');

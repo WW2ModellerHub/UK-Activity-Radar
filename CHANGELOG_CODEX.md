@@ -1,5 +1,33 @@
 # Codex stabilization changelog
 
+## 2026-11-13 — live train timeline, finished trains, stations with trains
+
+- **Where the train is.** `/api/activity/{id}/rail` now places the train in
+  its calling pattern (`smart_places._train_progress`). Each stop has a
+  `state` (passed / current / next / upcoming), its `platform`, and an
+  `expected` time while the train runs late. The run gains `delay_minutes`
+  (signed; negative = early) and `delay_source`. Lateness uses TRUST when
+  TRUST reported last; otherwise it is the signalling report time minus the
+  booked time at the current timing point. The detail panel draws this as a
+  timeline: a train marker between stops (or at a station), booked times with
+  red expected times, platforms, and an "N min late / early / On time" label.
+- **TRUST lateness sign.** `timetable_variation` is unsigned; it is now stored
+  negative when `variation_status` is EARLY.
+- **Finished trains leave the map.** New `Vehicle.terminated_at`, set by TRUST
+  termination or by a timetable-matched train reporting at its destination.
+  Later berth steps no longer bring a terminated service back, because the
+  old check relied on status text that TD rewrites. A Train Describer
+  headcode that never matched a timetable leaves after 20 minutes idle
+  (was 45). Map, counts, summary and Discover use the same rule
+  (`state._train_finished`). Finished services are not projected onwards.
+- **Stations follow the train layer.** With trains on, rail stations are
+  shown in addition to any "Stations and stops" choice. They are off again
+  with trains off. Stations are drawn as a flat square, with names from zoom
+  11.
+
+Tests: `tests/test_train_progress.py`, `tests/test_train_lifecycle.py` and two
+browser tests (timeline, stations). Python 346 passed; browser 73 passed.
+
 ## 2026-11-13 — flat, light interface for phone and desktop
 
 A full redesign of the application chrome, agreed from mockups. Product

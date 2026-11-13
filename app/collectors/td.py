@@ -251,6 +251,8 @@ class TDCollector(StompFeed):
                     existing.estimate_path = leg["path"]
                     existing.estimate_started_at = leg["started_at"]
                     existing.estimate_due_at = leg["due_at"]
+            if self._reached_destination(schedule, station):
+                existing.terminated_at = existing.terminated_at or event_time
             self.state.upsert(existing)
         else:
             leg = self._schedule_leg(
@@ -298,8 +300,16 @@ class TDCollector(StompFeed):
                 estimate_path=leg["path"] if leg else None,
                 estimate_started_at=leg["started_at"] if leg else None,
                 estimate_due_at=leg["due_at"] if leg else None,
+                terminated_at=event_time if self._reached_destination(schedule, station) else None,
             ))
         return True
+
+    @staticmethod
+    def _reached_destination(schedule, station: dict) -> bool:
+        """A matched train reporting at its timetabled destination has finished."""
+        destination = str(getattr(schedule, "destination_tiploc", "") or "").strip().upper()
+        here = str((station or {}).get("tiploc") or "").strip().upper()
+        return bool(destination and here and destination == here)
 
     def _known_schedule(self, descr: str, station: dict, stanox: str, event_time: datetime):
         """Reuse the timetable identity of a train this describer already tracks.
@@ -415,6 +425,7 @@ class TDCollector(StompFeed):
         def needs_work(vehicle: Vehicle) -> bool:
             if (
                 not vehicle.schedule_id or vehicle.last_updated < oldest
+                or vehicle.terminated_at is not None
                 or str(vehicle.status or "").lower().startswith("terminated")
             ):
                 return False
