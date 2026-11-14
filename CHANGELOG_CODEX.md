@@ -1,5 +1,18 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — aircraft panel and stale tabs
+
+- Aircraft panels use the compact chip row (altitude, speed, updated); the
+  type is in the heading, the route is the subtitle (no repeat as a chip),
+  and identifiers (registration, type code, source) sit under More details.
+  The photo caption no longer repeats type and registration.
+- The "LIVE TRAIL — N observed positions…" box is gone; the dashed trail on
+  the map remains.
+- A tab left open across a deploy kept running the old app (a user saw
+  "Not published by this ADS-B feed" after it was removed). The page now
+  checks the published app version when it comes back into view and every
+  10 minutes, and reloads once per new version (never loops).
+
 ## 2026-11-14 — flight routes: second source and reasons
 
 - Live check after deploy: `/api/activity/{id}/flight-route` returned

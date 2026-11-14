@@ -704,11 +704,11 @@ test('Westland Lynx aircraft use a helicopter silhouette and identity', async ({
   await expect(lynx.locator('.ac-rotor')).toHaveCount(1);
 });
 
-test('selected aircraft draws an honest browser-local live trail', async ({ page }) => {
+test('selected aircraft draws its trail on the map and shows compact facts', async ({ page }) => {
   await page.goto('/');
   await page.locator('[data-workspace="cool"]').click();
   await page.locator('.aerial-map-marker.aerial-aircraft').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
-  await expect(page.locator('#detail-trail')).toContainText('Recording from the next reported position');
+  await expect(page.locator('#detail-trail')).toHaveClass(/hidden/);
   await page.evaluate(() => {
     const moved={
       ...window.__fixtureSnapshot,
@@ -716,8 +716,11 @@ test('selected aircraft draws an honest browser-local live trail', async ({ page
     };
     window.__fixtureSocket.onmessage({data:JSON.stringify(moved)});
   });
-  await expect(page.locator('#detail-trail')).toContainText('observed positions');
-  await expect(page.locator('#detail-trail')).toContainText('not a complete historical flight path');
+  // The trail is drawn on the map; there is no explanatory text box.
+  await expect(page.locator('#detail-trail')).toHaveClass(/hidden/);
+  await expect(page.locator('#detail-fields [data-field="Altitude"]')).toBeVisible();
+  await expect(page.locator('#detail-fields [data-field="ICAO type code"]')).toBeHidden();
+  expect((await page.locator('#detail-fields').boundingBox()).height).toBeLessThan(44);
   await expect(page.locator('#map')).toHaveAttribute('data-selected-trail-points','2');
 });
 
@@ -781,7 +784,7 @@ test('commercial aircraft use operator colours and an exact licensed photo', asy
   await expect(page.locator('#detail-operator')).toContainText('Ryanair');
   await expect(page.locator('#detail-operator')).toContainText('Boeing 737-8200');
   await expect(page.locator('#detail-subtitle')).toHaveText('London Stansted (STN) → Dublin (DUB)');
-  await expect(page.locator('#detail-fields [data-field="Route"]')).toContainText('London Stansted (STN) → Dublin (DUB)');
+  await expect(page.locator('#detail-fields [data-field="Route"]')).toHaveCount(0);
   await expect(page.locator('#detail-photo img')).toHaveAttribute('src','https://upload.wikimedia.org/fixture-ryanair.jpg');
   await expect(page.locator('#detail-photo .image-truth')).toContainText('this aircraft registration');
   await expect(page.locator('#detail-photo')).toContainText('CC BY-SA 4.0');
@@ -1295,4 +1298,14 @@ test('a train status sits in one compact row of chips', async ({ page }) => {
   await expect(status).toHaveAttribute('data-tone','bad');
   const box = await page.locator('#detail-fields').boundingBox();
   expect(box.height).toBeLessThan(44);
+});
+
+test('an open page reloads itself when a newer version is published', async ({ page }) => {
+  let loads = 0;
+  page.on('load', () => { loads += 1; });
+  const fs = require('fs');
+  const html = fs.readFileSync(require('path').join(__dirname, '..', 'app/static/index.html'), 'utf8');
+  await page.route(url => new URL(url).pathname === '/', route => route.fulfill({ contentType:'text/html', body: html.replace(/app\.js\?v=\d+/, 'app.js?v=99999') }));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect.poll(() => loads).toBeGreaterThan(0);
 });

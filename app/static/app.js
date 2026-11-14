@@ -1207,7 +1207,7 @@
       const links = a.source_id ? `<a target="_blank" rel="noopener" href="https://www.planespotters.net/hex/${esc(String(a.source_id).toUpperCase())}">Planespotters ↗</a>` : '';
       const visibleTruth=imageTruth || fallback?.truth;
       if(!image && !fallbackVisual){box.classList.add('hidden');box.innerHTML='';return;}
-      box.innerHTML = `${image || fallbackVisual}<div class="detail-photo-copy"><strong>${esc(referenceImage ? (model || a.aircraft_model || a.aircraft_type_code || 'Aircraft') : fallback.title)}</strong><span>${esc(identity || a.name)}</span>${visibleTruth?`<b class="image-truth">${esc(visibleTruth)}</b>`:''}<span>${esc(imageCredit || 'Licensed aircraft reference')}${!referenceImage && fallback ? ` • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a>` : ''}${links ? ` • ${links}` : ''}</span></div>`;
+      box.innerHTML = `${image || fallbackVisual}<div class="detail-photo-copy">${referenceImage ? '' : `<strong>${esc(fallback.title)}</strong><span>${esc(identity || a.name)}</span>`}${visibleTruth?`<b class="image-truth">${esc(visibleTruth)}</b>`:''}<span>${esc(imageCredit || 'Licensed aircraft reference')}${!referenceImage && fallback ? ` • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a>` : ''}${links ? ` • ${links}` : ''}</span></div>`;
       const remoteImage=referenceImage ? box.querySelector('img') : null;
       remoteImage?.addEventListener('error',()=>{
         if(requestId!==mediaRequest || selectedId!==a.id)return;
@@ -2426,9 +2426,8 @@
       const payload=await response.json();
       flightRouteById.set(id,payload?.found?payload.route:null);
       if(seq!==flightRouteRequest||selectedId!==id||!payload?.found)return;
+      // The route is the subtitle; it is not repeated as a fact.
       $('detail-subtitle').textContent=flightRouteText(payload.route);
-      const existing=document.querySelector('#detail-fields [data-field="Route"]');
-      if(!existing)$('detail-fields')?.insertAdjacentHTML('afterbegin',field('Route',flightRouteText(payload.route)));
     } catch {}
   }
 
@@ -2442,7 +2441,7 @@
 
   function field(label, value) {
     if (value === undefined || value === null || value === '') return '';
-    const technical = new Set(['Source','ICAO / source ref','Latitude','Longitude','Train UID','Headcode','Journey ref','Tracking','Bearing','Code','Type','Registration','MMSI','Identified as','Identity confidence','Position','Operator']);
+    const technical = new Set(['Source','ICAO / source ref','ICAO type code','Latitude','Longitude','Train UID','Headcode','Journey ref','Tracking','Bearing','Code','Type','Registration','MMSI','Identified as','Identity confidence','Position','Operator']);
     return `<div class="detail-field${technical.has(label) ? ' is-technical' : ''}" data-field="${esc(label)}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
   }
 
@@ -2728,13 +2727,8 @@
         color:a.type==='sar'?'#ff8b6a':'#6fc8ff', weight:3, opacity:.86, dashArray:'7 7', interactive:false
       }).addTo(map);
     }
-    if (!box) return;
-    box.classList.remove('hidden');
-    const first=points[0], last=points[points.length-1];
-    const distance=first&&last ? distanceKm(first.lat,first.lon,last.lat,last.lon) : 0;
-    box.innerHTML = points.length > 1
-      ? `<strong>LIVE TRAIL</strong><span>${points.length} observed positions • ${distance.toFixed(1)} km since this map started watching</span><small>Built from this browser’s live feed—not a complete historical flight path.</small>`
-      : '<strong>LIVE TRAIL</strong><span>Recording from the next reported position…</span><small>This begins when the aircraft enters your live map stream.</small>';
+    // The dashed trail on the map says it all; no explanatory box.
+    if (box) { box.classList.add('hidden'); box.innerHTML=''; }
   }
 
   function clearActivityIntelligence() {
@@ -3138,6 +3132,7 @@
     selectedActivitySnapshot=a;
     $('detail-panel')?.classList.toggle('is-train',a.type==='train');
     $('detail-panel')?.classList.toggle('is-bus',a.type==='bus');
+    $('detail-panel')?.classList.toggle('is-aircraft',['aircraft','sar'].includes(a.type));
     liveObjectRenderer?.setActivities(filteredActivities(),selectedId);
     setDetailRouteView(false);
     syncDetailRouteControl(a);
@@ -3190,6 +3185,20 @@
           field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null),
         ].join('');
         toneStatusField(a);
+      } else if (isAircraft) {
+        // Altitude, speed and update time as chips. The type is already in
+        // the panel heading and the route is the subtitle; identifiers stay
+        // under More details.
+        const age = relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000));
+        const typeCode = a.aircraft_type_code && a.aircraft_type_code !== a.aircraft_model ? a.aircraft_type_code : null;
+        $('detail-fields').innerHTML = [
+          field('Altitude', altitude), field('Speed', speed), field('Updated', age),
+          field('Registration', a.vehicle_ref), field('Identified as', a.identity_label),
+          field('ICAO type code', typeCode), field('Type', a.aircraft_model),
+          field('Source', a.source), field('ICAO / source ref', a.source_id),
+          field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null),
+          field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null),
+        ].join('');
       } else if (a.type === 'bus') {
         // Same compact chips as trains; the route and lateness are in the
         // journey card below, and fleet identifiers stay under More details.
@@ -3789,6 +3798,28 @@
       if (Array.isArray(raw)) raw.forEach(id => typeof id === 'string' && followed.add(id));
     } catch {}
   }
+  // A tab left open across a deploy keeps running the old app. When the page
+  // comes back into view (or every 10 minutes), check the published version
+  // and reload once if it has changed.
+  const LOADED_APP_VERSION=(document.querySelector('script[src*="/static/app.js"]')?.getAttribute('src').match(/v=(\d+)/)||[])[1]||'';
+  let versionCheckAt=0;
+  async function reloadIfNewVersion() {
+    if(!LOADED_APP_VERSION||Date.now()-versionCheckAt<60000)return;
+    versionCheckAt=Date.now();
+    try {
+      const html=await (await fetch('/',{cache:'no-store'})).text();
+      const live=(html.match(/\/static\/app\.js\?v=(\d+)/)||[])[1];
+      if(!live||live===LOADED_APP_VERSION)return;
+      // Reload once per published version, so a stale cache can never loop.
+      let tried='';try{tried=sessionStorage.getItem('ukRadarReloadedFor')||'';}catch{}
+      if(tried===live)return;
+      try{sessionStorage.setItem('ukRadarReloadedFor',live);}catch{}
+      location.reload();
+    } catch {}
+  }
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden)reloadIfNewVersion(); });
+  setInterval(()=>{ if(!document.hidden)reloadIfNewVersion(); },600000);
+
   function saveFollowed() { try { localStorage.setItem('ukRadarFollowed', JSON.stringify([...followed])); } catch {} }
 
   // Saved trains: alert when one is cancelled, becomes late or changes
