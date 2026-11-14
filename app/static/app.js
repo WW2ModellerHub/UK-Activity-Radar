@@ -463,7 +463,7 @@
     const note=$('plus-note');
     if(note)note.textContent=plus?'Radar+ is active on this device.':'The public live map stays free. Payment is handled securely by Stripe.';
     const summary=$('product-summary');
-    if(summary)summary.textContent=plus?'Radar+ active • advanced network tools unlocked':(billingState.enabled?`Free access • Radar+ ${billingState.price_display||''}`:'Free access • paid checkout will appear when billing is connected');
+    if(summary)summary.textContent=plus?'Active on this device.':(billingState.enabled?`Not active. Radar+ is ${billingState.price_display||'available'}.`:'Not available yet.');
     $('radar-plus-checkout')?.classList.toggle('hidden',plus||!billingState.enabled);
     $('radar-plus-portal')?.classList.toggle('hidden',!plus);
     $('radar-plus-logout')?.classList.toggle('hidden',!plus);
@@ -901,7 +901,7 @@
       } catch { trafficConfigured = false; }
       if (!trafficConfigured) {
         mode = 'off';
-        if (!quiet) showToast('Live traffic needs your TomTom API key. Run configure_traffic.bat, then restart the radar.');
+        if (!quiet) showToast('Live traffic is not available right now.');
       }
     }
     trafficMode = mode;
@@ -914,7 +914,7 @@
     button?.classList.toggle('active', mode !== 'off');
     button?.setAttribute('aria-pressed', String(mode !== 'off'));
     const status = button?.querySelector('small');
-    if (status) status.textContent = mode === 'off' ? 'Off • click to show' : `${mode === 'combined' ? 'Flow + incidents' : mode === 'delays' ? 'Delays only' : mode === 'incidents' ? 'Incidents only' : 'Live flow'} • on`;
+    if (status) status.textContent = mode === 'off' ? 'Show road speeds' : `On · ${mode === 'combined' ? 'speeds and incidents' : mode === 'delays' ? 'slow traffic only' : mode === 'incidents' ? 'incidents only' : 'speeds only'}`;
     renderTrafficLayer();
     updateLayerToggleUi();
     if (!quiet) trackProduct('layer_selected', mode === 'off' ? 'traffic-off' : `traffic-${mode}`);
@@ -1207,7 +1207,7 @@
       const links = a.source_id ? `<a target="_blank" rel="noopener" href="https://www.planespotters.net/hex/${esc(String(a.source_id).toUpperCase())}">Planespotters ↗</a>` : '';
       const visibleTruth=imageTruth || fallback?.truth;
       if(!image && !fallbackVisual){box.classList.add('hidden');box.innerHTML='';return;}
-      box.innerHTML = `${image || fallbackVisual}<div class="detail-photo-copy"><strong>${esc(referenceImage ? (model || a.aircraft_model || a.aircraft_type_code || 'Aircraft type not resolved') : fallback.title)}</strong><span>${esc(identity || a.name)}</span>${visibleTruth?`<b class="image-truth">${esc(visibleTruth)}</b>`:''}<span>${esc(imageCredit || 'Licensed aircraft reference')}${!referenceImage && fallback ? ` • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a>` : ''}${links ? ` • ${links}` : ''}</span></div>`;
+      box.innerHTML = `${image || fallbackVisual}<div class="detail-photo-copy"><strong>${esc(referenceImage ? (model || a.aircraft_model || a.aircraft_type_code || 'Aircraft') : fallback.title)}</strong><span>${esc(identity || a.name)}</span>${visibleTruth?`<b class="image-truth">${esc(visibleTruth)}</b>`:''}<span>${esc(imageCredit || 'Licensed aircraft reference')}${!referenceImage && fallback ? ` • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a>` : ''}${links ? ` • ${links}` : ''}</span></div>`;
       const remoteImage=referenceImage ? box.querySelector('img') : null;
       remoteImage?.addEventListener('error',()=>{
         if(requestId!==mediaRequest || selectedId!==a.id)return;
@@ -1414,7 +1414,7 @@
       let marker = cameraMarkers.get(camera.id);
       if (!marker) {
         marker = L.marker([camera.lat,camera.lon], {icon:cameraMarkerIcon(camera),riseOnHover:true});
-        bindHoverCard(marker,`<div class="activity-tooltip-card"><div class="tooltip-top"><strong>${esc(camera.name)}</strong><span class="tooltip-live">LIVE CAM</span></div><div class="tooltip-sub">${esc([camera.view,camera.source].filter(Boolean).join(' • '))}</div><div class="tooltip-hint">Click for the source-backed image or video</div></div>`,{direction:'top',offset:[0,-11],opacity:.97,className:'activity-tooltip'});
+        bindHoverCard(marker,`<div class="activity-tooltip-card"><div class="tooltip-top"><strong>${esc(camera.name)}</strong><span class="tooltip-live">LIVE CAM</span></div><div class="tooltip-sub">${esc([camera.view,camera.source].filter(Boolean).join(' • '))}</div><div class="tooltip-hint">Click for the live image</div></div>`,{direction:'top',offset:[0,-11],opacity:.97,className:'activity-tooltip'});
         marker.on('click',()=>{ const current=cameras.find(row=>row.id===camera.id) || camera; selectCamera(current,true); });
         cameraMarkerGroup.addLayer(marker); cameraMarkers.set(camera.id,marker);
       } else {
@@ -1435,11 +1435,11 @@
       if(!response.ok)throw new Error('camera feed unavailable');
       const payload=await response.json(); if(requestId!==cameraRequest)return;
       cameras=payload.cameras||[]; renderCameraMarkers();
-      if(force && !cameras.length)showToast(payload.note || 'No licensed live cameras are mapped in this view.');
+      if(force && !cameras.length)showToast('No traffic cameras in this area.');
     } catch {
       if(requestId!==cameraRequest)return;
       renderCameraMarkers();
-      if(force)showToast('The live camera feed is unavailable right now. Existing map data is unaffected.');
+      if(force)showToast('Traffic cameras are unavailable right now.');
     } finally {
       if(requestId===cameraRequest)$('live-webcams')?.removeAttribute('aria-busy');
     }
@@ -1451,7 +1451,7 @@
     syncDetailRouteControl(null);
     $('detail-panel')?.classList.add('has-selection'); $('detail-sidebar')?.classList.remove('is-empty');
     $('detail-title').textContent=camera.name || 'Live traffic camera';
-    $('detail-subtitle').textContent=[camera.view,camera.source].filter(Boolean).join(' • ') || 'Verified live camera';
+    $('detail-subtitle').textContent=[camera.view,camera.source].filter(Boolean).join(' • ') || 'Traffic camera';
     $('detail-fields').innerHTML=[field('View',camera.view),field('Status',camera.available===false?'Temporarily unavailable':'Available'),field('Source',camera.source),field('Latitude',Number(camera.lat).toFixed(5)),field('Longitude',Number(camera.lon).toFixed(5))].join('');
     for(const id of ['detail-insight','detail-related']){const el=$(id);if(el){el.classList.add('hidden');el.innerHTML='';}}
     const photo=$('detail-photo'); photo.classList.remove('hidden'); photo.innerHTML=`${cameraMediaHtml(camera)}<div class="detail-photo-copy"><strong>Current camera</strong><span>Refreshes about every ${esc(camera.refresh_seconds || 180)} seconds.</span></div>`;
@@ -1470,7 +1470,7 @@
       const positionSignature=`${Number(p.lat).toFixed(6)}|${Number(p.lon).toFixed(6)}`;
       if (!marker) {
         marker=L.marker([p.lat,p.lon],{icon:placeMarkerIcon(p),pane:'placePane',riseOnHover:true,zIndexOffset:1600});
-        bindHoverCard(marker,`<div class="activity-tooltip-card"><strong>${placeIcons[p.place_type]||iconSvg('pin')} ${esc(p.name)}</strong><span>${esc(p.subtitle || p.source || 'Smart place')}</span><small>Click for live board / context</small></div>`,{direction:'top',offset:[0,-11],opacity:.97,className:'activity-tooltip'});
+        bindHoverCard(marker,`<div class="activity-tooltip-card"><strong>${placeIcons[p.place_type]||iconSvg('pin')} ${esc(p.name)}</strong><span>${esc(p.subtitle || p.source || 'Place')}</span><small>Click for departures</small></div>`,{direction:'top',offset:[0,-11],opacity:.97,className:'activity-tooltip'});
         marker.on('click',()=>selectPlace(p.id,true));
         marker.__positionSignature=positionSignature;
         placeGroup.addLayer(marker); placeMarkers.set(p.id,marker);clusterDirty=true;
@@ -1787,7 +1787,7 @@
     $('detail-panel')?.classList.add('has-selection');
     $('detail-sidebar')?.classList.remove('is-empty');
     $('detail-title').textContent=p.name;
-    $('detail-subtitle').textContent=p.subtitle || ({rail_station:'Rail station',bus_stop:'Bus stop',rain_gauge:'Rain gauge'}[p.place_type]||'Smart place');
+    $('detail-subtitle').textContent=p.subtitle || ({rail_station:'Rail station',bus_stop:'Bus stop',rain_gauge:'Rain gauge'}[p.place_type]||'Place');
     $('detail-fields').innerHTML=[field('Type',(p.place_type||'').replaceAll('_',' ')),field('Code',p.crs||p.atco_code||p.naptan_code),field('Operator',p.operator),field('Source',p.source),field('Latitude',Number(p.lat).toFixed(5)),field('Longitude',Number(p.lon).toFixed(5))].join('');
     $('follow').classList.add('hidden'); $('track-activity')?.classList.add('hidden'); $('share-activity')?.classList.add('hidden');
     const savePlace=$('save-place'); if(savePlace){savePlace.classList.remove('hidden');savePlace.textContent=savedPlaces.has(p.id)?'Saved ✓':'Save place';}
@@ -2392,7 +2392,7 @@
       const sub=info.reasons[0] || (a.origin&&a.destination?`${a.origin} → ${a.destination}`:(a.subtitle||a.position_label));
       const lead=coolMode?coolBadgeHtml(a,true):`<span class="rank-icon">${icons[a.type]||'•'}</span>`;
       const proof=coolMode?`${discoveryIdentity(a).label} • updated ${discoveryFreshness(a)}`:'';
-      button.innerHTML=`<span class="rank-number">${i+1}</span>${lead}<span class="rank-copy"><strong>${isNew?'<em class="discovery-new-tag">NEW</em> ':''}${esc(a.name)}${matchesInterest?' <em class="interest-match">MY INTEREST</em>':''}</strong><span>${esc(sub)}</span>${proof?`<small class="rank-proof">${esc(proof)}</small>`:''}</span><span class="rank-count">${esc(right)}</span>`;
+      button.innerHTML=`<span class="rank-number">${i+1}</span>${lead}<span class="rank-copy"><strong>${isNew?'<em class="discovery-new-tag">NEW</em> ':''}${esc(a.name)}${matchesInterest?' <em class="interest-match">Your interest</em>':''}</strong><span>${esc(sub)}</span>${proof?`<small class="rank-proof">${esc(proof)}</small>`:''}</span><span class="rank-count">${esc(right)}</span>`;
       button.addEventListener('click',()=>selectActivity(a.id,true,coolMode?11:null)); list.appendChild(button);
     });
   }
@@ -2409,6 +2409,35 @@
     if (raw == null || !Number.isFinite(Number(raw))) return 'Live';
     const delay = Math.round(Number(raw));
     return delay >= 1 ? `${delay} min late` : delay <= -1 ? `${-delay} min early` : 'On time';
+  }
+
+  // Flights: departure and arrival airports, looked up once per aircraft.
+  const flightRouteById=new Map();
+  let flightRouteRequest=0;
+  function flightRouteText(route) {
+    const label=airport=>airport ? (airport.iata&&airport.name!==airport.iata ? `${airport.name} (${airport.iata})` : airport.name) : '';
+    return `${label(route.origin)} → ${label(route.destination)}`;
+  }
+  async function loadFlightRoute(a) {
+    const id=a.id, seq=++flightRouteRequest;
+    try {
+      const response=await fetch(`/api/activity/${encodeURIComponent(id)}/flight-route`,{cache:'no-store'});
+      if(!response.ok)return;
+      const payload=await response.json();
+      flightRouteById.set(id,payload?.found?payload.route:null);
+      if(seq!==flightRouteRequest||selectedId!==id||!payload?.found)return;
+      $('detail-subtitle').textContent=flightRouteText(payload.route);
+      const existing=document.querySelector('#detail-fields [data-field="Route"]');
+      if(!existing)$('detail-fields')?.insertAdjacentHTML('afterbegin',field('Route',flightRouteText(payload.route)));
+    } catch {}
+  }
+
+  // Colour the compact train status chip by lateness.
+  function toneStatusField(a) {
+    const cell=document.querySelector('#detail-fields [data-field="Status"]');
+    if(!cell)return;
+    const label=trainStatusLabel(a);
+    cell.dataset.tone=/cancel/i.test(label)?'bad':/late/.test(label)?(Number(a?.delay_minutes ?? railDelayById.get(a?.id))>5?'bad':'warn'):/on time|early/i.test(label)?'good':'';
   }
 
   function field(label, value) {
@@ -2819,6 +2848,42 @@
     }
   }
 
+  // One stop list for trains and buses. It opens at the stop before the
+  // vehicle, so where it is now and what comes next are in view; earlier
+  // stops sit behind a button. Between stops a marker shows where it is.
+  let earlierStopsOpenFor=null;
+  function stopTimelineHtml(rows, {vehicle='Train', hasProgress=false, className=''}={}) {
+    if(!rows.length)return '';
+    const states=rows.map(row=>['passed','current','next','upcoming'].includes(row.state)?row.state:'');
+    const atStop=states.includes('current');
+    const anyPassed=states.includes('passed');
+    const firstActive=states.findIndex(state=>state==='current'||state==='next');
+    const start=hasProgress&&firstActive>1 ? firstActive-1 : 0;
+    const open=earlierStopsOpenFor!==null&&earlierStopsOpenFor===selectedId;
+    const items=rows.map((row,index)=>{
+      const state=states[index];
+      const here=state==='next'&&!atStop&&anyPassed
+        ? `<li class="train-here" aria-label="${esc(vehicle)} is here"><i></i><span><small>${esc(vehicle)} is here</small></span><b></b></li>`
+        : '';
+      const classes=[state,row.cancelled?'is-cancelled':'',index<start?'is-earlier':''].filter(Boolean).join(' ');
+      return `${here}<li class="${classes}"${state==='current'?` aria-label="${esc(vehicle)} is at this stop"`:''}><i></i><span><strong>${esc(row.name)}</strong>${row.detailHtml?`<small>${row.detailHtml}</small>`:''}</span><b>${esc(row.booked||'')}${row.lateClock?`<em class="stop-late">${esc(row.lateClock)}</em>`:''}</b></li>`;
+    });
+    const toggle=start>0
+      ? `<li class="earlier-toggle"><button type="button" data-show-earlier>${open?'Hide earlier stops':`Show ${start} earlier stop${start===1?'':'s'}`}</button></li>`
+      : '';
+    return `<ol class="transport-stops ${className}${hasProgress?' has-progress':''}${open?' earlier-open':''}">${toggle}${items.join('')}</ol>`;
+  }
+  document.addEventListener('click',event=>{
+    const button=event.target.closest?.('[data-show-earlier]');
+    if(!button)return;
+    const list=button.closest('ol');
+    const open=!list.classList.contains('earlier-open');
+    list.classList.toggle('earlier-open',open);
+    earlierStopsOpenFor=open?selectedId:null;
+    const hidden=list.querySelectorAll('li.is-earlier').length;
+    button.textContent=open?'Hide earlier stops':`Show ${hidden} earlier stop${hidden===1?'':'s'}`;
+  });
+
   function renderRailRun(run, index) {
     const train=run?.train && typeof run.train==='object' ? run.train : {};
     const progress=run?.progress && typeof run.progress==='object' ? run.progress : {};
@@ -2835,26 +2900,21 @@
       const target=!anyPassed ? callingPoints[0] : (allPassed ? callingPoints[callingPoints.length-1] : null);
       if(target){callingPoints.splice(callingPoints.indexOf(target),1,{...target,state:'current'});atStation=true;}
     }
-    const points=callingPoints.map((point,pointIndex)=>{
+    const rows=callingPoints.map((point,pointIndex)=>{
       const name=providerName(point?.station || point?.location || point?.name);
       const booked=providerClock(point?.scheduled || point?.expected || point?.actual || point?.time);
       const expected=point?.scheduled&&point?.expected ? providerClock(point.expected) : '';
-      const lateClock=expected&&expected!==booked ? expected : '';
       const platform=providerName(point?.platform);
       const movedFrom=point?.platform_changed ? providerName(point?.booked_platform) : '';
-      const cancelledStop=Boolean(point?.cancelled);
+      const cancelled=Boolean(point?.cancelled);
       const detailHtml=[
-        cancelledStop ? '<em class="stop-cancelled">Cancelled</em>' : '',
+        cancelled ? '<em class="stop-cancelled">Cancelled</em>' : '',
         platform ? `<span class="${movedFrom?'platform-changed':''}">Platform ${esc(platform)}${movedFrom?` (was ${esc(movedFrom)})`:''}</span>` : '',
       ].filter(Boolean).join(' · ');
-      if(!name && !booked)return '';
-      const state=['passed','current','next','upcoming'].includes(point?.state) ? point.state : '';
-      // Between stations the train sits on the line before its next stop.
-      const trainHere=state==='next'&&!atStation&&anyPassed
-        ? '<li class="train-here" aria-label="Train is here"><i></i><span><small>Train is here</small></span><b></b></li>'
-        : '';
-      return `${trainHere}<li class="${[state,cancelledStop?'is-cancelled':''].filter(Boolean).join(' ')}"${state==='current'?' aria-label="Train is at this station"':''}><i></i><span><strong>${esc(name || `Call ${pointIndex+1}`)}</strong>${detailHtml?`<small>${detailHtml}</small>`:''}</span><b>${esc(booked)}${lateClock?`<em class="stop-late">${esc(lateClock)}</em>`:''}</b></li>`;
-    }).filter(Boolean).join('');
+      if(!name && !booked)return null;
+      return {name:name||`Call ${pointIndex+1}`,booked,lateClock:expected&&expected!==booked?expected:'',detailHtml,state:point?.state,cancelled};
+    }).filter(Boolean);
+    const points=stopTimelineHtml(rows,{vehicle:'Train',hasProgress,className:'train-full-route'});
     // Only facts a traveller uses: lateness, the stops and, for special
     // workings, what kind of service it is. The route is already the panel
     // subtitle; data-source and inference notes are not shown.
@@ -2865,7 +2925,7 @@
     const operator=providerName(train.operator || run?.operator || run?.operator_code);
     const operatorTheme=trainLiveryTheme('',operator);
     const operatorStyle=operatorTheme.key!=='reference' ? ` style="--train-primary:${operatorTheme.primary};--train-secondary:${operatorTheme.secondary};--train-accent:${operatorTheme.accent};--train-ink:${operatorTheme.ink}"` : '';
-    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${cancelledBanner}${serviceLabel?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${facts.length?`<div class="transport-facts">${facts.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points?`<ol class="transport-stops train-full-route${hasProgress?' has-progress':''}">${points}</ol>`:''}${unknown}</article>`;
+    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${cancelledBanner}${serviceLabel?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${facts.length?`<div class="transport-facts">${facts.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points}${unknown}</article>`;
   }
 
   function trainLiveryTheme(livery, operator) {
@@ -2949,23 +3009,40 @@
     return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}>${liveState}${cards || `<div class="transport-unavailable"><strong>Stops not published</strong><span>${esc(message)}</span></div>`}${stockCard}${terms?`<p class="transport-source"><a target="_blank" rel="noopener" href="${esc(terms)}">Data terms ↗</a></p>`:''}</div>`;
   }
 
+  function busLatenessLabel(detail) {
+    const raw=detail?.delay_minutes ?? detail?.live_prediction?.delay_minutes;
+    const delay=Number(raw);
+    if(raw==null||!Number.isFinite(delay))return null;
+    const about=detail?.delay_source==='estimated'?'About ':'';
+    if(delay>=1)return {text:`${about}${delay} min late`,tone:delay>5?'bad':'warn'};
+    if(delay<=-1)return {text:`${-delay} min early`,tone:'good'};
+    return {text:'On time',tone:'good'};
+  }
+
   function renderBusIntelligence(detail) {
+    // Same stop list as trains: opens at the stop before the bus, marks where
+    // it is, and shows a later expected time beside each stop when it runs late.
     const stops=Array.isArray(detail?.stops) ? detail.stops : [];
-    const prediction=detail?.live_prediction && typeof detail.live_prediction==='object' ? detail.live_prediction : null;
-    const liveTime=providerClock(prediction?.expected || prediction?.predicted || prediction?.time);
-    const delay=prediction?.delay_minutes == null ? '' : (Number(prediction.delay_minutes)===0?'On time':`${Number(prediction.delay_minutes)>0?'+':''}${prediction.delay_minutes} min`);
-    const route=[detail?.route,detail?.destination?`to ${detail.destination}`:null].filter(Boolean).join(' ');
-    const facts=[detail?.operator,detail?.route_long_name,detail?.match_method==='route_time_position'?'Matched by route, time & position':null].filter(Boolean);
     const rows=stops.map((stop,index)=>{
-      const state=['passed','next','upcoming'].includes(stop?.state) ? stop.state : 'upcoming';
-      const scheduled=providerClock(stop?.clock || stop?.scheduled);
-      const isNext=state==='next';
-      const displayed=isNext&&liveTime ? liveTime : scheduled;
-      const meta=isNext&&liveTime ? ['LIVE PREDICTION',delay].filter(Boolean).join(' • ') : (scheduled?'TIMETABLE':'STOP ORDER');
-      return `<li class="${state}"><i></i><span><strong>${esc(stop?.name || `Stop ${index+1}`)}</strong><small>${esc(meta)}</small></span><b>${esc(displayed || '—')}</b></li>`;
-    }).join('');
-    const heading=humanTransitLabel(route || (detail?.mode==='matched_timetable'?'Matched official trip':'Route detail'));
-    return `<small>LIVE BUS JOURNEY</small>${heading?`<div class="transport-route-head"><strong>${esc(heading)}</strong>${facts.length?`<span>${esc(facts.map(humanTransitLabel).join(' • '))}</span>`:''}</div>`:''}${rows?`<ol class="transport-stops bus-stops">${rows}</ol>`:`<div class="transport-unavailable"><strong>${detail?.mode==='timetable_sync'?'Timetable preparing':'Next stop unavailable'}</strong><span>${esc(detail?.note || 'The operator has not linked this live bus to a timetable trip, so its next stop cannot be identified reliably.')}</span></div>`}<p class="transport-source">${esc(detail?.source || 'DfT BODS')}</p>${rows&&detail?.note?`<p class="transport-note">${esc(detail.note)}</p>`:''}`;
+      const booked=providerClock(stop?.clock || stop?.scheduled);
+      const expected=providerClock(stop?.expected_clock || stop?.expected);
+      return {
+        name:humanTransitLabel(stop?.name || `Stop ${index+1}`),
+        booked:booked||'—',
+        lateClock:expected&&expected!==booked?expected:'',
+        detailHtml:stop?.stop_code?`<span>Stop ${esc(stop.stop_code)}</span>`:'',
+        state:stop?.state,
+      };
+    });
+    const heading=humanTransitLabel([detail?.route?`Route ${detail.route}`:null,detail?.destination?`to ${detail.destination}`:null].filter(Boolean).join(' '));
+    const operator=humanTransitLabel(detail?.operator||'');
+    const lateness=busLatenessLabel(detail);
+    const head=heading||operator||lateness
+      ? `<div class="transport-route-head"><strong>${esc(heading||'Bus journey')}</strong>${operator?`<span>${esc(operator)}</span>`:''}${lateness?`<em class="bus-lateness is-${lateness.tone}">${esc(lateness.text)}</em>`:''}</div>`
+      : '';
+    const list=stopTimelineHtml(rows,{vehicle:'Bus',hasProgress:rows.some(row=>row.state),className:'bus-stops train-full-route'});
+    const empty=`<div class="transport-unavailable"><strong>${detail?.mode==='timetable_sync'?'Timetable preparing':'Stops not available'}</strong><span>This bus has not been linked to a timetabled journey yet.</span></div>`;
+    return `${head}${list||empty}`;
   }
 
   async function loadActivityIntelligence(a, force=false) {
@@ -3012,7 +3089,8 @@
           const label=trainStatusLabel(activityById(a.id)||a);
           const cell=document.querySelector('#detail-fields [data-field="Status"] strong');
           if(cell)cell.textContent=label;
-          else if(label!=='Live')$('detail-fields')?.insertAdjacentHTML('afterbegin',field('Status',label));
+          else if(!['Live','Last known'].includes(label))$('detail-fields')?.insertAdjacentHTML('afterbegin',field('Status',label));
+          toneStatusField(activityById(a.id)||a);
         }
       }
       const html=a.type==='train' ? renderRailIntelligence(detail) : renderBusIntelligence(detail);
@@ -3059,6 +3137,7 @@
     if(detailFreshness)detailFreshness.textContent=staleTrain?'Last known position':'';
     selectedActivitySnapshot=a;
     $('detail-panel')?.classList.toggle('is-train',a.type==='train');
+    $('detail-panel')?.classList.toggle('is-bus',a.type==='bus');
     liveObjectRenderer?.setActivities(filteredActivities(),selectedId);
     setDetailRouteView(false);
     syncDetailRouteControl(a);
@@ -3072,12 +3151,13 @@
     if (pan) { trackProduct('activity_selected', a.type); collapseWorkspaceOnPhone(); }
     const detailCool=coolInfo(a);
     $('detail-title').innerHTML = `${currentWorkspace==='cool' && detailCool.score>=45 ? coolBadgeHtml(a,true)+' ' : ''}${esc(a.name)}`;
-    $('detail-subtitle').textContent = humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
+    const flightRoute=['sar','aircraft'].includes(a.type) ? flightRouteById.get(a.id) : null;
+    $('detail-subtitle').textContent = flightRoute ? flightRouteText(flightRoute) : humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
     renderOperatorIdentity(a);
     renderInsight(a);
     renderDiscoveryDetail(a);
     if (selectionChanged) { clearPhoto(); clearActivityIntelligence(); }
-    if (['sar','aircraft'].includes(a.type)) loadAircraftInfo(a);
+    if (['sar','aircraft'].includes(a.type)) { loadAircraftInfo(a); if (!flightRouteById.has(a.id)) loadFlightRoute(a); }
     else if ((a.type === 'train' && detailCool.candidate) || a.type === 'vessel' || (a.type === 'bus' && a.vehicle_ref)) loadPhoto(a);
     else if (['road','incident'].includes(a.type)) loadNearestCamera(a);
     renderRelated(a);
@@ -3102,14 +3182,25 @@
         // positions stay available behind "More details".
         const age = relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000));
         $('detail-fields').innerHTML = [
-          // "Live" says nothing a moving marker does not; leave it out.
-          field('Status', trainStatusLabel(a)==='Live' ? null : trainStatusLabel(a)), field('Next', humanTransitLabel(a.next_location)), field('Updated', age),
+          // "Live" says nothing a moving marker does not, and "Last known" is
+          // already the heading above the title; leave both out.
+          field('Status', ['Live','Last known'].includes(trainStatusLabel(a)) ? null : trainStatusLabel(a)), field('Next', humanTransitLabel(a.next_location)), field('Updated', age),
           field('Headcode', a.headcode), field('Train UID', a.train_uid), field('Position', a.position_label),
           field('Source', a.source), field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null),
           field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null),
         ].join('');
+        toneStatusField(a);
+      } else if (a.type === 'bus') {
+        // Same compact chips as trains; the route and lateness are in the
+        // journey card below, and fleet identifiers stay under More details.
+        const age = relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000));
+        $('detail-fields').innerHTML = [
+          field('Speed', speed), field('Updated', age), field('Vehicle', a.vehicle_ref), field('Journey ref', a.journey_ref), field('Operator', a.operator),
+          field('Source', a.source), field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null),
+          field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null),
+        ].join('');
       } else
-      $('detail-fields').innerHTML = [field('Route', publishedRoute || (isAircraft?'Not published by this ADS-B feed':null)), field(identityLabel, a.vehicle_ref), field('Identified as', a.identity_label), field('Identity confidence', a.identity_confidence==='type'?'Type identified':(a.identity_confidence==='exact'?'Exact live identifier':null)), field('Aircraft type', aircraftType), field('ICAO type code', a.aircraft_type_code), field('Altitude', altitude), field('Headcode', a.headcode), field('Train UID', a.train_uid), field('Journey ref', a.journey_ref), field('Status', a.status), field('Position', a.position_label), field('Next report', a.next_location), field('Speed', speed), field('Bearing', bearing), field('Delay', delay), field('Occupancy', a.occupancy), field('Operator', a.operator), field('Source', a.source), field('ICAO / source ref', a.source_id), field('Tracking', fmt(a.tracking_count)), field('Updated', timeText(a.last_updated)), field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null), field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null)].join('');
+      $('detail-fields').innerHTML = [field('Route', isAircraft ? (flightRoute ? flightRouteText(flightRoute) : null) : publishedRoute), field(identityLabel, a.vehicle_ref), field('Identified as', a.identity_label), field('Identity confidence', a.identity_confidence==='type'?'Type identified':(a.identity_confidence==='exact'?'Exact live identifier':null)), field('Aircraft type', aircraftType), field('ICAO type code', a.aircraft_type_code), field('Altitude', altitude), field('Headcode', a.headcode), field('Train UID', a.train_uid), field('Journey ref', a.journey_ref), field('Status', a.status), field('Position', a.position_label), field('Next report', a.next_location), field('Speed', speed), field('Bearing', bearing), field('Delay', delay), field('Occupancy', a.occupancy), field('Operator', a.operator), field('Source', a.source), field('ICAO / source ref', a.source_id), field('Tracking', fmt(a.tracking_count)), field('Updated', timeText(a.last_updated)), field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null), field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null)].join('');
       $('follow').classList.remove('hidden');
       $('follow').textContent = followed.has(id) ? 'Saved ✓' : 'Save';
       clearCoverage();
@@ -3131,7 +3222,7 @@
         activity=payload;
         globalCoolById.set(activity.id,activity);
       } catch(error) {
-        showToast(error?.message || 'This live item has ended.');
+        showToast('This is no longer live.');
         loadTodayRadar(true);
         return false;
       }
@@ -3336,7 +3427,7 @@
       const checked=Number(payload.checked||0);
       const note=$('overhead-now')?.querySelector('small');
       if(note)note.textContent=`${nearbyAircraftRows.length} live aircraft • refreshing automatically`;
-      if(announce)showToast(`Showing ${nearbyAircraftRows.length} positioned aircraft${checked?` from ${checked} feed records`:''} within 50 miles.`);
+      if(announce)showToast(nearbyAircraftRows.length?`${nearbyAircraftRows.length} aircraft near you.`:'No aircraft near you right now.');
     }catch(error){
       if(announce)showToast('Nearby aircraft could not refresh; showing the latest retained positions.');
     }finally{
@@ -3657,9 +3748,9 @@
 
   async function claimSelectedDiscovery() {
     const a=activityById(selectedId);if(!a)return;
-    if(!activityIsCollectible(a)){showToast('Rescue and emergency activity stays live context only. It is never collectible.');return;}
+    if(!activityIsCollectible(a)){showToast('Rescues can’t be added to your Field Guide.');return;}
     const existing=collectedRecordForActivity(a);
-    if(existing){setDiscoveryView('guide');showToast('Already saved in your Field Guide.');return;}
+    if(existing){setDiscoveryView('guide');showToast('Already in your Field Guide.');return;}
     if(discoveryClaimPending)return;
     discoveryClaimPending=true;renderDiscoveryDetail(a);
     try {
@@ -3675,8 +3766,8 @@
       const payload=await response.json();
       if(!payload?.discovery?.id)throw new Error('The live discovery could not be verified. Nothing was saved; please retry.');
       storeDiscovery(payload.discovery);
-      trackProduct('discovery_claimed',discoveryCategoryForActivity(a)||'other');showToast(`${collectibleForActivity(a)?.title||a.name} added to your private Field Guide.`);
-    } catch(error) {showToast(error?.message||'Discovery could not be saved right now.');}
+      trackProduct('discovery_claimed',discoveryCategoryForActivity(a)||'other');showToast(`${collectibleForActivity(a)?.title||a.name} added to your Field Guide.`);
+    } catch(error) {showToast(error?.message||'Couldn’t save that right now.');}
     finally {discoveryClaimPending=false;renderDiscoveryDetail(a);}
   }
 
@@ -3772,7 +3863,7 @@
     box.innerHTML=options.map(([type,icon,label])=>`<button type="button" data-radar-interest="${type}" class="${myRadarInterests.has(type)?'active':''}" aria-pressed="${myRadarInterests.has(type)}"><b>${icon}</b><span>${label}</span></button>`).join('');
     box.querySelectorAll('[data-radar-interest]').forEach(button=>button.addEventListener('click',()=>{
       const type=button.dataset.radarInterest;
-      if(!myRadarInterests.has(type)&&!billingState.plus&&myRadarInterests.size>=3){openPlusDialog();showToast('Free My Radar includes three interests. Radar+ unlocks more.');return;}
+      if(!myRadarInterests.has(type)&&!billingState.plus&&myRadarInterests.size>=3){openPlusDialog();showToast('You can pick three interests for free. Radar+ removes the limit.');return;}
       if(myRadarInterests.has(type))myRadarInterests.delete(type);else myRadarInterests.add(type);
       saveMyRadarPreferences();renderMyRadar();trackProduct('my_radar_interest_changed',type);
     }));
@@ -3781,9 +3872,13 @@
   function renderSavedPlaces() {
     const box=$('saved-places-list'),badge=$('saved-places-count');if(!box||!badge)return;
     badge.textContent=savedPlaces.size;
+    badge.classList.toggle('hidden',!savedPlaces.size);
+    // Next departures, nearby activity and alerts all need a saved place;
+    // until there is one, the Saved tab shows only how to add one.
+    document.querySelector('[data-workspace-panel="live"]')?.classList.toggle('has-saved-places',savedPlaces.size>0);
     const rows=[...savedPlaces.values()];
     renderCommuteAlertPlaces();
-    if(!rows.length){box.innerHTML='<p class="my-radar-empty">No places saved yet. Add a station or bus stop to get live times and alerts.</p><button id="my-radar-add-place" class="primary-button my-radar-add-place" type="button">＋ Add a station or bus stop</button>';$('my-radar-add-place')?.addEventListener('click',startAddingMyRadarPlace);return;}
+    if(!rows.length){box.innerHTML='<p class="my-radar-empty">No stations or stops saved yet.</p><button id="my-radar-add-place" class="primary-button my-radar-add-place" type="button">Add a station or bus stop</button>';$('my-radar-add-place')?.addEventListener('click',startAddingMyRadarPlace);return;}
     box.innerHTML=`${rows.map(p=>`<div class="saved-place-row"><button type="button" data-saved-place="${esc(p.id)}"><b>${placeIcons[p.place_type]||iconSvg('pin')}</b><span><strong>${esc(p.name)}</strong><small>${esc((p.place_type||'place').replaceAll('_',' '))}</small></span></button><button type="button" data-remove-place="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">×</button></div>`).join('')}<button id="my-radar-add-place" class="ghost-button my-radar-add-place" type="button">＋ Add another place</button>`;
     box.querySelectorAll('[data-saved-place]').forEach(button=>button.addEventListener('click',async()=>{
       const row=savedPlaces.get(button.dataset.savedPlace);if(!row)return;
@@ -3797,7 +3892,7 @@
     placeMode='all';if($('place-mode'))$('place-mode').value='all';
     if(map.getZoom()<13)map.setZoom(13);
     await fetchPlaces();updateLayerToggleUi();
-    showToast('Stations and bus stops are on. Tap one on the map, then choose Save place.');
+    showToast('Tap a station or bus stop on the map, then tap Save place.');
     trackProduct('my_radar_add_place_started','place');
   }
 
@@ -3874,7 +3969,7 @@
 
   async function enableCommuteAlerts() {
     const place=savedPlaces.get($('commute-alert-place')?.value||'');
-    if(!place){showToast('Save a station, stop or place first, then choose it here.');return;}
+    if(!place){showToast('Save a station or stop first.');return;}
     if(!commuteAlertStatus.configured){showToast('Alerts are not available yet.');return;}
     if(!('serviceWorker' in navigator)||!('Notification' in window)||!('PushManager' in window)){showToast('This browser does not support travel alerts.');return;}
     try {
@@ -3887,7 +3982,7 @@
       const response=await fetch('/api/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken(),subscription:subscription.toJSON(),preferences})});
       const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.detail||'Alerts could not be enabled.');
       commuteAlertStatus={...commuteAlertStatus,subscribed:true,preferences};renderCommuteAlertStatus();showToast('Travel alerts are active on this device.');trackProduct('commute_alert_enabled',preferences.mode);
-    } catch(error){showToast(error?.message||'Travel alerts could not be enabled.');}
+    } catch(error){showToast('Travel alerts couldn’t be turned on.');}
   }
 
   async function disableCommuteAlerts() {
@@ -3907,7 +4002,7 @@
     const matchesInterest=a=>myRadarInterests.has(a.type)||(a.type==='sar'&&myRadarInterests.has('aircraft'));
     const interesting=matching.filter(a=>myRadarInterests.size?matchesInterest(a):interestInfo(a).score>=15).sort((a,b)=>interestInfo(b).score-interestInfo(a).score);
     const top=interesting.slice(0,4);
-    box.innerHTML=`<div class="my-area-counts"><strong>${matching.length}</strong><span>live near ${anchors.length} saved area${anchors.length===1?'':'s'}</span><b>${interesting.length} relevant</b></div>${top.length?top.map(a=>`<button type="button" data-area-activity="${esc(a.id)}"><span>${icons[a.type]||'•'}</span><div><strong>${esc(a.name)}</strong><small>${esc(a.cool_explanation||a.status||a.subtitle||'Live')}</small></div><b>›</b></button>`).join(''):'<p class="my-radar-empty">Nothing matching your interests is live nearby right now.</p>'}`;
+    box.innerHTML=`${top.length?top.map(a=>`<button type="button" data-area-activity="${esc(a.id)}"><span>${icons[a.type]||'•'}</span><div><strong>${esc(a.name)}</strong>${(a.cool_explanation||a.subtitle)?`<small>${esc(a.cool_explanation||a.subtitle)}</small>`:''}</div><b>›</b></button>`).join(''):'<p class="my-radar-empty">Nothing of interest near your places right now.</p>'}`;
     box.querySelectorAll('[data-area-activity]').forEach(button=>button.addEventListener('click',()=>selectActivity(button.dataset.areaActivity,true,11)));
   }
 
@@ -3917,9 +4012,10 @@
     if (!box || !badge) return;
     renderMyRadarInterests();renderSavedPlaces();renderMyRadarArea();
     badge.textContent = followed.size;
+    badge.classList.toggle('hidden', !followed.size);
     const live = [...followed].map(activityById).filter(Boolean).sort((a,b)=>new Date(b.last_updated)-new Date(a.last_updated));
     if (!followed.size) { box.innerHTML = '<p class="my-radar-empty">Nothing saved yet. Tap Save on a train to be told if it runs late, is cancelled or changes platform.</p>'; return; }
-    if (!live.length) { box.innerHTML = `<p class="my-radar-empty">${followed.size} saved favourite${followed.size===1?'':'s'} • none are in the current live snapshot.</p>`; return; }
+    if (!live.length) { box.innerHTML = '<p class="my-radar-empty">None of your saved trains or vehicles are running right now.</p>'; return; }
     box.innerHTML = live.slice(0,8).map(a => `<button type="button" class="my-radar-row" data-my-radar="${esc(a.id)}"><b>${icons[a.type] || '•'}</b><span><strong>${esc(a.name)}</strong><span>${esc(a.status || a.subtitle || 'Live')}</span></span><em>${(a.tracking_count||0) ? `${fmt(a.tracking_count)} watching` : 'LIVE'}</em></button>`).join('');
     box.querySelectorAll('[data-my-radar]').forEach(btn=>btn.addEventListener('click',()=>selectActivity(btn.dataset.myRadar,true)));
   }
@@ -3941,7 +4037,7 @@
     }
     const copied=await copyShareText([text,url].filter(Boolean).join('\n'));
     if(copied){showToast(successMessage);return true;}
-    window.open(url,'_blank','noopener');showToast('The live page has been opened in a new tab.');return true;
+    window.open(url,'_blank','noopener');showToast('Opened in a new tab.');return true;
   }
 
   async function shareSelectedActivity() {
@@ -3953,12 +4049,12 @@
       const text=[a.name,a.cool_explanation||a.reason||a.subtitle||a.status,`Updated ${timeText(a.last_updated)}`].filter(Boolean).join(' • ');
       await shareOrCopy({title:`${a.name} — UK Activity Radar`,text,url,successMessage:'Live link and summary copied.'});
       trackProduct('activity_shared',a.type||'other');
-    } catch(error){if(error?.name!=='AbortError')showToast(error?.message||'Sharing is unavailable right now.');}
+    } catch(error){if(error?.name!=='AbortError')showToast('Sharing isn’t available right now.');}
   }
 
   function todayRow(row,label) {
     if(!row)return '';
-    return `<button type="button" class="today-row" data-today-activity="${esc(row.activity_id)}"><span>${icons[row.type]||icons.space}</span><div><small>${esc(label)}</small><strong>${esc(row.name)}</strong><p>${esc(row.reason||row.status||row.subtitle||'Verified live activity')}</p></div><b>›</b></button>`;
+    return `<button type="button" class="today-row" data-today-activity="${esc(row.activity_id)}"><span>${icons[row.type]||icons.space}</span><div>${label?`<small>${esc(label)}</small>`:''}<strong>${esc(row.name)}</strong>${(row.reason||row.status||row.subtitle)?`<p>${esc(row.reason||row.status||row.subtitle)}</p>`:''}</div><b>›</b></button>`;
   }
 
   async function loadTodayRadar(force=false) {
@@ -3969,10 +4065,10 @@
       const response=await fetch(`/api/today${since?`?since=${encodeURIComponent(new Date(Number(since)).toISOString())}`:''}`,{cache:'no-store'});
       if(!response.ok)throw new Error('summary unavailable');const payload=await response.json();
       const fresh=(payload.new_since||[])[0],disruption=(payload.disruptions||[])[0];
-      box.innerHTML=[todayRow(payload.best,'BEST NOW'),fresh&&fresh.activity_id!==payload.best?.activity_id?todayRow(fresh,'NEW'):'',disruption?todayRow(disruption,'TRAVEL WATCH'):'' ].filter(Boolean).join('')||'<p class="left-empty">Nothing notable right now.</p>';
+      box.innerHTML=[todayRow(payload.best,''),fresh&&fresh.activity_id!==payload.best?.activity_id?todayRow(fresh,'New'):'',disruption?todayRow(disruption,'Disruption'):'' ].filter(Boolean).join('')||'<p class="left-empty">Nothing notable right now.</p>';
       box.querySelectorAll('[data-today-activity]').forEach(button=>button.addEventListener('click',()=>focusActivityById(button.dataset.todayActivity,11)));
       try{localStorage.setItem(TODAY_LAST_VISIT_KEY,String(Date.now()));}catch{}
-    } catch { box.innerHTML='<p class="left-empty">Today’s summary is reconnecting. The live map still works below.</p>'; }
+    } catch { box.innerHTML='<p class="left-empty">Reconnecting…</p>'; }
   }
 
   function loadWatchZones() {
@@ -4045,9 +4141,9 @@
     const top=candidates[0];
     const more=candidates.slice(1,6);
     const emptyScope=radius==null?'in the current UK live feed':`within ${Math.round(radius/1.609344)} miles`;
-    const moreHtml=more.length?`<div class="cool-find-list"><div class="cool-find-head"><strong>More finds</strong><span>${candidates.length} matched live</span></div>${more.map(x=>`<button type="button" class="cool-find-row${isNewDiscoveryActivity(x.a)?' is-new':''}" data-cool-find="${esc(x.a.id)}"><span>${coolBadgeHtml(x.a,true)}</span><span><strong>${isNewDiscoveryActivity(x.a)?'<em class="discovery-new-tag">NEW</em> ':''}${esc(x.a.name)}${activityMatchesInterests(x.a)?' <em class="interest-match">MY INTEREST</em>':''}</strong><small>${esc(x.c.reasons[0]||x.a.subtitle||'Unusual live movement')} • updated ${esc(discoveryFreshness(x.a))}</small></span><b>›</b></button>`).join('')}</div>`:'';
-    const previewNote=!globalCoolAvailability.fullAccess&&globalCoolAvailability.total>candidates.length?`<p class="cool-preview-note">Showing a balanced ${candidates.length}-item preview from ${globalCoolAvailability.total} live Discover matches. Radar+ shows the full set.</p>`:'';
-    box.innerHTML=`<div class="cool-scoreboard">${counts.map(x=>`<div><span class="cool-mini-icon cool-${x.theme}">${x.theme==='air'?'▲':x.theme==='rail'?'◆':'✚'}</span><strong>${x.n}</strong><small>${x.label}</small></div>`).join('')}</div>${previewNote}${top?`<button class="cool-hero-hit${isNewDiscoveryActivity(top.a)?' is-new':''}" type="button" data-cool-top="${esc(top.a.id)}"><span>${coolBadgeHtml(top.a,false)}</span><div><small>${isNewDiscoveryActivity(top.a)?'NEW • ':''}${activityIsCollectible(top.a)?'BEST LIVE FIND':'LIVE INCIDENT'} • updated ${esc(discoveryFreshness(top.a))}</small><strong>${esc(top.a.name)}${activityMatchesInterests(top.a)?' <em class="interest-match">MY INTEREST</em>':''}</strong><p>${esc(top.c.reasons[0]||top.a.subtitle||'Unusual live movement')}${activityIsCollectible(top.a)?` • ${top.km<1?'<1':Math.round(top.km)} km from map centre`:''}</p></div><b>›</b></button>${moreHtml}`:`<div class="cool-empty">Nothing unusual spotted ${emptyScope} right now.</div>`}`;
+    const moreHtml=more.length?`<div class="cool-find-list"><div class="cool-find-head"><strong>More finds</strong></div>${more.map(x=>`<button type="button" class="cool-find-row${isNewDiscoveryActivity(x.a)?' is-new':''}" data-cool-find="${esc(x.a.id)}"><span>${coolBadgeHtml(x.a,true)}</span><span><strong>${isNewDiscoveryActivity(x.a)?'<em class="discovery-new-tag">NEW</em> ':''}${esc(x.a.name)}${activityMatchesInterests(x.a)?' <em class="interest-match">Your interest</em>':''}</strong><small>${esc(x.c.reasons[0]||x.a.subtitle||'Unusual live movement')} • updated ${esc(discoveryFreshness(x.a))}</small></span><b>›</b></button>`).join('')}</div>`:'';
+    const previewNote=!globalCoolAvailability.fullAccess&&globalCoolAvailability.total>candidates.length?`<p class="cool-preview-note">Showing ${candidates.length} of ${globalCoolAvailability.total}. Radar+ shows them all.</p>`:'';
+    box.innerHTML=`<div class="cool-scoreboard">${counts.map(x=>`<div><span class="cool-mini-icon cool-${x.theme}">${x.theme==='air'?'▲':x.theme==='rail'?'◆':'✚'}</span><strong>${x.n}</strong><small>${x.label}</small></div>`).join('')}</div>${previewNote}${top?`<button class="cool-hero-hit${isNewDiscoveryActivity(top.a)?' is-new':''}" type="button" data-cool-top="${esc(top.a.id)}"><span>${coolBadgeHtml(top.a,false)}</span><div><small>${isNewDiscoveryActivity(top.a)?'NEW • ':''}${activityIsCollectible(top.a)?'BEST LIVE FIND':'LIVE INCIDENT'} • updated ${esc(discoveryFreshness(top.a))}</small><strong>${esc(top.a.name)}${activityMatchesInterests(top.a)?' <em class="interest-match">Your interest</em>':''}</strong><p>${esc(top.c.reasons[0]||top.a.subtitle||'Unusual live movement')}${activityIsCollectible(top.a)?` · ${top.km<1?'under 1':Math.round(top.km)} km away`:''}</p></div><b>›</b></button>${moreHtml}`:`<div class="cool-empty">Nothing unusual spotted ${emptyScope} right now.</div>`}`;
     box.querySelector('[data-cool-top]')?.addEventListener('click',e=>selectActivity(e.currentTarget.dataset.coolTop,true,11));
     box.querySelectorAll('[data-cool-find]').forEach(button=>button.addEventListener('click',()=>selectActivity(button.dataset.coolFind,true,11)));
   }
@@ -4281,7 +4377,7 @@
         const isPlace = row.kind === 'place';
         const attr = isPlace ? `data-place="${esc(row.id)}"` : `data-activity="${esc(row.id)}"`;
         const icon = isPlace ? (placeIcons[row.place_type] || iconSvg('pin')) : (icons[row.type] || '•');
-        return `<button type="button" class="search-result" ${attr}><span class="search-result-icon">${icon}</span><span><strong>${esc(row.name)}</strong><span>${esc([row.distance_km != null ? `${row.distance_km} km away` : null,row.subtitle || row.source || (isPlace?'Smart place':'Live activity')].filter(Boolean).join(' • '))}</span></span></button>`;
+        return `<button type="button" class="search-result" ${attr}><span class="search-result-icon">${icon}</span><span><strong>${esc(row.name)}</strong><span>${esc([row.distance_km != null ? `${row.distance_km} km away` : null,row.subtitle || row.source || (isPlace?'Place':'Live activity')].filter(Boolean).join(' • '))}</span></span></button>`;
       });
       if (payload.location) buttons.push(`<button type="button" class="search-result" data-location="1"><span class="search-result-icon">${iconSvg('pin')}</span><span><strong>Go to location</strong><span>${esc(payload.location.name)}</span></span></button>`);
       box.innerHTML = buttons.length ? buttons.join('') : '<div class="search-empty">No matching place or live activity.</div>';
@@ -4364,7 +4460,7 @@
     const option=lastJourneyPayload?.itineraries?.[Number(index)];
     const geometry=Array.isArray(option?.geometry)?option.geometry:[];
     const points=geometry.map(point=>[Number(point.lat),Number(point.lon)]).filter(([lat,lon])=>Number.isFinite(lat)&&Number.isFinite(lon));
-    if(points.length<2){showToast('This route has no map line to display.');return;}
+    if(points.length<2){showToast('This route can’t be drawn on the map.');return;}
     clearJourneyRoute();
     journeyRouteOutline=L.polyline(points,{pane:'journeyPane',color:'#071019',weight:13,opacity:.92,interactive:false,className:'journey-route-outline'}).addTo(map);
     journeyRouteLayer=L.polyline(points,{pane:'journeyPane',color:'#77f3ff',weight:7,opacity:1,interactive:false,className:'journey-route-line'}).addTo(map);
@@ -4379,7 +4475,7 @@
     diagnostics.journeyRoutesShown=(diagnostics.journeyRoutesShown||0)+1;
     closeJourneyPlanner();
     map.fitBounds(L.latLngBounds(points),{padding:[45,45],maxZoom:13});
-    showToast(`${points.length} route points mapped${journeyIssueMarkers.length?` • ${journeyIssueMarkers.length} issue${journeyIssueMarkers.length===1?'':'s'} marked`:''}.`);
+    showToast(journeyIssueMarkers.length?`Route shown with ${journeyIssueMarkers.length} problem${journeyIssueMarkers.length===1?'':'s'} on the way.`:'Route shown on the map.');
   }
 
   function clearJourneyRoute() {
@@ -4575,10 +4671,10 @@
     const count=activities.filter(a=>layerTypeMatch(a,selectedType)).length;
     if(!count && selectedType!=='all') {
       const names=layerSourceNames[selectedType]||[]; const st=latestSources.find(x=>names.includes(x.name));
-      if(st?.mode==='setup') showToast(`${sourceMeta[st.name]?.label||st.name}: setup needed — ${st.message}`);
-      else if(st?.mode==='error') showToast(`${sourceMeta[st.name]?.label||st.name}: ${st.message}`);
-      else if(selectedType==='vessel' && st?.connected) showToast('No ships are visible here. Move closer to the coast.');
-      else if(selectedType==='sar' && st?.connected) showToast('No rescue aircraft are visible here right now.');
+      if(st?.mode==='setup') showToast(`${sourceMeta[st.name]?.label||st.name} isn’t available right now.`);
+      else if(st?.mode==='error') showToast(`${sourceMeta[st.name]?.label||st.name} isn’t available right now.`);
+      else if(selectedType==='vessel' && st?.connected) showToast('No ships here. Try nearer the coast.');
+      else if(selectedType==='sar' && st?.connected) showToast('No rescue aircraft here right now.');
     }
   }));
   document.querySelectorAll('[data-cool-rail-subtype]').forEach(button => button.addEventListener('click', () => {
@@ -4631,11 +4727,11 @@
     const c=map.getCenter();
     try {
       const r=await fetch(`/api/places/nearest-rail?lat=${encodeURIComponent(c.lat)}&lon=${encodeURIComponent(c.lng)}`,{cache:'no-store'});
-      if(r.ok){ const d=await r.json(); const p=d.place; if(p){ if(!places.some(x=>x.id===p.id))places.push(p); renderPlaces(); await selectPlace(p.id,true); showToast(`Opened ${p.name} live station board.`); return; } }
+      if(r.ok){ const d=await r.json(); const p=d.place; if(p){ if(!places.some(x=>x.id===p.id))places.push(p); renderPlaces(); await selectPlace(p.id,true);  return; } }
     } catch {}
     const rows=await fetchPlaces();
     const rail=(rows||places).filter(p=>p.place_type==='rail_station').sort((a,b)=>distanceKm(c.lat,c.lng,a.lat,a.lon)-distanceKm(c.lat,c.lng,b.lat,b.lon));
-    if(rail[0]){await selectPlace(rail[0].id,true);showToast(`Opened ${rail[0].name} live station board.`);}else showToast('No rail station metadata is ready yet. If this is a fresh install, configure TomTom or let the station cache finish syncing.');
+    if(rail[0]){await selectPlace(rail[0].id,true);}else showToast('Stations are still loading. Try again in a minute.');
   });
   function closeDetailSelection(){
     $('detail-panel')?.classList.remove('show-technical');
@@ -4685,7 +4781,7 @@
     if(currentWorkspace==='cool'){selectedType='cool-off';document.querySelectorAll('.filter').forEach(x=>x.classList.remove('active'));$('cool-map-switch')?.classList.add('active');}
     fetchPlaces(); sendViewport(); updateLayerToggleUi();
     renderMap(); renderHeatmap(); renderStats(); renderRanking(); renderNearbySummary(); renderLiveTicker();
-    showToast('Map cleared. Choose any layer when you want it.');
+    showToast('Map cleared.');
   });
   $('near-radius').addEventListener('change', e => { nearbyState.radiusMiles = Number(e.target.value || 10); if (nearbyState.active) { renderNearbyOverlay(); renderMap(); renderStats(); renderRanking(); } });
   function showDeviceLocation(lat,lon) {
@@ -4715,13 +4811,13 @@
       if(!startup)trackProduct('nearby_used','recenter-location');
     },()=>{
       const button=$('recenter');if(button){button.textContent='Locate me';button.title='Allow location to centre the map near you';}
-      if(!silent)showToast('Location permission was not granted. The Britain overview remains available.');
+      if(!silent)showToast('Location is off, so the map shows all of Britain.');
     },{enableHighAccuracy:false,timeout:8000,maximumAge:300000});
   }
 
   $('near-me').addEventListener('click', () => {
     const button=$('near-me'),note=button?.querySelector('small');
-    if (!navigator.geolocation) { showToast('Location is not available in this browser. Search for a place instead.'); return; }
+    if (!navigator.geolocation) { showToast('Location isn’t available. Search for a place instead.'); return; }
     if(button)button.disabled=true;if(note)note.textContent='Finding your nearest stop…';
     navigator.geolocation.getCurrentPosition(async pos => {
       const lat=pos.coords.latitude,lon=pos.coords.longitude;
@@ -4741,16 +4837,16 @@
         renderPlaces();sendViewport();await selectPlace(place.id,true);
         const distance=Number(place.distance_km);showToast(`Opened ${place.name}${Number.isFinite(distance)?` • ${distance<1?Math.round(distance*1000)+' m':distance.toFixed(1)+' km'} away`:''}.`);
       } catch(error) {
-        places=[];transientNearestBusPlaceId=null;renderPlaces();showToast(error?.message||'Your nearest bus stop could not load right now.');
+        places=[];transientNearestBusPlaceId=null;renderPlaces();showToast('Your nearest bus stop couldn’t load right now.');
       } finally {if(button)button.disabled=false;if(note)note.textContent='Nearest stop and live departures';}
-    }, () => {if(button)button.disabled=false;if(note)note.textContent='Nearest stop and live departures';showToast('Location permission was not granted. Search for a stop instead.');}, {enableHighAccuracy:true,timeout:10000,maximumAge:120000});
+    }, () => {if(button)button.disabled=false;if(note)note.textContent='Nearest stop and live departures';showToast('Location is off. Search for a stop instead.');}, {enableHighAccuracy:true,timeout:10000,maximumAge:120000});
   });
   $('overhead-now')?.addEventListener('click',()=>{
     const button=$('overhead-now');
     if(overheadActive){
       clearTransientLocationModes();
       selectedType=currentWorkspace==='cool'?'cool-off':'useful';
-      renderNearbyOverlay();sendViewport();renderMap();renderStats();renderRanking();showToast('Aircraft above-me view turned off.');return;
+      renderNearbyOverlay();sendViewport();renderMap();renderStats();renderRanking();showToast('Showing everything again.');return;
     }
     if(!navigator.geolocation){showToast('Location is not available in this browser.');return;}
     if(button){button.disabled=true;button.querySelector('small').textContent='Finding your location…';}
@@ -4768,7 +4864,7 @@
       sendViewport();
       if(button){button.disabled=false;}
     },()=>{
-      showToast('Location permission was not granted.');
+      showToast('Location is off.');
       if(button){button.disabled=false;button.querySelector('small').textContent='Aircraft received within 50 miles';}
     },{enableHighAccuracy:false,timeout:7000,maximumAge:120000});
   });
@@ -4784,7 +4880,7 @@
   $('follow').addEventListener('click', () => {
     if (!selectedId) return;
     const wasFollowing = followed.has(selectedId);
-    if(!wasFollowing&&!billingState.plus&&followed.size>=3){openPlusDialog();showToast('Free My Radar includes three followed items. Radar+ unlocks more.');return;}
+    if(!wasFollowing&&!billingState.plus&&followed.size>=3){openPlusDialog();showToast('You can save three items for free. Radar+ removes the limit.');return;}
     if (wasFollowing) followed.delete(selectedId); else followed.add(selectedId);
     saveFollowed(); renderMyRadar();
     const selected = activityById(selectedId);
@@ -4816,8 +4912,8 @@
   $('share-activity')?.addEventListener('click',shareSelectedActivity);
   $('save-place')?.addEventListener('click',()=>{
     const place=places.find(row=>row.id===selectedPlaceId);if(!place)return;
-    if(savedPlaces.has(place.id)){savedPlaces.delete(place.id);showToast(`${place.name} removed from My Radar.`);}
-    else {if(!billingState.plus&&savedPlaces.size>=2){openPlusDialog();showToast('Free My Radar includes two saved places. Radar+ unlocks more.');return;}savedPlaces.set(place.id,{id:place.id,name:place.name,subtitle:place.subtitle,place_type:place.place_type,lat:Number(place.lat),lon:Number(place.lon),crs:place.crs,atco_code:place.atco_code,source:place.source});showToast(`${place.name} saved to My Radar.`);}
+    if(savedPlaces.has(place.id)){savedPlaces.delete(place.id);showToast(`${place.name} removed from Saved.`);}
+    else {if(!billingState.plus&&savedPlaces.size>=2){openPlusDialog();showToast('You can save two places for free. Radar+ removes the limit.');return;}savedPlaces.set(place.id,{id:place.id,name:place.name,subtitle:place.subtitle,place_type:place.place_type,lat:Number(place.lat),lon:Number(place.lon),crs:place.crs,atco_code:place.atco_code,source:place.source});showToast(`${place.name} saved.`);}
     saveMyRadarPreferences();renderMyRadar();$('save-place').textContent=savedPlaces.has(place.id)?'Saved ✓':'Save place';trackProduct('place_saved',place.place_type||'place');
   });
   $('today-refresh')?.addEventListener('click',()=>loadTodayRadar(true));

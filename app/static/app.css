@@ -963,10 +963,10 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 
 /* Train facts: one row of equal cells with no empty cell, whether two or
    three facts are known. Hairlines come from the gap, not per-cell borders. */
-.detail-panel.is-train > .detail-fields { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); }
-.detail-panel.is-train > .detail-fields > .detail-field { flex: 1 1 28%; border: 0 !important; background: var(--surface); }
-.detail-panel.is-train > .detail-fields > .detail-field.is-technical { display: none; }
-.detail-panel.is-train.show-technical > .detail-fields > .detail-field.is-technical { display: grid; }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field { flex: 1 1 28%; border: 0 !important; background: var(--surface); }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field.is-technical { display: none; }
+.detail-panel:is(.is-train,.is-bus).show-technical > .detail-fields > .detail-field.is-technical { display: grid; }
 
 /* Map chips: fade the last chip when the row scrolls, so a cut-off chip
    reads as "more this way" rather than broken. */
@@ -988,3 +988,40 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
   .nearby-note { top: 124px; font-size: 13px; }
   .bus-zoom-note, .watch-toast { top: 168px; }
 }
+
+/* ---- Compact train facts: one line of small chips, not big boxes ---- */
+.detail-panel:is(.is-train,.is-bus) > .detail-fields { display: flex; flex-wrap: wrap; gap: 6px; background: none; border: 0; border-radius: 0; overflow: visible; }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field { flex: none; display: inline-flex; align-items: baseline; gap: 5px; padding: 5px 10px; border: 0 !important; border-radius: 999px; background: var(--subtle, #f2f4f7); }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field.is-technical { display: none; }
+.detail-panel:is(.is-train,.is-bus).show-technical > .detail-fields > .detail-field.is-technical { display: inline-flex; }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field span { font-size: 12px; }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field strong { font-size: 13px; font-weight: 700; }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-field="Status"] span { display: none; }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-tone="good"] { background: var(--good-soft, #e7f6ee); }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-tone="good"] strong { color: var(--good, #1e7a54); }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-tone="warn"] { background: #fff4dc; }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-tone="warn"] strong { color: #9a5b00; }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-tone="bad"] { background: var(--bad-soft); }
+.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-tone="bad"] strong { color: var(--bad); }
+
+/* ---- Shared stop list: earlier stops and bus lateness ---- */
+.transport-stops li.is-earlier { display: none; }
+.transport-stops.earlier-open li.is-earlier { display: grid; }
+.transport-stops li.earlier-toggle { display: block; list-style: none; padding: 0 0 6px; }
+.transport-stops li.earlier-toggle::before, .transport-stops li.earlier-toggle::after { display: none !important; }
+.earlier-toggle button { border: 0; background: none; padding: 4px 0; color: var(--accent, #0b63ce); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.transport-route-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 10px; }
+.transport-route-head strong { font-size: 15px; }
+.transport-route-head span { color: var(--muted); font-size: 13px; }
+.bus-lateness { font-style: normal; font-size: 13px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.bus-lateness.is-good { background: var(--good-soft, #e7f6ee); color: var(--good, #1e7a54); }
+.bus-lateness.is-warn { background: #fff4dc; color: #9a5b00; }
+.bus-lateness.is-bad { background: var(--bad-soft); color: var(--bad); }
+
+/* ---- Wording and feature clean-up ---- */
+[hidden] { display: none !important; }
+.count-badge.hidden { display: none; }
+/* The Saved tab: until a place is saved, only the way to add one. */
+[data-workspace-panel="live"]:not(.has-saved-places) .passing-next-card,
+[data-workspace-panel="live"]:not(.has-saved-places) .commute-alert-card,
+[data-workspace-panel="live"]:not(.has-saved-places) .my-radar-step:has(#my-radar-area) { display: none; }

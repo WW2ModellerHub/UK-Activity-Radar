@@ -586,15 +586,20 @@ class BusTimetableService:
         _, service_date, timeline = min(candidates, key=lambda item: item[0])
         reported_stop = str(getattr(vehicle, "next_location", None) or "").strip().casefold()
         next_index = None
+        next_from_report = False
         if reported_stop:
             next_index = next((index for index, row in enumerate(timeline) if reported_stop in {
                 str(row.get("stop_id") or "").casefold(), str(row.get("stop_code") or "").casefold()
             }), None)
+            next_from_report = next_index is not None
         if next_index is None:
             next_index = next((index for index, row in enumerate(timeline)
                                if datetime.fromisoformat(row["scheduled"]) >= now - timedelta(minutes=3)), len(timeline) - 1)
-        start = max(0, next_index - 2)
-        shown = timeline[start:start + max(3, min(30, int(limit)))]
+        # The whole journey: the app opens it at the stop before the bus and
+        # keeps earlier stops behind a button. Very long trips are trimmed to
+        # 20 stops before the bus and enough after it.
+        start = max(0, next_index - 20)
+        shown = timeline[start:next_index + max(12, min(60, int(limit)))]
         for index, row in enumerate(shown, start=start):
             row["state"] = "next" if index == next_index else ("passed" if index < next_index else "upcoming")
         payload = {
@@ -604,6 +609,9 @@ class BusTimetableService:
             "destination": trip["headsign"], "operator": trip["agency_name"],
             "trip_id": trip["trip_id"], "next_stop_id": timeline[next_index]["stop_id"], "stops": shown,
             "match_method": match_method,
+            # True when the operator's GPS feed named the next stop, so the
+            # timetable time there says how late the bus is.
+            "next_from_report": next_from_report,
             "note": ("Stop order and times are the official timetable. The live feed's journey reference matched this trip exactly."
                      if match_method == "exact_trip" else
                      "The operator uses a different live journey reference. This official timetable trip is the best route/time/position match; times remain scheduled, not live predictions."),

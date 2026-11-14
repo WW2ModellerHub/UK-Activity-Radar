@@ -1,5 +1,45 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — panel and wording clean-up
+
+- **Removed from the panels** (code kept dormant): "Look around another place"
+  (map-centre radius filter), "What's around the map centre?" (a box of
+  "Nothing current in range 0"), watch zones (named with a browser prompt),
+  roadside equipment layer, density overlay, the Right now Refresh button and
+  every small upper-case kicker above headings.
+- **Saved tab** shows only how to add a place until one is saved; next
+  departures, nearby activity and travel alerts appear after. Saved trains
+  are a plain section, not hidden in "Following and watch zones". Count
+  badges hide at zero; the "N live near N saved areas / N relevant" counter
+  is gone.
+- **Plain wording** across the Map, Discover, Saved and More tabs, the Radar+
+  and journey dialogs and ~35 messages (no more "My Radar", "positioned
+  aircraft from feed records", "setup needed — <feed message>", "configure
+  TomTom", "BEST NOW", "TRAVEL WATCH", "5 matched live", "balanced N-item
+  preview"). "Aircraft above me" said 50 miles while filtering 25: it is now
+  "Planes overhead — within 25 miles of you".
+- **Discover descriptions** rewritten without "Identified … / movement /
+  excluded from Best Spot" (e.g. "Military fast jet.", "Steam locomotive.").
+- Layer switches use the line icons instead of emoji.
+
+## 2026-11-14 — compact facts, stop lists, bus lateness, flight routes
+
+- **Compact facts.** Train and bus panels show status, next stop and update
+  time as one row of small chips (status coloured by lateness) instead of
+  large boxes. "Last known" is not repeated under the heading that says it.
+- **Stop lists open where the vehicle is.** Trains and buses share one stop
+  list that starts at the stop before the vehicle; earlier stops sit behind
+  "Show N earlier stops". Buses gain the "Bus is here" marker and late times.
+- **Bus lateness.** The operator's BODS prediction is used when published;
+  otherwise, when the GPS feed names the stop the bus is heading for and its
+  timetable time has passed, the bus is "About N min late". Expected times
+  are added to the stops ahead. The full route is now sent (trimmed to 20
+  stops before the bus on very long trips).
+- **Flight routes.** Airline flights show departure and arrival airports
+  ("London Stansted (STN) → Dublin (DUB)") from adsb.lol's route database,
+  only when it marks the route plausible for the aircraft's position;
+  cached per callsign. `/api/activity/{id}/flight-route`.
+
 ## 2026-11-14 — pale base map
 
 - Back to the pale Mapbox Light base map, now used everywhere (with or

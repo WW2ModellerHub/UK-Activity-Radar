@@ -226,7 +226,7 @@ async function installAppFixture(page) {
         }
         return route.fulfill({ json:{ ok:true, discovery:{
           id:'rail:steam', key:'rail:steam', activity_id:'steam-live-1', category:'rail', subtype:'steam', title:'Steam Train',
-          explanation:'Steam-hauled movement.', icon:'♨', confidence:'high', freshness:'live', age_seconds:60, fresh_for_seconds:2700,
+          explanation:'Steam locomotive.', icon:'♨', confidence:'high', freshness:'live', age_seconds:60, fresh_for_seconds:2700,
           observed_at:'2026-10-05T10:00:00Z', discovered_at:'2026-10-05T10:01:00Z', broad_region:'Northern England and Wales',
           source:'Network Rail TRUST', identity_level:'type', identity_note:'The movement type is classified, but its exact locomotive or formation is not confirmed.',
           weeks:['2026-W41'],
@@ -235,6 +235,8 @@ async function installAppFixture(page) {
       if (pathname === '/api/product/plans') return route.fulfill({ json: { payments_enabled:false, plans:[] } });
       if (pathname === '/api/product/summary') return route.fulfill({ json: { anonymous_sessions:0, events:{}, pricing_interest:{} } });
       if (pathname === '/api/product/event') return route.fulfill({ json: { ok:true } });
+      if (decodedPathname.includes('/api/activity/aircraft-live-3/flight-route')) return route.fulfill({ json:{ found:true, route:{ origin:{name:'London Stansted',iata:'STN',icao:'EGSS'}, destination:{name:'Dublin',iata:'DUB',icao:'EIDW'}, via:[] } } });
+      if (decodedPathname.endsWith('/flight-route')) return route.fulfill({ json:{ found:false, route:null } });
       if (decodedPathname.includes('/api/activity/aircraft-live-3/aircraft')) return route.fulfill({ json:{ ok:true, registration:'EI-IGJ', model:'Boeing 737-8200', operator:'Ryanair', country:'Ireland' } });
       if (decodedPathname.includes('/api/activity/aircraft-live-3/media')) return route.fulfill({ json:{ ok:true, title:'EI-IGJ Ryanair Boeing 737-8200', thumbnail_url:'https://upload.wikimedia.org/fixture-ryanair.jpg', page_url:'https://commons.wikimedia.org/wiki/File:Fixture_Ryanair', artist:'Fixture Aviation Photographer', license:'CC BY-SA 4.0', license_url:'https://creativecommons.org/licenses/by-sa/4.0/', source:'Wikimedia Commons', match_kind:'exact_airframe' } });
       if (pathname.includes('/api/activity/aircraft-live-') && pathname.endsWith('/aircraft')) return route.fulfill({ json:{ ok:true, registration:'ZK001', model:'Eurofighter Typhoon', country:'United Kingdom' } });

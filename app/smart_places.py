@@ -90,6 +90,53 @@ def _location_event_time(location: dict, event: str) -> datetime | None:
     return next((location.get(key) for key in order if location.get(key)), None)
 
 
+def _with_bus_lateness(payload: dict, now: datetime | None = None) -> dict:
+    """Add how late a bus is, and expected times at the stops ahead.
+
+    The operator's own prediction wins. Otherwise, when the GPS feed names the
+    stop the bus is heading for and the timetable time there has passed, the
+    bus is at least that late ("about"). Nothing is guessed when the next stop
+    was only inferred from the clock.
+    """
+    stops = payload.get('stops') if isinstance(payload, dict) else None
+    if not stops:
+        return payload
+    now = now or datetime.now(london_tz())
+    delay, source = None, None
+    prediction = payload.get('live_prediction') or {}
+    if prediction.get('delay_minutes') is not None:
+        try:
+            delay, source = int(prediction['delay_minutes']), 'operator'
+        except (TypeError, ValueError):
+            delay = None
+    if delay is None and payload.get('next_from_report'):
+        upcoming = next((row for row in stops if row.get('state') == 'next'), None)
+        try:
+            due = datetime.fromisoformat(str(upcoming.get('scheduled'))) if upcoming else None
+        except ValueError:
+            due = None
+        if due is not None:
+            late = int((now - due).total_seconds() // 60)
+            if late >= 2:
+                delay, source = late, 'estimated'
+    if delay is None:
+        return payload
+    out = dict(payload)
+    out['delay_minutes'] = delay
+    out['delay_source'] = source
+    rows = []
+    for row in stops:
+        row = dict(row)
+        if delay >= 1 and row.get('state') in ('next', 'upcoming'):
+            try:
+                row['expected_clock'] = (datetime.fromisoformat(str(row['scheduled'])) + timedelta(minutes=delay)).strftime('%H:%M')
+            except (KeyError, ValueError):
+                pass
+        rows.append(row)
+    out['stops'] = rows
+    return out
+
+
 def _train_progress(vehicle, locations: list[dict], codes: list[str], calls: list[dict]) -> dict:
     """Place a live train within its calling pattern and estimate lateness.
 
@@ -1087,7 +1134,7 @@ class SmartPlacesService:
         collector = self._bods_collector_getter()
         stop_ref = str(getattr(vehicle, 'next_location', None) or '').strip()
         if collector is None or not stop_ref or not hasattr(collector, 'predictions_for_stop'):
-            return payload
+            return _with_bus_lateness(payload)
         predictions = collector.predictions_for_stop(stop_ref, limit=25)
         vehicle_ref = str(getattr(vehicle, 'vehicle_ref', None) or '').strip()
         journey_ref = str(getattr(vehicle, 'journey_ref', None) or '').strip()
@@ -1102,7 +1149,7 @@ class SmartPlacesService:
                 "The next-stop time is an operator-published live BODS prediction. "
                 "Later stops remain published timetable times."
             )
-        return payload
+        return _with_bus_lateness(payload)
 
     def ferry_board(self, place: dict, limit: int=12) -> dict:
         rows=[]
