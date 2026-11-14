@@ -3299,7 +3299,15 @@
     nearbyCircle = L.circle([nearbyState.lat, nearbyState.lon], { radius: metres, color:'#56d6a4', weight:1.5, fillColor:'#56d6a4', fillOpacity:0.05, interactive:false }).addTo(map);
     nearbyMarker = L.circleMarker([nearbyState.lat, nearbyState.lon], { radius:6, color:'#fff', weight:2, fillColor:'#56d6a4', fillOpacity:1, interactive:false }).addTo(map);
     note.classList.remove('hidden'); $('near-clear').classList.remove('hidden');
-    note.textContent = `Nearby mode • ${nearbyState.radiusMiles} miles around ${nearbyState.source === 'device' ? 'your location' : 'map centre'} • ${filteredActivities().length} live matches`;
+    // A small pill that says what the map is limited to, with its own off
+    // switch: the only other way out was buried in the side panel.
+    const where = nearbyState.source === 'device' ? 'you' : 'this spot';
+    const label = overheadActive ? `Aircraft within ${nearbyState.radiusMiles} miles of ${where}` : `Within ${nearbyState.radiusMiles} miles of ${where}`;
+    note.innerHTML = `<span>${esc(label)}</span><button type="button" class="nearby-note-close" aria-label="Show everything again">×</button>`;
+    note.querySelector('.nearby-note-close')?.addEventListener('click', () => {
+      if (overheadActive && $('overhead-now')) $('overhead-now').click();
+      else $('near-clear')?.click();
+    });
   }
 
   function setNearby(lat, lon, source) {

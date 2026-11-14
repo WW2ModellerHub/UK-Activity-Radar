@@ -979,3 +979,12 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 /* The Map tab already says "Map": keep its page heading for screen readers
    and search engines, but do not spend the top of the panel repeating it. */
 .useful-hero { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Nearby limit: a pill with its own close button, not a box over the map. */
+.nearby-note { display: inline-flex; align-items: center; gap: 6px; padding: 4px 4px 4px 14px; border-radius: 999px; font-size: 14px; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 4px rgba(16,24,40,.16); }
+.nearby-note.hidden { display: none; }
+.nearby-note-close { width: 30px; height: 30px; border: 0; border-radius: 50%; background: var(--subtle, #f2f4f7); color: var(--text); font-size: 18px; line-height: 1; cursor: pointer; }
+@media (max-width: 760px) {
+  .nearby-note { top: 124px; font-size: 13px; }
+  .bus-zoom-note, .watch-toast { top: 168px; }
+}

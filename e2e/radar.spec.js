@@ -1286,3 +1286,18 @@ test('a moving aircraft glides to its new position instead of being redrawn', as
   await page.waitForTimeout(1200);
   expect(await page.evaluate(() => window.__leafletStats.markerIconUpdates)).toBe(before.icons);
 });
+
+test('the nearby limit is a small pill that can be closed from the map', async ({ page }) => {
+  await page.setViewportSize({ width:390, height:844 });
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
+  await page.locator('#overhead-now').click();
+  const pill = page.locator('#nearby-note');
+  await expect(pill).toBeVisible();
+  await expect(pill).toHaveText(/Aircraft within 25 miles of you/);
+  await expect(pill).not.toContainText('live matches');
+  const box = await pill.boundingBox();
+  expect(box.height).toBeLessThan(48);
+  await pill.locator('.nearby-note-close').click();
+  await expect(pill).toBeHidden();
+  await expect(page.locator('#overhead-now')).not.toHaveClass(/active/);
+});
