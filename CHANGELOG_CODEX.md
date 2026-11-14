@@ -1,5 +1,10 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — train badges sit upright
+
+- The live map layer turned every icon to its direction of travel, so the
+  square train badges sat at odd angles. Only aircraft turn now.
+
 ## 2026-11-14 — phone alerts actually switch on
 
 - Alerts were built but dormant on the hosted site: they waited for Web Push
