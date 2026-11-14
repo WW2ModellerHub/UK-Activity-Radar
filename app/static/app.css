@@ -952,3 +952,30 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 .line-dot.is-very-late, .line-dot.is-bad { background: #d64545; }
 .detail-insight:has(> .line-view), .detail-insight:has(> .line-trains), .detail-insight:has(> .transport-empty) { background: transparent; border: 0; padding: 0; box-shadow: none; }
 .line-train strong { color: var(--ink, #111827); }
+
+/* ---- Alignment pass ---- */
+/* The title block always takes the free width, so the close button sits at
+   the right edge whatever the title length (a hidden back button comes first
+   in the header, which defeated :first-child). */
+.detail-head > div:not(.detail-head-actions) { flex: 1 1 auto; min-width: 0; }
+.detail-head-actions { margin-left: auto; align-self: flex-start; }
+.detail-back { flex: none; }
+
+/* Train facts: one row of equal cells with no empty cell, whether two or
+   three facts are known. Hairlines come from the gap, not per-cell borders. */
+.detail-panel.is-train > .detail-fields { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); }
+.detail-panel.is-train > .detail-fields > .detail-field { flex: 1 1 28%; border: 0 !important; background: var(--surface); }
+.detail-panel.is-train > .detail-fields > .detail-field.is-technical { display: none; }
+.detail-panel.is-train.show-technical > .detail-fields > .detail-field.is-technical { display: grid; }
+
+/* Map chips: fade the last chip when the row scrolls, so a cut-off chip
+   reads as "more this way" rather than broken. */
+.layer-chips { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); padding-right: 28px; }
+
+/* One rhythm for every list in the panel: boards, stops, line view. */
+.board-row, .line-train { min-height: 56px; padding-left: 12px; padding-right: 12px; }
+.line-train strong, .board-main strong { font-size: 15px; line-height: 1.3; }
+.line-train small, .board-main > span { font-size: 13px; line-height: 1.35; }
+/* The Map tab already says "Map": keep its page heading for screen readers
+   and search engines, but do not spend the top of the panel repeating it. */
+.useful-hero { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

@@ -2092,10 +2092,14 @@
     const zoomBand = map.getZoom() >= 12 ? 2 : map.getZoom() >= 9 ? 1 : 0;
     const appearance = currentWorkspace === 'cool' ? 'cool' : 'standard';
     const cool = appearance === 'cool' ? coolInfo(a) : null;
-    const bearing = a.type === 'aircraft' || zoomBand >= 1 ? a.bearing : '';
-    const speed = zoomBand >= 1 ? a.speed : '';
-    const speedUnit = zoomBand >= 2 ? a.speed_unit : '';
-    const movementPosition=['aircraft','sar'].includes(a.type)?`${a.lat}|${a.lon}`:'';
+    // Only what changes the drawing belongs here. Rebuilding a marker replaces
+    // its element, which cancels the glide to its next position, so position
+    // and aircraft heading (turned in place by syncMarkerVisual) stay out.
+    const pointerType = ['bus','vessel','gritter'].includes(a.type);
+    const bearing = pointerType && zoomBand >= 1 && Number.isFinite(Number(a.bearing)) ? Math.round(Number(a.bearing)/10)*10 : '';
+    const speed = pointerType && zoomBand >= 2 ? compactSpeed(a) : '';
+    const speedUnit = '';
+    const movementPosition='';
     return [a.type,a.position_method,a.name,a.cancelled_at?'cancelled':punctualityClass(a.delay_minutes),a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon,a._coincidentCount,a._coincidentSlot,a._coincidentX,a._coincidentY].join('|');
   }
 
@@ -2118,8 +2122,34 @@
     return !element.classList.contains('train-coincident-wrap')&&!badge;
   }
 
+  function turnAircraftInPlace(marker,activity) {
+    if(!['aircraft','sar'].includes(activity?.type))return;
+    const span=marker.getElement?.()?.querySelector?.('.aircraft-silhouette');
+    if(!span)return;
+    const turn=`rotate(${Math.round(aircraftDisplayBearing(activity))}deg)`;
+    if(span.style.transform!==turn)span.style.transform=turn;
+  }
+
+  // Move a marker, gliding for normal steps but jumping straight there after
+  // a long gap (a reconnect or a return to the tab) rather than sliding a
+  // train across fields for a second.
+  function moveMarker(marker,lat,lon) {
+    const element=marker.getElement?.();
+    const from=marker.getLatLng?.();
+    if(element&&from&&typeof map.latLngToContainerPoint==='function'){
+      const a=map.latLngToContainerPoint(from),b=map.latLngToContainerPoint([lat,lon]);
+      if(a&&b&&Math.hypot(a.x-b.x,a.y-b.y)>160){
+        element.classList.add('no-glide');
+        marker.setLatLng([lat,lon]);
+        requestAnimationFrame(()=>requestAnimationFrame(()=>element.classList.remove('no-glide')));
+        return;
+      }
+    }
+    marker.setLatLng([lat,lon]);
+  }
+
   function syncMarkerVisual(marker,activity,visualSignature,force=false) {
-    if(!force&&marker.__visualSignature===visualSignature&&trainMarkerDomMatches(marker,activity))return false;
+    if(!force&&marker.__visualSignature===visualSignature&&trainMarkerDomMatches(marker,activity)){turnAircraftInPlace(marker,activity);return false;}
     marker.setIcon(markerIcon(activity));
     marker.__visualSignature=visualSignature;
     diagnostics.markerVisualUpdates+=1;
@@ -2189,7 +2219,7 @@
           intendedGroup.addLayer(marker);
         }
         if (marker.__positionSignature !== positionSignature) {
-          marker.setLatLng([displayActivity.lat, displayActivity.lon]);
+          moveMarker(marker, displayActivity.lat, displayActivity.lon);
           marker.__positionSignature = positionSignature;
           if (intendedGroup === markerGroup) clusterDirty = true;
           diagnostics.markerMoves += 1;
@@ -2228,12 +2258,14 @@
       if(a.type!=='train'&&!(overheadActive&&['aircraft','sar'].includes(a.type)))continue;
       const display=withTrainCoincidentLayout(presentations[index],coincidentLayouts.get(a.id));
       if(selectedId===a.id&&a.type==='train')updateSelectedTrainRouteProgress(a,now);
-      if(trackedActivityId===a.id)map.panTo([display.lat,display.lon],{animate:false});
+      // Follow with a one-second linear pan that matches the marker's glide,
+      // so the map drifts with the train instead of jumping every second.
+      if(trackedActivityId===a.id)map.panTo([display.lat,display.lon],{animate:true,duration:1,easeLinearity:1,noMoveStart:true});
       const marker=markers.get(a.id);if(!marker)continue;
       const signature=markerPositionSignature(display);
       const visualSignature=markerVisualSignature(display);
       if(signature!==marker.__positionSignature){
-        marker.setLatLng([display.lat,display.lon]);
+        moveMarker(marker,display.lat,display.lon);
         marker.__positionSignature=signature;
         diagnostics.markerMoves+=1;
       }
@@ -2905,15 +2937,14 @@
     const cards=runs.slice(0,3).map(renderRailRun).join('');
     const message='This service has no published stops.';
     const stock=detail?.rolling_stock;
-    const stockUrl=stock?.source_url ? safeUrl(stock.source_url) : null;
     const livery=stock?.matched ? trainLiveryStyle(stock) : null;
     const stockTitle=stock?.matched ? [stock.train_class?`Class ${stock.train_class}`:null,stock.number,stock.name].filter(Boolean).join(' · ') : '';
+    // A traveller's facts only: the operator is already the panel heading,
+    // and fleet codes (pool, works number, formation) mean little to them.
     const stockFacts=stock?.matched ? [
-      ['Operator',stock.operator],['Owner',stock.owner],['Formation',stock.formation],
-      ['Depot',stock.depot],['Built',stock.year_built],['Works no.',stock.works_number],
-      ['Pool',stock.pool_code],['Preserved at',stock.preserved_at],['Stored at',stock.stored_at],
+      ['Built',stock.year_built],['Depot',stock.depot],['Preserved at',stock.preserved_at],
     ].filter(([,value])=>value) : [];
-    const stockCard=stock?.matched ? `<article class="rolling-stock-card" data-livery-theme="${esc(livery.key)}" style="${livery.css}"><div class="rolling-stock-stripe" aria-hidden="true"><i></i><i></i><i></i></div><small>Rolling stock</small><strong>${esc(stockTitle)}</strong>${stock.livery?`<b class="rolling-stock-livery">${esc(stock.livery)}</b>`:''}${stockFacts.length?`<dl>${stockFacts.map(([label,value])=>`<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`:''}${stockUrl?`<a target="_blank" rel="noopener" href="${esc(stockUrl)}">${esc(stock.source || 'reference source')} ↗</a>`:''}</article>` : '';
+    const stockCard=stock?.matched ? `<article class="rolling-stock-card" data-livery-theme="${esc(livery.key)}" style="${livery.css}"><div class="rolling-stock-stripe" aria-hidden="true"><i></i><i></i><i></i></div><small>Rolling stock</small><strong>${esc(stockTitle)}</strong>${stock.livery?`<b class="rolling-stock-livery">${esc(stock.livery)}</b>`:''}${stockFacts.length?`<dl>${stockFacts.map(([label,value])=>`<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`:''}</article>` : '';
     const liveState=detail?.live_marker===false?'<p class="transport-note">Timetable only · not live on the map</p>':'';
     return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}>${liveState}${cards || `<div class="transport-unavailable"><strong>Stops not published</strong><span>${esc(message)}</span></div>`}${stockCard}${terms?`<p class="transport-source"><a target="_blank" rel="noopener" href="${esc(terms)}">Data terms ↗</a></p>`:''}</div>`;
   }
@@ -2978,8 +3009,10 @@
         const runDelay=Array.isArray(detail?.runs)?detail.runs[0]?.delay_minutes:null;
         if(runDelay!=null&&Number.isFinite(Number(runDelay))){
           railDelayById.set(a.id,Number(runDelay));
+          const label=trainStatusLabel(activityById(a.id)||a);
           const cell=document.querySelector('#detail-fields [data-field="Status"] strong');
-          if(cell)cell.textContent=trainStatusLabel(activityById(a.id)||a);
+          if(cell)cell.textContent=label;
+          else if(label!=='Live')$('detail-fields')?.insertAdjacentHTML('afterbegin',field('Status',label));
         }
       }
       const html=a.type==='train' ? renderRailIntelligence(detail) : renderBusIntelligence(detail);
@@ -3069,7 +3102,8 @@
         // positions stay available behind "More details".
         const age = relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000));
         $('detail-fields').innerHTML = [
-          field('Status', trainStatusLabel(a)), field('Next', humanTransitLabel(a.next_location)), field('Updated', age),
+          // "Live" says nothing a moving marker does not; leave it out.
+          field('Status', trainStatusLabel(a)==='Live' ? null : trainStatusLabel(a)), field('Next', humanTransitLabel(a.next_location)), field('Updated', age),
           field('Headcode', a.headcode), field('Train UID', a.train_uid), field('Position', a.position_label),
           field('Source', a.source), field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null),
           field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null),

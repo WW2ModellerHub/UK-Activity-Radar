@@ -1,5 +1,28 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — smoothness and alignment pass
+
+- **Live layer lined up with the map.** The fast trains/aircraft layer
+  (MapLibre) was given Leaflet's zoom number, but MapLibre zooms are for
+  512px tiles: every object was drawn twice as far from the screen centre as
+  its true place (324 px off in the regression test), and taps on what you
+  saw missed. Now one zoom level lower, aligned to within a pixel at all
+  zooms; it follows drags in the same frame and runs Leaflet's zoom animation
+  instead of jumping when the zoom ends. Test uses the real libraries.
+- **Aircraft glide.** Every aircraft marker was rebuilt on every position
+  update (its position was in the redraw signature), cancelling the glide.
+  Heading now turns in place; trains no longer redraw on heading or speed
+  changes they do not show.
+- **Long jumps snap** (after a reconnect or returning to the tab) instead of
+  sliding across the map; places and incidents no longer have a slide
+  animation; "Follow on map" pans smoothly with the train.
+- **Panel layout.** The close button always sits at the right edge (a hidden
+  back button defeated the title's flex rule); train facts fill one row with
+  no empty cell; "Live" is no longer shown as a status; the rolling stock card
+  keeps traveller facts only (the dataset stays credited on Data licences);
+  map chips fade at the edge when they scroll; lists share one row rhythm; the
+  Map tab no longer repeats its heading (kept for screen readers).
+
 ## 2026-11-14 — disruption, line view, saved-train alerts, aircraft icons
 
 - **Cancellations.** TRUST cancellations (and reinstatements) are now kept per

@@ -2,6 +2,13 @@ import * as maplibregl from './vendor/maplibre/maplibre-gl.mjs';
 
 const MOVING_TYPES=new Set(['train','aircraft','sar']);
 
+// Leaflet's zoom levels are for 256px tiles and MapLibre's for 512px tiles, so
+// the same map scale is one MapLibre zoom level lower. Without this the live
+// layer drew every train and aircraft twice as far from the centre as the map.
+export function maplibreZoom(leafletZoom){return Number(leafletZoom)-1;}
+// Leaflet animates zooms with transform .25s cubic-bezier(0,0,.25,1).
+function leafletZoomEasing(t){return 1-Math.pow(1-t,3);}
+
 export function frameInterval(objectCount,selected=false,reducedMotion=false){
   if(reducedMotion)return 100;
   if(selected||objectCount<=120)return 16;
@@ -69,17 +76,24 @@ export class LiveObjectRenderer{
     this.container=container;this.leafMap=leafMap;this.motionEngine=motionEngine;this.rows=[];this.selectedId=null;this.ready=false;this.frame=0;this.syncFrame=0;this.lastDraw=0;this.lastFeatures=[];
     const center=leafMap.getCenter();
     this.map=new maplibregl.Map({container,interactive:false,attributionControl:false,antialias:true,renderWorldCopies:true,
-      style:{version:8,sources:{},layers:[]},center:[center.lng,center.lat],zoom:leafMap.getZoom()});
+      style:{version:8,sources:{},layers:[]},center:[center.lng,center.lat],zoom:maplibreZoom(leafMap.getZoom())});
+    // Follow the base map in the same frame it moves, so live objects stay
+    // fixed to the tracks while dragging rather than trailing by a frame.
     this.sync=()=>{
-      if(this.syncFrame)return;
-      this.syncFrame=requestAnimationFrame(()=>{
-        this.syncFrame=0;
-        const value=leafMap.getCenter();
-        this.map.resize();
-        this.map.jumpTo({center:[value.lng,value.lat],zoom:leafMap.getZoom(),bearing:0,pitch:0});
-      });
+      const value=leafMap.getCenter();
+      this.map.jumpTo({center:[value.lng,value.lat],zoom:maplibreZoom(leafMap.getZoom()),bearing:0,pitch:0});
     };
-    leafMap.on('move zoom resize',this.sync);
+    this.resize=()=>{this.map.resize();this.sync();};
+    // Button, wheel and double-tap zooms are CSS animations in Leaflet that
+    // only report the new zoom at the end. Run the same animation here so
+    // objects scale with the map instead of jumping when it finishes.
+    this.zoomAnim=event=>{
+      if(!this.ready||!event?.center)return;
+      this.map.easeTo({center:[event.center.lng,event.center.lat],zoom:maplibreZoom(event.zoom),duration:250,easing:leafletZoomEasing,essential:true});
+    };
+    leafMap.on('move zoom',this.sync);
+    leafMap.on('resize',this.resize);
+    leafMap.on('zoomanim',this.zoomAnim);
     this.map.on('load',()=>{
       for(const kind of ['train','airliner','propeller','helicopter','fastjet','heavy'])this.map.addImage(`live-${kind}`,drawIcon(kind),{pixelRatio:2});
       this.map.addSource('live-objects',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
@@ -130,7 +144,7 @@ export class LiveObjectRenderer{
         let lat=Number(row.lat),lon=Number(row.lon);
         if(group.length>1){
           const angle=-Math.PI/2+Math.PI*2*index/group.length;
-          const metresPerPixel=156543.03392*Math.cos(lat*Math.PI/180)/(2**zoom);
+          const metresPerPixel=78271.51696*Math.cos(lat*Math.PI/180)/(2**zoom);
           const radiusMetres=Math.min(32,18+group.length*2)*metresPerPixel;
           lat+=Math.sin(angle)*radiusMetres/111320;
           lon+=Math.cos(angle)*radiusMetres/(111320*Math.max(.2,Math.cos(lat*Math.PI/180)));
@@ -145,5 +159,5 @@ export class LiveObjectRenderer{
     this.container.dataset.separatedObjects=String(separatedObjects);
   }
   start(){const tick=time=>{this.draw(time);this.frame=requestAnimationFrame(tick);};this.frame=requestAnimationFrame(tick);}
-  destroy(){cancelAnimationFrame(this.frame);cancelAnimationFrame(this.syncFrame);this.leafMap.off('move zoom resize',this.sync);this.map.remove();this.container.closest('.map-panel')?.classList.remove('maplibre-live-ready');}
+  destroy(){cancelAnimationFrame(this.frame);this.leafMap.off('move zoom',this.sync);this.leafMap.off('resize',this.resize);this.leafMap.off('zoomanim',this.zoomAnim);this.map.remove();this.container.closest('.map-panel')?.classList.remove('maplibre-live-ready');}
 }

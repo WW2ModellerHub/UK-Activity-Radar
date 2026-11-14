@@ -38,3 +38,32 @@ test('MapLibre live layer renders trains and aircraft from one motion clock', as
   await expect(page.locator('body')).toHaveAttribute('data-frame-intervals','16,33,50,16');
   await expect(page.locator('.map-panel')).toHaveClass(/maplibre-live-ready/);
 });
+
+test('the live layer lines up with the base map at every zoom', async ({ page }) => {
+  await page.route('**/*', route => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname === '/static/live-object-renderer.js') return route.fulfill({contentType:'text/javascript',body:read('app/static/live-object-renderer.js')});
+    if (pathname === '/static/motion-engine.js') return route.fulfill({contentType:'text/javascript',body:read('app/static/motion-engine.js')});
+    if (pathname === '/static/vendor/maplibre/maplibre-gl.mjs') return route.fulfill({contentType:'text/javascript',body:read('app/static/vendor/maplibre/maplibre-gl.mjs')});
+    if (pathname === '/static/vendor/leaflet/leaflet.js') return route.fulfill({contentType:'text/javascript',body:read('app/static/vendor/leaflet/leaflet.js')});
+    if (pathname === '/static/vendor/leaflet/leaflet.css') return route.fulfill({contentType:'text/css',body:read('app/static/vendor/leaflet/leaflet.css')});
+    return route.fulfill({contentType:'text/html',body:`<!doctype html><html><head><link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"></head><body style="margin:0"><div class="map-panel" style="position:relative;width:800px;height:600px"><div id="map" style="position:absolute;inset:0"></div><div id="live" style="position:absolute;inset:0;pointer-events:none"></div></div>
+      <script src="/static/vendor/leaflet/leaflet.js"></script><script src="/static/motion-engine.js"></script><script type="module">
+      import {LiveObjectRenderer} from '/static/live-object-renderer.js';
+      const map=window.__leaflet=L.map('map',{zoomControl:false}).setView([52.48,-1.9],10);
+      window.__renderer=new LiveObjectRenderer({container:document.querySelector('#live'),leafMap:map,motionEngine:window.UKActivityMotionEngine});
+    </script></body></html>`});
+  });
+  await page.goto('http://radar.test/align-test');
+  await expect(page.locator('#live')).toHaveAttribute('data-renderer','ready',{timeout:10000});
+  const offset = () => page.evaluate(() => {
+    const point=[52.6,-1.5];
+    const a=window.__leaflet.latLngToContainerPoint(point), b=window.__renderer.map.project([point[1],point[0]]);
+    return Math.hypot(a.x-b.x,a.y-b.y);
+  });
+  expect(await offset()).toBeLessThan(1.5);
+  await page.evaluate(() => window.__leaflet.setView([52.5,-1.7],13,{animate:false}));
+  await expect.poll(offset).toBeLessThan(1.5);
+  await page.evaluate(() => window.__leaflet.setZoom(7,{animate:false}));
+  await expect.poll(offset).toBeLessThan(1.5);
+});

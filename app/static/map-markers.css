@@ -127,7 +127,8 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 @media (prefers-reduced-motion: reduce){.train-live-leg-progress,.train-route-arrow span{transition: none!important;}}
 .journey-route-line{filter: drop-shadow(0 0 3px #041018);}
 .train-full-route{max-height: 360px; overflow-y: auto; padding-right: 4px; scrollbar-width: thin;}
-.leaflet-marker-icon.aerial-marker-wrap,.leaflet-marker-icon.marker-wrap{transition: transform .9s linear;}
+/* Only moving things glide (rules above); places, incidents and roadworks stay put. */
+.leaflet-marker-icon.no-glide{transition:none!important}
 
 /* ---- Aircraft and helicopters: one flat set ----
    A white disc with a top-down silhouette in the aircraft's colour, turned to

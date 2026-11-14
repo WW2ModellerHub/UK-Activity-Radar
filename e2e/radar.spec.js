@@ -1266,3 +1266,23 @@ test('a cancelled train is drawn struck through and says so', async ({ page }) =
   await expect(page.locator('.marker-bubble.marker-train.is-cancelled')).toHaveCount(1);
   await expect(page.locator('.marker-bubble.marker-train.is-cancelled .train-punctuality')).toHaveCount(0);
 });
+
+test('a moving aircraft glides to its new position instead of being redrawn', async ({ page }) => {
+  await page.locator('[data-layer-toggle="aircraft"]').click();
+  await waitForViewportRequestsToSettle(page);
+  const move = step => page.evaluate(step => {
+    const next = structuredClone(window.__fixtureSnapshot);
+    for (const row of next.activities.filter(item => ['aircraft','sar'].includes(item.type))) {
+      row.lat += 0.05 * step; row.lon += 0.05 * step; row.last_updated = new Date().toISOString();
+    }
+    window.__fixtureSocket.onmessage({ data: JSON.stringify(next) });
+  }, step);
+  await move(1);
+  await expect.poll(() => page.evaluate(() => window.__leafletStats.markerMoves)).toBeGreaterThan(0);
+  await page.waitForTimeout(1200);
+  const before = await page.evaluate(() => ({ moves: window.__leafletStats.markerMoves, icons: window.__leafletStats.markerIconUpdates }));
+  await move(2);
+  await expect.poll(() => page.evaluate(() => window.__leafletStats.markerMoves)).toBeGreaterThan(before.moves);
+  await page.waitForTimeout(1200);
+  expect(await page.evaluate(() => window.__leafletStats.markerIconUpdates)).toBe(before.icons);
+});
