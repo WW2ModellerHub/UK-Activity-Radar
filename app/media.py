@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 import requests
 
-from .media_reference import mentions_all, reference_for
+from .media_reference import mentions_all, reference_for, shows_the_outside
 from .models import Event, Vehicle
 
 # Specials whose stock is unknown: an operator's everyday train would be a
@@ -243,6 +243,8 @@ class WikimediaLookup:
                                               self._plain(meta.get("ObjectName")), self._plain(meta.get("Categories"))]))
                 if any(word in text.casefold() for word in _BAD_TITLE_WORDS) or not mentions_all(text, step["require"]):
                     continue
+                if not shows_the_outside(f"{title} {self._plain(meta.get('ImageDescription')) or ''}"):
+                    continue
                 # Prefer photos named for exactly this (title words), then wide ones.
                 score = len(self._tokens(step["query"]) & self._tokens(title)) * 4
                 width, height = info.get("width") or 0, info.get("height") or 0
@@ -268,6 +270,14 @@ class WikimediaLookup:
             "iiprop": "url|extmetadata|size", "iiurlwidth": 640, "format": "json", "formatversion": 2,
         }
         response = self._session.get(self.api_url, params=params, timeout=(1.25, 3.0))
+        if getattr(response, "status_code", 200) == 429:
+            # Commons limits bursts; one short wait usually clears it.
+            try:
+                wait = min(float(response.headers.get("Retry-After") or 1), 1.5)
+            except (TypeError, ValueError):
+                wait = 1.0
+            time.sleep(max(wait, 0.3))
+            response = self._session.get(self.api_url, params=params, timeout=(1.25, 3.0))
         response.raise_for_status()
         out = []
         for page in (response.json().get("query") or {}).get("pages") or []:

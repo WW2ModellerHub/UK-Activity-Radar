@@ -159,7 +159,7 @@ def reference_for(kind: str, operator: str | None = None, model: str | None = No
         return {
             "query": f"{aliases[0].upper() if len(aliases[0]) <= 4 else aliases[0].title()} {fleet}",
             "require": [aliases, fleet_keys],
-            "label": f"Example of a {name} train — not this exact one",
+            "label": f"{name} — example of their trains, not this exact one",
         }
     if kind == "bus":
         group = bus_group(operator)
@@ -168,7 +168,7 @@ def reference_for(kind: str, operator: str | None = None, model: str | None = No
         return {
             "query": f"{group} bus",
             "require": [BUS_GROUP_ALIASES.get(group, (group.casefold(),)), ("bus", "double-decker", "double decker", "single-decker")],
-            "label": f"Example of a {group} bus — not this exact one",
+            "label": f"{group} — example of their buses, not this exact one",
         }
     if kind in {"aircraft", "sar"}:
         model = str(model or "").strip()
@@ -198,3 +198,13 @@ def mentions_all(text: str, require: list) -> bool:
     hay = text.casefold()
     flat = hay.replace("-", "")
     return all(any(word in hay or word.replace("-", "") in flat for word in group) for group in require)
+
+
+# A picture of the outside of the vehicle shows its colours; these do not.
+NOT_THE_OUTSIDE = re.compile(
+    r"\b(interior|inside|seats?|seating|cab|cockpit|flight deck|toilet|table|luggage|window|"
+    r"logo|sign|signage|livery diagram|model|toy|scale|cabin|galley|wheel|bogie|engine detail|plaque)\b", re.I)
+
+
+def shows_the_outside(text: str) -> bool:
+    return not NOT_THE_OUTSIDE.search(text)

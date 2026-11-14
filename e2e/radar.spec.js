@@ -1451,12 +1451,12 @@ test('common civil helicopters such as the Robinson R44 get the helicopter icon'
 });
 
 test('an everyday train shows an example photo in its operator colours, clearly labelled', async ({ page }) => {
-  await page.route('**/api/activity/train-live-1/media', route => route.fulfill({ json:{ ok:true, title:'GWR 800 004 at Reading.jpg', thumbnail_url:'https://upload.wikimedia.org/fixture-gwr.jpg', page_url:'https://commons.wikimedia.org/?curid=2', artist:'A Photographer', license:'CC BY-SA 4.0', source:'Wikimedia Commons', match_kind:'type_reference', reference_label:'Example of a Great Western Railway train — not this exact one' } }));
+  await page.route('**/api/activity/train-live-1/media', route => route.fulfill({ json:{ ok:true, title:'GWR 800 004 at Reading.jpg', thumbnail_url:'https://upload.wikimedia.org/fixture-gwr.jpg', page_url:'https://commons.wikimedia.org/?curid=2', artist:'A Photographer', license:'CC BY-SA 4.0', source:'Wikimedia Commons', match_kind:'type_reference', reference_label:'Great Western Railway — example of their trains, not this exact one' } }));
   await page.locator('[data-layer-toggle="train"]').click();
   await page.locator('.marker-wrap-train .marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   const photo = page.locator('#detail-photo');
   await expect(photo.locator('img')).toBeVisible();
-  await expect(photo.locator('.image-truth')).toHaveText('Example of a Great Western Railway train — not this exact one');
+  await expect(photo.locator('.image-truth')).toHaveText('Great Western Railway — example of their trains, not this exact one');
 });
 
 test('a plane the server does not keep still gets an example photo of its type', async ({ page }) => {
