@@ -2411,6 +2411,35 @@
     return delay >= 1 ? `${delay} min late` : delay <= -1 ? `${-delay} min early` : 'On time';
   }
 
+  // Flights: departure and arrival airports, looked up once per aircraft.
+  const flightRouteById=new Map();
+  let flightRouteRequest=0;
+  function flightRouteText(route) {
+    const label=airport=>airport ? (airport.iata&&airport.name!==airport.iata ? `${airport.name} (${airport.iata})` : airport.name) : '';
+    return `${label(route.origin)} → ${label(route.destination)}`;
+  }
+  async function loadFlightRoute(a) {
+    const id=a.id, seq=++flightRouteRequest;
+    try {
+      const response=await fetch(`/api/activity/${encodeURIComponent(id)}/flight-route`,{cache:'no-store'});
+      if(!response.ok)return;
+      const payload=await response.json();
+      flightRouteById.set(id,payload?.found?payload.route:null);
+      if(seq!==flightRouteRequest||selectedId!==id||!payload?.found)return;
+      $('detail-subtitle').textContent=flightRouteText(payload.route);
+      const existing=document.querySelector('#detail-fields [data-field="Route"]');
+      if(!existing)$('detail-fields')?.insertAdjacentHTML('afterbegin',field('Route',flightRouteText(payload.route)));
+    } catch {}
+  }
+
+  // Colour the compact train status chip by lateness.
+  function toneStatusField(a) {
+    const cell=document.querySelector('#detail-fields [data-field="Status"]');
+    if(!cell)return;
+    const label=trainStatusLabel(a);
+    cell.dataset.tone=/cancel/i.test(label)?'bad':/late/.test(label)?(Number(a?.delay_minutes ?? railDelayById.get(a?.id))>5?'bad':'warn'):/on time|early/i.test(label)?'good':'';
+  }
+
   function field(label, value) {
     if (value === undefined || value === null || value === '') return '';
     const technical = new Set(['Source','ICAO / source ref','Latitude','Longitude','Train UID','Headcode','Journey ref','Tracking','Bearing','Code','Type','Registration','MMSI','Identified as','Identity confidence','Position','Operator']);
@@ -2819,6 +2848,42 @@
     }
   }
 
+  // One stop list for trains and buses. It opens at the stop before the
+  // vehicle, so where it is now and what comes next are in view; earlier
+  // stops sit behind a button. Between stops a marker shows where it is.
+  let earlierStopsOpenFor=null;
+  function stopTimelineHtml(rows, {vehicle='Train', hasProgress=false, className=''}={}) {
+    if(!rows.length)return '';
+    const states=rows.map(row=>['passed','current','next','upcoming'].includes(row.state)?row.state:'');
+    const atStop=states.includes('current');
+    const anyPassed=states.includes('passed');
+    const firstActive=states.findIndex(state=>state==='current'||state==='next');
+    const start=hasProgress&&firstActive>1 ? firstActive-1 : 0;
+    const open=earlierStopsOpenFor!==null&&earlierStopsOpenFor===selectedId;
+    const items=rows.map((row,index)=>{
+      const state=states[index];
+      const here=state==='next'&&!atStop&&anyPassed
+        ? `<li class="train-here" aria-label="${esc(vehicle)} is here"><i></i><span><small>${esc(vehicle)} is here</small></span><b></b></li>`
+        : '';
+      const classes=[state,row.cancelled?'is-cancelled':'',index<start?'is-earlier':''].filter(Boolean).join(' ');
+      return `${here}<li class="${classes}"${state==='current'?` aria-label="${esc(vehicle)} is at this stop"`:''}><i></i><span><strong>${esc(row.name)}</strong>${row.detailHtml?`<small>${row.detailHtml}</small>`:''}</span><b>${esc(row.booked||'')}${row.lateClock?`<em class="stop-late">${esc(row.lateClock)}</em>`:''}</b></li>`;
+    });
+    const toggle=start>0
+      ? `<li class="earlier-toggle"><button type="button" data-show-earlier>${open?'Hide earlier stops':`Show ${start} earlier stop${start===1?'':'s'}`}</button></li>`
+      : '';
+    return `<ol class="transport-stops ${className}${hasProgress?' has-progress':''}${open?' earlier-open':''}">${toggle}${items.join('')}</ol>`;
+  }
+  document.addEventListener('click',event=>{
+    const button=event.target.closest?.('[data-show-earlier]');
+    if(!button)return;
+    const list=button.closest('ol');
+    const open=!list.classList.contains('earlier-open');
+    list.classList.toggle('earlier-open',open);
+    earlierStopsOpenFor=open?selectedId:null;
+    const hidden=list.querySelectorAll('li.is-earlier').length;
+    button.textContent=open?'Hide earlier stops':`Show ${hidden} earlier stop${hidden===1?'':'s'}`;
+  });
+
   function renderRailRun(run, index) {
     const train=run?.train && typeof run.train==='object' ? run.train : {};
     const progress=run?.progress && typeof run.progress==='object' ? run.progress : {};
@@ -2835,26 +2900,21 @@
       const target=!anyPassed ? callingPoints[0] : (allPassed ? callingPoints[callingPoints.length-1] : null);
       if(target){callingPoints.splice(callingPoints.indexOf(target),1,{...target,state:'current'});atStation=true;}
     }
-    const points=callingPoints.map((point,pointIndex)=>{
+    const rows=callingPoints.map((point,pointIndex)=>{
       const name=providerName(point?.station || point?.location || point?.name);
       const booked=providerClock(point?.scheduled || point?.expected || point?.actual || point?.time);
       const expected=point?.scheduled&&point?.expected ? providerClock(point.expected) : '';
-      const lateClock=expected&&expected!==booked ? expected : '';
       const platform=providerName(point?.platform);
       const movedFrom=point?.platform_changed ? providerName(point?.booked_platform) : '';
-      const cancelledStop=Boolean(point?.cancelled);
+      const cancelled=Boolean(point?.cancelled);
       const detailHtml=[
-        cancelledStop ? '<em class="stop-cancelled">Cancelled</em>' : '',
+        cancelled ? '<em class="stop-cancelled">Cancelled</em>' : '',
         platform ? `<span class="${movedFrom?'platform-changed':''}">Platform ${esc(platform)}${movedFrom?` (was ${esc(movedFrom)})`:''}</span>` : '',
       ].filter(Boolean).join(' · ');
-      if(!name && !booked)return '';
-      const state=['passed','current','next','upcoming'].includes(point?.state) ? point.state : '';
-      // Between stations the train sits on the line before its next stop.
-      const trainHere=state==='next'&&!atStation&&anyPassed
-        ? '<li class="train-here" aria-label="Train is here"><i></i><span><small>Train is here</small></span><b></b></li>'
-        : '';
-      return `${trainHere}<li class="${[state,cancelledStop?'is-cancelled':''].filter(Boolean).join(' ')}"${state==='current'?' aria-label="Train is at this station"':''}><i></i><span><strong>${esc(name || `Call ${pointIndex+1}`)}</strong>${detailHtml?`<small>${detailHtml}</small>`:''}</span><b>${esc(booked)}${lateClock?`<em class="stop-late">${esc(lateClock)}</em>`:''}</b></li>`;
-    }).filter(Boolean).join('');
+      if(!name && !booked)return null;
+      return {name:name||`Call ${pointIndex+1}`,booked,lateClock:expected&&expected!==booked?expected:'',detailHtml,state:point?.state,cancelled};
+    }).filter(Boolean);
+    const points=stopTimelineHtml(rows,{vehicle:'Train',hasProgress,className:'train-full-route'});
     // Only facts a traveller uses: lateness, the stops and, for special
     // workings, what kind of service it is. The route is already the panel
     // subtitle; data-source and inference notes are not shown.
@@ -2865,7 +2925,7 @@
     const operator=providerName(train.operator || run?.operator || run?.operator_code);
     const operatorTheme=trainLiveryTheme('',operator);
     const operatorStyle=operatorTheme.key!=='reference' ? ` style="--train-primary:${operatorTheme.primary};--train-secondary:${operatorTheme.secondary};--train-accent:${operatorTheme.accent};--train-ink:${operatorTheme.ink}"` : '';
-    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${cancelledBanner}${serviceLabel?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${facts.length?`<div class="transport-facts">${facts.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points?`<ol class="transport-stops train-full-route${hasProgress?' has-progress':''}">${points}</ol>`:''}${unknown}</article>`;
+    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${cancelledBanner}${serviceLabel?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${facts.length?`<div class="transport-facts">${facts.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points}${unknown}</article>`;
   }
 
   function trainLiveryTheme(livery, operator) {
@@ -2949,23 +3009,40 @@
     return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}>${liveState}${cards || `<div class="transport-unavailable"><strong>Stops not published</strong><span>${esc(message)}</span></div>`}${stockCard}${terms?`<p class="transport-source"><a target="_blank" rel="noopener" href="${esc(terms)}">Data terms ↗</a></p>`:''}</div>`;
   }
 
+  function busLatenessLabel(detail) {
+    const raw=detail?.delay_minutes ?? detail?.live_prediction?.delay_minutes;
+    const delay=Number(raw);
+    if(raw==null||!Number.isFinite(delay))return null;
+    const about=detail?.delay_source==='estimated'?'About ':'';
+    if(delay>=1)return {text:`${about}${delay} min late`,tone:delay>5?'bad':'warn'};
+    if(delay<=-1)return {text:`${-delay} min early`,tone:'good'};
+    return {text:'On time',tone:'good'};
+  }
+
   function renderBusIntelligence(detail) {
+    // Same stop list as trains: opens at the stop before the bus, marks where
+    // it is, and shows a later expected time beside each stop when it runs late.
     const stops=Array.isArray(detail?.stops) ? detail.stops : [];
-    const prediction=detail?.live_prediction && typeof detail.live_prediction==='object' ? detail.live_prediction : null;
-    const liveTime=providerClock(prediction?.expected || prediction?.predicted || prediction?.time);
-    const delay=prediction?.delay_minutes == null ? '' : (Number(prediction.delay_minutes)===0?'On time':`${Number(prediction.delay_minutes)>0?'+':''}${prediction.delay_minutes} min`);
-    const route=[detail?.route,detail?.destination?`to ${detail.destination}`:null].filter(Boolean).join(' ');
-    const facts=[detail?.operator,detail?.route_long_name,detail?.match_method==='route_time_position'?'Matched by route, time & position':null].filter(Boolean);
     const rows=stops.map((stop,index)=>{
-      const state=['passed','next','upcoming'].includes(stop?.state) ? stop.state : 'upcoming';
-      const scheduled=providerClock(stop?.clock || stop?.scheduled);
-      const isNext=state==='next';
-      const displayed=isNext&&liveTime ? liveTime : scheduled;
-      const meta=isNext&&liveTime ? ['LIVE PREDICTION',delay].filter(Boolean).join(' • ') : (scheduled?'TIMETABLE':'STOP ORDER');
-      return `<li class="${state}"><i></i><span><strong>${esc(stop?.name || `Stop ${index+1}`)}</strong><small>${esc(meta)}</small></span><b>${esc(displayed || '—')}</b></li>`;
-    }).join('');
-    const heading=humanTransitLabel(route || (detail?.mode==='matched_timetable'?'Matched official trip':'Route detail'));
-    return `<small>LIVE BUS JOURNEY</small>${heading?`<div class="transport-route-head"><strong>${esc(heading)}</strong>${facts.length?`<span>${esc(facts.map(humanTransitLabel).join(' • '))}</span>`:''}</div>`:''}${rows?`<ol class="transport-stops bus-stops">${rows}</ol>`:`<div class="transport-unavailable"><strong>${detail?.mode==='timetable_sync'?'Timetable preparing':'Next stop unavailable'}</strong><span>${esc(detail?.note || 'The operator has not linked this live bus to a timetable trip, so its next stop cannot be identified reliably.')}</span></div>`}<p class="transport-source">${esc(detail?.source || 'DfT BODS')}</p>${rows&&detail?.note?`<p class="transport-note">${esc(detail.note)}</p>`:''}`;
+      const booked=providerClock(stop?.clock || stop?.scheduled);
+      const expected=providerClock(stop?.expected_clock || stop?.expected);
+      return {
+        name:humanTransitLabel(stop?.name || `Stop ${index+1}`),
+        booked:booked||'—',
+        lateClock:expected&&expected!==booked?expected:'',
+        detailHtml:stop?.stop_code?`<span>Stop ${esc(stop.stop_code)}</span>`:'',
+        state:stop?.state,
+      };
+    });
+    const heading=humanTransitLabel([detail?.route?`Route ${detail.route}`:null,detail?.destination?`to ${detail.destination}`:null].filter(Boolean).join(' '));
+    const operator=humanTransitLabel(detail?.operator||'');
+    const lateness=busLatenessLabel(detail);
+    const head=heading||operator||lateness
+      ? `<div class="transport-route-head"><strong>${esc(heading||'Bus journey')}</strong>${operator?`<span>${esc(operator)}</span>`:''}${lateness?`<em class="bus-lateness is-${lateness.tone}">${esc(lateness.text)}</em>`:''}</div>`
+      : '';
+    const list=stopTimelineHtml(rows,{vehicle:'Bus',hasProgress:rows.some(row=>row.state),className:'bus-stops train-full-route'});
+    const empty=`<div class="transport-unavailable"><strong>${detail?.mode==='timetable_sync'?'Timetable preparing':'Stops not available'}</strong><span>This bus has not been linked to a timetabled journey yet.</span></div>`;
+    return `${head}${list||empty}`;
   }
 
   async function loadActivityIntelligence(a, force=false) {
@@ -3012,7 +3089,8 @@
           const label=trainStatusLabel(activityById(a.id)||a);
           const cell=document.querySelector('#detail-fields [data-field="Status"] strong');
           if(cell)cell.textContent=label;
-          else if(label!=='Live')$('detail-fields')?.insertAdjacentHTML('afterbegin',field('Status',label));
+          else if(!['Live','Last known'].includes(label))$('detail-fields')?.insertAdjacentHTML('afterbegin',field('Status',label));
+          toneStatusField(activityById(a.id)||a);
         }
       }
       const html=a.type==='train' ? renderRailIntelligence(detail) : renderBusIntelligence(detail);
@@ -3059,6 +3137,7 @@
     if(detailFreshness)detailFreshness.textContent=staleTrain?'Last known position':'';
     selectedActivitySnapshot=a;
     $('detail-panel')?.classList.toggle('is-train',a.type==='train');
+    $('detail-panel')?.classList.toggle('is-bus',a.type==='bus');
     liveObjectRenderer?.setActivities(filteredActivities(),selectedId);
     setDetailRouteView(false);
     syncDetailRouteControl(a);
@@ -3072,12 +3151,13 @@
     if (pan) { trackProduct('activity_selected', a.type); collapseWorkspaceOnPhone(); }
     const detailCool=coolInfo(a);
     $('detail-title').innerHTML = `${currentWorkspace==='cool' && detailCool.score>=45 ? coolBadgeHtml(a,true)+' ' : ''}${esc(a.name)}`;
-    $('detail-subtitle').textContent = humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
+    const flightRoute=['sar','aircraft'].includes(a.type) ? flightRouteById.get(a.id) : null;
+    $('detail-subtitle').textContent = flightRoute ? flightRouteText(flightRoute) : humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
     renderOperatorIdentity(a);
     renderInsight(a);
     renderDiscoveryDetail(a);
     if (selectionChanged) { clearPhoto(); clearActivityIntelligence(); }
-    if (['sar','aircraft'].includes(a.type)) loadAircraftInfo(a);
+    if (['sar','aircraft'].includes(a.type)) { loadAircraftInfo(a); if (!flightRouteById.has(a.id)) loadFlightRoute(a); }
     else if ((a.type === 'train' && detailCool.candidate) || a.type === 'vessel' || (a.type === 'bus' && a.vehicle_ref)) loadPhoto(a);
     else if (['road','incident'].includes(a.type)) loadNearestCamera(a);
     renderRelated(a);
@@ -3102,14 +3182,25 @@
         // positions stay available behind "More details".
         const age = relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000));
         $('detail-fields').innerHTML = [
-          // "Live" says nothing a moving marker does not; leave it out.
-          field('Status', trainStatusLabel(a)==='Live' ? null : trainStatusLabel(a)), field('Next', humanTransitLabel(a.next_location)), field('Updated', age),
+          // "Live" says nothing a moving marker does not, and "Last known" is
+          // already the heading above the title; leave both out.
+          field('Status', ['Live','Last known'].includes(trainStatusLabel(a)) ? null : trainStatusLabel(a)), field('Next', humanTransitLabel(a.next_location)), field('Updated', age),
           field('Headcode', a.headcode), field('Train UID', a.train_uid), field('Position', a.position_label),
           field('Source', a.source), field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null),
           field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null),
         ].join('');
+        toneStatusField(a);
+      } else if (a.type === 'bus') {
+        // Same compact chips as trains; the route and lateness are in the
+        // journey card below, and fleet identifiers stay under More details.
+        const age = relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000));
+        $('detail-fields').innerHTML = [
+          field('Speed', speed), field('Updated', age), field('Vehicle', a.vehicle_ref), field('Journey ref', a.journey_ref), field('Operator', a.operator),
+          field('Source', a.source), field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null),
+          field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null),
+        ].join('');
       } else
-      $('detail-fields').innerHTML = [field('Route', publishedRoute || (isAircraft?'Not published by this ADS-B feed':null)), field(identityLabel, a.vehicle_ref), field('Identified as', a.identity_label), field('Identity confidence', a.identity_confidence==='type'?'Type identified':(a.identity_confidence==='exact'?'Exact live identifier':null)), field('Aircraft type', aircraftType), field('ICAO type code', a.aircraft_type_code), field('Altitude', altitude), field('Headcode', a.headcode), field('Train UID', a.train_uid), field('Journey ref', a.journey_ref), field('Status', a.status), field('Position', a.position_label), field('Next report', a.next_location), field('Speed', speed), field('Bearing', bearing), field('Delay', delay), field('Occupancy', a.occupancy), field('Operator', a.operator), field('Source', a.source), field('ICAO / source ref', a.source_id), field('Tracking', fmt(a.tracking_count)), field('Updated', timeText(a.last_updated)), field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null), field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null)].join('');
+      $('detail-fields').innerHTML = [field('Route', isAircraft ? (flightRoute ? flightRouteText(flightRoute) : null) : publishedRoute), field(identityLabel, a.vehicle_ref), field('Identified as', a.identity_label), field('Identity confidence', a.identity_confidence==='type'?'Type identified':(a.identity_confidence==='exact'?'Exact live identifier':null)), field('Aircraft type', aircraftType), field('ICAO type code', a.aircraft_type_code), field('Altitude', altitude), field('Headcode', a.headcode), field('Train UID', a.train_uid), field('Journey ref', a.journey_ref), field('Status', a.status), field('Position', a.position_label), field('Next report', a.next_location), field('Speed', speed), field('Bearing', bearing), field('Delay', delay), field('Occupancy', a.occupancy), field('Operator', a.operator), field('Source', a.source), field('ICAO / source ref', a.source_id), field('Tracking', fmt(a.tracking_count)), field('Updated', timeText(a.last_updated)), field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null), field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null)].join('');
       $('follow').classList.remove('hidden');
       $('follow').textContent = followed.has(id) ? 'Saved ✓' : 'Save';
       clearCoverage();

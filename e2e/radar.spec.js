@@ -825,6 +825,8 @@ test('commercial aircraft use operator colours and an exact licensed photo', asy
   await expect(page.locator('#detail-operator')).toContainText('AIRLINE');
   await expect(page.locator('#detail-operator')).toContainText('Ryanair');
   await expect(page.locator('#detail-operator')).toContainText('Boeing 737-8200');
+  await expect(page.locator('#detail-subtitle')).toHaveText('London Stansted (STN) → Dublin (DUB)');
+  await expect(page.locator('#detail-fields [data-field="Route"]')).toContainText('London Stansted (STN) → Dublin (DUB)');
   await expect(page.locator('#detail-photo img')).toHaveAttribute('src','https://upload.wikimedia.org/fixture-ryanair.jpg');
   await expect(page.locator('#detail-photo .image-truth')).toContainText('this aircraft registration');
   await expect(page.locator('#detail-photo')).toContainText('CC BY-SA 4.0');
@@ -883,7 +885,9 @@ test('clicked trains and buses load source-backed route intelligence', async ({ 
   await page.locator('#detail-close').click();
   await page.locator('[data-layer-toggle="bus"]').click();
   await page.locator('.marker-bubble.marker-bus').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
-  await expect(page.locator('#detail-intelligence')).toContainText('LIVE BUS JOURNEY');
+  await expect(page.locator('#detail-intelligence .transport-route-head')).toContainText('Route 7 to City Centre');
+  await expect(page.locator('#detail-intelligence .bus-lateness')).toHaveText('2 min late');
+  await expect(page.locator('#detail-intelligence .bus-stops')).toBeVisible();
   await expect(page.locator('#detail-intelligence')).toContainText('Central Station Stop A');
   await expect(page.locator('#detail-intelligence')).toContainText('2 min');
   await expect(page.locator('#detail-operator')).toContainText('Arriva');
@@ -1300,4 +1304,40 @@ test('the nearby limit is a small pill that can be closed from the map', async (
   await pill.locator('.nearby-note-close').click();
   await expect(pill).toBeHidden();
   await expect(page.locator('#overhead-now')).not.toHaveClass(/active/);
+});
+
+test('the stop list opens at the stop before the train and can show earlier stops', async ({ page }) => {
+  await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { activity:'train-live-1', detail:{
+    available:true, runs:[{ headcode:'1A23', origin:'London Euston', destination:'Manchester Piccadilly', calling_points:[
+      { name:'London Euston', scheduled:'10:00', state:'passed' },
+      { name:'Watford Junction', scheduled:'10:15', state:'passed' },
+      { name:'Milton Keynes Central', scheduled:'10:35', state:'passed' },
+      { name:'Rugby', scheduled:'10:55', state:'passed' },
+      { name:'Stoke-on-Trent', scheduled:'11:40', expected:'11:44', state:'next' },
+      { name:'Manchester Piccadilly', scheduled:'12:10', expected:'12:14', state:'upcoming' },
+    ] }] } } }));
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  const list = page.locator('#detail-intelligence .train-full-route');
+  await expect(list.locator('[data-show-earlier]')).toHaveText('Show 3 earlier stops');
+  await expect(list.locator('li:visible strong')).toHaveText(['Rugby','Stoke-on-Trent','Manchester Piccadilly']);
+  await expect(list.locator('.train-here')).toBeVisible();
+  await list.locator('[data-show-earlier]').click();
+  await expect(list.locator('li:visible strong')).toHaveText(['London Euston','Watford Junction','Milton Keynes Central','Rugby','Stoke-on-Trent','Manchester Piccadilly']);
+  await expect(list.locator('[data-show-earlier]')).toHaveText('Hide earlier stops');
+});
+
+test('a train status sits in one compact row of chips', async ({ page }) => {
+  await page.locator('[data-layer-toggle="train"]').click();
+  await waitForViewportRequestsToSettle(page);
+  await page.evaluate(() => {
+    const first = window.__fixtureSnapshot.activities.find(row => row.id === 'train-live-1');
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[{ ...first, delay_minutes:12, next_location:'Rugby' }] }) });
+  });
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  const status = page.locator('#detail-fields [data-field="Status"]');
+  await expect(status).toHaveText(/12 min late/);
+  await expect(status).toHaveAttribute('data-tone','bad');
+  const box = await page.locator('#detail-fields').boundingBox();
+  expect(box.height).toBeLessThan(44);
 });

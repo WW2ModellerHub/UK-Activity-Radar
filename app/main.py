@@ -74,6 +74,7 @@ from .schedule_store import ScheduleStore, sync_schedule_data
 from .request_budget import FixedWindowBudget
 from .rail_snapshot import RailPositionSnapshot
 from .rail_lines import RailLineLayer
+from .flight_routes import FlightRouteLookup
 from .rail_sections import delay_hotspots, line_at
 from .open_trip_planner import OpenTripPlannerClient
 from .tomtom_routing import TomTomRoutingClient
@@ -1752,6 +1753,20 @@ def activity_media(request: Request, activity_id: str):
         }
 
 
+flight_route_lookup = FlightRouteLookup(settings.adsb_lol_base_url)
+
+
+@app.get("/api/activity/{activity_id:path}/flight-route")
+def activity_flight_route(request: Request, activity_id: str):
+    """Departure and arrival airports for an airline flight, when known."""
+    _enforce_public_budget(request, lookup_request_budget)
+    item = state.get(activity_id)
+    if not item or item.type not in {"sar", "aircraft"}:
+        raise HTTPException(status_code=404, detail="Aircraft activity not found")
+    route = flight_route_lookup.lookup(item.name, item.lat, item.lon)
+    return {"found": route is not None, "route": route}
+
+
 @app.get("/api/activity/{activity_id:path}/aircraft")
 def activity_aircraft(request: Request, activity_id: str):
     _enforce_public_budget(request, lookup_request_budget)
@@ -1882,7 +1897,7 @@ def locate_rail_service(request: Request, train_uid: str | None = None, headcode
 
 
 @app.get("/api/activity/{activity_id:path}/bus")
-def activity_bus(request: Request, activity_id: str, limit: int = 12):
+def activity_bus(request: Request, activity_id: str, limit: int = 30):
     _enforce_public_budget(request, lookup_request_budget)
     # A clicked live bus must always be able to show its official route and
     # next stops. Charging for this core context made every free-user request

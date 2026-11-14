@@ -1,5 +1,23 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — compact facts, stop lists, bus lateness, flight routes
+
+- **Compact facts.** Train and bus panels show status, next stop and update
+  time as one row of small chips (status coloured by lateness) instead of
+  large boxes. "Last known" is not repeated under the heading that says it.
+- **Stop lists open where the vehicle is.** Trains and buses share one stop
+  list that starts at the stop before the vehicle; earlier stops sit behind
+  "Show N earlier stops". Buses gain the "Bus is here" marker and late times.
+- **Bus lateness.** The operator's BODS prediction is used when published;
+  otherwise, when the GPS feed names the stop the bus is heading for and its
+  timetable time has passed, the bus is "About N min late". Expected times
+  are added to the stops ahead. The full route is now sent (trimmed to 20
+  stops before the bus on very long trips).
+- **Flight routes.** Airline flights show departure and arrival airports
+  ("London Stansted (STN) → Dublin (DUB)") from adsb.lol's route database,
+  only when it marks the route plausible for the aircraft's position;
+  cached per callsign. `/api/activity/{id}/flight-route`.
+
 ## 2026-11-14 — pale base map
 
 - Back to the pale Mapbox Light base map, now used everywhere (with or
