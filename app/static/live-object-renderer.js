@@ -28,9 +28,9 @@ function punctuality(activity){
 function iconKind(activity){
   if(activity.type==='train')return 'train';
   const text=`${activity.aircraft_model||''} ${activity.aircraft_type_code||''} ${activity.kind||''}`.toLowerCase();
-  if(activity.type==='sar'||/(helicopter|lynx|chinook|apache|merlin|puma|s92|h135|ec135|aw1|bell|robinson)/.test(text))return 'helicopter';
-  if(/(typhoon|fighter|hawk|f-?\d|fast jet)/.test(text))return 'fastjet';
-  if(/(c-?17|a400|atlas|hercules|transporter|kc-?135|voyager)/.test(text))return 'heavy';
+  if(activity.type==='sar'||/helicopter|lynx|chinook|apache|merlin|puma|robinson|agusta|eurocopter|dauphin|squirrel|jetranger|\b(r22|r44|r66|ec20|ec30|ec35|ec45|ec55|ec75|as50|as55|as65|as32|as3b|a109|a119|a139|a169|a189|aw09|b06|b06t|b407|b412|b429|b505|h125|h130|h135|h145|h160|h175|s76|s92|md52|md60|expl|g2ca|en28|en48|h269|s300|bk17|nh90)\b/.test(text))return 'helicopter';
+  if(/typhoon|eurofighter|fighter|fast jet|\b(hawk|f-?(15|16|18|22|35)|tornado|gripen|rafale)\b/.test(text))return 'fastjet';
+  if(/\b(c-?17|a400m?|atlas|hercules|transporter|kc-?135|voyager)\b/.test(text))return 'heavy';
   if(/(cessna|c152|c172|diamond|piper|spitfire|prop)/.test(text))return 'propeller';
   return 'airliner';
 }

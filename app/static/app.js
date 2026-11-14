@@ -739,8 +739,12 @@
     $('detail-title').textContent=title;
     $('detail-subtitle').textContent=subtitle;
     $('detail-fields').innerHTML='';
+    // Nothing from a previous station board, photo or journey may linger
+    // under a list (it showed "Next published buses" under Trains near you).
+    clearPlaceBoard?.();
+    for(const id of ['detail-placeboard','detail-photo','detail-intelligence','detail-related','detail-operator','detail-discovery','detail-coverage']){const el=$(id);if(el){el.classList.add('hidden');el.innerHTML='';}}
     const box=$('detail-insight'); box.classList.remove('hidden'); box.innerHTML=html;
-    $('follow')?.classList.add('hidden');
+    $('follow')?.classList.add('hidden'); $('share-activity')?.classList.add('hidden'); $('track-activity')?.classList.add('hidden'); $('save-place')?.classList.add('hidden');
     return box;
   }
 
@@ -848,7 +852,7 @@
     const box=openInfoPanel(within.length?'Planes above you':'Nearest planes',within.length?`${within.length} within ${miles} miles`:(rows.length?`None within ${miles} miles, so these are the closest`:`None within ${miles} miles right now`),list?`<div class="line-trains">${list}</div>`:'<p class="transport-empty">No aircraft are being tracked near you right now.</p>');
     box.querySelectorAll('[data-job-plane]').forEach(button=>button.addEventListener('click',()=>focusActivityById(button.dataset.jobPlane,map.getZoom())));
     // Add where each flight is going, for the closest few.
-    rows.slice(0,6).forEach(({a})=>fetch(`/api/activity/${encodeURIComponent(a.id)}/flight-route`,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(payload=>{
+    rows.slice(0,6).forEach(({a})=>fetch(`/api/activity/${encodeURIComponent(a.id)}/flight-route?callsign=${encodeURIComponent(a.name||'')}&lat=${encodeURIComponent(a.lat)}&lon=${encodeURIComponent(a.lon)}`,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(payload=>{
       if(!payload?.found)return;
       flightRouteById.set(a.id,payload.route);
       const small=box.querySelector(`[data-job-plane="${CSS.escape(a.id)}"] [data-plane-route]`);
@@ -1018,6 +1022,11 @@
   }
 
   function tooltipHtml(a) {
+    if (a.kind === 'event' && a.impact) {
+      const im = a.impact;
+      const pills = [im.impact, im.when].filter(Boolean).map(text => `<span class="tooltip-pill ${im.active && im.rank >= 2 ? 'warn' : ''}">${esc(text)}</span>`).join('');
+      return `<div class="activity-tooltip-card"><div class="tooltip-top"><strong>${icons[a.type] || '•'} ${esc(im.title || im.what)}</strong></div>${im.where ? `<div class="tooltip-sub">${esc(humanTransitLabel(im.where))}</div>` : ''}<div class="tooltip-pills">${pills}</div></div>`;
+    }
     const route = a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.route || a.subtitle || a.position_label || '');
     const speed = compactSpeed(a);
     const heading = compass(a.bearing);
@@ -1204,7 +1213,7 @@
       : /APACHE|AH-?64/.test(text)?'apache'
       : /EUROFIGHTER|TYPHOON|\bEF2000\b/.test(text)?'typhoon'
       : /A400M|ATLAS C?\.?1|\bA4M\b/.test(text)?'a400m'
-      : /C-?17|GLOBEMASTER|\bC17\b/.test(text)?'c17'
+      : /\bC-?17\b|GLOBEMASTER/.test(text)?'c17'
       : /COASTGUARD|SIKORSKY S-?92|\bS92\b/.test(text)?'coastguard'
       : aircraftMapShape(a).kind;
     const media=AIRCRAFT_TYPE_PHOTOS[kind];
@@ -1344,14 +1353,14 @@
     const known=[
       [/LYNX|WILDCAT/, 'LYNX'],
       [/APACHE|AH-?64/, 'APACHE'], [/CHINOOK|CH-?47|\bH47\b/, 'CHINOOK'],
-      [/EUROFIGHTER|TYPHOON|\bEUFI\b/, 'TYPHOON'], [/F-?35|LIGHTNING II/, 'F-35'],
-      [/A400M|\bA400\b|ATLAS/, 'ATLAS'], [/C-?17|GLOBEMASTER/, 'C-17'],
-      [/VOYAGER|KC-?2|A330 MRTT/, 'VOYAGER'], [/C-?130|HERCULES|\bC30J\b/, 'HERCULES'],
-      [/HAWK/, 'HAWK'], [/OSPREY|V-?22/, 'OSPREY'], [/AWACS|SENTRY|E-?3/, 'AWACS'],
+      [/EUROFIGHTER|TYPHOON|\bEUFI\b/, 'TYPHOON'], [/\bF-?35\b|LIGHTNING II/, 'F-35'],
+      [/\bA400M?\b|\bATLAS\b/, 'ATLAS'], [/\bC-?17\b|GLOBEMASTER/, 'C-17'],
+      [/VOYAGER|\bKC-?2\b|A330 MRTT/, 'VOYAGER'], [/\bC-?130\b|HERCULES|\bC30J\b/, 'HERCULES'],
+      [/\bHAWK\b/, 'HAWK'], [/OSPREY|\bV-?22\b/, 'OSPREY'], [/AWACS|SENTRY|\bE-?3\b/, 'AWACS'],
       [/COASTGUARD|SIKORSKY S-?92|\bS92\b/, 'COASTGUARD'],
       [/SPITFIRE|\bSPIT\b/, 'SPITFIRE'], [/HURRICANE/, 'HURRICANE'], [/LANCASTER/, 'LANCASTER'],
       [/CESSNA\s*152|\bC152\b/, 'CESSNA 152'], [/CESSNA\s*172|\bC172\b/, 'CESSNA 172'],
-      [/KC-?135|STRATOTANKER/, 'KC-135'],
+      [/\bKC-?135\b|STRATOTANKER/, 'KC-135'],
     ];
     for (const [pattern,label] of known) if(pattern.test(text)) return label;
     const fallback=String(v.aircraft_model || v.aircraft_type_code || v.vehicle_ref || (v.type==='sar'?'RESCUE':'AIRCRAFT')).trim();
@@ -1367,9 +1376,9 @@
     const fastJet=shape('fastjet',P.fastjet), heavy=shape('heavy',P.heavy), airliner=shape('airliner',P.airliner), propeller=shape('propeller',P.propeller);
     if(/CHINOOK|CH-?47|\bH47\b/.test(text)) return {kind:'chinook',html:chinook,rotorcraft:true};
     if(/APACHE|AH-?64/.test(text)) return {kind:'apache',html:apache,rotorcraft:true};
-    if(v.type==='sar' || /LYNX|WILDCAT|MERLIN|GAZELLE|PUMA|HELICOPTER|SIKORSKY|AW1|EC1|H135|H145|DAUPHIN|\bS92\b/.test(text)) return {kind:'helicopter',html:helicopter,rotorcraft:true};
-    if(/TYPHOON|EUROFIGHTER|F-?35|F-?16|F-?15|F-?18|TORNADO|HAWK|GRIPEN|RAFALE/.test(text)) return {kind:'fastjet',html:fastJet,rotorcraft:false};
-    if(/KC-?135|STRATOTANKER|VOYAGER|A330|A340|A350|A380|747|C-?17|GLOBEMASTER|A400M|ATLAS|HERCULES|C-?130|AWACS|SENTRY|RIVET/.test(text)) return {kind:'heavy',html:heavy,rotorcraft:false};
+    if(v.type==='sar' || /LYNX|WILDCAT|MERLIN|GAZELLE|PUMA|HELICOPTER|SIKORSKY|ROBINSON|AGUSTA|EUROCOPTER|DAUPHIN|SQUIRREL|JETRANGER|\b(?:R22|R44|R66|EC20|EC30|EC35|EC45|EC55|EC75|AS50|AS55|AS65|AS32|AS3B|A109|A119|A139|A169|A189|AW09|B06|B06T|B407|B412|B429|B505|H125|H130|H135|H145|H160|H175|S76|S92|MD52|MD60|EXPL|G2CA|EN28|EN48|H269|S300|BK17|NH90)\b/.test(text)) return {kind:'helicopter',html:helicopter,rotorcraft:true};
+    if(/TYPHOON|EUROFIGHTER|\b(?:F-?35|F-?16|F-?15|F-?18|TORNADO|HAWK|GRIPEN|RAFALE)\b/.test(text)) return {kind:'fastjet',html:fastJet,rotorcraft:false};
+    if(/\b(?:KC-?135|STRATOTANKER|VOYAGER|A330|A340|A350|A380|747|C-?17|GLOBEMASTER|A400M?|ATLAS|HERCULES|C-?130|AWACS|SENTRY|RIVET)\b/.test(text)) return {kind:'heavy',html:heavy,rotorcraft:false};
     if(/SPITFIRE|HURRICANE|LANCASTER|MUSTANG|DAKOTA|CESSNA|PIPER|CIRRUS|BEECH|DIAMOND|\bC1(?:52|72|82)\b|\bPA-?\d+\b|\bSR2\d\b|\bDA\d{2}\b|\bDH8\b|DASH\s*8|ATR\s*\d+/.test(text)) return {kind:'propeller',html:propeller,rotorcraft:false};
     return {kind:'airliner',html:airliner,rotorcraft:false};
   }
@@ -2509,7 +2518,7 @@
   async function loadFlightRoute(a) {
     const id=a.id, seq=++flightRouteRequest;
     try {
-      const response=await fetch(`/api/activity/${encodeURIComponent(id)}/flight-route`,{cache:'no-store'});
+      const response=await fetch(`/api/activity/${encodeURIComponent(id)}/flight-route?callsign=${encodeURIComponent(a.name||'')}&lat=${encodeURIComponent(a.lat)}&lon=${encodeURIComponent(a.lon)}`,{cache:'no-store'});
       if(!response.ok)return;
       const payload=await response.json();
       flightRouteById.set(id,payload?.found?payload.route:null);
@@ -2819,7 +2828,28 @@
     if (box) { box.classList.add('hidden'); box.innerHTML=''; }
   }
 
+  // The selected bus's route: its stops joined up, the part it has done in
+  // grey and the rest in blue, with a dot at each stop.
+  let busRouteLayer=null;
+  function clearBusRoute(){ if(busRouteLayer){map.removeLayer(busRouteLayer);busRouteLayer=null;} $('map')?.removeAttribute('data-bus-route-stops'); }
+  function drawBusRoute(id,detail){
+    clearBusRoute();
+    if(selectedId!==id)return;
+    const stops=(Array.isArray(detail?.stops)?detail.stops:[]).filter(stop=>Number.isFinite(Number(stop?.lat))&&Number.isFinite(Number(stop?.lon)));
+    if(stops.length<2)return;
+    const nextIndex=Math.max(0,stops.findIndex(stop=>stop.state==='next'));
+    const done=stops.slice(0,nextIndex+1).map(stop=>[Number(stop.lat),Number(stop.lon)]);
+    const ahead=stops.slice(Math.max(0,nextIndex-0)).map(stop=>[Number(stop.lat),Number(stop.lon)]);
+    const group=L.layerGroup();
+    if(done.length>1)group.addLayer(L.polyline(done,{pane:'trainRoutePane',color:'#9aa8b5',weight:4,opacity:.9,interactive:false}));
+    if(ahead.length>1)group.addLayer(L.polyline(ahead,{pane:'trainRoutePane',color:'#0b63ce',weight:5,opacity:.9,interactive:false}));
+    for(const stop of stops)group.addLayer(L.circleMarker([Number(stop.lat),Number(stop.lon)],{pane:'trainRoutePane',radius:3.5,color:'#fff',weight:1.5,fillColor:stop.state==='passed'?'#9aa8b5':'#0b63ce',fillOpacity:1,interactive:false}));
+    busRouteLayer=group.addTo(map);
+    $('map')?.setAttribute('data-bus-route-stops',String(stops.length));
+  }
+
   function clearActivityIntelligence() {
+    clearBusRoute();
     clearTimeout(intelligenceRefreshTimer);
     intelligenceRefreshTimer=null;
     intelligenceController?.abort();
@@ -3121,7 +3151,7 @@
         name:humanTransitLabel(stop?.name || `Stop ${index+1}`),
         booked:booked||'—',
         lateClock:expected&&expected!==booked?expected:'',
-        detailHtml:stop?.stop_code?`<span>Stop ${esc(stop.stop_code)}</span>`:'',
+        detailHtml:'',
         state:stop?.state,
       };
     });
@@ -3185,6 +3215,7 @@
         }
       }
       const html=a.type==='train' ? renderRailIntelligence(detail) : renderBusIntelligence(detail);
+      if(a.type==='bus')drawBusRoute(a.id,detail);
       if(box.innerHTML!==html){const panel=$('detail-panel'),scrollTop=panel?.scrollTop||0;box.innerHTML=html;if(panel)panel.scrollTop=scrollTop;}
     } catch {
       if(requestId!==intelligenceRequest || selectedId!==a.id)return;
@@ -3242,11 +3273,13 @@
     sendWatching(id);
     if (pan) { trackProduct('activity_selected', a.type); collapseWorkspaceOnPhone(); }
     const detailCool=coolInfo(a);
-    $('detail-title').innerHTML = `${currentWorkspace==='cool' && detailCool.score>=45 ? coolBadgeHtml(a,true)+' ' : ''}${esc(a.name)}`;
+    const roadImpact=a.kind==='event'?a.impact:null;
+    $('detail-panel')?.classList.toggle('is-traffic',Boolean(roadImpact));
+    $('detail-title').innerHTML = roadImpact ? esc(roadImpact.title||roadImpact.what||a.name) : `${currentWorkspace==='cool' && detailCool.score>=45 ? coolBadgeHtml(a,true)+' ' : ''}${esc(a.name)}`;
     const flightRoute=['sar','aircraft'].includes(a.type) ? flightRouteById.get(a.id) : null;
     // Aircraft: the route, or nothing. Registration, type and operator are
     // already on the operator line below; repeating them here was noise.
-    $('detail-subtitle').textContent = flightRoute ? flightRouteText(flightRoute) : ['aircraft','sar'].includes(a.type) ? '' : humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
+    $('detail-subtitle').textContent = roadImpact ? humanTransitLabel(roadImpact.where||'') : flightRoute ? flightRouteText(flightRoute) : ['aircraft','sar'].includes(a.type) ? '' : humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
     renderOperatorIdentity(a);
     renderInsight(a);
     renderDiscoveryDetail(a);
@@ -3257,7 +3290,23 @@
     renderRelated(a);
     loadEnvironmentContext(a);
     loadActivityIntelligence(a);
-    if (a.kind === 'event') {
+    if (roadImpact) {
+      // What it means for you first: the impact, when, and why. The feed's
+      // own fields are under More details.
+      $('detail-fields').innerHTML = [
+        field('Impact', roadImpact.impact || (roadImpact.active ? null : 'Not in force now')), field('When', roadImpact.when), field('Why', roadImpact.why),
+        field('Source', a.source), field('Code', a.source_id), field('Position', a.position_label),
+      ].join('');
+      const impactCell=document.querySelector('#detail-fields [data-field="Impact"]');
+      if(impactCell)impactCell.dataset.tone=roadImpact.active&&roadImpact.rank>=2?'bad':roadImpact.active?'warn':'';
+      const note=$('detail-insight');
+      if(note){
+        if(roadImpact.note){note.classList.remove('hidden');note.innerHTML=`<p class="traffic-note">${esc(roadImpact.note)}</p>`;}
+        else {note.classList.add('hidden');note.innerHTML='';}
+      }
+      $('follow').classList.add('hidden');
+      if(a.type==='incident')loadCoverage(a); else clearCoverage();
+    } else if (a.kind === 'event') {
       $('detail-fields').innerHTML = [field('Category', a.category), field('Status', a.status), field('Severity', a.severity), field('Road', a.road), field('Direction', a.direction), field('Lanes', a.lanes_closed), field('Reason', a.reason), field('Started', timeText(a.start_time)), field('Ends', timeText(a.end_time)), field('Location', a.position_label), field('Source', a.source), field('Updated', timeText(a.last_updated))].join('');
       $('follow').classList.remove('hidden');
       $('follow').textContent = followed.has(id) ? 'Saved ✓' : 'Save';
@@ -4193,7 +4242,12 @@
     todayLoadedAt=Date.now();
     let since='';try{since=localStorage.getItem(TODAY_LAST_VISIT_KEY)||'';}catch{}
     try {
-      const response=await fetch(`/api/today${since?`?since=${encodeURIComponent(new Date(Number(since)).toISOString())}`:''}`,{cache:'no-store'});
+      const where=lastFix||(map?.getCenter?{lat:map.getCenter().lat,lon:map.getCenter().lng}:null);
+      const params=new URLSearchParams();
+      if(since)params.set('since',new Date(Number(since)).toISOString());
+      // Disruptions near you (or near the map) rather than anywhere in Britain.
+      if(where&&Number.isFinite(Number(where.lat))&&map.getZoom()>=8){params.set('lat',Number(where.lat).toFixed(3));params.set('lon',Number(where.lon??where.lng).toFixed(3));}
+      const response=await fetch(`/api/today${params.toString()?`?${params}`:''}`,{cache:'no-store'});
       if(!response.ok)throw new Error('summary unavailable');const payload=await response.json();
       const fresh=(payload.new_since||[])[0],disruption=(payload.disruptions||[])[0];
       box.innerHTML=[todayRow(payload.best,''),fresh&&fresh.activity_id!==payload.best?.activity_id?todayRow(fresh,'New'):'',disruption?todayRow(disruption,'Disruption'):'' ].filter(Boolean).join('')||'<p class="left-empty">Nothing notable right now.</p>';

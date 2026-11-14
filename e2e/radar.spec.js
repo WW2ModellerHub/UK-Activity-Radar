@@ -340,16 +340,12 @@ test('Useful map layers can independently turn trains and buses off and on', asy
   expect(viewport.types).toEqual(['bus']);
 });
 
-test('operator filter isolates live vehicles and Clear map resets it', async ({ page }) => {
+test('the operator filter (raw feed codes) is not offered and Clear all resets layers', async ({ page }) => {
   await page.locator('[data-layer-toggle="aircraft"]').click();
   await expect(page.locator('.aerial-aircraft')).toHaveCount(3);
   await page.locator('.useful-details summary').click();
-  await expect(page.locator('#operator-filter')).toContainText('Ryanair');
-  await page.locator('#operator-filter').selectOption('Ryanair');
-  await expect(page.locator('.aerial-aircraft')).toHaveCount(1);
-  await expect(page.locator('.aerial-aircraft')).toContainText('737-8200');
+  await expect(page.locator('#operator-filter')).toBeHidden();
   await page.locator('#clear-map').click();
-  await expect(page.locator('#operator-filter')).toHaveValue('all');
   await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','false');
   await expect(page.locator('.aerial-aircraft')).toHaveCount(0);
 });
@@ -1348,4 +1344,74 @@ test('a late train says where the delay built up', async ({ page }) => {
   await expect(why).toContainText('12 min late.');
   await expect(why).toContainText('Most of it (8 min) was lost between Rugby and Nuneaton.');
   await expect(why).toContainText('3 other trains nearby are late too');
+});
+
+test('light aircraft and business jets are not mistaken for military types', async ({ page }) => {
+  await page.locator('[data-layer-toggle="aircraft"]').click();
+  await waitForViewportRequestsToSettle(page);
+  await page.evaluate(() => {
+    const first = window.__fixtureSnapshot.activities.find(row => row.id === 'aircraft-live-1');
+    const plane = (id, name, model, code, lat) => ({ ...first, id, name, vehicle_ref:name, aircraft_model:model, aircraft_type_code:code, subtitle:`${name} • ${code}`, lat, cool_category:null, cool_score:0, cool_label:null });
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[
+      plane('ac-c172','GBJXZ','','C172',52.1), plane('ac-f150','GAVGE','','F150',52.3), plane('ac-hawker','GOMHC','Hawker 800XP','H25B',52.5),
+    ] }) });
+  });
+  await expect(page.locator('.aerial-map-marker')).toHaveCount(3);
+  await expect(page.locator('.aerial-map-marker').filter({ hasText:'C-17' })).toHaveCount(0);
+  await expect(page.locator('.aerial-map-marker').filter({ hasText:'CESSNA 172' })).toHaveClass(/aircraft-shape-propeller/);
+  await expect(page.locator('.aircraft-shape-fastjet')).toHaveCount(0);
+  await expect(page.locator('.aircraft-shape-heavy')).toHaveCount(0);
+});
+
+test('an incident says what it means for a driver, not the feed wording', async ({ page }) => {
+  await page.locator('[data-layer-toggle="incident"]').click();
+  await waitForViewportRequestsToSettle(page);
+  await page.evaluate(() => {
+    const crash = { kind:'event', id:'nh:crash1', type:'incident', name:'M1 — accident', subtitle:'raw', lat:52.05, lon:-0.75,
+      category:'Unplanned road incident / disruption', status:'Active', road:'M1', source:'National Highways', source_id:'crash1',
+      last_updated:new Date().toISOString(), position_method:'static', position_label:'x',
+      impact:{ title:'Crash · M1', what:'Crash', where:'M1 northbound between J14 and J15', impact:'2 lanes closed · Delays of about 20 min',
+        when:'Started 25 min ago', why:null, note:'Two vehicles involved. Recovery on scene.', active:true, rank:4 } };
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[crash], stream:{ ...window.__fixtureSnapshot.stream, selected_types:['incident'] } }) });
+  });
+  await page.locator('.marker-bubble.marker-incident').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-title')).toHaveText('Crash · M1');
+  await expect(page.locator('#detail-subtitle')).toHaveText('M1 northbound between J14 and J15');
+  await expect(page.locator('#detail-fields [data-field="Impact"]')).toContainText('Delays of about 20 min');
+  await expect(page.locator('#detail-fields [data-field="Impact"]')).toHaveAttribute('data-tone','bad');
+  await expect(page.locator('#detail-fields [data-field="When"]')).toContainText('Started 25 min ago');
+  await expect(page.locator('.traffic-note')).toContainText('Recovery on scene');
+  await expect(page.locator('#detail-panel')).not.toContainText('Unplanned road incident / disruption');
+});
+
+test('a selected bus shows its route on the map and no stop codes', async ({ page }) => {
+  await page.locator('[data-layer-toggle="bus"]').click();
+  await page.locator('.marker-bubble.marker-bus').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-intelligence .bus-stops')).toBeVisible();
+  await expect(page.locator('#map')).toHaveAttribute('data-bus-route-stops','3');
+  await expect(page.locator('#detail-intelligence')).not.toContainText('leidtgwt');
+  await expect(page.locator('#detail-intelligence')).toContainText('10:06');
+  await page.locator('#detail-close').click();
+  await expect(page.locator('#map')).not.toHaveAttribute('data-bus-route-stops', /./);
+});
+
+test('quick-answer lists never show a previous station board underneath', async ({ page }) => {
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
+  await page.locator('[data-job="bus"]').click();
+  await expect(page.locator('#detail-placeboard')).toContainText('City Centre');
+  await page.locator('[data-job="trains"]').click();
+  await expect(page.locator('#detail-title')).toHaveText('Trains near you');
+  await expect(page.locator('#detail-placeboard')).toBeHidden();
+});
+
+test('common civil helicopters such as the Robinson R44 get the helicopter icon', async ({ page }) => {
+  await page.locator('[data-layer-toggle="aircraft"]').click();
+  await waitForViewportRequestsToSettle(page);
+  await page.evaluate(() => {
+    const first = window.__fixtureSnapshot.activities.find(row => row.id === 'aircraft-live-1');
+    const heli = (id, name, code, lat) => ({ ...first, id, name, vehicle_ref:name, aircraft_model:'', aircraft_type_code:code, subtitle:`${name} • ${code}`, lat, cool_category:null, cool_score:0, cool_label:null });
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[heli('h1','G-INDX','R44',52.1), heli('h2','G-HEMS','EC35',52.3), heli('h3','G-CABI','G2CA',52.5)] }) });
+  });
+  await expect(page.locator('.aerial-map-marker')).toHaveCount(3);
+  await expect(page.locator('.aircraft-shape-helicopter')).toHaveCount(3);
 });

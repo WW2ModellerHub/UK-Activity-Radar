@@ -1,5 +1,53 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — incidents and roadworks overhaul; aircraft and bus fixes
+
+**Incidents and roadworks** now say what they mean for a driver:
+- New `app/road_impact.py` turns each event into plain facts: what ("Lane
+  closure", "Crash", "Temporary traffic lights"), where ("M1 southbound
+  between J22 and J21A"), impact ("2 lanes closed · Delays of about 20 min ·
+  Queue of 2.5 km"), when ("From 20:00 to tomorrow 06:00", "Started 25 min
+  ago"), why/who ("Gas works by Cadent Gas") and the operator's public
+  comment. The panel and hover card lead with these; feed fields sit under
+  More details; the road camera comes after.
+- National Highways: `_first` took whichever field came first in the
+  document, so works showed the record's creation time as their start. It
+  now honours priority order. Delay, delay band, queue length, lanes
+  restricted (never the total lane count), management, cause, validity
+  windows and the public comment are captured.
+- Street Manager works keep the promoter, location description and category.
+- Only events that matter are shown: happening now or starting within 12
+  hours, and (where the feed says) actually restricting traffic. Works
+  running to 2027 with nothing closed, and closures weeks away, are gone.
+- Bus disruptions (stop closures) are bus events, not road incidents.
+- "Right now" picks the most serious current disruption within 50 km of you
+  (or the map), by impact; it never picks a bus-stop closure.
+
+**Aircraft**
+- "Planes above me" stored every nearby aircraft on the server, so everyday
+  light aircraft filled everyone's Aircraft layer and went stale. Only
+  military, rescue and notable aircraft are shared now; flight routes for the
+  others are looked up by callsign and position.
+- Aircraft not heard from for 10 minutes leave the map.
+- Civil helicopter types (Robinson R22/R44/R66, Airbus/Eurocopter, Leonardo,
+  Bell, Sikorsky, Enstrom, Guimbal and more) get the helicopter icon.
+
+**Buses and panels**
+- A selected bus draws its route on the map (done in grey, ahead in blue);
+  stop codes such as "leidtgwt" are no longer shown.
+- Quick-answer lists clear any previous station board, photo or journey.
+- The operator filter (it listed raw feed codes such as "Amid") is removed.
+
+## 2026-11-14 — aircraft type matching
+
+- A Cessna 172 (type code C172) was labelled "C-17" with the heavy military
+  transport icon: the app's type rules matched "C-?17" anywhere, including
+  the start of "C172". The same loose matching could turn a Reims Cessna F150
+  into a fast jet (F-?15), a Hawker business jet into a Hawk, and parts of
+  registrations into AWACS (E-?3). All type codes are now matched as whole
+  words in the marker label, marker shape and fast-renderer icon. The server
+  rules already used whole words.
+
 ## 2026-11-14 — quick answers: one tap for the everyday jobs
 
 Walked the five things a visitor comes to do and cut the taps:

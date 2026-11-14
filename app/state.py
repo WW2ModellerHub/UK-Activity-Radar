@@ -9,6 +9,7 @@ from threading import RLock
 from .cool_classifier import apply_cool_classification
 from .models import Event, SourceStatus, Vehicle
 from .rail_service_notes import RailServiceNotes
+from .road_impact import describe as describe_road_event
 
 
 TRAIN_LIVE_REPORT_MINUTES = 45
@@ -28,6 +29,7 @@ UNMATCHED_TD_IDLE_MINUTES = 20
 # expected to be running, has stopped running: stock stabled in sidings or a
 # depot after its service ended without a terminating report.
 STABLED_IDLE_MINUTES = 20
+AIRCRAFT_VISIBLE_MINUTES = 10
 
 
 def _train_finished(vehicle: Vehicle, now: datetime) -> bool:
@@ -54,6 +56,10 @@ def _train_finished(vehicle: Vehicle, now: datetime) -> bool:
 
 
 DELAY_HISTORY_LENGTH = 12
+
+
+def _is_traffic_event(event) -> bool:
+    return event.type in {"road", "incident"} or bool((event.details or {}).get("bus_disruption"))
 
 
 def _carry_delay_history(previous: Vehicle | None, stored: Vehicle) -> None:
@@ -284,6 +290,8 @@ class LiveState:
         with self._lock:
             item = self._events.get(event_id)
             copy = deepcopy(item) if item is not None else None
+        if copy is not None and _is_traffic_event(copy):
+            copy.impact = describe_road_event(copy, datetime.now(timezone.utc))
         return apply_cool_classification(copy) if copy is not None else None
 
     def find_train_by_headcode(self, headcode: str, lat: float | None = None, lon: float | None = None) -> Vehicle | None:
@@ -362,6 +370,9 @@ class LiveState:
         cutoff = now - timedelta(minutes=max_age_minutes)
         bus_cutoff = now - timedelta(minutes=5)
         vessel_cutoff = now - timedelta(minutes=10)
+        # Aircraft report every few seconds; one not heard from for ten
+        # minutes has landed or left coverage and must not be shown airborne.
+        aircraft_cutoff = now - timedelta(minutes=AIRCRAFT_VISIBLE_MINUTES)
         cool_cutoff = now - timedelta(minutes=60)
         restored_cutoff = now - timedelta(minutes=RESTORED_SNAPSHOT_MINUTES)
 
@@ -394,6 +405,9 @@ class LiveState:
                         continue
                 elif stored.type in {"vessel", "sar"} and stored.source == "AISStream":
                     if not include_vessels or stored.last_updated < vessel_cutoff:
+                        continue
+                elif stored.type in {"aircraft", "sar"}:
+                    if stored.last_updated < aircraft_cutoff:
                         continue
                 elif stored.last_updated < cutoff:
                     continue
@@ -502,11 +516,21 @@ class LiveState:
                 deepcopy(e) for e in self._events.values()
                 if e.type not in excluded and _inside(e.lat, e.lon, bbox)
             ]
+        kept = []
         for row in rows:
             if row.cool_candidate and row.last_updated < cool_cutoff:
                 apply_cool_classification(row, now=now)
-        rows.sort(key=lambda x: x.last_updated, reverse=True)
-        return rows
+            if _is_traffic_event(row):
+                # Roadworks and incidents are shown only while they matter:
+                # happening now (or starting within hours) and restricting
+                # traffic. Long-running works with nothing in the way, and
+                # closures for another month, are not map markers.
+                row.impact = describe_road_event(row, now)
+                if not row.impact["worth_showing"]:
+                    continue
+            kept.append(row)
+        kept.sort(key=lambda x: x.last_updated, reverse=True)
+        return kept
 
     def all_activities(
         self,
@@ -660,6 +684,9 @@ class LiveState:
         cutoff = now - timedelta(minutes=TRAIN_LIVE_REPORT_MINUTES)
         bus_cutoff = now - timedelta(minutes=5)
         vessel_cutoff = now - timedelta(minutes=10)
+        # Aircraft report every few seconds; one not heard from for ten
+        # minutes has landed or left coverage and must not be shown airborne.
+        aircraft_cutoff = now - timedelta(minutes=AIRCRAFT_VISIBLE_MINUTES)
         cool_cutoff = now - timedelta(minutes=60)
         keys = {"train", "bus", "vessel", "sar", "aircraft", "satellite", "gritter", "rescue", "road", "incident", "flood", "weather", "earthquake", "river", "tide", "wave", "grid", "airquality", "bike", "space", "outage", "camera", "other"}
         by_type = {key: 0 for key in keys}
@@ -678,6 +705,9 @@ class LiveState:
                         continue
                 elif vehicle.type in {"vessel", "sar"} and vehicle.source == "AISStream":
                     if vehicle.last_updated < vessel_cutoff:
+                        continue
+                elif vehicle.type in {"aircraft", "sar"}:
+                    if vehicle.last_updated < aircraft_cutoff:
                         continue
                 elif vehicle.last_updated < cutoff and not (
                     vehicle.type == "train" and _train_has_current_projection(vehicle, now)
