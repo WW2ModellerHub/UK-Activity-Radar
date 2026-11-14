@@ -1,5 +1,13 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — road titles from live data
+
+- Checked live National Highways records after deploy: real works times
+  ("From 23:00 to tomorrow 05:00"), lane counts and public notes come
+  through. Records with lanes shut but no management type were titled
+  "Roadworks · M6"; they are now "Lane closure · M6" with the works
+  ("Repairs", "Construction work") as the reason.
+
 ## 2026-11-14 — incidents and roadworks overhaul; aircraft and bus fixes
 
 **Incidents and roadworks** now say what they mean for a driver:

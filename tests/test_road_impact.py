@@ -126,3 +126,12 @@ def test_flight_route_works_for_a_plane_the_server_does_not_keep(monkeypatch):
     response = client.get("/api/activity/aircraft:abc/flight-route", params={"callsign": "EZY12", "lat": 52.1, "lon": -1.2})
     assert response.status_code == 200 and calls == [("EZY12", 52.1, -1.2)]
     assert client.get("/api/activity/aircraft:abc/flight-route").status_code == 404
+
+
+def test_lanes_shut_without_a_management_type_read_as_a_lane_closure_with_the_works_as_reason():
+    payload = _record(cause={"causeType": "repairWork"}, numberOfLanesRestricted="2",
+                      generalPublicComment=[{"comment": "Lane 1 and 2 closure southbound"}],
+                      validity={"validityTimeSpecification": {"overallStartTime": "2026-11-14T21:00:00Z", "overallEndTime": "2026-11-15T06:00:00Z"}})
+    facts = describe(parse_closure_payload(payload, "planned")[0], NOW)
+    assert facts["title"] == "Lane closure · M1"
+    assert facts["impact"] == "2 lanes closed" and facts["why"] == "Repairs"
