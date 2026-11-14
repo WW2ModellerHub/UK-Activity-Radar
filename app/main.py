@@ -570,7 +570,7 @@ async def _commute_alert_loop() -> None:
             if journey_due(journey):
                 # Live incidents are only fetched where someone is looking;
                 # fetch along this route at most every ten minutes.
-                last = _journey_checked.get(saved.endpoint_hash, 0.0)
+                last = _journey_checked.get(saved.endpoint_hash, -1e9)
                 if traffic_incident_service is not None and traffic_incident_service.ready and time.monotonic() - last > 600:
                     _journey_checked[saved.endpoint_hash] = time.monotonic()
                     for box in journey_bboxes(journey):
