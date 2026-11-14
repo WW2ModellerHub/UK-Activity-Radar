@@ -85,11 +85,6 @@
 .cool-map-marker.cool-naval{background:linear-gradient(145deg,#234e72,#1c2d3c)}
 .cool-map-marker.cool-sea{background:linear-gradient(145deg,#27606a,#1c3439)}
 .aerial-marker-wrap,.camera-marker-wrap{overflow:visible!important;background:transparent;border:0}
-.aerial-motion-shell{width:48px;height:48px;margin:-6px 0 0 -6px}
-.aerial-map-marker{position:absolute;left:4px;top:4px;width:40px;height:40px;display:grid;place-items:center;border:1.5px solid rgba(255,255,255,.78);border-radius:50%;background:linear-gradient(145deg,#245b81,#162f44);box-shadow:0 5px 16px rgba(0,0,0,.42),0 0 0 3px rgba(109,191,244,.1);color:#fff}
-.aerial-map-marker>span{display:block;font-size:22px;line-height:1;filter:drop-shadow(0 2px 2px rgba(0,0,0,.45))}
-.aerial-map-marker>small{position:absolute;left:50%;top:35px;transform:translateX(-50%);max-width:86px;padding:2px 5px;border:1px solid rgba(255,255,255,.17);border-radius:6px;background:rgba(9,21,31,.93);font-size:6px;font-weight:950;letter-spacing:.05em;white-space:nowrap}
-.aerial-map-marker.aerial-sar{background:linear-gradient(145deg,#9a493f,#4d2928);box-shadow:0 5px 16px rgba(0,0,0,.42),0 0 0 3px rgba(255,122,105,.1)}
 .camera-map-marker{width:32px;height:32px;display:grid;place-items:center;border:2px solid rgba(255,255,255,.78);border-radius:9px;background:#243f54;box-shadow:0 5px 15px rgba(0,0,0,.4);font-size:17px}
 .camera-map-marker.unavailable{filter:grayscale(.8);opacity:.65}
 .aircraft-known small{display:block;margin-top:5px;color:var(--muted);font-size:7.5px}
@@ -104,44 +99,13 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 .marker-incident>span{transform:rotate(-45deg)}
 .marker-road{border-radius:7px}
 .marker-flood,.marker-weather{border-radius:50%}
-.aerial-motion-shell{width:62px;height:58px;margin:-9px 0 0 -10px}
-.aerial-map-marker{left:8px;top:2px;width:46px;height:42px;border:0!important;border-radius:0!important;overflow:visible;background:transparent!important;box-shadow:none!important}
-.aircraft-silhouette{display:grid!important;place-items:center;width:46px;height:42px;transform-origin:50% 50%;color:#63bfff}
-.aircraft-silhouette svg{width:43px;height:43px;overflow:visible;fill:currentColor;stroke:#07111b;stroke-width:1.8;stroke-linejoin:round;paint-order:stroke fill;filter:drop-shadow(0 2px 2px rgba(0,0,0,.7))}
-.aircraft-silhouette .rotor-disc{fill:rgba(255,255,255,.035);stroke:currentColor;stroke-width:1.2}
-.aircraft-silhouette .rotor-line,.aircraft-silhouette .tail-rotor,.aircraft-silhouette .prop-line{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
-.aircraft-silhouette .engine,.aircraft-silhouette .jet-intake{fill:#0a1822;stroke:currentColor;stroke-width:1}
-.aircraft-silhouette .tail-detail,.aircraft-silhouette .cockpit-detail{fill:none;stroke:#eaf7ff;stroke-width:1.1;stroke-linecap:round}
-.aircraft-silhouette .prop-hub{fill:#f7fbff;stroke:#07111b;stroke-width:1}
-.aircraft-shape-airliner .aircraft-silhouette{color:#55bdf5}
-.aircraft-shape-propeller .aircraft-silhouette{color:#8de2c5}
-.aerial-sar .aircraft-silhouette,.aircraft-shape-helicopter .aircraft-silhouette{color:#ff8b77}
-.aircraft-shape-fastjet .aircraft-silhouette{color:#ffc05e}
-.aircraft-shape-heavy .aircraft-silhouette{color:#b3a7ff}
-.aerial-map-marker>small{top:40px;max-width:106px;padding:2px 6px;border-color:rgba(255,255,255,.24);font-size:6.5px}
-.aerial-map-marker>em{position:absolute;right:-9px;top:-5px;padding:2px 4px;border-radius:5px;background:#f0b45d;color:#1c1409;font-size:5.5px;font-style:normal;font-weight:950;white-space:nowrap}
 @media(max-width:560px){.leaflet-top.leaflet-right{top:4px;right:4px}}
 .journey-route-line{filter:drop-shadow(0 1px 2px rgba(0,0,0,.65))}
-.aircraft-shape-airliner .aircraft-silhouette{color:#73c7ff}
-.aircraft-shape-propeller .aircraft-silhouette{color:#b8e6ff}
-.aircraft-shape-propeller .prop-line{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
-.aircraft-shape-propeller .prop-hub{stroke:#07111b;stroke-width:1}
-.aircraft-shape-helicopter,.aircraft-shape-apache,.aircraft-shape-chinook{border:0!important;background:transparent!important;box-shadow:none!important}
-.aircraft-shape-helicopter .aircraft-silhouette,.aircraft-shape-apache .aircraft-silhouette,.aircraft-shape-chinook .aircraft-silhouette{width:46px;height:34px;padding:3px;border-radius:50%;background:rgba(75,42,34,.88);box-shadow:0 4px 13px rgba(0,0,0,.45),0 0 0 2px rgba(255,225,203,.65)}
-.aircraft-shape-chinook .aircraft-silhouette{background:rgba(43,69,48,.9)}
-.aircraft-shape-helicopter>small,.aircraft-shape-apache>small,.aircraft-shape-chinook>small{top:37px}
 .motorway-sign-card>small{display:block;margin-bottom:6px;color:#e7ecee;font-size:7px;font-weight:950;letter-spacing:.13em}
 .vms-display{display:grid;gap:2px;min-height:72px;align-content:center;padding:10px;border:3px solid #171b1d;border-radius:4px;background:#050606;box-shadow:inset 0 0 15px rgba(0,0,0,.9);text-align:center}
 .vms-display span{color:#ffcf35;font-family:"Consolas","Lucida Console",monospace;font-size:15px;font-weight:850;letter-spacing:.08em;line-height:1.15;text-shadow:0 0 6px rgba(255,180,25,.5)}
 .motorway-sign-card>em{display:block;margin-top:6px;color:#eef3f4;font-size:8px;font-style:normal;text-align:center}
 @media(max-width:560px){.leaflet-top.leaflet-left{left:auto;right:8px}.leaflet-top.leaflet-left .leaflet-control{margin-left:0;margin-right:0}}
-.aircraft-shape-helicopter .aircraft-silhouette,.aircraft-shape-apache .aircraft-silhouette,.aircraft-shape-chinook .aircraft-silhouette{width:42px;height:42px;padding:4px;border-radius:13px}
-.aircraft-shape-helicopter .aircraft-silhouette svg,.aircraft-shape-apache .aircraft-silhouette svg,.aircraft-shape-chinook .aircraft-silhouette svg{width:34px;height:34px}
-.aircraft-shape-helicopter .aircraft-silhouette svg .rotor,.aircraft-shape-apache .aircraft-silhouette svg .rotor,.aircraft-shape-chinook .aircraft-silhouette svg .rotor{stroke-width:1.4;opacity:.9}
-.aircraft-shape-helicopter>small,.aircraft-shape-apache>small,.aircraft-shape-chinook>small{top:44px}
-.aircraft-shape-helicopter .aircraft-silhouette svg .rotor,.aircraft-shape-apache .aircraft-silhouette svg .rotor,.aircraft-shape-chinook .aircraft-silhouette svg .rotor{fill:none;stroke:#ffe7da;stroke-width:1.5;stroke-linecap:round;opacity:.95}
-.aircraft-shape-helicopter .rotor-hub,.aircraft-shape-apache .rotor-hub,.aircraft-shape-chinook .rotor-hub{fill:#fff1e8;stroke:#512f2a;stroke-width:1}
-.aircraft-shape-helicopter .tail-boom,.aircraft-shape-helicopter .tail-plane,.aircraft-shape-apache .stub-wing,.aircraft-shape-chinook .tail-plane{fill:none;stroke:currentColor;stroke-width:4;stroke-linecap:round}
 .train-published-route-outline,.train-published-route-guide,.train-live-leg-guide,.train-live-leg-progress{stroke-linecap: round; stroke-linejoin: round;}
 .train-published-route-guide{filter: drop-shadow(0 0 5px rgba(84, 215, 240, .94));}
 .train-live-leg-guide{filter: drop-shadow(0 0 4px rgba(86, 214, 239, .92));}
@@ -163,7 +127,23 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 @media (prefers-reduced-motion: reduce){.train-live-leg-progress,.train-route-arrow span{transition: none!important;}}
 .journey-route-line{filter: drop-shadow(0 0 3px #041018);}
 .train-full-route{max-height: 360px; overflow-y: auto; padding-right: 4px; scrollbar-width: thin;}
-.aerial-map-marker.aircraft-shape-plane{border-color: transparent; background: transparent; box-shadow: none;}
-.aircraft-shape-plane .aircraft-silhouette svg{width: 38px; height: 34px; fill: #f8fcff; filter: drop-shadow(0 2px 3px #06121a) drop-shadow(0 0 3px #5ebcf1);}
-.aircraft-shape-plane>small{top: 35px; background: rgba(7,18,27,.86);}
-.leaflet-marker-icon.aerial-marker-wrap,.leaflet-marker-icon.marker-wrap{transition: transform .9s linear;}
+/* Only moving things glide (rules above); places, incidents and roadworks stay put. */
+.leaflet-marker-icon.no-glide{transition:none!important}
+
+/* ---- Aircraft and helicopters: one flat set ----
+   A white disc with a top-down silhouette in the aircraft's colour, turned to
+   its heading, and the callsign in a small pill underneath. */
+.aerial-motion-shell{position:relative;width:40px;height:40px}
+.aerial-map-marker{--ac:#0b63ce;position:relative;width:40px;height:40px;display:grid;place-items:center}
+.aerial-map-marker.ac-propeller{--ac:#0f8a7a}
+.aerial-map-marker.ac-fastjet{--ac:#b26a00}
+.aerial-map-marker.ac-heavy{--ac:#6d4fd8}
+.aerial-map-marker.ac-helicopter,.aerial-map-marker.aerial-sar{--ac:#d64545}
+.aerial-map-marker.ac-chinook,.aerial-map-marker.ac-apache{--ac:#4f6b1f}
+.aircraft-silhouette{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#fff;border:2px solid var(--ac);box-shadow:0 1px 4px rgba(16,24,40,.3);color:var(--ac);transform-origin:50% 50%}
+.aircraft-silhouette svg{width:24px;height:24px;overflow:visible}
+.aircraft-silhouette .ac-body{fill:currentColor}
+.aircraft-silhouette .ac-rotor{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;opacity:.7}
+.aircraft-silhouette .ac-disc{fill:currentColor;opacity:.08;stroke:currentColor;stroke-width:.8;stroke-opacity:.5}
+.aerial-map-marker>small{position:absolute;left:50%;top:36px;transform:translateX(-50%);max-width:110px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;padding:1px 6px;border-radius:999px;background:#fff;color:#1f2937;border:1px solid #e4e7ec;box-shadow:0 1px 3px rgba(16,24,40,.18);font-size:10px;font-weight:700;letter-spacing:0;line-height:15px;white-space:nowrap}
+.aerial-map-marker>em{position:absolute;right:-6px;top:-4px;padding:1px 5px;border-radius:999px;background:#f0b45d;color:#1c1409;font-size:9px;font-style:normal;font-weight:800;white-space:nowrap}

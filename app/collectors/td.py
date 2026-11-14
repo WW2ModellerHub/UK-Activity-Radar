@@ -251,6 +251,10 @@ class TDCollector(StompFeed):
                     existing.estimate_path = leg["path"]
                     existing.estimate_started_at = leg["started_at"]
                     existing.estimate_due_at = leg["due_at"]
+                if leg and leg.get("delay_minutes") is not None and not fallback:
+                    # A berth step at a timetabled location is a real report:
+                    # its offset from the booked time is the train's lateness.
+                    existing.delay_minutes = leg["delay_minutes"]
             if self._reached_destination(schedule, station):
                 existing.terminated_at = existing.terminated_at or event_time
             self.state.upsert(existing)
@@ -301,6 +305,7 @@ class TDCollector(StompFeed):
                 estimate_started_at=leg["started_at"] if leg else None,
                 estimate_due_at=leg["due_at"] if leg else None,
                 terminated_at=event_time if self._reached_destination(schedule, station) else None,
+                delay_minutes=leg.get("delay_minutes") if leg and not fallback else None,
             ))
         return True
 
@@ -426,6 +431,7 @@ class TDCollector(StompFeed):
             if (
                 not vehicle.schedule_id or vehicle.last_updated < oldest
                 or vehicle.terminated_at is not None
+                or vehicle.cancelled_at is not None
                 or str(vehicle.status or "").lower().startswith("terminated")
             ):
                 return False

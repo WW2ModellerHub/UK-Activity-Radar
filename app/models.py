@@ -76,6 +76,13 @@ class Vehicle(BaseModel):
     # a matched train reaching its timetabled destination). Later berth steps
     # for the same stock must not bring a finished service back onto the map.
     terminated_at: datetime | None = None
+    # When TRUST cancelled the service. It stays visible, struck through,
+    # for a few minutes and then leaves the map.
+    cancelled_at: datetime | None = None
+    # The platform reported at the last railway report, and the one booked
+    # there; they differ when the train was moved to another platform.
+    platform: str | None = None
+    booked_platform: str | None = None
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Optional next-report metadata retained for context. ``next_tiploc`` lets

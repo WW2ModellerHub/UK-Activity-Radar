@@ -164,6 +164,12 @@ async function installAppFixture(page) {
         { id:1, points:[[52.04,-0.76],[52.055,-0.742],[52.08,-0.70]] },
         { id:2, points:[[52.40,-1.50],[52.48,-1.90]] },
       ] } });
+      if (pathname === '/api/rail/line') return route.fulfill({ json:{ found:false } });
+      if (pathname === '/api/rail/delays') return route.fulfill({ json:{ hotspots:[
+        { from:'Milton Keynes Central', to:'Northampton', late:3, cancelled:1, average_delay:18, worst_delay:31, train_ids:['train-live-1'], center:[52.1,-0.85], points:[[52.03,-0.77],[52.23,-0.9]] },
+        { from:'Bletchley', to:'Leighton Buzzard', late:1, cancelled:0, average_delay:7, worst_delay:7, train_ids:[], center:[51.95,-0.7], points:[[51.99,-0.73],[51.92,-0.66]] },
+      ] } });
+      if (pathname === '/api/trains/status') return route.fulfill({ json:{ trains:[] } });
       if (decodedPathname.startsWith('/api/rail/locate')) return route.fulfill({ json:{live:false,activity:null,message:'No matching live position is available right now.'} });
       if (decodedPathname.startsWith('/api/rail/schedule/C99999')) return route.fulfill({ json:{train_uid:'C99999',detail:{available:true,mode:'published_schedule',source:'Published railway timetable',live_marker:false,note:'Published route only. A matching live position is not available right now.',runs:[{headcode:'1Z80',origin:'Milton Keynes Central',destination:'Birmingham New Street',status:'Scheduled',calling_points:[{name:'Milton Keynes Central',scheduled:'10:32',event:'Calls'},{name:'Coventry',scheduled:'11:08',event:'Calls'},{name:'Birmingham New Street',scheduled:'11:31',event:'Calls'}]}]}} });
       if (decodedPathname.includes('/api/places/bus:490000077A/board')) return route.fulfill({ json: { board: { mode: 'live_predictions', source: 'Recorded BODS fixture', next_live_id:'bus-live-7', rows: [{ expected:'10:06', route:'7', destination:'City Centre', operator:'Arriva Midlands', status:'Live', minutes:5, live_vehicle_id:'bus-live-7' }] } } });

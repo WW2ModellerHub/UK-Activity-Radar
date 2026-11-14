@@ -696,7 +696,8 @@ test('known military helicopters show a bundled real photograph when live image 
   const marker=page.locator('.aircraft-shape-chinook').first();
   await expect(marker).toBeVisible();
   await expect(marker.locator('.rotorcraft-silhouette .map-chinook-svg')).toHaveCount(1);
-  await expect(marker.locator('.rotor-hub')).toHaveCount(2);
+  await expect(marker.locator('.map-chinook-svg .ac-rotor')).toHaveCount(1);
+  await expect(marker.locator('.map-chinook-svg .ac-body')).toHaveCount(1);
   await marker.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-photo img')).toHaveAttribute('src','/static/assets/aircraft/chinook-raf.jpg');
   await expect(page.locator('#detail-photo')).toContainText('Reference photo of this aircraft type');
@@ -716,7 +717,7 @@ test('aircraft markers distinguish airliners and propeller aircraft with the typ
   });
   const airliner=page.locator('.aircraft-shape-airliner').filter({ hasText:'737-8200' }).first();
   await expect(airliner).toBeVisible();
-  await expect(airliner.locator('.map-airliner-svg .engine')).toHaveCount(2);
+  await expect(airliner.locator('.map-airliner-svg')).toHaveCount(1);
   await page.evaluate(() => {
     const next=structuredClone(window.__fixtureSnapshot);
     const aircraft=next.activities.find(row=>row.id==='aircraft-live-1');
@@ -726,7 +727,7 @@ test('aircraft markers distinguish airliners and propeller aircraft with the typ
   const propeller=page.locator('.aircraft-shape-propeller').filter({hasText:'CESSNA 152'}).first();
   await expect(propeller).toBeVisible();
   await expect(propeller.locator('.map-propeller-svg')).toHaveCount(1);
-  await expect(propeller.locator('.prop-line')).toHaveCount(1);
+  await expect(propeller.locator('.ac-rotor')).toHaveCount(1);
   await expect(propeller.locator('.motion-speed')).toHaveCount(0);
 });
 
@@ -745,7 +746,7 @@ test('Westland Lynx aircraft use a helicopter silhouette and identity', async ({
   const lynx=page.locator('.aircraft-shape-helicopter').filter({hasText:'LYNX'}).first();
   await expect(lynx).toBeVisible();
   await expect(lynx.locator('.map-helicopter-svg')).toHaveCount(1);
-  await expect(lynx.locator('.rotor')).toHaveCount(1);
+  await expect(lynx.locator('.ac-rotor')).toHaveCount(1);
 });
 
 test('selected aircraft draws an honest browser-local live trail', async ({ page }) => {
@@ -914,9 +915,14 @@ test('journey planner resolves places and renders a real multimodal itinerary', 
 test('Station Board opens a real fixture station and departure', async ({ page }) => {
   await page.locator('#station-boards').click();
   await expect(page.locator('#detail-title')).toContainText('Milton Keynes Central');
-  await expect(page.locator('#detail-placeboard')).toContainText('DEPARTURES & ARRIVALS');
+  await expect(page.locator('#detail-placeboard [data-board-tab="departures"]')).toHaveAttribute('aria-selected','true');
   await expect(page.locator('#detail-placeboard')).toContainText('Manchester Piccadilly');
-  await expect(page.locator('#detail-placeboard')).toContainText('View live');
+  await expect(page.locator('#detail-placeboard [data-live-id="train-live-1"]')).toHaveClass(/is-live/);
+  // Arrivals are one tap away rather than squeezed into a second column.
+  await expect(page.locator('#detail-placeboard [data-board-list="arrivals"]')).toBeHidden();
+  await page.locator('#detail-placeboard [data-board-tab="arrivals"]').click();
+  await expect(page.locator('#detail-placeboard [data-board-list="arrivals"]')).toContainText('Birmingham New Street');
+  await page.locator('#detail-placeboard [data-board-tab="departures"]').click();
   await page.locator('#detail-placeboard [data-live-id="train-live-1"]').click();
   await expect(page.locator('#detail-title')).toContainText('London Express');
   await expect(page.locator('#detail-intelligence')).toContainText('Rolling stock');
@@ -930,7 +936,7 @@ test('Station Board opens a real fixture station and departure', async ({ page }
 
 test('scheduled station-board train opens its published route without a live marker', async ({ page }) => {
   await page.locator('#station-boards').click();
-  await expect(page.locator('#detail-placeboard')).toContainText('View route');
+  await expect(page.locator('#detail-placeboard [data-train-uid="C99999"]')).toHaveClass(/board-clickable/);
   await page.locator('#detail-placeboard [data-train-uid="C99999"]').click();
   await expect(page.locator('#detail-title')).toContainText('1Z80');
   await expect(page.locator('#detail-intelligence')).toContainText('Coventry');
@@ -1046,6 +1052,22 @@ test('the railway network is drawn with the train layer and cleared without it',
   expect(requests).toContain('/api/rail/lines/national');
   await page.locator('[data-layer-chip="train"]').click();
   await expect(page.locator('#map')).toHaveAttribute('data-rail-lines', '0');
+});
+
+test('train markers show punctuality only when lateness is known', async ({ page }) => {
+  await page.locator('[data-layer-chip="train"]').click();
+  await waitForViewportRequestsToSettle(page);
+  await page.evaluate(() => {
+    const first = window.__fixtureSnapshot.activities.find(row => row.id === 'train-live-1');
+    const late = { ...first, id:'train-late', name:'1K31', delay_minutes:8, lat:52.3, lon:-1.2 };
+    const onTime = { ...first, id:'train-on-time', name:'1P32', delay_minutes:0, lat:52.5, lon:-1.4 };
+    const unknown = { ...first, id:'train-unknown', name:'1P34', delay_minutes:null, lat:52.7, lon:-1.6 };
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[late,onTime,unknown], stream:{ ...window.__fixtureSnapshot.stream, selected_types:['train'] } }) });
+  });
+  await expect(page.locator('.marker-wrap-train')).toHaveCount(3);
+  await expect(page.locator('.train-punctuality.is-very-late')).toHaveCount(1);
+  await expect(page.locator('.train-punctuality.is-on-time')).toHaveCount(1);
+  await expect(page.locator('.train-punctuality')).toHaveCount(2);
 });
 
 test('rail stations appear with the train layer and go when it is turned off', async ({ page }) => {
@@ -1168,4 +1190,99 @@ test('mobile nearby aircraft leaves the map visible and uses a compact toast', a
   await expect(page.locator('[data-workspace="live"]')).toBeVisible();
   await page.locator('#nearby-bar').click();
   await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
+});
+
+test.describe('on a touch screen', () => {
+  test.use({ hasTouch:true, isMobile:true, viewport:{ width:390, height:844 } });
+
+  test('tapping a train opens one panel and no floating map card', async ({ page }) => {
+    await page.locator('[data-layer-chip="train"]').click();
+    const marker = page.locator('.marker-bubble.marker-train').first();
+    await marker.evaluate(el => el.closest('.leaflet-marker-icon').dispatchEvent(new MouseEvent('mouseenter')));
+    await marker.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+    await expect(page.locator('#detail-title')).toContainText('London Express');
+    await expect(page.locator('.activity-tooltip')).toHaveCount(0);
+  });
+});
+
+test('tapping a railway line lists the trains on that stretch in order', async ({ page }) => {
+  await page.route(url => new URL(url).pathname === '/api/rail/line', route => route.fulfill({ json:{
+    found:true, from:'MILTON KEYNES CENTRAL', to:'Northampton', length_km:24.6,
+    points:[[52.03,-0.77],[52.23,-0.9]],
+    trains:[
+      { id:'train-live-1', name:'1A23', destination:'Manchester Piccadilly', operator:'Fixture Rail', delay_minutes:12, cancelled:false, along_km:3.1 },
+      { id:'train-other', name:'2N40', destination:'Northampton', operator:'Fixture Rail', delay_minutes:0, cancelled:false, along_km:9.4 },
+    ],
+  } }));
+  await page.locator('[data-layer-chip="train"]').click();
+  await expect(page.locator('#map')).toHaveAttribute('data-rail-lines', /[1-9]/);
+  await page.locator('#map').evaluate(element=>element.dispatchEvent(new MouseEvent('click',{bubbles:true})));
+  await expect(page.locator('#detail-title')).toHaveText('Milton Keynes Central – Northampton');
+  await expect(page.locator('#detail-subtitle')).toContainText('2 trains on this line');
+  await expect(page.locator('.line-train strong')).toHaveText(['1A23','2N40']);
+  await expect(page.locator('.line-train').first()).toContainText('12 min late');
+  await expect(page.locator('.line-train').nth(1)).toContainText('On time');
+  await expect(page.locator('#map')).toHaveAttribute('data-rail-line-view','2');
+  await page.locator('[data-line-train="train-live-1"]').click();
+  await expect(page.locator('#detail-title')).not.toHaveText('Milton Keynes Central – Northampton');
+  await expect(page.locator('#map')).not.toHaveAttribute('data-rail-line-view', /./);
+});
+
+test('Delays shows the stretches where trains are running late', async ({ page }) => {
+  await expect(page.locator('[data-rail-delays]')).toBeHidden();
+  await page.locator('[data-layer-chip="train"]').click();
+  await page.locator('[data-rail-delays]').click();
+  await expect(page.locator('[data-rail-delays]')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('#detail-title')).toHaveText('Delays now');
+  await expect(page.locator('.delay-spot')).toHaveCount(2);
+  await expect(page.locator('.delay-spot').first()).toContainText('Milton Keynes Central – Northampton');
+  await expect(page.locator('.delay-spot').first()).toContainText('3 late, about 18 min · 1 cancelled');
+  await expect(page.locator('#map')).toHaveAttribute('data-delay-hotspots','2');
+  await page.locator('[data-layer-chip="train"]').click();
+  await expect(page.locator('[data-rail-delays]')).toBeHidden();
+  await expect(page.locator('#map')).not.toHaveAttribute('data-delay-hotspots', /./);
+});
+
+test('station boards strike out cancelled trains and flag platform changes', async ({ page }) => {
+  await page.route('**/api/places/rail*MKC/board*', route => route.fulfill({ json:{ board:{ mode:'network_rail', departures:[
+    { scheduled:'10:14', expected:'10:14', destination:'Manchester Piccadilly', platform:'4', status:'Cancelled', cancelled:true, headcode:'1A23', train_uid:'C12345', service_date:'2026-10-05' },
+    { scheduled:'10:32', expected:'10:32', destination:'Birmingham New Street', platform:'5', booked_platform:'2', platform_changed:true, status:'Scheduled', headcode:'1Z80', train_uid:'C99999', service_date:'2026-10-05' },
+  ], arrivals:[] } } }));
+  await page.locator('#station-boards').click();
+  const cancelled = page.locator('#detail-placeboard .board-row').first();
+  await expect(cancelled).toHaveClass(/is-cancelled/);
+  await expect(cancelled.locator('.board-status')).toHaveText('Cancelled');
+  await expect(page.locator('#detail-placeboard .platform-changed')).toHaveText('Platform 5 (was 2)');
+});
+
+test('a cancelled train is drawn struck through and says so', async ({ page }) => {
+  await page.locator('[data-layer-toggle="train"]').click();
+  await waitForViewportRequestsToSettle(page);
+  await page.evaluate(() => {
+    const first = window.__fixtureSnapshot.activities.find(row => row.id === 'train-live-1');
+    const cancelled = { ...first, id:'train-cancelled', name:'1K40', delay_minutes:9, cancelled_at:new Date().toISOString(), lat:52.3, lon:-1.2 };
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[cancelled], stream:{ ...window.__fixtureSnapshot.stream, selected_types:['train'] } }) });
+  });
+  await expect(page.locator('.marker-bubble.marker-train.is-cancelled')).toHaveCount(1);
+  await expect(page.locator('.marker-bubble.marker-train.is-cancelled .train-punctuality')).toHaveCount(0);
+});
+
+test('a moving aircraft glides to its new position instead of being redrawn', async ({ page }) => {
+  await page.locator('[data-layer-toggle="aircraft"]').click();
+  await waitForViewportRequestsToSettle(page);
+  const move = step => page.evaluate(step => {
+    const next = structuredClone(window.__fixtureSnapshot);
+    for (const row of next.activities.filter(item => ['aircraft','sar'].includes(item.type))) {
+      row.lat += 0.05 * step; row.lon += 0.05 * step; row.last_updated = new Date().toISOString();
+    }
+    window.__fixtureSocket.onmessage({ data: JSON.stringify(next) });
+  }, step);
+  await move(1);
+  await expect.poll(() => page.evaluate(() => window.__leafletStats.markerMoves)).toBeGreaterThan(0);
+  await page.waitForTimeout(1200);
+  const before = await page.evaluate(() => ({ moves: window.__leafletStats.markerMoves, icons: window.__leafletStats.markerIconUpdates }));
+  await move(2);
+  await expect.poll(() => page.evaluate(() => window.__leafletStats.markerMoves)).toBeGreaterThan(before.moves);
+  await page.waitForTimeout(1200);
+  expect(await page.evaluate(() => window.__leafletStats.markerIconUpdates)).toBe(before.icons);
 });

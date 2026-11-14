@@ -61,6 +61,15 @@ class ScheduleInfo:
     schedule_id: int | None = None
 
 
+def _lateness_minutes(reported_at: datetime, booked_at: datetime) -> int | None:
+    """Minutes a live report is behind (positive) or ahead of its booked time."""
+    try:
+        minutes = round((reported_at - booked_at).total_seconds() / 60)
+    except (TypeError, AttributeError):
+        return None
+    return minutes if abs(minutes) <= 720 else None
+
+
 class ScheduleStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
@@ -103,6 +112,28 @@ class ScheduleStore:
             self._stanox_tiplocs.clear()
             self._schedule_calls.clear()
             self._ready_until = 0.0
+
+    def booked_platform(self, schedule_id: int, tiploc: str) -> str | None:
+        """The platform the timetable books a service into at ``tiploc``."""
+        code = str(tiploc or "").strip().upper()
+        if not code:
+            return None
+        try:
+            with self._connect() as conn:
+                row = conn.execute("SELECT locations_json FROM schedules WHERE id=?", (int(schedule_id),)).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None:
+            return None
+        try:
+            locations = json.loads(row[0] or "[]")
+        except ValueError:
+            return None
+        for item in locations:
+            if isinstance(item, dict) and str(item.get("tiploc_code") or "").strip().upper() == code:
+                value = str(item.get("platform") or "").strip()
+                return value or None
+        return None
 
     def tiplocs_for_stanox(self, stanox: str | None) -> frozenset[str]:
         code = str(stanox or "").strip()
@@ -847,6 +878,7 @@ class ScheduleStore:
                     "started_at": recorded_at - runtime, "due_at": recorded_at,
                     "tiploc": previous_code, "report_tiploc": start_code,
                     "event_kind": event_kind, "berth_offset_seconds": offset,
+                    "delay_minutes": _lateness_minutes(recorded_at, start_time),
                 }
             return None
 
@@ -873,6 +905,7 @@ class ScheduleStore:
                 "started_at": recorded_at, "due_at": recorded_at + runtime,
                 "tiploc": start_code, "report_tiploc": start_code,
                 "event_kind": event_kind or None, "berth_offset_seconds": offset,
+                "delay_minutes": _lateness_minutes(recorded_at, start_time),
             }
         return None
 

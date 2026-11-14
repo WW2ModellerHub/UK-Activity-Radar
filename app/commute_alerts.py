@@ -68,6 +68,7 @@ def normalise_preferences(raw: dict) -> dict:
         "start_hour": start_hour,
         "end_hour": end_hour,
         "activity_types": activity_types,
+        "saved_trains": normalise_saved_trains(raw.get("saved_trains")),
     }
 
 
@@ -228,3 +229,80 @@ class CommuteAlertStore:
 def within_alert_hours(preferences: dict, now: datetime | None = None) -> bool:
     local = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("Europe/London"))
     return preferences["start_hour"] <= local.hour < preferences["end_hour"]
+
+
+# ---- Saved trains -------------------------------------------------------
+# A saved train alerts when it is cancelled, becomes late (in bands, so a
+# train drifting from 6 to 7 minutes late does not alert twice) or is moved
+# to another platform.
+LATE_BANDS = (5, 15, 30, 60)
+MAX_SAVED_TRAINS = 12
+
+
+def late_band(delay_minutes) -> int:
+    try:
+        minutes = int(delay_minutes)
+    except (TypeError, ValueError):
+        return 0
+    band = 0
+    for threshold in LATE_BANDS:
+        if minutes >= threshold:
+            band = threshold
+    return band
+
+
+def saved_train_status(vehicle, note: dict | None = None) -> dict:
+    """What a traveller needs to know about one saved train, or ``found: False``."""
+    if vehicle is None:
+        return {"found": False}
+    cancelled = bool(getattr(vehicle, "cancelled_at", None)) or bool((note or {}).get("cancelled"))
+    platform = getattr(vehicle, "platform", None)
+    booked = getattr(vehicle, "booked_platform", None)
+    return {
+        "found": True,
+        "id": vehicle.id,
+        "name": vehicle.name,
+        "origin": getattr(vehicle, "origin", None),
+        "destination": getattr(vehicle, "destination", None),
+        "cancelled": cancelled,
+        "arrived": bool(getattr(vehicle, "terminated_at", None)),
+        "delay_minutes": getattr(vehicle, "delay_minutes", None),
+        "late_band": 0 if cancelled else late_band(getattr(vehicle, "delay_minutes", None)),
+        "platform": platform,
+        "platform_changed": bool(platform and booked and platform != booked),
+        "booked_platform": booked,
+    }
+
+
+def saved_train_alerts(status: dict) -> list[dict]:
+    """The alerts a status implies, each with a stable de-duplication key."""
+    if not status.get("found"):
+        return []
+    name = status.get("name") or "Your train"
+    where = status.get("destination")
+    label = f"{name} to {where}" if where else name
+    train_id = status["id"]
+    alerts = []
+    if status.get("cancelled"):
+        alerts.append({"key": f"saved-train:{train_id}:cancelled", "title": f"{label} is cancelled",
+                       "body": "Check for another service.", "activity_id": train_id, "mode": "saved-train"})
+        return alerts
+    if status.get("late_band"):
+        alerts.append({"key": f"saved-train:{train_id}:late:{status['late_band']}",
+                       "title": f"{label} is {int(status['delay_minutes'])} min late",
+                       "body": "Tap to see where it is now.", "activity_id": train_id, "mode": "saved-train"})
+    if status.get("platform_changed"):
+        alerts.append({"key": f"saved-train:{train_id}:platform:{status['platform']}",
+                       "title": f"{label} now at platform {status['platform']}",
+                       "body": f"It was booked for platform {status['booked_platform']}.",
+                       "activity_id": train_id, "mode": "saved-train"})
+    return alerts
+
+
+def normalise_saved_trains(raw) -> list[str]:
+    ids = []
+    for value in raw or []:
+        text = str(value or "").strip()
+        if text and len(text) <= 80 and text not in ids:
+            ids.append(text)
+    return ids[:MAX_SAVED_TRAINS]

@@ -1,5 +1,91 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — smoothness and alignment pass
+
+- **Live layer lined up with the map.** The fast trains/aircraft layer
+  (MapLibre) was given Leaflet's zoom number, but MapLibre zooms are for
+  512px tiles: every object was drawn twice as far from the screen centre as
+  its true place (324 px off in the regression test), and taps on what you
+  saw missed. Now one zoom level lower, aligned to within a pixel at all
+  zooms; it follows drags in the same frame and runs Leaflet's zoom animation
+  instead of jumping when the zoom ends. Test uses the real libraries.
+- **Aircraft glide.** Every aircraft marker was rebuilt on every position
+  update (its position was in the redraw signature), cancelling the glide.
+  Heading now turns in place; trains no longer redraw on heading or speed
+  changes they do not show.
+- **Long jumps snap** (after a reconnect or returning to the tab) instead of
+  sliding across the map; places and incidents no longer have a slide
+  animation; "Follow on map" pans smoothly with the train.
+- **Panel layout.** The close button always sits at the right edge (a hidden
+  back button defeated the title's flex rule); train facts fill one row with
+  no empty cell; "Live" is no longer shown as a status; the rolling stock card
+  keeps traveller facts only (the dataset stays credited on Data licences);
+  map chips fade at the edge when they scroll; lists share one row rhythm; the
+  Map tab no longer repeats its heading (kept for screen readers).
+
+## 2026-11-14 — disruption, line view, saved-train alerts, aircraft icons
+
+- **Cancellations.** TRUST cancellations (and reinstatements) are now kept per
+  service, including trains that never started. Boards show "Cancelled" with
+  the time struck out (a part-cancelled train still arrives where it was cut
+  short); the train panel shows "Cancelled from …"; a cancelled train on the
+  map turns grey with a strike line for 10 minutes, then leaves.
+- **Platform changes.** The platform TRUST reports is compared with the
+  booked one. Boards and calling points show "Platform 5 (was 2)".
+- **Saved-train alerts.** Saving a train asks for notification permission and
+  alerts once per change: cancelled, late (5/15/30/60 min bands) or moved
+  platform. `/api/trains/status` serves the app; with travel alerts on, the
+  same alerts are pushed to the phone while the app is closed.
+- **Line view.** Tapping a railway line lists the trains on that stretch
+  (junction to junction, named after the stations at its ends) in order,
+  with lateness. `/api/rail/line`.
+- **Delays.** A "Delays" chip (shown with Trains) highlights stretches where
+  trains run late and lists them; tapping one zooms there and opens its line
+  view. `/api/rail/delays`.
+- **Aircraft icons.** One flat set of top-down silhouettes (airliner, heavy,
+  fast jet, light aircraft, helicopter, Apache, Chinook) on a white disc,
+  coloured by kind, shared by the map markers and the fast renderer; the old
+  dark-theme aircraft CSS overrides were removed.
+
+## 2026-11-13 — one panel per tap
+
+- Touch screens no longer show the floating map card when a train, bus, station or camera is tapped; the detail panel is the only view. Mouse users keep the hover card.
+- The selected item no longer opens its map card automatically.
+- Train hover cards show "On time" / "N min late" instead of internal signalling text such as "TD live • next berth unresolved".
+
+## 2026-11-13 — station board, Discover clean-up, punctuality
+
+- **Station board.** Rebuilt as one list with Departures / Arrivals tabs,
+  replacing two squeezed columns. Each row shows the booked time (HH:MM, not
+  "13 Nov at 21:31"), the full destination in normal case, "Platform N ·
+  Operator", and one status: the expected time in red when late, "On time",
+  "Cancelled", or "Live". The whole row is tappable; "View live train ›" and
+  "View route ›" are gone. The server now sends the operator's full name and
+  no longer passes internal TD status text to the board.
+- **Discover.** One All / Air / Rail / Rescue switch with "Map on" beside it,
+  then one list of finds. No longer shown: the "NEW / 0/3 Field Guide"
+  chips, the AIR/RAIL/RESCUE scoreboard, the Visible/Moving/Cool now/Tracking
+  box, the duplicate "Cool stuff now" ranking, the preview note and the
+  category counts.
+- **Removed:** the scrolling desktop ticker (it repeated names already in the
+  lists). "More details" only appears when there is something more to show.
+- **Punctuality.** Train markers get a corner dot: green within 1 minute,
+  amber up to 5 minutes late, red beyond. There is no dot when lateness is
+  unknown. Signalling-only trains now get lateness from each timetabled berth
+  report (`schedule_store._lateness_minutes`), so the dot, the train panel's
+  Status and station boards work beyond TRUST-reported trains.
+
+Tests: board tabs and status, punctuality dots and signalling lateness.
+Python 352 passed; browser 75 passed.
+
+## 2026-11-13 — one base map
+
+The map used Mapbox Light normally and switched to Mapbox Streets when trains
+were on, to make railways visible. Railways are now drawn by the app's own
+rail line layer, so Streets is used everywhere and the map no longer changes
+style when the train layer is toggled. `rail_tile_url` is kept as `null` for
+pages cached before the change.
+
 ## 2026-11-13 — calmer train map
 
 - **Markers:** 26 px coloured squares with a thin white edge and a white

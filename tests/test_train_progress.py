@@ -68,3 +68,14 @@ def test_trust_variation_sign_follows_variation_status(tmp_path):
     assert next(iter(state.all(include_buses=False, include_vessels=False))).delay_minutes == -3
     movement(collector, now + timedelta(minutes=1), event_type="DEPARTURE", timetable_variation="5", variation_status="LATE")
     assert next(iter(state.all(include_buses=False, include_vessels=False))).delay_minutes == 5
+
+
+def test_signalling_report_at_a_timetabled_point_records_lateness(tmp_path):
+    from tests.test_rail_ingest_throughput import _step, _td_collector
+    collector, state, _store, now = _td_collector(tmp_path)
+    # Chesterfield is booked at now + 2 minutes; the berth step happens at now.
+    _step(collector, now, "A001", "A002", 0)
+    assert state.find_train_by_headcode("2S53").delay_minutes == -2
+    # Five minutes later at the same booked point: three minutes late.
+    _step(collector, now, "A002", "A003", 300)
+    assert state.find_train_by_headcode("2S53").delay_minutes == 3
