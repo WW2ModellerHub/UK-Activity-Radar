@@ -19,7 +19,7 @@ test('MapLibre live layer renders trains and aircraft from one motion clock', as
       class LeafMap { constructor(){this.events={};} getCenter(){return {lat:52.6,lng:-1.2};} getZoom(){return 9;} on(names,handler){for(const name of names.split(' '))this.events[name]=handler;} off(){} }
       const now=Date.now(),renderer=window.__renderer=new LiveObjectRenderer({container:document.querySelector('#live'),leafMap:new LeafMap(),motionEngine:window.UKActivityMotionEngine});
       renderer.setActivities([
-        {id:'train-1',type:'train',lat:52.6,lon:-1.2,reported_lat:52.6,reported_lon:-1.2,next_lat:52.7,next_lon:-1.1,estimate_path:[[52.6,-1.2],[52.65,-1.16],[52.7,-1.1]],estimate_started_at:new Date(now-30000).toISOString(),estimate_due_at:new Date(now+30000).toISOString()},
+        {id:'train-1',type:'train',bearing:135,lat:52.6,lon:-1.2,reported_lat:52.6,reported_lon:-1.2,next_lat:52.7,next_lon:-1.1,estimate_path:[[52.6,-1.2],[52.65,-1.16],[52.7,-1.1]],estimate_started_at:new Date(now-30000).toISOString(),estimate_due_at:new Date(now+30000).toISOString()},
         {id:'train-2',type:'train',lat:52.6,lon:-1.2,reported_lat:52.6,reported_lon:-1.2,next_lat:52.7,next_lon:-1.1,estimate_path:[[52.6,-1.2],[52.65,-1.16],[52.7,-1.1]],estimate_started_at:new Date(now-30000).toISOString(),estimate_due_at:new Date(now+30000).toISOString()},
         {id:'air-1',type:'aircraft',lat:52.5,lon:-1.3,bearing:90,speed:250,last_updated:new Date(now-3000).toISOString(),aircraft_model:'Airbus A320'}
       ],'train-1');
@@ -35,6 +35,8 @@ test('MapLibre live layer renders trains and aircraft from one motion clock', as
     const feature=renderer.lastFeatures.find(row=>row.properties.id==='train-2');
     return renderer.featureAt(renderer.map.project(feature.geometry.coordinates));
   })).toBe('train-2');
+  // Train badges sit upright whatever their direction; aircraft face their heading.
+  expect(await page.evaluate(()=>Object.fromEntries(window.__renderer.lastFeatures.map(row=>[row.properties.id,row.properties.rotation])))).toEqual({'train-1':0,'train-2':0,'air-1':90});
   await expect(page.locator('body')).toHaveAttribute('data-frame-intervals','16,33,50,16');
   await expect(page.locator('.map-panel')).toHaveClass(/maplibre-live-ready/);
 });

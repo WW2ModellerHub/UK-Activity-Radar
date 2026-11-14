@@ -149,7 +149,9 @@ export class LiveObjectRenderer{
           lat+=Math.sin(angle)*radiusMetres/111320;
           lon+=Math.cos(angle)*radiusMetres/(111320*Math.max(.2,Math.cos(lat*Math.PI/180)));
         }
-        features.push({type:'Feature',id:String(row.id),geometry:{type:'Point',coordinates:[lon,lat]},properties:{id:String(row.id),type:row.type,selected:row.id===this.selectedId,icon:`live-${iconKind(row)}`,rotation:Number(row.bearing||0),...punctuality(row)}});
+        // Only aircraft turn to face their heading; a train or bus badge is a
+        // sign and always sits upright.
+        features.push({type:'Feature',id:String(row.id),geometry:{type:'Point',coordinates:[lon,lat]},properties:{id:String(row.id),type:row.type,selected:row.id===this.selectedId,icon:`live-${iconKind(row)}`,rotation:['aircraft','sar'].includes(row.type)?Number(row.bearing||0):0,...punctuality(row)}});
       });
     }
     this.lastFeatures=features;
