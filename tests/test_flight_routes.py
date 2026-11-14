@@ -56,3 +56,37 @@ def test_lookup_caches_by_callsign_and_survives_failure():
     assert FlightRouteLookup("https://api.adsb.lol", FakeSession(None, fail=True)).lookup("BAW117", 51.5, -0.4) is None
     assert lookup.lookup("G-ABCD", 51.5, -0.4) is None
     assert len(session.calls) == 1
+
+
+class FallbackSession(FakeSession):
+    def __init__(self, routeset_payload, adsbdb_payload, routeset_fail=False):
+        super().__init__(routeset_payload, fail=routeset_fail)
+        self.adsbdb_payload = adsbdb_payload
+
+    def get(self, url, timeout):
+        self.calls.append((url, None))
+        return SimpleNamespace(status_code=200, raise_for_status=lambda: None, json=lambda: self.adsbdb_payload)
+
+
+ADSBDB = {"response": {"flightroute": {
+    "callsign": "VIR3N",
+    "origin": {"name": "London Heathrow Airport", "iata_code": "LHR", "icao_code": "EGLL", "latitude": 51.47, "longitude": -0.46, "municipality": "London"},
+    "destination": {"name": "John F Kennedy International Airport", "iata_code": "JFK", "icao_code": "KJFK", "latitude": 40.64, "longitude": -73.78, "municipality": "New York"},
+}}}
+
+
+def test_adsbdb_is_used_when_adsb_lol_fails_or_has_no_route():
+    failing = FlightRouteLookup("https://api.adsb.lol", FallbackSession(None, ADSBDB, routeset_fail=True))
+    route = failing.lookup("VIR3N", 51.6, -1.0)
+    assert (route["origin"]["iata"], route["destination"]["iata"]) == ("LHR", "JFK")
+    unknown = FlightRouteLookup("https://api.adsb.lol", FallbackSession([{"callsign": "VIR3N", "airport_codes": "unknown"}], ADSBDB))
+    assert unknown.lookup("VIR3N", 51.6, -1.0)["destination"]["name"] == "John F Kennedy"
+
+
+def test_adsbdb_route_far_from_the_aircraft_is_ignored_and_reasons_are_reported():
+    lookup = FlightRouteLookup("https://api.adsb.lol", FallbackSession([{"callsign": "VIR3N", "airport_codes": "unknown"}], ADSBDB))
+    assert lookup.lookup("VIR3N", 35.0, 139.0) is None  # over Tokyo
+    assert lookup.last_reason == "no_published_route"
+    broken = FlightRouteLookup("https://api.adsb.lol", FakeSession(None, fail=True), fallback_url="")
+    assert broken.lookup("VIR3N", 51.6, -1.0) is None
+    assert broken.last_reason == "lookup_failed" and "ConnectionError" in broken.last_error

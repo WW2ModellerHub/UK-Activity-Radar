@@ -1764,7 +1764,14 @@ def activity_flight_route(request: Request, activity_id: str):
     if not item or item.type not in {"sar", "aircraft"}:
         raise HTTPException(status_code=404, detail="Aircraft activity not found")
     route = flight_route_lookup.lookup(item.name, item.lat, item.lon)
-    return {"found": route is not None, "route": route}
+    payload = {"found": route is not None, "route": route}
+    if route is None:
+        # Why there is no route: no published route for this callsign, or the
+        # route services could not be reached (with their error, no secrets).
+        payload["reason"] = flight_route_lookup.last_reason
+        if flight_route_lookup.last_reason == "lookup_failed":
+            payload["error"] = flight_route_lookup.last_error
+    return payload
 
 
 @app.get("/api/activity/{activity_id:path}/aircraft")

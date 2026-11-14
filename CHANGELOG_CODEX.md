@@ -1,5 +1,16 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — flight routes: second source and reasons
+
+- Live check after deploy: `/api/activity/{id}/flight-route` returned
+  `found: false` for airline flights near Heathrow (VIR3N, RYR10RY, AFR375,
+  EXS1N), with no way to tell "no route" from "lookup failed".
+- adsbdb.com (`/v0/callsign/{cs}`) is now tried when adsb.lol fails or has no
+  route; its route is used only if the aircraft is within 30% + 100 km of
+  the direct line between the airports.
+- A not-found reply now says why (`reason`: no_published_route /
+  lookup_failed / not_an_airline_callsign, plus the error for failures).
+
 ## 2026-11-14 — panel and wording clean-up
 
 - **Removed from the panels** (code kept dormant): "Look around another place"
