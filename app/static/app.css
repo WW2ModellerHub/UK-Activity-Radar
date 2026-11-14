@@ -1091,3 +1091,24 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 .detail-panel.is-traffic > .detail-photo img, .detail-panel.is-traffic > .detail-photo video { max-height: 180px; object-fit: cover; }
 .detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field { max-width: 100%; flex-wrap: wrap; border-radius: 14px; }
 .detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field strong { white-space: normal; overflow-wrap: anywhere; }
+
+/* ---- One control row: quick answers first, then layer switches ---- */
+.jobs-bar { display: none !important; }
+.layer-chip.job-chip { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.layer-chip.job-chip .ico { width: 18px; height: 18px; color: var(--accent, #0b63ce); }
+.chip-divider { flex: none; width: 1px; height: 24px; align-self: center; margin: 0 2px; background: var(--line-strong, #c9cfd6); }
+@media (max-width: 760px) {
+  /* No answer bar above the tabs any more: the locate button and credits sit lower. */
+  #recenter { bottom: calc(var(--nav-h) + 16px); }
+  .map-controls { bottom: calc(var(--nav-h) + 16px + 56px); }
+  .leaflet-control-attribution { margin-bottom: calc(var(--nav-h) + 4px) !important; }
+}
+@media (max-width: 760px) { .layer-chip { height: 40px; } }
+@media (max-width: 760px) {
+  .layer-chips { gap: 6px; }
+  .layer-chip.job-chip { padding: 0 11px; font-size: 13.5px; gap: 5px; }
+}
+@media (max-width: 760px) {
+  .layer-chip.job-chip { padding: 0 9px; font-size: 13px; gap: 4px; }
+  .layer-chip.job-chip .ico { width: 16px; height: 16px; }
+}

@@ -1,5 +1,14 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — one control row
+
+- Too many controls on the phone map (search, layer chips, answer bar, tabs
+  and two round buttons). The four answers (Planes, Trains near, Bus,
+  Journey) now lead the chip row under search, followed by a divider and the
+  layer switches; the separate answer bar and the round layers button are
+  gone, and the locate button sits just above the tabs. All four answers fit
+  a 390 px phone without scrolling; chips are 40 px tall on phones.
+
 ## 2026-11-14 — search shows roads in plain words
 
 - Search results for roadworks and incidents used the raw feed title

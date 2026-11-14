@@ -1079,20 +1079,22 @@ test('map chips switch layers in step with the panel switches', async ({ page })
   await expect(chip).toHaveAttribute('aria-pressed', 'false');
 });
 
-test('mobile quick answers sit above the tabs and step aside for an open sheet', async ({ page }) => {
+test('mobile has one control row: quick answers first, then layer switches', async ({ page }) => {
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
   await page.locator('[data-workspace="useful"]').click();
   await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
-  const bar = page.locator('#jobs-bar');
-  await expect(bar).toBeVisible();
-  await expect(bar.locator('button')).toHaveText(['Planes','Trains','Next bus','Journey']);
-  const box = await bar.boundingBox();
-  expect(box.height).toBeLessThanOrEqual(72);
-  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  const row = page.locator('.layer-chips');
+  await expect(row.locator('.job-chip')).toHaveText(['Planes','Trains near','Bus','Journey']);
+  await expect(page.locator('#jobs-bar')).toHaveCount(0);
+  await expect(page.locator('#map-layers-open')).toBeHidden();
+  const first = await row.locator('.job-chip').first().boundingBox();
+  expect(first.y).toBeLessThan(140);
+  // All four answers fit on a phone without scrolling the row.
+  const last = await row.locator('.job-chip').last().boundingBox();
+  expect(last.x + last.width).toBeLessThanOrEqual(390);
   await page.locator('[data-job="bus"]').click();
   await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');
-  await expect(bar).toBeHidden();
 });
 
 test('mobile tabs put an open detail sheet away', async ({ page }) => {
@@ -1122,8 +1124,9 @@ test('mobile first visit can find a bus, save the stop, and reach simple alerts'
   await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
   for (const selector of ['[data-job="bus"]','[data-job="planes"]']) {
     const box=await page.locator(selector).boundingBox();
-    expect(box.height).toBeGreaterThanOrEqual(44);
-    expect(box.height).toBeLessThanOrEqual(66);
+    // Chips in the control row: comfortably tappable, one line high.
+    expect(box.height).toBeGreaterThanOrEqual(40);
+    expect(box.height).toBeLessThanOrEqual(48);
     expect(box.x+box.width).toBeLessThanOrEqual(390);
   }
   await page.locator('[data-job="bus"]').click();
