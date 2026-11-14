@@ -1079,27 +1079,26 @@ test('map chips switch layers in step with the panel switches', async ({ page })
   await expect(chip).toHaveAttribute('aria-pressed', 'false');
 });
 
-test('mobile quick answers sit above the tabs and step aside for an open sheet', async ({ page }) => {
+test('the map row is layer switches only; the everyday answers are at the top of the Map panel', async ({ page }) => {
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
+  await expect(page.locator('.layer-chips [data-job]')).toHaveCount(0);
+  await expect(page.locator('.layer-chips .layer-chip').first()).toHaveText('Trains');
+  await expect(page.locator('#map-layers-open')).toBeHidden();
+  // On the map, Map closes the panel; tapped again it opens it with "Near you" first.
   await page.locator('[data-workspace="useful"]').click();
   await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
-  const bar = page.locator('#jobs-bar');
-  await expect(bar).toBeVisible();
-  await expect(bar.locator('button')).toHaveText(['Planes','Trains','Next bus','Journey']);
-  const box = await bar.boundingBox();
-  expect(box.height).toBeLessThanOrEqual(72);
-  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  await page.locator('[data-workspace="useful"]').click();
+  await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
+  await expect(page.locator('.near-you')).toBeVisible();
+  await expect(page.locator('.near-you .job-row strong')).toHaveText(['Planes above you','Trains near you','Your next bus','My journey']);
   await page.locator('[data-job="bus"]').click();
   await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');
-  await expect(bar).toBeHidden();
 });
 
 test('mobile tabs put an open detail sheet away', async ({ page }) => {
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
-  await page.locator('[data-workspace="useful"]').click();
-  await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
   await page.locator('[data-job="bus"]').click();
   await expect(page.locator('#detail-sidebar')).not.toHaveClass(/is-empty/);
   await page.locator('[data-workspace="settings"]').click();
@@ -1118,12 +1117,11 @@ test('mobile first visit can find a bus, save the stop, and reach simple alerts'
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
   await expect(page.locator('[data-cool-view="missions"]')).toHaveCount(0);
-  await page.locator('[data-workspace="useful"]').click();
-  await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
   for (const selector of ['[data-job="bus"]','[data-job="planes"]']) {
     const box=await page.locator(selector).boundingBox();
+    // Rows in the Map panel's "Near you" list: comfortably tappable.
     expect(box.height).toBeGreaterThanOrEqual(44);
-    expect(box.height).toBeLessThanOrEqual(66);
+    expect(box.height).toBeLessThanOrEqual(80);
     expect(box.x+box.width).toBeLessThanOrEqual(390);
   }
   await page.locator('[data-job="bus"]').click();
@@ -1142,8 +1140,6 @@ test('mobile first visit can find a bus, save the stop, and reach simple alerts'
 test('on a phone, planes above you opens a list and keeps the map in view', async ({ page }) => {
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
-  await page.locator('[data-workspace="useful"]').click();
-  await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
   await page.locator('[data-job="planes"]').click();
   await expect(page.locator('#detail-title')).toHaveText(/Planes above you|Nearest planes/);
   await expect(page.locator('#detail-subtitle')).toContainText('25 miles');
@@ -1251,8 +1247,6 @@ test('a moving aircraft glides to its new position instead of being redrawn', as
 test('the nearby limit is a small pill that can be closed from the map', async ({ page }) => {
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
-  await page.locator('[data-workspace="useful"]').click();
-  await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
   await page.locator('[data-job="planes"]').click();
   const pill = page.locator('#nearby-note');
   await expect(pill).toBeVisible();

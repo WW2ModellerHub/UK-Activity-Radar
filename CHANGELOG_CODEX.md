@@ -1,5 +1,23 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — layers on the map, answers in the Map panel
+
+- The chip row under search is layer switches only again (Trains, Buses,
+  Aircraft…). The four everyday answers moved to the top of the Map panel as
+  "Near you": Planes above you, Trains near you, Your next bus, My journey.
+- On a phone the Map tab always closed the panel, and with the bar gone
+  nothing opened it. Now: arriving from another tab shows the map; tapping
+  Map while on the map opens its panel; tapping again closes it.
+
+## 2026-11-14 — one control row
+
+- Too many controls on the phone map (search, layer chips, answer bar, tabs
+  and two round buttons). The four answers (Planes, Trains near, Bus,
+  Journey) now lead the chip row under search, followed by a divider and the
+  layer switches; the separate answer bar and the round layers button are
+  gone, and the locate button sits just above the tabs. All four answers fit
+  a 390 px phone without scrolling; chips are 40 px tall on phones.
+
 ## 2026-11-14 — search shows roads in plain words
 
 - Search results for roadworks and incidents used the raw feed title

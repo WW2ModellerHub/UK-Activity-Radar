@@ -5125,8 +5125,12 @@
       if(selectedTrainActivity())setDetailRouteView(true);
       else closeDetailSelection();
     }
+    // Map on a phone: coming from another tab shows the map; tapping Map
+    // again while on the map opens its panel ("Near you", layers), and once
+    // more puts it away.
+    const reopenMapPanel=btn.dataset.workspace==='useful'&&currentWorkspace==='useful'&&$('workspace-shell')?.classList.contains('collapsed');
     activateWorkspace(btn.dataset.workspace,true);
-    if(btn.dataset.workspace==='useful')collapseWorkspaceOnPhone();
+    if(btn.dataset.workspace==='useful'&&!reopenMapPanel)collapseWorkspaceOnPhone();
   }));
   document.querySelectorAll('[data-layer-chip]').forEach(chip=>chip.addEventListener('click',()=>{
     document.querySelector(`.layer-toggle[data-layer-toggle="${chip.dataset.layerChip}"]`)?.click();
