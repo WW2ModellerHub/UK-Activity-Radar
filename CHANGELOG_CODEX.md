@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — search shows roads in plain words
+
+- Search results for roadworks and incidents used the raw feed title
+  ("M40 — road Maintenance … planned"). They now use the same plain title and
+  facts as the panel ("Lane closure · M40 — M40 southbound between J11 and
+  J10 · 2 lanes closed · Until 06:00"), and only current ones are listed.
+
 ## 2026-11-14 — live incidents (the Incidents layer was empty)
 
 - The Incidents layer showed nothing: National Highways' free closures feed

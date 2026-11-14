@@ -135,3 +135,15 @@ def test_lanes_shut_without_a_management_type_read_as_a_lane_closure_with_the_wo
     facts = describe(parse_closure_payload(payload, "planned")[0], NOW)
     assert facts["title"] == "Lane closure · M1"
     assert facts["impact"] == "2 lanes closed" and facts["why"] == "Repairs"
+
+
+def test_search_shows_roadworks_in_plain_words():
+    from app.search import _display_name, _display_subtitle
+    state = LiveState()
+    state.upsert_event(Event(id="nh:x", type="road", name="M6 — repair Work", subtitle="raw • planned", lat=52.4, lon=-1.5,
+                             source="National Highways", road="M6", start_time=datetime.now(timezone.utc) - timedelta(hours=1),
+                             end_time=datetime.now(timezone.utc) + timedelta(hours=5),
+                             details={"cause": "repair Work", "lanes_closed": 2, "location": "M6 southbound between J5 and J4A", "planned": True}))
+    row = state.all_events()[0]
+    assert _display_name(row) == "Lane closure · M6"
+    assert _display_subtitle(row).startswith("M6 southbound between J5 and J4A · 2 lanes closed · Until ")

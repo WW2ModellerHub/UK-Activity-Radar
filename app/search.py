@@ -15,6 +15,19 @@ from .models import Event, Vehicle
 
 
 
+def _display_name(row) -> str:
+    """Roads and incidents read as "Lane closure · M6", not the feed title."""
+    impact = getattr(row, "impact", None)
+    return (impact or {}).get("title") or row.name
+
+
+def _display_subtitle(row) -> str:
+    impact = getattr(row, "impact", None)
+    if impact:
+        return " · ".join(x for x in (impact.get("where"), impact.get("impact"), impact.get("when")) if x)
+    return row.subtitle
+
+
 def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
     p1, p2 = radians(lat1), radians(lat2)
@@ -118,8 +131,8 @@ class ActivitySearch:
                 "kind": "activity",
                 "id": row.id,
                 "type": row.type,
-                "name": row.name,
-                "subtitle": row.subtitle,
+                "name": _display_name(row),
+                "subtitle": _display_subtitle(row),
                 "lat": row.lat,
                 "lon": row.lon,
                 "source": row.source,
@@ -250,8 +263,8 @@ class ActivitySearch:
                 nearby.sort(key=lambda x: (x[0], -x[1].last_updated.timestamp()))
                 matches = [
                     {
-                        "kind": "activity", "id": row.id, "type": row.type, "name": row.name,
-                        "subtitle": row.subtitle, "lat": row.lat, "lon": row.lon, "source": row.source,
+                        "kind": "activity", "id": row.id, "type": row.type, "name": _display_name(row),
+                        "subtitle": _display_subtitle(row), "lat": row.lat, "lon": row.lon, "source": row.source,
                         "score": max(1, int(100 - km)), "distance_km": round(km, 1),
                     }
                     for km, row in nearby[:12]
