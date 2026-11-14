@@ -1502,3 +1502,40 @@ test('a Special train says why it is special, and there is one Share button', as
   await expect(page.locator('.special-why')).toContainText('a Z in the headcode marks a one-off working');
   await expect(page.locator('.detail-actions button:visible', { hasText: /^Share$/ })).toHaveCount(1);
 });
+
+test('saved stations and trains are answered at the top of the Map panel', async ({ page }) => {
+  await expect(page.locator('#yours')).toBeHidden();
+  await page.route('**/api/trains/status**', route => route.fulfill({ json:{ trains:[
+    { found:true, id:'nr:1L56', name:'1L56', destination:'CAMBRIDGE', cancelled:false, arrived:false, delay_minutes:16, platform:'4', platform_changed:true, booked_platform:'2', alerts:[] },
+    { found:false },
+  ] } }));
+  await page.evaluate(() => localStorage.setItem('ukRadarFollowed', JSON.stringify(['nr:1L56','nr:9Z99'])));
+  await page.reload();
+  await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout: 5000 });
+  const train = page.locator('[data-yours-train="nr:1L56"]');
+  await expect(train.locator('strong')).toHaveText('1L56 to Cambridge');
+  await expect(train.locator('small')).toHaveText('16 min late · now platform 4');
+  await expect(train.locator('small')).toHaveClass(/is-late/);
+  await expect(page.locator('[data-yours-train]')).toHaveCount(1);
+  // Saving a station adds its next departure.
+  await page.locator('#station-boards').click();
+  await page.locator('#save-place').click();
+  const station = page.locator('[data-yours-place]').first();
+  await expect(station.locator('strong')).toHaveText('Milton Keynes Central');
+  await expect(station.locator('small')).toContainText('10:14 Manchester Piccadilly · Plat 4 · On time · then 10:32');
+  await page.locator('#detail-close').click();
+  await station.click();
+  await expect(page.locator('#detail-title')).toContainText('Milton Keynes Central');
+});
+
+test('on a phone the app opens with your saved things showing, not a bare map', async ({ page }) => {
+  await page.setViewportSize({ width:390, height:844 });
+  await page.reload();
+  await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
+  await page.route('**/api/trains/status**', route => route.fulfill({ json:{ trains:[{ found:true, id:'nr:1L56', name:'1L56', destination:'CAMBRIDGE', cancelled:true, arrived:false, delay_minutes:null, alerts:[] }] } }));
+  await page.evaluate(() => localStorage.setItem('ukRadarFollowed', JSON.stringify(['nr:1L56'])));
+  await page.reload();
+  await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
+  await expect(page.locator('[data-yours-train] small')).toHaveText('Cancelled');
+  await expect(page.locator('#yours')).toBeInViewport();
+});

@@ -4065,6 +4065,78 @@
       try { localStorage.setItem(SAVED_TRAIN_ALERTS_KEY,JSON.stringify(savedTrainAlerted)); } catch {}
     } catch {}
   }
+  // Yours: saved stations, stops and trains answered at the top of the Map
+  // panel, so opening the app is enough to know how the journey looks.
+  let yoursRequest=0, yoursKey='', yoursAt=0;
+  let yoursShownAtStart=false;
+  function yoursBoardLine(row, kind) {
+    if(!row)return null;
+    const place=humanTransitLabel(row.destination||row.route||row.name||'');
+    if(kind==='bus'){
+      const when=row.minutes!=null?(Number(row.minutes)<=0?'due now':`in ${row.minutes} min`):boardClock(row.expected||row.scheduled||row.clock);
+      return {text:[[row.route||row.line,place&&`to ${place}`].filter(Boolean).join(' '),when].filter(Boolean).join(' · '),tone:''};
+    }
+    const booked=boardClock(row.scheduled||row.clock||row.expected), expected=boardClock(row.expected), delay=Number(row.delay_minutes);
+    const cancelled=row.cancelled||/cancel/i.test(String(row.status||''));
+    const late=!cancelled&&Number.isFinite(delay)&&delay>=1&&expected&&expected!==booked;
+    const status=cancelled?'Cancelled':late?`expected ${expected}`:'On time';
+    return {text:[`${booked} ${place}`.trim(),row.platform?`Plat ${row.platform}`:null,status].filter(Boolean).join(' · '),tone:cancelled?'is-bad':late?'is-late':''};
+  }
+  async function renderYours(force=false) {
+    const section=$('yours'),list=$('yours-list');if(!section||!list)return;
+    const wantedPlaces=[...savedPlaces.values()].filter(place=>['rail_station','bus_stop'].includes(place.place_type)).slice(0,3);
+    const trainIds=savedTrainIds().slice(0,4);
+    const key=[...wantedPlaces.map(place=>place.id),...trainIds].join('|');
+    if(!key){section.classList.add('hidden');list.innerHTML='';yoursKey='';return;}
+    if(!force&&key===yoursKey&&Date.now()-yoursAt<45000)return;
+    yoursKey=key;yoursAt=Date.now();
+    const request=++yoursRequest;
+    section.classList.remove('hidden');
+    const row=(attribute,icon,title,text,tone)=>`<button type="button" class="location-quick-action job-row yours-row" ${attribute}><span>${icon}</span><div><strong>${esc(title)}</strong><small class="${esc(tone||'')}">${esc(text)}</small></div><b>›</b></button>`;
+    if(!list.children.length)list.innerHTML=wantedPlaces.map(place=>row(`data-yours-place="${esc(place.id)}"`,placeIcons[place.place_type]||iconSvg('pin'),place.name,'Checking live times…','')).join('');
+    const boards=wantedPlaces.map(place=>fetch(`/api/places/${encodeURIComponent(place.id)}/board?limit=4`,{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null));
+    const trains=trainIds.length?fetch(`/api/trains/status?ids=${encodeURIComponent(trainIds.join(','))}`,{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null):Promise.resolve(null);
+    const [boardPayloads,trainPayload]=await Promise.all([Promise.all(boards),trains]);
+    if(request!==yoursRequest)return;
+    const html=[];
+    wantedPlaces.forEach((place,index)=>{
+      const board=boardPayloads[index]?.board;
+      const rail=place.place_type==='rail_station';
+      const due=(rail?board?.departures:board?.rows)||[];
+      const first=yoursBoardLine(due[0],rail?'departure':'bus');
+      const then=rail&&due[1]?boardClock(due[1].scheduled||due[1].clock||due[1].expected):'';
+      const text=!board?'Live times are unavailable right now':first?`${first.text}${then?` · then ${then}`:''}`:'Nothing due right now';
+      html.push(row(`data-yours-place="${esc(place.id)}"`,placeIcons[place.place_type]||iconSvg('pin'),place.name,text,first?.tone));
+    });
+    for(const train of trainPayload?.trains||[]){
+      if(!train?.found)continue;
+      const title=train.destination?`${train.name} to ${humanTransitLabel(train.destination)}`:train.name;
+      const state=train.cancelled?'Cancelled':train.arrived?'Arrived':trainStatusLabel({delay_minutes:train.delay_minutes});
+      const platform=train.platform?(train.platform_changed?`now platform ${train.platform}`:`Plat ${train.platform}`):null;
+      html.push(row(`data-yours-train="${esc(train.id)}"`,icons.train,title,[state==='Live'?'Running':state,platform].filter(Boolean).join(' · '),train.cancelled?'is-bad':Number(train.delay_minutes)>=5?'is-late':''));
+    }
+    list.innerHTML=html.join('');
+    section.classList.toggle('hidden',!html.length);
+    // On a phone the app starts on the bare map. With saved things to
+    // answer, start with the panel open so they are the first thing seen.
+    if(html.length&&!yoursShownAtStart){
+      yoursShownAtStart=true;
+      if(performance.now()<10000&&isPhoneLayout()&&!selectedId&&!selectedPlaceId&&currentWorkspace==='useful')setWorkspaceCollapsed(false);
+    }
+    list.querySelectorAll('[data-yours-place]').forEach(button=>button.addEventListener('click',async()=>{
+      const place=savedPlaces.get(button.dataset.yoursPlace);if(!place)return;
+      trackProduct('yours_opened',place.place_type);
+      if(!places.some(p=>p.id===place.id))places.push(place);renderPlaces();await selectPlace(place.id,true);if(map.getZoom()<11)map.setZoom(11);
+    }));
+    list.querySelectorAll('[data-yours-train]').forEach(button=>button.addEventListener('click',()=>{
+      trackProduct('yours_opened','train');
+      if(!enabledActivityTypes.has('train')){enabledActivityTypes.add('train');updateLayerToggleUi();sendViewport();}
+      focusActivityById(button.dataset.yoursTrain,Math.max(12,map.getZoom()));
+    }));
+  }
+  setInterval(()=>{ if(!document.hidden&&currentWorkspace==='useful')renderYours(); },60000);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden)renderYours(); });
+
   // Why this device cannot take phone alerts, in words someone can act on.
   function pushUnsupportedReason() {
     if('serviceWorker' in navigator&&'Notification' in window&&'PushManager' in window)return '';
@@ -4294,7 +4366,7 @@
     const box = $('my-radar-list');
     const badge = $('my-radar-count');
     if (!box || !badge) return;
-    renderMyRadarInterests();renderSavedPlaces();renderMyRadarArea();
+    renderMyRadarInterests();renderSavedPlaces();renderMyRadarArea();renderYours();
     badge.textContent = followed.size;
     badge.classList.toggle('hidden', !followed.size);
     const live = [...followed].map(activityById).filter(Boolean).sort((a,b)=>new Date(b.last_updated)-new Date(a.last_updated));

@@ -1,5 +1,15 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — opens on your own things
+
+- New "Yours" section at the top of the Map panel: each saved station or
+  stop with its next departure (time, destination, platform, on time /
+  expected / cancelled, and the one after), and each saved train with its
+  state (late, cancelled, platform change). Refreshes every minute; tap a
+  row to open it.
+- On a phone the app used to open on a bare map with the panel closed. With
+  saved things to show, it now opens with the panel up and "Yours" first.
+
 ## 2026-11-14 — Discover is for unusual things
 
 - A 1Z train run by an everyday passenger operator (Southeastern, GWR…) is an
