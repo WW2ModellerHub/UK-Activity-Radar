@@ -1487,3 +1487,18 @@ test('saving a train turns phone alerts on for it, with a test alert to prove it
   await page.locator('#commute-alert-test').click();
   await expect.poll(() => tests).toBe(1);
 });
+
+test('a Special train says why it is special, and there is one Share button', async ({ page }) => {
+  await page.locator('[data-layer-toggle="train"]').click();
+  await waitForViewportRequestsToSettle(page);
+  await page.evaluate(() => {
+    const snapshot = JSON.parse(JSON.stringify(window.__fixtureSnapshot));
+    const train = snapshot.activities.find(row => row.id === 'train-live-1');
+    Object.assign(train, { headcode:'1Z64', name:'1Z64', cool_score:72, cool_candidate:true, cool_badge:'SPECIAL', cool_subtype:'special-passenger', cool_category:'rail', cool_explanation:'Special passenger train.' });
+    window.__fixtureSocket.onmessage({ data: JSON.stringify(snapshot) });
+  });
+  await page.locator('.marker-wrap-train .marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-title')).toContainText('1Z64');
+  await expect(page.locator('.special-why')).toContainText('a Z in the headcode marks a one-off working');
+  await expect(page.locator('.detail-actions button:visible', { hasText: /^Share$/ })).toHaveCount(1);
+});

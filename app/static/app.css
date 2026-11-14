@@ -1139,3 +1139,6 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 /* Alerts for saved trains alone: no place to choose, so no place form. */
 [data-workspace-panel="live"]:not(.has-saved-places) .commute-alert-card :is(.commute-alert-main, .alert-options) { display: none; }
 .my-radar-row > span { display: grid; gap: 2px; min-width: 0; text-align: left; }
+
+.delay-why.special-why { background: #eef3ff; color: #1d3470; }
+.delay-why.special-why strong { color: #12265a; }
