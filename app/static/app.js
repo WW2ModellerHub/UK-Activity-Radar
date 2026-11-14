@@ -4054,6 +4054,39 @@
       try { localStorage.setItem(SAVED_TRAIN_ALERTS_KEY,JSON.stringify(savedTrainAlerted)); } catch {}
     } catch {}
   }
+  // Why this device cannot take phone alerts, in words someone can act on.
+  function pushUnsupportedReason() {
+    if('serviceWorker' in navigator&&'Notification' in window&&'PushManager' in window)return '';
+    const ios=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+    const installed=window.matchMedia?.('(display-mode: standalone)').matches||navigator.standalone;
+    if(ios&&!installed)return 'On iPhone, add this app to your Home Screen first (Share, then Add to Home Screen), open it from there, and turn alerts on.';
+    return 'This browser does not support phone alerts.';
+  }
+  // Saving a train is enough to be told about it: turn phone alerts on for
+  // saved trains alone, with no place or hours to choose.
+  async function enableSavedTrainAlerts() {
+    if(commuteAlertStatus.subscribed||!commuteAlertStatus.configured||pushUnsupportedReason())return false;
+    try {
+      const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();
+      if(permission!=='granted')return false;
+      const registration=await navigator.serviceWorker.ready;
+      let subscription=await registration.pushManager.getSubscription();
+      if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKeyBytes(commuteAlertStatus.public_key)});
+      const preferences={mode:'trains-only',saved_trains:savedTrainIds()};
+      const response=await fetch('/api/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken(),subscription:subscription.toJSON(),preferences})});
+      if(!response.ok)return false;
+      commuteAlertStatus={...commuteAlertStatus,subscribed:true,preferences};renderCommuteAlertStatus();
+      trackProduct('commute_alert_enabled','trains-only');
+      return true;
+    } catch { return false; }
+  }
+  async function sendTestAlert() {
+    try {
+      const response=await fetch('/api/alerts/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken()})});
+      if(response.status===410||response.status===404){commuteAlertStatus={...commuteAlertStatus,subscribed:false,preferences:null};renderCommuteAlertStatus();showToast('Alerts had switched off on this device. Turn them on again.');return;}
+      showToast(response.ok?'Test alert sent. It should arrive in a few seconds.':'The test alert could not be sent.');
+    } catch { showToast('The test alert could not be sent.'); }
+  }
   async function syncSavedTrainsToPush() {
     // Phone alerts while the app is closed reuse the travel-alert push
     // subscription, when the visitor has turned it on.
@@ -4172,12 +4205,18 @@
     const state=$('commute-alert-state'),note=$('commute-alert-note'),enable=$('commute-alert-enable'),disable=$('commute-alert-disable');
     if(!state||!note||!enable||!disable)return;
     const active=Boolean(commuteAlertStatus.subscribed);
+    document.querySelector('[data-workspace-panel="live"]')?.classList.toggle('has-saved-trains',savedTrainIds().length>0||[...followed].some(id=>activityById(id)?.type==='train')||active);
     state.textContent=active?'ON':'OFF';state.classList.toggle('active',active);
     enable.textContent=active?'Update alerts':'Turn alerts on';
     disable.classList.toggle('hidden',!active);
-    if(!savedPlaces.size)note.textContent='Save a station or bus stop to begin.';
-    else if(!commuteAlertStatus.configured)note.textContent='Alerts are not available yet.';
+    enable.classList.toggle('hidden',active&&!savedPlaces.size);
+    $('commute-alert-test')?.classList.toggle('hidden',!active);
+    const unsupported=pushUnsupportedReason();
+    if(!commuteAlertStatus.configured)note.textContent='Alerts are not available yet.';
+    else if(active&&commuteAlertStatus.preferences?.mode==='trains-only')note.textContent=savedPlaces.size?'On for your saved trains. Choose a saved place above and tap Update alerts to add delays near it.':'On for your saved trains. Save a station or stop to add delays near it.';
     else if(active){const p=commuteAlertStatus.preferences||{};note.textContent=`Active for ${p.mode||'travel'} near ${p.place_name||'your saved place'} • ${p.start_hour}:00–${p.end_hour}:00.`;}
+    else if(unsupported)note.textContent=unsupported;
+    else if(!savedPlaces.size)note.textContent='Save a train to be told about it, or save a station or stop for delays near it.';
     else note.textContent='Ready when you are. Your browser will ask before notifications are enabled.';
     renderCommuteAlertPlaces();
     const p=commuteAlertStatus.preferences;if(p){if($('commute-alert-mode'))$('commute-alert-mode').value=p.mode||'driving';if($('commute-alert-radius'))$('commute-alert-radius').value=String(p.radius_miles||12);if($('commute-alert-hours'))$('commute-alert-hours').value=`${p.start_hour}:${p.end_hour}`;}
@@ -4198,9 +4237,14 @@
 
   async function enableCommuteAlerts() {
     const place=savedPlaces.get($('commute-alert-place')?.value||'');
-    if(!place){showToast('Save a station or stop first.');return;}
+    if(!place){
+      // No saved place: alerts for saved trains alone.
+      if(pushUnsupportedReason()){showToast(pushUnsupportedReason());return;}
+      showToast(await enableSavedTrainAlerts()?'Alerts are on for your saved trains.':commuteAlertStatus.subscribed?'Alerts are already on.':'Alerts couldn’t be turned on. Check notifications are allowed for this site.');
+      return;
+    }
     if(!commuteAlertStatus.configured){showToast('Alerts are not available yet.');return;}
-    if(!('serviceWorker' in navigator)||!('Notification' in window)||!('PushManager' in window)){showToast('This browser does not support travel alerts.');return;}
+    if(pushUnsupportedReason()){showToast(pushUnsupportedReason());return;}
     try {
       const permission=await Notification.requestPermission();if(permission!=='granted')throw new Error('Notification permission was not granted.');
       const registration=await navigator.serviceWorker.ready;
@@ -5122,7 +5166,7 @@
   $('journey-route-clear')?.addEventListener('click',()=>{clearJourneyRoute();showToast('Route cleared.');});
   document.addEventListener('click', (e) => { if (!e.target.closest('.search-shell')) hideSearchResults(); });
   $('recenter').addEventListener('click', () => { if(searchMarker){map.removeLayer(searchMarker);searchMarker=null;} centreMapOnDeviceLocation(); });
-  $('follow').addEventListener('click', () => {
+  $('follow').addEventListener('click', async () => {
     if (!selectedId) return;
     const wasFollowing = followed.has(selectedId);
     if(!wasFollowing&&!billingState.plus&&followed.size>=3){openPlusDialog();showToast('You can save three items for free. Radar+ removes the limit.');return;}
@@ -5131,11 +5175,18 @@
     const selected = activityById(selectedId);
     if (selected?.type==='train') {
       if (!wasFollowing) {
-        showToast('Saved. You will be told if this train is late, cancelled or changes platform.');
-        if ('Notification' in window && Notification.permission==='default') Notification.requestPermission().catch(()=>{});
         checkSavedTrains();
+        // Phone alerts switch on with the save where the device allows it;
+        // otherwise say plainly what works.
+        const already=commuteAlertStatus.subscribed;
+        const enabled=already||await enableSavedTrainAlerts();
+        const unsupported=pushUnsupportedReason();
+        showToast(enabled?'Saved. Your phone will tell you if this train is late, cancelled or changes platform.'
+          : unsupported&&commuteAlertStatus.configured?`Saved. ${unsupported}`
+          : 'Saved. You will be told here if this train is late, cancelled or changes platform.');
       }
       syncSavedTrainsToPush();
+      renderCommuteAlertStatus();
     }
     $('follow').textContent = followed.has(selectedId) ? 'Saved ✓' : 'Save';
     trackProduct(wasFollowing ? 'activity_unfollowed' : 'activity_followed', selected?.type || 'other');
@@ -5166,6 +5217,7 @@
   $('passing-next-place')?.addEventListener('change',loadPassingNext);
   $('commute-alert-enable')?.addEventListener('click',enableCommuteAlerts);
   $('commute-alert-disable')?.addEventListener('click',disableCommuteAlerts);
+  $('commute-alert-test')?.addEventListener('click',sendTestAlert);
 
   document.querySelectorAll('.workspace-tab[data-workspace]').forEach(btn=>btn.addEventListener('click',()=>{
     // On a phone a tab is a new screen: put the detail sheet away. A train

@@ -46,6 +46,13 @@ def validate_subscription(subscription: dict) -> dict:
 
 def normalise_preferences(raw: dict) -> dict:
     mode = str(raw.get("mode") or "").lower()
+    if mode == "trains-only":
+        # Alerts for saved trains alone: no place, no hours.
+        return {
+            "mode": mode, "place_id": "", "place_name": "", "lat": None, "lon": None, "radius_miles": 0.0,
+            "start_hour": 0, "end_hour": 24, "activity_types": [],
+            "saved_trains": normalise_saved_trains(raw.get("saved_trains")),
+        }
     if mode not in {"driving", "train"}:
         raise ValueError("Travel mode must be driving or train")
     lat, lon = float(raw.get("lat")), float(raw.get("lon"))
@@ -193,6 +200,14 @@ class CommuteAlertStore:
         if row is None:
             return None
         return {"active": bool(row[1]), "preferences": json.loads(row[0])}
+
+    def subscription_for(self, device_token: str) -> StoredSubscription | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT endpoint_hash,subscription_json,preferences_json FROM subscriptions WHERE device_hash=? AND active=1 ORDER BY updated_at DESC LIMIT 1",
+                (self._hash(device_token),),
+            ).fetchone()
+        return StoredSubscription(row[0], json.loads(row[1]), json.loads(row[2])) if row else None
 
     def active(self) -> list[StoredSubscription]:
         with self._lock:

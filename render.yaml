@@ -61,7 +61,7 @@ services:
       - key: MIN_FREE_DISK_MB
         value: "1024"
       - key: PUSH_ALERTS_ENABLED
-        value: "false"
+        value: "true"
       - key: VAPID_PUBLIC_KEY
         sync: false
       - key: VAPID_PRIVATE_KEY
