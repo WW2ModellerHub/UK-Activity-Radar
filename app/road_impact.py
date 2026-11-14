@@ -133,6 +133,11 @@ def describe(event, now: datetime | None = None) -> dict:
             or _match(_CAUSE, details.get("cause"), event.reason, event.name)
             or ("Incident" if event.type == "incident" else "Roadworks")
         )
+        # Feeds often give lanes but no management type: lanes shut is a lane
+        # closure, and the works become the reason.
+        lanes_shut = details.get("lanes_closed")
+        if what in {"Roadworks", "Incident"} and isinstance(lanes_shut, int) and lanes_shut > 0:
+            what = "Lane closure"
         road = event.road
         direction = details.get("direction") or event.direction
         location = details.get("location") or ((event.subtitle or "").split(" • ")[0] or None)
@@ -153,6 +158,10 @@ def describe(event, now: datetime | None = None) -> dict:
             bits.append(f"Queue of {km:.1f} km" if km < 10 else f"Queue of {round(km)} km")
         impact = " · ".join(bits) or None
         cause = _match(_CAUSE, details.get("cause"), event.reason)
+        if re.search(r"repair", str(details.get("cause") or ""), re.I):
+            cause = "Repairs"
+        elif re.search(r"construction", str(details.get("cause") or ""), re.I):
+            cause = "Construction work"
         why = cause if cause and cause != what else None
         if details.get("promoter"):
             why = f"{why or 'Works'} by {details['promoter']}"

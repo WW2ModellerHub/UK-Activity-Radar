@@ -207,7 +207,7 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
     assert "/static/app.css?v=16080" in index
     assert "/static/map-markers.css?v=16020" in index
-    assert "/static/app.js?v=16080" in index
+    assert "/static/app.js?v=16081" in index
     assert "/static/motion-engine.js?v=15161" in index
     assert "/static/live-object-renderer.js?v=16080" in index
     # The v1.5 stylesheets were replaced by the flat redesign.
@@ -218,10 +218,10 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     assert "NETWORK_FIRST_ASSETS" in worker
     assert "/static/app.css?v=16080" in worker
     assert "/static/map-markers.css?v=16020" in worker
-    assert "/static/app.js?v=16080" in worker
+    assert "/static/app.js?v=16081" in worker
     assert "/static/motion-engine.js?v=15161" in worker
     assert "/static/live-object-renderer.js?v=16080" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r82" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r83" in worker
 
 
 def test_sparse_reporting_interval_does_not_grey_live_trains():

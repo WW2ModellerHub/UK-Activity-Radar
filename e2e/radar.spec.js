@@ -934,11 +934,12 @@ test('TomTom flow toggle exposes active map state', async ({ page }) => {
   await expect(page.locator('#traffic-legend')).not.toHaveClass(/hidden/);
 });
 
-test('Incidents enables the live local incident overlay without unlocking Radar+ flow', async ({ page }) => {
+test('Incidents asks the server for live incidents in view, not a picture overlay', async ({ page }) => {
   await page.locator('[data-layer-toggle="incident"]').click();
   await expect(page.locator('[data-layer-toggle="incident"]')).toHaveAttribute('aria-pressed','true');
-  await expect(page.locator('#map')).toHaveAttribute('data-traffic','incidents');
-  await expect(page.locator('#traffic-style')).toHaveValue('incidents');
+  await expect.poll(() => page.evaluate(() => window.__fixtureSocketMessages.filter(row => row.action === 'viewport').at(-1)?.types)).toContain('incident');
+  await expect(page.locator('#map')).not.toHaveAttribute('data-traffic','incidents');
+  await expect(page.locator('#watch-toast')).toContainText('Zoom in to see live incidents');
 });
 
 test('mobile viewport keeps core navigation, map, and details usable', async ({ page }) => {

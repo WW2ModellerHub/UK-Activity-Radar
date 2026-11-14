@@ -8,6 +8,7 @@ import math
 import os
 import re
 import shutil
+import threading
 import sqlite3
 import time
 
@@ -76,6 +77,7 @@ from .rail_snapshot import RailPositionSnapshot
 from .rail_lines import RailLineLayer
 from .flight_routes import FlightRouteLookup
 from .rail_sections import delay_hotspots, line_at
+from .traffic_incidents import TrafficIncidentService
 from .open_trip_planner import OpenTripPlannerClient
 from .tomtom_routing import TomTomRoutingClient
 from .billing import (
@@ -136,6 +138,7 @@ adsb_sar_collector: ADSBLolSARCollector | None = None
 london_fire_collector: LondonFireCollector | None = None
 met_office_collector: MetOfficeWarningCollector | None = None
 traffic_flow_service: TrafficFlowService | None = None
+traffic_incident_service: TrafficIncidentService | None = None
 smart_places: SmartPlacesService | None = None
 journey_planner: OpenTripPlannerClient | None = None
 road_journey_planner = TomTomRoutingClient(
@@ -728,6 +731,10 @@ async def lifespan(app: FastAPI):
 
     traffic_flow_service = TrafficFlowService(settings, state)
     traffic_flow_service.set_initial_status()
+    global traffic_incident_service
+    traffic_incident_service = TrafficIncidentService(
+        settings, state, daily_limit=max(100, int(os.getenv("TOMTOM_INCIDENT_DAILY_LIMIT", "2000"))),
+    )
     if traffic_flow_service.ready:
         tasks.append(asyncio.create_task(asyncio.to_thread(traffic_flow_service.self_test)))
 
@@ -1927,6 +1934,33 @@ def activity_bus(request: Request, activity_id: str, limit: int = 30):
     }
 
 
+_incident_refresh_running = False
+
+
+def _refresh_incidents_for(viewport: dict) -> None:
+    """Fetch live incidents for the area on screen when the layer is on."""
+    global _incident_refresh_running
+    service = traffic_incident_service
+    types = viewport.get("types")
+    if service is None or not service.ready or _incident_refresh_running:
+        return
+    if types is not None and not ({"incident", "road"} & set(types)):
+        return
+    bbox = viewport.get("bbox")
+    if not bbox:
+        return
+    _incident_refresh_running = True
+
+    def run() -> None:
+        global _incident_refresh_running
+        try:
+            service.ensure(bbox)
+        finally:
+            _incident_refresh_running = False
+
+    threading.Thread(target=run, name="traffic-incidents", daemon=True).start()
+
+
 def _saved_train_status(train_id: str) -> dict:
     vehicle = state.get(train_id)
     if vehicle is None or getattr(vehicle, "type", None) != "train":
@@ -2235,6 +2269,7 @@ async def websocket_updates(websocket: WebSocket):
                             }
                     viewport_revision += 1
                     viewport_changed.set()
+                    _refresh_incidents_for(viewport)
                 except (TypeError, ValueError):
                     pass
         except (WebSocketDisconnect, RuntimeError):

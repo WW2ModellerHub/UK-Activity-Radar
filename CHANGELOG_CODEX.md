@@ -1,5 +1,30 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — live incidents (the Incidents layer was empty)
+
+- The Incidents layer showed nothing: National Highways' free closures feed
+  has planned works and rare emergency closures but no crashes, breakdowns
+  or queues, and the bus-stop closures that used to fill the layer had been
+  moved to buses.
+- New `app/traffic_incidents.py`: TomTom Incident Details for the area on
+  screen when Incidents or Roadworks is on, in half-degree cells cached for
+  two minutes, at most 12 cells per view (zoom in from a national view), and
+  a daily request cap (`TOMTOM_INCIDENT_DAILY_LIMIT`, default 2000). Each
+  incident carries its type (crash, queue, broken-down vehicle, closure),
+  delay, queue length, stretch ("J14 Milton Keynes to J15 Northampton") and
+  description, so the panel says e.g. "Queueing traffic · M1 — Delays of
+  about 15 min · Queue of 3.2 km — Started 30 min ago".
+- The Incidents switch no longer turns on TomTom's picture-only incident
+  tiles (not clickable, Radar+ only); it hints to zoom in when needed.
+
+## 2026-11-14 — road titles from live data
+
+- Checked live National Highways records after deploy: real works times
+  ("From 23:00 to tomorrow 05:00"), lane counts and public notes come
+  through. Records with lanes shut but no management type were titled
+  "Roadworks · M6"; they are now "Lane closure · M6" with the works
+  ("Repairs", "Construction work") as the reason.
+
 ## 2026-11-14 — incidents and roadworks overhaul; aircraft and bus fixes
 
 **Incidents and roadworks** now say what they mean for a driver:
