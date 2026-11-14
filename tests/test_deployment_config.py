@@ -205,9 +205,9 @@ def test_long_lived_service_rechecks_schedule_and_reference_data():
 def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
-    assert "/static/app.css?v=16020" in index
+    assert "/static/app.css?v=16021" in index
     assert "/static/map-markers.css?v=16020" in index
-    assert "/static/app.js?v=16020" in index
+    assert "/static/app.js?v=16021" in index
     assert "/static/motion-engine.js?v=15161" in index
     assert "/static/live-object-renderer.js?v=16020" in index
     # The v1.5 stylesheets were replaced by the flat redesign.
@@ -216,12 +216,12 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
         assert f"/static/{retired}" not in worker
         assert not (ROOT / "app" / "static" / retired).exists()
     assert "NETWORK_FIRST_ASSETS" in worker
-    assert "/static/app.css?v=16020" in worker
+    assert "/static/app.css?v=16021" in worker
     assert "/static/map-markers.css?v=16020" in worker
-    assert "/static/app.js?v=16020" in worker
+    assert "/static/app.js?v=16021" in worker
     assert "/static/motion-engine.js?v=15161" in worker
     assert "/static/live-object-renderer.js?v=16020" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r72" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r73" in worker
 
 
 def test_sparse_reporting_interval_does_not_grey_live_trains():
@@ -248,9 +248,9 @@ def test_map_provider_configuration_cannot_pin_the_old_fallback_in_cache():
     assert "fetch('/api/map/config',{cache:'no-store'})" in app_js
     assert '"Cache-Control": "no-store"' in map_route
     assert '"base_map_provider": "Mapbox" if settings.mapbox_public_token' in main
-    assert "mapbox/streets-v12" in map_route
-    # The same base map is used with or without trains.
-    assert "light-v11" not in map_route
+    # One pale base map (Mapbox Light), the same with or without trains.
+    assert "mapbox/light-v11" in map_route
+    assert "streets-v12" not in map_route
     assert '"rail_tile_url": None' in map_route
 
 

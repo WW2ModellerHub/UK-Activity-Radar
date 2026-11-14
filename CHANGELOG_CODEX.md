@@ -1,5 +1,18 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — pale base map
+
+- Back to the pale Mapbox Light base map, now used everywhere (with or
+  without trains). The app's own dark rail line layer stands out on it.
+
+## 2026-11-14 — nearby limit pill
+
+- "Aircraft above me" / nearby mode showed a large box mid-map ("Nearby mode
+  • 25 miles around your location • 0 live matches") with no way to close it
+  from the map; its off switch was in the side panel. It is now a small pill
+  under the map chips ("Aircraft within 25 miles of you ×"); × turns the
+  mode off and shows everything again.
+
 ## 2026-11-14 — smoothness and alignment pass
 
 - **Live layer lined up with the map.** The fast trains/aircraft layer

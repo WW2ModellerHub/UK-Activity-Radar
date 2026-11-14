@@ -1588,10 +1588,11 @@ def map_config():
     payload = {
         "provider": "Mapbox",
         "configured": configured,
-        # One base map everywhere. Railways are drawn by the app's own rail
-        # line layer, so the map no longer swaps style when trains are on.
+        # One pale base map everywhere (Mapbox Light). Railways are drawn by
+        # the app's own rail line layer, so the map no longer swaps style when
+        # trains are on, and the dark lines read clearly on the pale map.
         "tile_url": (
-            "https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/512/"
+            "https://api.mapbox.com/styles/v1/mapbox/light-v11/tiles/512/"
             "{z}/{x}/{y}?access_token=" + settings.mapbox_public_token
         ) if configured else None,
         # Kept for pages cached before this change; null disables the swap.
