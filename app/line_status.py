@@ -19,9 +19,11 @@ def _status(reporting: int, late: int, cancelled: int, average: float) -> tuple[
     if reporting + cancelled < MIN_TRAINS:
         return "unknown", "Too few trains reporting"
     share = (late + cancelled) / max(1, reporting + cancelled)
-    if share >= 0.4 or (share >= 0.25 and average >= 20) or cancelled >= max(3, 0.15 * (reporting + cancelled)):
+    # Calibrated on a normal evening: a third of trains a few minutes late is
+    # everyday running, not a severe day.
+    if share >= 0.5 or (share >= 0.3 and average >= 20) or cancelled >= max(3, 0.15 * (reporting + cancelled)):
         return "severe", "Severe delays"
-    if share >= 0.15 or cancelled >= 2:
+    if share >= 0.2 or cancelled >= 2:
         return "minor", "Minor delays"
     return "good", "Good service"
 

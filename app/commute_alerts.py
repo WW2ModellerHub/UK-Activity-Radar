@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
 from threading import RLock
@@ -63,7 +63,171 @@ def normalise_spotter(raw) -> dict | None:
 def normalise_preferences(raw: dict) -> dict:
     preferences = _normalise_preferences(raw)
     preferences["spotter"] = normalise_spotter(raw.get("spotter"))
+    preferences["journey"] = normalise_journey(raw.get("journey"))
+    preferences["leave_plans"] = normalise_leave_plans(raw.get("leave_plans"))
     return preferences
+
+
+# ---- Leave now ----------------------------------------------------------
+# "Tell me when to leave": for a train someone means to catch, one alert a
+# few minutes before they need to set off, moved later if the train is late.
+MAX_LEAVE_PLANS = 3
+LEAVE_BUFFER_MINUTES = 2
+LEAVE_WARNING_MINUTES = 5
+
+
+def _aware(value) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else None
+
+
+def normalise_leave_plans(raw, now: datetime | None = None) -> list[dict]:
+    now = now or datetime.now(timezone.utc)
+    plans = []
+    for row in raw if isinstance(raw, list) else []:
+        if not isinstance(row, dict):
+            continue
+        depart = _aware(row.get("depart"))
+        train_id = str(row.get("train_id") or "").strip()
+        try:
+            minutes = int(row.get("minutes"))
+        except (TypeError, ValueError):
+            continue
+        # Drop plans for trains that have long gone.
+        if depart is None or not train_id or len(train_id) > 80 or (now - depart).total_seconds() > 3 * 3600:
+            continue
+        plans.append({
+            "train_id": train_id, "train_name": str(row.get("train_name") or "your train")[:40],
+            "station": str(row.get("station") or "the station")[:80],
+            "minutes": max(1, min(minutes, 180)), "depart": depart.astimezone(timezone.utc).isoformat(),
+        })
+    return plans[-MAX_LEAVE_PLANS:]
+
+
+def leave_alert(plan: dict, status: dict | None, now: datetime | None = None) -> dict | None:
+    """The "time to go" alert for one plan, once it is nearly time."""
+    now = now or datetime.now(timezone.utc)
+    depart = _aware(plan.get("depart"))
+    status = status or {}
+    if depart is None or status.get("cancelled") or status.get("arrived"):
+        return None  # a cancellation is announced by the saved-train alert
+    try:
+        delay = max(0, int(status.get("delay_minutes") or 0)) if status.get("found") else 0
+    except (TypeError, ValueError):
+        delay = 0
+    expected = depart + timedelta(minutes=delay)
+    leave_at = expected - timedelta(minutes=plan["minutes"] + LEAVE_BUFFER_MINUTES)
+    if now < leave_at - timedelta(minutes=LEAVE_WARNING_MINUTES) or now >= expected:
+        return None
+    london = ZoneInfo("Europe/London")
+    booked = depart.astimezone(london).strftime("%H:%M")
+    remaining = round((leave_at - now).total_seconds() / 60)
+    when = "Leave now" if remaining <= 1 else f"Leave in {remaining} min"
+    facts = [
+        f"Running {delay} min late, now expected {expected.astimezone(london).strftime('%H:%M')}" if delay else
+        ("On time" if status.get("found") else "No live report yet, so this is from the timetable"),
+        f"Platform {status['platform']}" if status.get("platform") else None,
+        f"Allowing {plan['minutes']} min to get there",
+    ]
+    return {
+        "key": f"leave:{plan['train_id']}:{plan['depart']}",
+        "title": f"{when} for the {booked} from {plan['station']}",
+        "body": ". ".join(x for x in facts if x) + ".",
+        "activity_id": plan["train_id"],
+        "mode": "leave",
+    }
+
+
+# ---- Journey watch ------------------------------------------------------
+# A saved drive: shortly before the usual leaving time, say if a crash,
+# closure or serious delay is on the route. Silence means it looks clear.
+JOURNEY_LOOKAHEAD_MINUTES = 45
+JOURNEY_MAX_POINTS = 80
+JOURNEY_REACH_KM = 0.6
+
+
+def normalise_journey(raw) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    points = []
+    for row in raw.get("points") or []:
+        try:
+            lat, lon = float(row[0]), float(row[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if -90 <= lat <= 90 and -180 <= lon <= 180:
+            points.append([round(lat, 5), round(lon, 5)])
+    if len(points) < 2:
+        return None
+    if len(points) > JOURNEY_MAX_POINTS:
+        step = (len(points) - 1) / (JOURNEY_MAX_POINTS - 1)
+        points = [points[round(i * step)] for i in range(JOURNEY_MAX_POINTS)]
+    try:
+        leave = max(0, min(int(raw.get("leave_minutes")), 1439))
+    except (TypeError, ValueError):
+        return None
+    days = sorted({int(d) for d in (raw.get("days") if raw.get("days") is not None else range(5)) if str(d).isdigit() and 0 <= int(d) <= 6})
+    return {"name": str(raw.get("name") or "your drive")[:80], "points": points, "leave_minutes": leave, "days": days or [0, 1, 2, 3, 4]}
+
+
+def journey_due(journey: dict | None, now: datetime | None = None) -> bool:
+    """True in the three quarters of an hour before the usual leaving time."""
+    if not journey:
+        return False
+    local = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("Europe/London"))
+    if local.weekday() not in journey["days"]:
+        return False
+    minutes = local.hour * 60 + local.minute
+    return journey["leave_minutes"] - JOURNEY_LOOKAHEAD_MINUTES <= minutes <= journey["leave_minutes"]
+
+
+def _distance_to_route_km(lat: float, lon: float, points: list) -> float:
+    lon_scale, best = 111.32 * cos(radians(lat)), float("inf")
+    for (lat1, lon1), (lat2, lon2) in zip(points, points[1:]):
+        ax, ay = (lon1 - lon) * lon_scale, (lat1 - lat) * 111.32
+        bx, by = (lon2 - lon) * lon_scale, (lat2 - lat) * 111.32
+        dx, dy = bx - ax, by - ay
+        length = dx * dx + dy * dy
+        t = 0.0 if length == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / length))
+        best = min(best, sqrt((ax + t * dx) ** 2 + (ay + t * dy) ** 2))
+    return best
+
+
+def journey_alerts(events, journey: dict | None, now: datetime | None = None) -> list[dict]:
+    """Serious things on the route right now, worst first, one alert each per day."""
+    if not journey_due(journey, now):
+        return []
+    local = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("Europe/London"))
+    found = []
+    for event in events:
+        impact = getattr(event, "impact", None) or {}
+        if event.type not in {"road", "incident"} or not impact.get("active") or (impact.get("rank") or 0) < 3:
+            continue
+        if _distance_to_route_km(event.lat, event.lon, journey["points"]) > JOURNEY_REACH_KM:
+            continue
+        found.append((impact.get("rank") or 0, {
+            "key": f"journey:{local.date().isoformat()}:{event.id}",
+            "title": f"{impact.get('title') or 'Incident'} on {journey['name']}",
+            "body": " · ".join(x for x in (impact.get("where"), impact.get("impact"), impact.get("when")) if x) or "Check before you leave.",
+            "activity_id": event.id,
+            "mode": "journey",
+        }))
+    found.sort(key=lambda row: -row[0])
+    return [row[1] for row in found]
+
+
+def journey_bboxes(journey: dict) -> list[tuple[float, float, float, float]]:
+    """Small boxes covering the route, for fetching live incidents along it."""
+    boxes = []
+    points = journey["points"]
+    for start in range(0, len(points) - 1, 8):
+        chunk = points[start:start + 9]
+        lats, lons = [p[0] for p in chunk], [p[1] for p in chunk]
+        boxes.append((min(lons) - 0.01, min(lats) - 0.01, max(lons) + 0.01, max(lats) + 0.01))
+    return boxes
 
 
 def _normalise_preferences(raw: dict) -> dict:
