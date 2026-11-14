@@ -52,6 +52,7 @@ def test_a_routine_train_shows_its_operators_train_with_a_clear_label():
     lookup = _lookup({"GWR Class 800": [
         _page(1, "Southern 377 at Brighton.jpg", "Southern Class 377"),
         _page(3, "GWR Class 800 Standard Class Interior.jpg", "Inside a GWR Class 800"),
+        _page(4, "GWR Class 800 First Class Half Internal.jpg", "GWR Class 800"),
         _page(2, "GWR 800 004 at Reading.jpg", "GWR Class 800 IET at Reading station"),
     ]})
     result = lookup.lookup(train)

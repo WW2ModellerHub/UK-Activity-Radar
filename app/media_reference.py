@@ -202,7 +202,7 @@ def mentions_all(text: str, require: list) -> bool:
 
 # A picture of the outside of the vehicle shows its colours; these do not.
 NOT_THE_OUTSIDE = re.compile(
-    r"\b(interior|inside|seats?|seating|cab|cockpit|flight deck|toilet|table|luggage|window|"
+    r"\b(interior|internal|inside|first class|standard class|saloon|vestibule|seats?|seating|cab|cockpit|flight deck|toilet|table|luggage|window|"
     r"logo|sign|signage|livery diagram|model|toy|scale|cabin|galley|wheel|bogie|engine detail|plaque)\b", re.I)
 
 
