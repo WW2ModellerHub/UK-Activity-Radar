@@ -53,7 +53,7 @@ from .network_environment import blocked_proxy_variables
 from .models import SourceStatus
 from .engagement import build_today_payload, safe_share_payload
 from .commute_alerts import (
-    CommuteAlertStore, alert_for_activity, normalise_saved_trains, saved_train_alerts,
+    CommuteAlertStore, alert_for_activity, normalise_saved_trains, saved_train_alerts, spotter_alert,
     saved_train_status, within_alert_hours,
 )
 from .coverage import coverage_for_event
@@ -550,6 +550,7 @@ async def _commute_alert_loop() -> None:
         if store is None:
             continue
         activities = state.all_activities()
+        cool_now = state.cool_candidates(limit=50)
         for saved in store.active():
             # Saved trains alert whenever they change, not only in commute hours.
             train_alerts = [
@@ -558,9 +559,11 @@ async def _commute_alert_loop() -> None:
                 for alert in saved_train_alerts(_saved_train_status(train_id))
             ]
             place_alerts = saved.preferences.get("mode") != "trains-only" and within_alert_hours(saved.preferences)
-            if not place_alerts and not train_alerts:
+            spotter = saved.preferences.get("spotter")
+            spots = [spotter_alert(item, spotter) for item in cool_now] if spotter else []
+            if not place_alerts and not train_alerts and not any(spots):
                 continue
-            candidates = train_alerts + (
+            candidates = train_alerts + spots + (
                 [alert_for_activity(item, saved.preferences) for item in activities] if place_alerts else []
             )
             candidate = next((row for row in candidates if row and not store.already_delivered(saved.endpoint_hash, row["key"])), None)
@@ -1965,6 +1968,22 @@ def rail_delay_hotspots(request: Request):
         rows = delay_hotspots(rail_line_layer, _live_trains(), _passenger_stations(), datetime.now(timezone.utc))
         _delay_hotspot_cache = (time.monotonic(), rows)
     return {"hotspots": rows}
+
+
+_operator_status_cache: tuple[float, list[dict]] = (0.0, [])
+
+
+@app.get("/api/rail/status")
+def rail_operator_status(request: Request):
+    """Each passenger operator: good service, minor or severe delays."""
+    global _operator_status_cache
+    _enforce_public_budget(request, lookup_request_budget)
+    computed_at, rows = _operator_status_cache
+    if time.monotonic() - computed_at > 30:
+        from .line_status import operator_status
+        rows = operator_status(_live_trains())
+        _operator_status_cache = (time.monotonic(), rows)
+    return {"operators": rows}
 
 
 @app.get("/api/rail/locate")

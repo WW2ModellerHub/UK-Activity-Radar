@@ -63,3 +63,26 @@ def test_a_test_alert_goes_to_this_device_and_an_expired_one_is_switched_off(tmp
     assert client.post("/api/alerts/test", json={"device_token": DEVICE}, headers=headers).status_code == 410
     assert store.subscription_for(DEVICE) is None
     store.close()
+
+
+def test_spotter_alerts_fire_for_unusual_things_nearby_in_the_daytime():
+    from datetime import datetime, timezone
+
+    from app.commute_alerts import spotter_alert
+    from app.models import Vehicle
+
+    preferences = normalise_preferences({"mode": "trains-only", "spotter": {"lat": 52.0, "lon": -1.0, "radius_miles": 10}})
+    spotter = preferences["spotter"]
+    assert spotter == {"lat": 52.0, "lon": -1.0, "radius_miles": 10.0, "kinds": ["air", "rail"]}
+    noon = datetime(2026, 11, 14, 12, 0, tzinfo=timezone.utc)
+    hercules = Vehicle(id="aircraft:1", type="aircraft", name="RRR4501", lat=52.05, lon=-1.0, source="ADSB.lol",
+                       aircraft_model="Lockheed Martin C-130 Hercules", cool_candidate=True, cool_category="air",
+                       cool_explanation="Military transport aircraft.")
+    alert = spotter_alert(hercules, spotter, noon)
+    assert alert["key"] == "spot:aircraft:1" and alert["title"] == "Lockheed Martin C-130 Hercules about 3 miles away"
+    assert spotter_alert(hercules, spotter, noon.replace(hour=3)) is None  # night
+    assert spotter_alert(hercules.model_copy(update={"lat": 53.0}), spotter, noon) is None  # too far
+    assert spotter_alert(hercules.model_copy(update={"cool_candidate": False}), spotter, noon) is None  # ordinary
+    assert spotter_alert(hercules.model_copy(update={"cool_category": "rescue"}), spotter, noon) is None  # never rescues
+    assert spotter_alert(hercules, None, noon) is None
+    assert normalise_preferences({"mode": "trains-only"})["spotter"] is None

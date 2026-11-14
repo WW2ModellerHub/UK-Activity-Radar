@@ -1191,7 +1191,7 @@ test('a second row under the chips offers options for the layer switched on last
   await expect(row).toBeHidden();
   await page.locator('[data-layer-chip="train"]').click();
   await expect(row).toBeVisible();
-  await expect(row.locator('.sub-chip:visible')).toHaveText(['Delays','Late only','Near me','Nearest station']);
+  await expect(row.locator('.sub-chip:visible')).toHaveText(['Delays','Line status','Late only','Near me','Nearest station']);
   // Late only hides trains that are on time (the fixture trains have no delay).
   await expect(page.locator('.marker-wrap-train').first()).toBeAttached();
   await row.locator('[data-late-only]').click();
@@ -1538,4 +1538,38 @@ test('on a phone the app opens with your saved things showing, not a bare map', 
   await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
   await expect(page.locator('[data-yours-train] small')).toHaveText('Cancelled');
   await expect(page.locator('#yours')).toBeInViewport();
+});
+
+test('Line status grades every operator and opens its late trains', async ({ page }) => {
+  await page.route('**/api/rail/status', route => route.fulfill({ json:{ operators:[
+    { operator:'Northern', status:'severe', label:'Severe delays', running:10, late:5, cancelled:1, average_delay:25, worst:[{ id:'train-live-1', name:'1A23', destination:'LEEDS', delay_minutes:31 }] },
+    { operator:'Southern', status:'good', label:'Good service', running:10, late:0, cancelled:0, average_delay:0, worst:[] },
+  ] } }));
+  await page.locator('[data-layer-chip="train"]').click();
+  await page.locator('[data-sub-action="line-status"]').click();
+  await expect(page.locator('#detail-title')).toHaveText('Line status');
+  await expect(page.locator('#detail-subtitle')).toHaveText('1 operator with delays');
+  const northern = page.locator('.line-status-row').first();
+  await expect(northern).toContainText('Northern');
+  await expect(northern).toContainText('5 of 10 late · about 25 min · 1 cancelled');
+  await expect(northern).toContainText('Severe delays');
+  await expect(northern.locator('.line-status-worst')).toBeHidden();
+  await northern.locator('[data-line-operator]').click();
+  await expect(northern.locator('.line-status-train')).toContainText('31 min late');
+});
+
+test('spotter alerts switch on from Discover with the place and distance', async ({ page }) => {
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.04,longitude:-0.76}});}}}));
+  const posted = [];
+  await page.route('**/api/alerts/subscribe', route => { posted.push(route.request().postDataJSON()); return route.fulfill({ json:{ ok:true } }); });
+  await page.getByRole('button', { name: /Discover/ }).click();
+  await expect(page.locator('#spotter-state')).toHaveText('OFF');
+  await page.locator('#spotter-radius').selectOption('25');
+  await page.locator('#spotter-toggle').click();
+  await expect(page.locator('#spotter-state')).toHaveText('ON');
+  expect(posted[0].preferences.spotter).toEqual({ lat:52.04, lon:-0.76, radius_miles:25 });
+  await expect(page.locator('#spotter-note')).toContainText('On within 25 miles');
+  await page.locator('#spotter-toggle').click();
+  await expect(page.locator('#spotter-state')).toHaveText('OFF');
+  expect(posted[1].preferences.spotter).toBeNull();
 });

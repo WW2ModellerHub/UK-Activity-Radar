@@ -1,5 +1,15 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — line status and spotter alerts
+
+- **Line status** (Trains → Line status): every passenger operator graded
+  good, minor or severe from the live trains (share running 5+ min late,
+  how late, cancellations), worst first. Tap one for its latest trains.
+  Operators with fewer than four trains reporting are shown as unknown.
+- **Spotter alerts** (top of Discover): a phone alert when a Discover find
+  (steam, charter, military aircraft) is within 5, 10 or 25 miles of where it
+  was switched on, 7am to 10pm. Live rescues never alert.
+
 ## 2026-11-14 — opens on your own things
 
 - New "Yours" section at the top of the Map panel: each saved station or
