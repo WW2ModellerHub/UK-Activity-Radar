@@ -1,5 +1,56 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — quick answers: one tap for the everyday jobs
+
+Walked the five things a visitor comes to do and cut the taps:
+
+| Job | Before | Now |
+|---|---|---|
+| Planes above me | open sheet, scroll, Planes overhead; result was a toast | 1 tap: a list, nearest first, with routes |
+| Trains going past | Trains chip, find yourself, find a train | 1 tap: trains within 5 km, nearest first, with lateness |
+| Next bus | open sheet, Buses near me | 1 tap |
+| Why is my train late | find it, open it; only "N min late" | the train panel says where the delay built up and whether trains nearby are late too |
+| Roadworks on my journey | sheet, scroll, planner, type both places, find, read each option | 1 tap once a journey is remembered; the answer is the first line |
+
+- **Quick answers bar** (Planes above, Trains near, Next bus, My journey) sits above
+  the tabs on phones and floats at the bottom of the map on desktop. The
+  Map panel's own location shortcuts are hidden; the bar replaces them.
+- `/api/trains/near` lists trains near a point at their moving position.
+- **Lateness history.** Each train keeps its last 12 lateness readings
+  (`delay_history`); the panel's "Why is it late?" names the stretch where
+  most time was lost and notes other late trains nearby. Network Rail's open
+  feeds do not publish delay reasons, so the panel states what the data shows.
+- **My journey** remembers from, to and mode, accepts "My location", runs
+  again in one tap, and leads with "N roadworks and N incidents on this
+  route" or "No roadworks or incidents on this route".
+
+## 2026-11-14 — stabled trains, Discover rows, aircraft subtitle
+
+- **Trains in sidings.** Six trains sat fanned out on one spot by a line:
+  matched services that had finished without a terminating report stayed
+  until the 45-minute cut-off. Any train with no report for 20 minutes and
+  no timetable leg it is still running now leaves the map; trains between
+  sparse reports on a current leg stay.
+- **Discover.** Every find is one plain row: category icon, name, one-line
+  description, and "New · updated 19s ago". The big upper-case category
+  badges, the "NEW • LIVE INCIDENT • updated" kicker, the different-looking
+  first row and the "More finds" heading are gone.
+- **Aircraft subtitle.** Without a known route it is empty instead of
+  repeating the registration, type and operator shown on the line below.
+
+## 2026-11-14 — aircraft panel and stale tabs
+
+- Aircraft panels use the compact chip row (altitude, speed, updated); the
+  type is in the heading, the route is the subtitle (no repeat as a chip),
+  and identifiers (registration, type code, source) sit under More details.
+  The photo caption no longer repeats type and registration.
+- The "LIVE TRAIL — N observed positions…" box is gone; the dashed trail on
+  the map remains.
+- A tab left open across a deploy kept running the old app (a user saw
+  "Not published by this ADS-B feed" after it was removed). The page now
+  checks the published app version when it comes back into view and every
+  10 minutes, and reloads once per new version (never loops).
+
 ## 2026-11-14 — flight routes: second source and reasons
 
 - Live check after deploy: `/api/activity/{id}/flight-route` returned

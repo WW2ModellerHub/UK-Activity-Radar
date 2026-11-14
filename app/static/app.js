@@ -747,7 +747,8 @@
   function lineTrainRow(row) {
     const status=trainStatusLabel({delay_minutes:row.delay_minutes,cancelled_at:row.cancelled?1:null});
     const tone=row.cancelled ? 'is-bad' : punctualityClass(row.delay_minutes);
-    const where=[row.destination?`to ${humanTransitLabel(row.destination)}`:null,humanTransitLabel(row.operator||'')||null].filter(Boolean).join(' · ');
+    const away=Number.isFinite(Number(row.distance_km))?(Number(row.distance_km)<1?`${Math.round(Number(row.distance_km)*1000)} m away`:`${Number(row.distance_km).toFixed(1)} km away`):null;
+    const where=[row.destination?`to ${humanTransitLabel(row.destination)}`:null,away||humanTransitLabel(row.operator||'')||null].filter(Boolean).join(' · ');
     return `<button type="button" class="line-train" data-line-train="${esc(row.id)}"><i class="line-dot ${esc(tone)}" aria-hidden="true"></i><span><strong>${esc(row.name)}</strong>${where?`<small>${esc(where)}</small>`:''}</span><b class="${esc(tone)}">${esc(status==='Live'?'':status)}</b></button>`;
   }
 
@@ -810,6 +811,93 @@
       $('map')?.removeAttribute('data-delay-hotspots');
     }
   }
+
+  // ---- Quick answers: the four everyday jobs, one tap each ----
+  // Planes above me, trains near me, my next bus, my usual journey. Each
+  // asks for location once (reused for two minutes) and answers in the panel.
+  let lastFix=null, pendingPlanesList=false;
+  function currentFix() {
+    if(lastFix&&Date.now()-lastFix.at<120000)return Promise.resolve(lastFix);
+    if(!navigator.geolocation)return Promise.reject(new Error('Location isn’t available. Search for a place instead.'));
+    return new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(pos=>{
+      lastFix={lat:pos.coords.latitude,lon:pos.coords.longitude,at:Date.now()};
+      resolve(lastFix);
+    },()=>reject(new Error('Turn on location to see what is near you.')),{enableHighAccuracy:false,timeout:8000,maximumAge:120000}));
+  }
+  function withLocation(done) {
+    currentFix().then(fix=>done(fix.lat,fix.lon)).catch(error=>showToast(error.message));
+  }
+
+  function awayText(km) {
+    const n=Number(km);
+    return !Number.isFinite(n)?'':n<1?`${Math.round(n*1000)} m away`:`${n<10?n.toFixed(1):Math.round(n)} km away`;
+  }
+
+  function showPlanesList() {
+    const miles=Number(nearbyState.radiusMiles)||25;
+    const all=[...nearbyAircraftRows].map(a=>({a,km:distanceKm(nearbyState.lat,nearbyState.lon,Number(a.lat),Number(a.lon))}))
+      .filter(x=>Number.isFinite(x.km)).sort((x,y)=>x.km-y.km);
+    const within=all.filter(x=>x.km<=miles*1.609344);
+    // Nothing that close: say so, and show the nearest few instead.
+    const rows=(within.length?within:all.slice(0,5)).slice(0,12);
+    const list=rows.map(({a,km})=>{
+      const height=a.altitude_ft!=null?`${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} ft`:null;
+      const facts=[a.aircraft_model||a.aircraft_type_code||null,height,awayText(km)].filter(Boolean).join(' · ');
+      return `<button type="button" class="line-train" data-job-plane="${esc(a.id)}"><i class="line-dot" aria-hidden="true"></i><span><strong>${esc(a.name)}</strong><small data-plane-route>${esc(facts)}</small></span><b>›</b></button>`;
+    }).join('');
+    const box=openInfoPanel(within.length?'Planes above you':'Nearest planes',within.length?`${within.length} within ${miles} miles`:(rows.length?`None within ${miles} miles, so these are the closest`:`None within ${miles} miles right now`),list?`<div class="line-trains">${list}</div>`:'<p class="transport-empty">No aircraft are being tracked near you right now.</p>');
+    box.querySelectorAll('[data-job-plane]').forEach(button=>button.addEventListener('click',()=>focusActivityById(button.dataset.jobPlane,map.getZoom())));
+    // Add where each flight is going, for the closest few.
+    rows.slice(0,6).forEach(({a})=>fetch(`/api/activity/${encodeURIComponent(a.id)}/flight-route`,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(payload=>{
+      if(!payload?.found)return;
+      flightRouteById.set(a.id,payload.route);
+      const small=box.querySelector(`[data-job-plane="${CSS.escape(a.id)}"] [data-plane-route]`);
+      if(small)small.textContent=`${flightRouteText(payload.route)} · ${small.textContent}`;
+    }).catch(()=>{}));
+  }
+
+  function jobPlanes() {
+    if(overheadActive&&nearbyAircraftRows.length){showPlanesList();return;}
+    pendingPlanesList=true;
+    $('overhead-now')?.click();
+  }
+
+  function jobTrains() {
+    withLocation(async (lat,lon)=>{
+      if(!enabledActivityTypes.has('train')){enabledActivityTypes.add('train');updateLayerToggleUi();}
+      map.setView([lat,lon],13,{animate:true});
+      try {
+        const response=await fetch(`/api/trains/near?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&km=5`,{cache:'no-store'});
+        const payload=response.ok?await response.json():{trains:[]};
+        const trains=payload.trains||[];
+        const list=trains.length?`<div class="line-trains">${trains.map(lineTrainRow).join('')}</div>`:'<p class="transport-empty">No trains within 5 km right now.</p>';
+        const box=openInfoPanel('Trains near you',trains.length?`${trains.length} within 5 km`:'Nothing passing right now',`<div class="line-view">${list}<button type="button" class="tool-button job-station" data-job-station>Departures from your nearest station</button></div>`);
+        box.querySelectorAll('[data-line-train]').forEach(button=>button.addEventListener('click',()=>focusActivityById(button.dataset.lineTrain,Math.max(13,map.getZoom()))));
+        box.querySelector('[data-job-station]')?.addEventListener('click',()=>$('station-boards')?.click());
+      } catch { showToast('Trains near you couldn’t load right now.'); }
+    });
+  }
+
+  const JOURNEY_KEY='ukRadarLastJourneyV1';
+  function rememberedJourney() { try { return JSON.parse(localStorage.getItem(JOURNEY_KEY)||'null'); } catch { return null; } }
+  function jobJourney() {
+    const saved=rememberedJourney();
+    if($('journey-origin')&&!$('journey-origin').value)$('journey-origin').value=saved?.origin||'My location';
+    if($('journey-destination')&&!$('journey-destination').value&&saved?.destination)$('journey-destination').value=saved.destination;
+    if(saved?.mode&&$('journey-mode'))$('journey-mode').value=saved.mode;
+    openJourneyPlanner();
+    // A remembered journey runs straight away: one tap to see what is in the way.
+    if(saved?.destination)$('journey-form')?.requestSubmit?.();
+  }
+
+  document.querySelectorAll('[data-job]').forEach(button=>button.addEventListener('click',()=>{
+    const job=button.dataset.job;
+    trackProduct('quick_job',job);
+    if(job==='planes')jobPlanes();
+    else if(job==='trains')jobTrains();
+    else if(job==='bus')$('near-me')?.click();
+    else if(job==='journey')jobJourney();
+  }));
 
   function updateLayerToggleUi() {
     document.querySelectorAll('[data-layer-chip]').forEach(chip => {
@@ -1207,7 +1295,7 @@
       const links = a.source_id ? `<a target="_blank" rel="noopener" href="https://www.planespotters.net/hex/${esc(String(a.source_id).toUpperCase())}">Planespotters ↗</a>` : '';
       const visibleTruth=imageTruth || fallback?.truth;
       if(!image && !fallbackVisual){box.classList.add('hidden');box.innerHTML='';return;}
-      box.innerHTML = `${image || fallbackVisual}<div class="detail-photo-copy"><strong>${esc(referenceImage ? (model || a.aircraft_model || a.aircraft_type_code || 'Aircraft') : fallback.title)}</strong><span>${esc(identity || a.name)}</span>${visibleTruth?`<b class="image-truth">${esc(visibleTruth)}</b>`:''}<span>${esc(imageCredit || 'Licensed aircraft reference')}${!referenceImage && fallback ? ` • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a>` : ''}${links ? ` • ${links}` : ''}</span></div>`;
+      box.innerHTML = `${image || fallbackVisual}<div class="detail-photo-copy">${referenceImage ? '' : `<strong>${esc(fallback.title)}</strong><span>${esc(identity || a.name)}</span>`}${visibleTruth?`<b class="image-truth">${esc(visibleTruth)}</b>`:''}<span>${esc(imageCredit || 'Licensed aircraft reference')}${!referenceImage && fallback ? ` • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a>` : ''}${links ? ` • ${links}` : ''}</span></div>`;
       const remoteImage=referenceImage ? box.querySelector('img') : null;
       remoteImage?.addEventListener('error',()=>{
         if(requestId!==mediaRequest || selectedId!==a.id)return;
@@ -2426,9 +2514,8 @@
       const payload=await response.json();
       flightRouteById.set(id,payload?.found?payload.route:null);
       if(seq!==flightRouteRequest||selectedId!==id||!payload?.found)return;
+      // The route is the subtitle; it is not repeated as a fact.
       $('detail-subtitle').textContent=flightRouteText(payload.route);
-      const existing=document.querySelector('#detail-fields [data-field="Route"]');
-      if(!existing)$('detail-fields')?.insertAdjacentHTML('afterbegin',field('Route',flightRouteText(payload.route)));
     } catch {}
   }
 
@@ -2442,7 +2529,7 @@
 
   function field(label, value) {
     if (value === undefined || value === null || value === '') return '';
-    const technical = new Set(['Source','ICAO / source ref','Latitude','Longitude','Train UID','Headcode','Journey ref','Tracking','Bearing','Code','Type','Registration','MMSI','Identified as','Identity confidence','Position','Operator']);
+    const technical = new Set(['Source','ICAO / source ref','ICAO type code','Latitude','Longitude','Train UID','Headcode','Journey ref','Tracking','Bearing','Code','Type','Registration','MMSI','Identified as','Identity confidence','Position','Operator']);
     return `<div class="detail-field${technical.has(label) ? ' is-technical' : ''}" data-field="${esc(label)}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
   }
 
@@ -2728,13 +2815,8 @@
         color:a.type==='sar'?'#ff8b6a':'#6fc8ff', weight:3, opacity:.86, dashArray:'7 7', interactive:false
       }).addTo(map);
     }
-    if (!box) return;
-    box.classList.remove('hidden');
-    const first=points[0], last=points[points.length-1];
-    const distance=first&&last ? distanceKm(first.lat,first.lon,last.lat,last.lon) : 0;
-    box.innerHTML = points.length > 1
-      ? `<strong>LIVE TRAIL</strong><span>${points.length} observed positions • ${distance.toFixed(1)} km since this map started watching</span><small>Built from this browser’s live feed—not a complete historical flight path.</small>`
-      : '<strong>LIVE TRAIL</strong><span>Recording from the next reported position…</span><small>This begins when the aircraft enters your live map stream.</small>';
+    // The dashed trail on the map says it all; no explanatory box.
+    if (box) { box.classList.add('hidden'); box.innerHTML=''; }
   }
 
   function clearActivityIntelligence() {
@@ -2921,11 +3003,20 @@
     const facts=points ? [] : [next?`Next: ${next}`:null].filter(Boolean);
     const unknown=!points ? '<p class="transport-empty">Stops not published for this service.</p>' : '';
     const cancelledFrom=providerName(run?.cancelled_from);
+    const why=run?.delay_explanation;
+    const whyText=why ? [
+      `${why.late} min late.`,
+      why.between ? `Most of it (${why.grew_by} min) was lost between ${humanTransitLabel(why.between[0])} and ${humanTransitLabel(why.between[1])}.`
+        : why.near ? `${why.grew_by} min was lost near ${humanTransitLabel(why.near)}.`
+        : why.already_late ? 'It was already late when it was first seen today.' : '',
+      why.others_late ? `${why.others_late} other trains nearby are late too, so the problem is likely on the line rather than this train.` : '',
+    ].filter(Boolean).join(' ') : '';
+    const whyBox=whyText ? `<p class="delay-why"><strong>Why is it late?</strong> <span>${esc(whyText)}</span></p>` : '';
     const cancelledBanner=run?.cancelled ? `<p class="train-cancelled-banner">${iconSvg('incident')}<span>${cancelledFrom?`Cancelled from ${esc(humanTransitLabel(cancelledFrom))}`:'This train is cancelled'}</span></p>` : '';
     const operator=providerName(train.operator || run?.operator || run?.operator_code);
     const operatorTheme=trainLiveryTheme('',operator);
     const operatorStyle=operatorTheme.key!=='reference' ? ` style="--train-primary:${operatorTheme.primary};--train-secondary:${operatorTheme.secondary};--train-accent:${operatorTheme.accent};--train-ink:${operatorTheme.ink}"` : '';
-    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${cancelledBanner}${serviceLabel?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${facts.length?`<div class="transport-facts">${facts.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points}${unknown}</article>`;
+    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${cancelledBanner}${whyBox}${serviceLabel?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${facts.length?`<div class="transport-facts">${facts.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points}${unknown}</article>`;
   }
 
   function trainLiveryTheme(livery, operator) {
@@ -3138,6 +3229,7 @@
     selectedActivitySnapshot=a;
     $('detail-panel')?.classList.toggle('is-train',a.type==='train');
     $('detail-panel')?.classList.toggle('is-bus',a.type==='bus');
+    $('detail-panel')?.classList.toggle('is-aircraft',['aircraft','sar'].includes(a.type));
     liveObjectRenderer?.setActivities(filteredActivities(),selectedId);
     setDetailRouteView(false);
     syncDetailRouteControl(a);
@@ -3152,7 +3244,9 @@
     const detailCool=coolInfo(a);
     $('detail-title').innerHTML = `${currentWorkspace==='cool' && detailCool.score>=45 ? coolBadgeHtml(a,true)+' ' : ''}${esc(a.name)}`;
     const flightRoute=['sar','aircraft'].includes(a.type) ? flightRouteById.get(a.id) : null;
-    $('detail-subtitle').textContent = flightRoute ? flightRouteText(flightRoute) : humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
+    // Aircraft: the route, or nothing. Registration, type and operator are
+    // already on the operator line below; repeating them here was noise.
+    $('detail-subtitle').textContent = flightRoute ? flightRouteText(flightRoute) : ['aircraft','sar'].includes(a.type) ? '' : humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
     renderOperatorIdentity(a);
     renderInsight(a);
     renderDiscoveryDetail(a);
@@ -3190,6 +3284,20 @@
           field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null),
         ].join('');
         toneStatusField(a);
+      } else if (isAircraft) {
+        // Altitude, speed and update time as chips. The type is already in
+        // the panel heading and the route is the subtitle; identifiers stay
+        // under More details.
+        const age = relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000));
+        const typeCode = a.aircraft_type_code && a.aircraft_type_code !== a.aircraft_model ? a.aircraft_type_code : null;
+        $('detail-fields').innerHTML = [
+          field('Altitude', altitude), field('Speed', speed), field('Updated', age),
+          field('Registration', a.vehicle_ref), field('Identified as', a.identity_label),
+          field('ICAO type code', typeCode), field('Type', a.aircraft_model),
+          field('Source', a.source), field('ICAO / source ref', a.source_id),
+          field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null),
+          field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null),
+        ].join('');
       } else if (a.type === 'bus') {
         // Same compact chips as trains; the route and lateness are in the
         // journey card below, and fleet identifiers stay under More details.
@@ -3427,7 +3535,8 @@
       const checked=Number(payload.checked||0);
       const note=$('overhead-now')?.querySelector('small');
       if(note)note.textContent=`${nearbyAircraftRows.length} live aircraft • refreshing automatically`;
-      if(announce)showToast(nearbyAircraftRows.length?`${nearbyAircraftRows.length} aircraft near you.`:'No aircraft near you right now.');
+      if(pendingPlanesList){pendingPlanesList=false;showPlanesList();}
+      else if(announce)showToast(nearbyAircraftRows.length?`${nearbyAircraftRows.length} aircraft near you.`:'No aircraft near you right now.');
     }catch(error){
       if(announce)showToast('Nearby aircraft could not refresh; showing the latest retained positions.');
     }finally{
@@ -3789,6 +3898,28 @@
       if (Array.isArray(raw)) raw.forEach(id => typeof id === 'string' && followed.add(id));
     } catch {}
   }
+  // A tab left open across a deploy keeps running the old app. When the page
+  // comes back into view (or every 10 minutes), check the published version
+  // and reload once if it has changed.
+  const LOADED_APP_VERSION=(document.querySelector('script[src*="/static/app.js"]')?.getAttribute('src').match(/v=(\d+)/)||[])[1]||'';
+  let versionCheckAt=0;
+  async function reloadIfNewVersion() {
+    if(!LOADED_APP_VERSION||Date.now()-versionCheckAt<60000)return;
+    versionCheckAt=Date.now();
+    try {
+      const html=await (await fetch('/',{cache:'no-store'})).text();
+      const live=(html.match(/\/static\/app\.js\?v=(\d+)/)||[])[1];
+      if(!live||live===LOADED_APP_VERSION)return;
+      // Reload once per published version, so a stale cache can never loop.
+      let tried='';try{tried=sessionStorage.getItem('ukRadarReloadedFor')||'';}catch{}
+      if(tried===live)return;
+      try{sessionStorage.setItem('ukRadarReloadedFor',live);}catch{}
+      location.reload();
+    } catch {}
+  }
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden)reloadIfNewVersion(); });
+  setInterval(()=>{ if(!document.hidden)reloadIfNewVersion(); },600000);
+
   function saveFollowed() { try { localStorage.setItem('ukRadarFollowed', JSON.stringify([...followed])); } catch {} }
 
   // Saved trains: alert when one is cancelled, becomes late or changes
@@ -4141,9 +4272,16 @@
     const top=candidates[0];
     const more=candidates.slice(1,6);
     const emptyScope=radius==null?'in the current UK live feed':`within ${Math.round(radius/1.609344)} miles`;
-    const moreHtml=more.length?`<div class="cool-find-list"><div class="cool-find-head"><strong>More finds</strong></div>${more.map(x=>`<button type="button" class="cool-find-row${isNewDiscoveryActivity(x.a)?' is-new':''}" data-cool-find="${esc(x.a.id)}"><span>${coolBadgeHtml(x.a,true)}</span><span><strong>${isNewDiscoveryActivity(x.a)?'<em class="discovery-new-tag">NEW</em> ':''}${esc(x.a.name)}${activityMatchesInterests(x.a)?' <em class="interest-match">Your interest</em>':''}</strong><small>${esc(x.c.reasons[0]||x.a.subtitle||'Unusual live movement')} • updated ${esc(discoveryFreshness(x.a))}</small></span><b>›</b></button>`).join('')}</div>`:'';
+    // Every find is the same simple row: icon, name, what it is, and when.
+    const findRow=(x,first)=>{
+      const fresh=isNewDiscoveryActivity(x.a);
+      const meta=[fresh?'<em class="find-new">New</em>':'',`updated ${esc(discoveryFreshness(x.a))}`,activityMatchesInterests(x.a)?'your interest':'',first&&activityIsCollectible(x.a)?`${x.km<1?'under 1':Math.round(x.km)} km away`:''].filter(Boolean).join(' · ');
+      const attr=first?`class="discover-row cool-hero-hit${fresh?' is-new':''}" data-cool-top="${esc(x.a.id)}"`:`class="discover-row cool-find-row${fresh?' is-new':''}" data-cool-find="${esc(x.a.id)}"`;
+      return `<button type="button" ${attr}><span class="discover-icon cool-${esc(x.c.theme||'air')}">${iconSvg(coolIconFor(x.a,x.c))}</span><span class="discover-text"><strong>${esc(x.a.name)}</strong><small>${esc(x.c.reasons[0]||x.a.subtitle||'')}</small><i>${meta}</i></span><b aria-hidden="true">›</b></button>`;
+    };
+    const moreHtml=more.length?`<div class="cool-find-list">${more.map(x=>findRow(x,false)).join('')}</div>`:'';
     const previewNote=!globalCoolAvailability.fullAccess&&globalCoolAvailability.total>candidates.length?`<p class="cool-preview-note">Showing ${candidates.length} of ${globalCoolAvailability.total}. Radar+ shows them all.</p>`:'';
-    box.innerHTML=`<div class="cool-scoreboard">${counts.map(x=>`<div><span class="cool-mini-icon cool-${x.theme}">${x.theme==='air'?'▲':x.theme==='rail'?'◆':'✚'}</span><strong>${x.n}</strong><small>${x.label}</small></div>`).join('')}</div>${previewNote}${top?`<button class="cool-hero-hit${isNewDiscoveryActivity(top.a)?' is-new':''}" type="button" data-cool-top="${esc(top.a.id)}"><span>${coolBadgeHtml(top.a,false)}</span><div><small>${isNewDiscoveryActivity(top.a)?'NEW • ':''}${activityIsCollectible(top.a)?'BEST LIVE FIND':'LIVE INCIDENT'} • updated ${esc(discoveryFreshness(top.a))}</small><strong>${esc(top.a.name)}${activityMatchesInterests(top.a)?' <em class="interest-match">Your interest</em>':''}</strong><p>${esc(top.c.reasons[0]||top.a.subtitle||'Unusual live movement')}${activityIsCollectible(top.a)?` · ${top.km<1?'under 1':Math.round(top.km)} km away`:''}</p></div><b>›</b></button>${moreHtml}`:`<div class="cool-empty">Nothing unusual spotted ${emptyScope} right now.</div>`}`;
+    box.innerHTML=`${previewNote}${top?`<div class="discover-list">${findRow(top,true)}${moreHtml}</div>`:`<div class="cool-empty">Nothing unusual spotted ${emptyScope} right now.</div>`}`;
     box.querySelector('[data-cool-top]')?.addEventListener('click',e=>selectActivity(e.currentTarget.dataset.coolTop,true,11));
     box.querySelectorAll('[data-cool-find]').forEach(button=>button.addEventListener('click',()=>selectActivity(button.dataset.coolFind,true,11)));
   }
@@ -4390,6 +4528,7 @@
   async function resolveJourneyPlace(query) {
     const raw=String(query || '').trim();
     if(raw.length<2)return null;
+    if(/^my location$/i.test(raw)){const fix=await currentFix();return {query:raw,name:'Your location',lat:fix.lat,lon:fix.lon};}
     const response=await fetch(`/api/search?q=${encodeURIComponent(raw)}`,{cache:'no-store'});
     if(!response.ok)throw new Error('Place search is unavailable.');
     const payload=await response.json();
@@ -4531,7 +4670,12 @@
       return;
     }
     lastJourneyPayload=payload;
-    box.innerHTML=`<div class="journey-result-head"><div><small>LIVE ROUTES</small><strong>${esc(payload?.message || `${itineraries.length || railJourneys.length} journey options`)}</strong></div><span>Updated now</span></div>${resolution}<div class="journey-options">${results}</div><p class="journey-truth">Check with the operator before travelling.</p>`;
+    // First answer the question people open this for: is anything in the way?
+    const issues=(itineraries[0]?.route_issues)||[];
+    const roadworks=issues.filter(row=>row?.type==='road').length, incidents=issues.filter(row=>row?.type!=='road').length;
+    const issueText=issues.length?[roadworks?`${roadworks} roadwork${roadworks===1?'':'s'}`:null,incidents?`${incidents} incident${incidents===1?'':'s'}`:null].filter(Boolean).join(' and ')+' on this route':'No roadworks or incidents on this route';
+    const issueBanner=itineraries.length?`<div class="journey-issue-summary ${issues.length?'has-issues':'is-clear'}">${iconSvg(issues.length?'incident':'route')}<span><strong>${esc(issueText)}</strong>${issues.length?`<small>${esc(issues.slice(0,3).map(row=>[row.name,row.road].filter(Boolean).join(' · ')).join(' • '))}</small>`:''}</span></div>`:'';
+    box.innerHTML=`${issueBanner}<div class="journey-result-head"><div><strong>${esc(payload?.message || `${itineraries.length || railJourneys.length} journey options`)}</strong></div><span>Updated now</span></div>${resolution}<div class="journey-options">${results}</div><p class="journey-truth">Check with the operator before travelling.</p>`;
     box.querySelectorAll('.journey-show-map').forEach(button=>button.addEventListener('click',()=>showJourneyRoute(button.dataset.journeyOption)));
   }
 
@@ -4542,6 +4686,7 @@
     const mode=$('journey-mode')?.value || 'transit';
     const box=$('journey-results'), submit=$('journey-submit');
     if(originName.length<2 || destinationName.length<2)return;
+    try { localStorage.setItem(JOURNEY_KEY,JSON.stringify({origin:originName,destination:destinationName,mode})); } catch {}
     submit.disabled=true; submit.textContent='Finding…';
     box.innerHTML='<div class="journey-loading"><i></i><strong>Finding routes…</strong></div>';
     try {

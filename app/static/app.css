@@ -963,10 +963,10 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 
 /* Train facts: one row of equal cells with no empty cell, whether two or
    three facts are known. Hairlines come from the gap, not per-cell borders. */
-.detail-panel:is(.is-train,.is-bus) > .detail-fields { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); }
-.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field { flex: 1 1 28%; border: 0 !important; background: var(--surface); }
-.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field.is-technical { display: none; }
-.detail-panel:is(.is-train,.is-bus).show-technical > .detail-fields > .detail-field.is-technical { display: grid; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field { flex: 1 1 28%; border: 0 !important; background: var(--surface); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field.is-technical { display: none; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft).show-technical > .detail-fields > .detail-field.is-technical { display: grid; }
 
 /* Map chips: fade the last chip when the row scrolls, so a cut-off chip
    reads as "more this way" rather than broken. */
@@ -990,19 +990,19 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 }
 
 /* ---- Compact train facts: one line of small chips, not big boxes ---- */
-.detail-panel:is(.is-train,.is-bus) > .detail-fields { display: flex; flex-wrap: wrap; gap: 6px; background: none; border: 0; border-radius: 0; overflow: visible; }
-.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field { flex: none; display: inline-flex; align-items: baseline; gap: 5px; padding: 5px 10px; border: 0 !important; border-radius: 999px; background: var(--subtle, #f2f4f7); }
-.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field.is-technical { display: none; }
-.detail-panel:is(.is-train,.is-bus).show-technical > .detail-fields > .detail-field.is-technical { display: inline-flex; }
-.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field span { font-size: 12px; }
-.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field strong { font-size: 13px; font-weight: 700; }
-.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-field="Status"] span { display: none; }
-.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-tone="good"] { background: var(--good-soft, #e7f6ee); }
-.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-tone="good"] strong { color: var(--good, #1e7a54); }
-.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-tone="warn"] { background: #fff4dc; }
-.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-tone="warn"] strong { color: #9a5b00; }
-.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-tone="bad"] { background: var(--bad-soft); }
-.detail-panel:is(.is-train,.is-bus) > .detail-fields > .detail-field[data-tone="bad"] strong { color: var(--bad); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields { display: flex; flex-wrap: wrap; gap: 6px; background: none; border: 0; border-radius: 0; overflow: visible; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field { flex: none; display: inline-flex; align-items: baseline; gap: 5px; padding: 5px 10px; border: 0 !important; border-radius: 999px; background: var(--subtle, #f2f4f7); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field.is-technical { display: none; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft).show-technical > .detail-fields > .detail-field.is-technical { display: inline-flex; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field span { font-size: 12px; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field strong { font-size: 13px; font-weight: 700; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-field="Status"] span { display: none; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-tone="good"] { background: var(--good-soft, #e7f6ee); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-tone="good"] strong { color: var(--good, #1e7a54); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-tone="warn"] { background: #fff4dc; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-tone="warn"] strong { color: #9a5b00; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-tone="bad"] { background: var(--bad-soft); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-tone="bad"] strong { color: var(--bad); }
 
 /* ---- Shared stop list: earlier stops and bus lateness ---- */
 .transport-stops li.is-earlier { display: none; }
@@ -1025,3 +1025,57 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 [data-workspace-panel="live"]:not(.has-saved-places) .passing-next-card,
 [data-workspace-panel="live"]:not(.has-saved-places) .commute-alert-card,
 [data-workspace-panel="live"]:not(.has-saved-places) .my-radar-step:has(#my-radar-area) { display: none; }
+#detail-subtitle:empty { display: none; }
+
+/* ---- Discover: one plain row per find ---- */
+.discover-list { display: grid; }
+.discover-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 12px; align-items: center; gap: 12px; width: 100%; padding: 12px 0; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.discover-row:hover { background: var(--subtle, #f5f6f8); }
+.discover-icon { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: #e8f0fb; color: #0b63ce; }
+.discover-icon .ico { width: 20px; height: 20px; }
+.discover-icon.cool-rail, .discover-icon.cool-steam { background: #f4e9f3; color: #7b2d70; }
+.discover-icon.cool-rescue, .discover-icon.cool-sea, .discover-icon.cool-naval { background: #fdeee6; color: #b4471b; }
+.discover-text { display: grid; gap: 2px; min-width: 0; }
+.discover-text strong { font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.discover-text small { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.discover-text i { font-style: normal; font-size: 12px; color: var(--muted); }
+.discover-text .find-new { font-style: normal; font-weight: 700; color: #1e7a54; }
+.discover-row > b { color: var(--muted); font-weight: 400; }
+.cool-find-list { display: contents; }
+/* The first find uses the same row as the rest. */
+.discover-row.cool-hero-hit, .discover-row.cool-find-row { display: grid; min-height: 0; padding: 12px 0; }
+.discover-row.cool-hero-hit .discover-text strong { font-size: 15px; font-weight: 700; color: var(--text); }
+.discover-row.cool-hero-hit .discover-text small { font-size: 13px; font-weight: 400; color: var(--text); }
+.discover-row.cool-hero-hit .discover-icon { font-size: inherit; }
+.discover-row .discover-icon { color: #0b63ce; }
+.discover-row .discover-icon.cool-rail, .discover-row .discover-icon.cool-steam { color: #7b2d70; }
+.discover-row .discover-icon.cool-rescue, .discover-row .discover-icon.cool-sea, .discover-row .discover-icon.cool-naval { color: #b4471b; }
+.discover-row.cool-hero-hit span.discover-icon { color: #0b63ce !important; font-size: inherit; }
+.discover-row.cool-hero-hit span.discover-icon.cool-rail, .discover-row.cool-hero-hit span.discover-icon.cool-steam { color: #7b2d70 !important; }
+.discover-row.cool-hero-hit span.discover-icon.cool-rescue, .discover-row.cool-hero-hit span.discover-icon.cool-sea, .discover-row.cool-hero-hit span.discover-icon.cool-naval { color: #b4471b !important; }
+.discover-row.cool-hero-hit span.discover-text { font-size: inherit; color: inherit; }
+
+/* ---- Quick answers bar: four everyday jobs, one tap each ---- */
+.jobs-bar { position: absolute; z-index: 820; left: 50%; bottom: 16px; transform: translateX(-50%); display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 4px 16px rgba(16, 24, 40, .14); width: min(460px, calc(100% - 24px)); }
+.jobs-bar button { display: grid; justify-items: center; gap: 3px; padding: 7px 2px; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; border: 0; border-radius: 12px; background: none; color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.jobs-bar button:hover, .jobs-bar button:focus-visible { background: var(--subtle, #f2f4f7); }
+.jobs-bar .ico { width: 22px; height: 22px; color: var(--accent, #0b63ce); }
+.live-ticker { display: none !important; }
+@media (max-width: 760px) {
+  .nearby-bar { display: none !important; }
+  .jobs-bar { left: 12px; right: 12px; width: auto; transform: none; bottom: calc(var(--nav-h) + 12px); }
+  body:has(#workspace-shell:not(.collapsed)) .jobs-bar, body:has(.detail-sidebar:not(.is-empty)) .jobs-bar { display: none; }
+}
+.job-station { margin-top: 4px; justify-self: start; }
+
+/* Why is my train late? */
+.delay-why { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: #fff4dc; color: #5c3b00; font-size: 14px; line-height: 1.4; }
+.delay-why strong { display: block; margin-bottom: 2px; color: #3d2800; }
+
+/* Journey: is anything in the way? */
+.journey-issue-summary { display: flex; gap: 10px; align-items: flex-start; padding: 12px; margin-bottom: 12px; border-radius: 12px; }
+.journey-issue-summary .ico { width: 20px; height: 20px; flex: none; margin-top: 1px; }
+.journey-issue-summary span { display: grid; gap: 2px; }
+.journey-issue-summary small { color: inherit; opacity: .85; }
+.journey-issue-summary.has-issues { background: var(--bad-soft); color: var(--bad); }
+.journey-issue-summary.is-clear { background: var(--good-soft, #e7f6ee); color: var(--good, #1e7a54); }

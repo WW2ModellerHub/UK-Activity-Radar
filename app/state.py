@@ -24,6 +24,10 @@ CANCELLED_VISIBLE_MINUTES = 10
 # A Train Describer headcode that never matched a timetable and has not moved
 # for this long is usually stock stabled or laid over in a platform.
 UNMATCHED_TD_IDLE_MINUTES = 20
+# Any train with no report for this long, and no timetable leg it is still
+# expected to be running, has stopped running: stock stabled in sidings or a
+# depot after its service ended without a terminating report.
+STABLED_IDLE_MINUTES = 20
 
 
 def _train_finished(vehicle: Vehicle, now: datetime) -> bool:
@@ -37,11 +41,37 @@ def _train_finished(vehicle: Vehicle, now: datetime) -> bool:
         return True
     if str(vehicle.status or "").lower().startswith("terminated") and vehicle.last_updated < finished_before:
         return True
-    return bool(
+    if (
         vehicle.source == "Network Rail TD"
         and not vehicle.schedule_id
         and vehicle.last_updated < now - timedelta(minutes=UNMATCHED_TD_IDLE_MINUTES)
+    ):
+        return True
+    return bool(
+        vehicle.last_updated < now - timedelta(minutes=STABLED_IDLE_MINUTES)
+        and not _train_has_current_projection(vehicle, now)
     )
+
+
+DELAY_HISTORY_LENGTH = 12
+
+
+def _carry_delay_history(previous: Vehicle | None, stored: Vehicle) -> None:
+    """Keep a short record of lateness readings across reports.
+
+    A new reading is added when the lateness or the reporting location
+    changes, so the panel can say where a delay built up.
+    """
+    # A report built from scratch (TRUST) carries none; one edited in place
+    # (TD) carries a copy of the previous history.
+    history = list(stored.delay_history or (previous.delay_history if previous is not None else None) or [])
+    delay = stored.delay_minutes
+    if delay is not None:
+        last = history[-1] if history else None
+        tiploc = stored.rail_tiploc
+        if last is None or last.get("delay") != delay or (tiploc and last.get("tiploc") != tiploc):
+            history.append({"at": stored.last_updated.isoformat(), "tiploc": tiploc, "delay": int(delay)})
+    stored.delay_history = history[-DELAY_HISTORY_LENGTH:] or None
 
 
 def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -201,6 +231,8 @@ class LiveState:
                         return
                     stored.id = incumbent.id
                     previous = incumbent
+            if stored.type == 'train':
+                _carry_delay_history(previous, stored)
             if previous is not None:
                 self._unindex_unlocked(previous)
             self._vehicles[stored.id] = stored

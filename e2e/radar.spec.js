@@ -44,7 +44,7 @@ test('first load centres the map on the visitor when location is available', asy
 
 test('Buses near me enables buses and opens the nearest live stop board', async ({ page }) => {
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
-  await page.locator('#near-me').click();
+  await page.locator('[data-job="bus"]').click();
   await expect(page.locator('[data-layer-toggle="bus"]')).toHaveAttribute('aria-pressed','true');
   await expect(page.locator('#map')).toHaveAttribute('data-map-center','52.036,-0.772');
   await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');
@@ -406,7 +406,7 @@ test('Useful and Cool workspaces alter visible layers and render Cool badges', a
   await expect(page.locator('body')).toHaveAttribute('data-experience', 'cool');
   await expect(page.locator('.cool-map-marker')).toHaveCount(2);
   await expect(page.locator('.cool-marker-wrap').first()).toHaveAttribute('data-clustered','false');
-  await expect(page.locator('.cool-badge').filter({ hasText: 'STEAM' }).first()).toBeVisible();
+  await expect(page.locator('#cool-summary .discover-row').filter({ hasText: 'Steam locomotive' }).first()).toBeVisible();
   // Cool markers come from the national Cool feed, not only the current
   // viewport snapshot, so zooming out cannot silently discard a category.
   await expect(page.locator('.aerial-map-marker')).toHaveCount(3);
@@ -417,10 +417,10 @@ test('Useful and Cool workspaces alter visible layers and render Cool badges', a
   await expect(page.locator('.ticker-items')).toContainText('RNLI RESCUE CONTEXT');
   await expect(page.locator('#cool-summary')).not.toContainText('matched live');
   await expect(page.locator('#cool-summary .cool-find-row')).toHaveCount(4);
-  await expect(page.locator('#cool-summary')).toContainText(/1\s*RESCUE/);
+  await expect(page.locator('#cool-summary .discover-row')).toHaveCount(5);
   await page.locator('.cool-filter[data-type="cool-rescue"]').click();
   await expect(page.locator('#ranking')).toContainText('RNLI RESCUE CONTEXT');
-  await expect(page.locator('#cool-summary')).toContainText('LIVE INCIDENT');
+  await expect(page.locator('#cool-summary')).not.toContainText('LIVE INCIDENT');
 });
 
 test('clicking an active Cool category turns Cool map markers off', async ({ page }) => {
@@ -638,7 +638,7 @@ test('aircraft media is not restarted on every live snapshot', async ({ page }) 
   page.on('request', request => { if (request.url().includes('/api/activity/aircraft-live-1/media')) mediaCalls += 1; });
   await page.getByRole('button', { name: /Discover/ }).click();
   await page.locator('.aerial-map-marker.aerial-aircraft').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
-  await expect(page.locator('#detail-photo')).toContainText('Eurofighter Typhoon');
+  await expect(page.locator('#detail-panel')).toContainText('Eurofighter Typhoon');
   await expect(page.locator('#detail-photo .image-truth')).toContainText('Example of this aircraft type');
   await page.evaluate(() => window.__fixtureSocket.onmessage({ data: JSON.stringify(window.__fixtureSnapshot) }));
   await page.waitForTimeout(50);
@@ -704,11 +704,11 @@ test('Westland Lynx aircraft use a helicopter silhouette and identity', async ({
   await expect(lynx.locator('.ac-rotor')).toHaveCount(1);
 });
 
-test('selected aircraft draws an honest browser-local live trail', async ({ page }) => {
+test('selected aircraft draws its trail on the map and shows compact facts', async ({ page }) => {
   await page.goto('/');
   await page.locator('[data-workspace="cool"]').click();
   await page.locator('.aerial-map-marker.aerial-aircraft').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
-  await expect(page.locator('#detail-trail')).toContainText('Recording from the next reported position');
+  await expect(page.locator('#detail-trail')).toHaveClass(/hidden/);
   await page.evaluate(() => {
     const moved={
       ...window.__fixtureSnapshot,
@@ -716,8 +716,12 @@ test('selected aircraft draws an honest browser-local live trail', async ({ page
     };
     window.__fixtureSocket.onmessage({data:JSON.stringify(moved)});
   });
-  await expect(page.locator('#detail-trail')).toContainText('observed positions');
-  await expect(page.locator('#detail-trail')).toContainText('not a complete historical flight path');
+  // The trail is drawn on the map; there is no explanatory text box.
+  await expect(page.locator('#detail-trail')).toHaveClass(/hidden/);
+  await expect(page.locator('#detail-fields [data-field="Altitude"]')).toBeVisible();
+  await expect(page.locator('#detail-fields [data-field="ICAO type code"]')).toBeHidden();
+  // At most two short rows of chips, whatever the font (the old boxes were ~200 px).
+  expect((await page.locator('#detail-fields').boundingBox()).height).toBeLessThan(90);
   await expect(page.locator('#map')).toHaveAttribute('data-selected-trail-points','2');
 });
 
@@ -726,20 +730,21 @@ test('What’s above me loads nearby aircraft and can be turned off', async ({ p
   let nearbyRequests=0;
   page.on('request',request=>{if(new URL(request.url()).pathname==='/api/aircraft/nearby')nearbyRequests+=1;});
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
-  await page.locator('#overhead-now').click();
+  await page.locator('[data-job="planes"]').click();
   await expect(page.locator('#map')).toHaveAttribute('data-map-center','54.11,-2.45');
   await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','true');
-  await expect(page.locator('#overhead-now')).toContainText('live aircraft');
+  // One tap answers the question: a list of the planes above you, nearest first.
+  await expect(page.locator('#detail-title')).toHaveText(/Planes above you|Nearest planes/);
+  await expect(page.locator('[data-job-plane]').first()).toBeVisible();
   await expect(page.locator('.aerial-map-marker').first()).toBeVisible();
   await expect.poll(()=>nearbyRequests,{timeout:10000}).toBeGreaterThan(1);
-  await page.locator('#overhead-now').click();
+  await page.locator('#nearby-note .nearby-note-close').click();
   await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','false');
-  await expect(page.locator('#overhead-now')).toContainText('Aircraft received within 50 miles');
 });
 
 test('Discover clears above-me radius and returns to the full UK feed', async ({ page }) => {
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
-  await page.locator('#overhead-now').click();
+  await page.locator('[data-job="planes"]').click();
   await expect(page.locator('#nearby-note')).not.toHaveClass(/hidden/);
   await page.getByRole('button',{name:/Discover/}).click();
   await expect(page.locator('#nearby-note')).toHaveClass(/hidden/);
@@ -781,7 +786,7 @@ test('commercial aircraft use operator colours and an exact licensed photo', asy
   await expect(page.locator('#detail-operator')).toContainText('Ryanair');
   await expect(page.locator('#detail-operator')).toContainText('Boeing 737-8200');
   await expect(page.locator('#detail-subtitle')).toHaveText('London Stansted (STN) → Dublin (DUB)');
-  await expect(page.locator('#detail-fields [data-field="Route"]')).toContainText('London Stansted (STN) → Dublin (DUB)');
+  await expect(page.locator('#detail-fields [data-field="Route"]')).toHaveCount(0);
   await expect(page.locator('#detail-photo img')).toHaveAttribute('src','https://upload.wikimedia.org/fixture-ryanair.jpg');
   await expect(page.locator('#detail-photo .image-truth')).toContainText('this aircraft registration');
   await expect(page.locator('#detail-photo')).toContainText('CC BY-SA 4.0');
@@ -857,7 +862,7 @@ test('journey planner resolves places and renders a real multimodal itinerary', 
   await page.locator('#journey-origin').fill('Milton Keynes');
   await page.locator('#journey-destination').fill('London');
   await page.locator('#journey-submit').click();
-  await expect(page.locator('#journey-results')).toContainText('LIVE ROUTES');
+  await expect(page.locator('#journey-results .journey-issue-summary')).toContainText('1 incident on this route');
   await expect(page.locator('#journey-results')).toContainText('West Coast');
   await expect(page.locator('#journey-results')).toContainText('London Euston');
   await expect(page.locator('#journey-results')).toContainText('36 min');
@@ -1077,22 +1082,28 @@ test('map chips switch layers in step with the panel switches', async ({ page })
   await expect(chip).toHaveAttribute('aria-pressed', 'false');
 });
 
-test('mobile nearby bar summarises the map and opens the Map panel', async ({ page }) => {
+test('mobile quick answers sit above the tabs and step aside for an open sheet', async ({ page }) => {
   await page.setViewportSize({ width:390, height:844 });
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
   await page.locator('[data-workspace="useful"]').click();
   await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
-  await expect(page.locator('#nearby-bar')).toContainText('Choose what to show');
-  await page.locator('[data-layer-chip="train"]').click();
-  await expect(page.locator('#nearby-bar-text')).toContainText(/train/);
-  await page.locator('#nearby-bar').click();
-  await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
-  await expect(page.locator('#near-me')).toBeVisible();
+  const bar = page.locator('#jobs-bar');
+  await expect(bar).toBeVisible();
+  await expect(bar.locator('button')).toHaveText(['Planes','Trains','Next bus','Journey']);
+  const box = await bar.boundingBox();
+  expect(box.height).toBeLessThanOrEqual(72);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  await page.locator('[data-job="bus"]').click();
+  await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');
+  await expect(bar).toBeHidden();
 });
 
 test('mobile tabs put an open detail sheet away', async ({ page }) => {
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
-  await page.locator('#near-me').click();
+  await page.locator('[data-workspace="useful"]').click();
+  await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
+  await page.locator('[data-job="bus"]').click();
   await expect(page.locator('#detail-sidebar')).not.toHaveClass(/is-empty/);
   await page.locator('[data-workspace="settings"]').click();
   await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
@@ -1110,17 +1121,15 @@ test('mobile first visit can find a bus, save the stop, and reach simple alerts'
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
   await expect(page.locator('[data-cool-view="missions"]')).toHaveCount(0);
-  for (const selector of ['#near-me','#overhead-now']) {
+  await page.locator('[data-workspace="useful"]').click();
+  await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
+  for (const selector of ['[data-job="bus"]','[data-job="planes"]']) {
     const box=await page.locator(selector).boundingBox();
     expect(box.height).toBeGreaterThanOrEqual(44);
     expect(box.height).toBeLessThanOrEqual(66);
     expect(box.x+box.width).toBeLessThanOrEqual(390);
   }
-  const shortcutStack=await page.locator('.location-quick-actions').boundingBox();
-  expect(shortcutStack.height).toBeLessThanOrEqual(140);
-  const openWorkspace=await page.locator('#workspace-shell').boundingBox();
-  expect(openWorkspace.height).toBeLessThanOrEqual(540);
-  await page.locator('#near-me').click();
+  await page.locator('[data-job="bus"]').click();
   await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');
   await expect(page.locator('#detail-placeboard')).toContainText('City Centre');
   await page.locator('#save-place').click();
@@ -1133,22 +1142,18 @@ test('mobile first visit can find a bus, save the stop, and reach simple alerts'
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true);
 });
 
-test('mobile nearby aircraft leaves the map visible and uses a compact toast', async ({ page }) => {
+test('on a phone, planes above you opens a list and keeps the map in view', async ({ page }) => {
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
-  await page.locator('#overhead-now').click();
+  await page.locator('[data-workspace="useful"]').click();
   await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
-  await expect(page.locator('#watch-toast')).toContainText(/aircraft near you/);
-  const toast=await page.locator('#watch-toast').boundingBox();
-  expect(toast.width).toBeLessThanOrEqual(370);
-  expect(toast.height).toBeLessThan(90);
-  // Collapsed on a phone means only the bottom tab bar remains over the map.
-  await expect.poll(async()=>Number((await page.locator('#workspace-shell').boundingBox()).height)).toBeLessThanOrEqual(72);
-  const shell=await page.locator('#workspace-shell').boundingBox();
-  expect(shell.y+shell.height).toBeGreaterThanOrEqual(840);
-  await expect(page.locator('[data-workspace="live"]')).toBeVisible();
-  await page.locator('#nearby-bar').click();
-  await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
+  await page.locator('[data-job="planes"]').click();
+  await expect(page.locator('#detail-title')).toHaveText(/Planes above you|Nearest planes/);
+  await expect(page.locator('#detail-subtitle')).toContainText('25 miles');
+  await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
+  await expect(page.locator('#nearby-note')).toBeVisible();
+  await page.locator('[data-job-plane]').first().click();
+  await expect(page.locator('#detail-title')).not.toHaveText(/Planes above you|Nearest planes/);
 });
 
 test.describe('on a touch screen', () => {
@@ -1249,7 +1254,9 @@ test('a moving aircraft glides to its new position instead of being redrawn', as
 test('the nearby limit is a small pill that can be closed from the map', async ({ page }) => {
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
-  await page.locator('#overhead-now').click();
+  await page.locator('[data-workspace="useful"]').click();
+  await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
+  await page.locator('[data-job="planes"]').click();
   const pill = page.locator('#nearby-note');
   await expect(pill).toBeVisible();
   await expect(pill).toHaveText(/Aircraft within 25 miles of you/);
@@ -1295,4 +1302,50 @@ test('a train status sits in one compact row of chips', async ({ page }) => {
   await expect(status).toHaveAttribute('data-tone','bad');
   const box = await page.locator('#detail-fields').boundingBox();
   expect(box.height).toBeLessThan(44);
+});
+
+test('an open page reloads itself when a newer version is published', async ({ page }) => {
+  let loads = 0;
+  page.on('load', () => { loads += 1; });
+  const fs = require('fs');
+  const html = fs.readFileSync(require('path').join(__dirname, '..', 'app/static/index.html'), 'utf8');
+  await page.route(url => new URL(url).pathname === '/', route => route.fulfill({ contentType:'text/html', body: html.replace(/app\.js\?v=\d+/, 'app.js?v=99999') }));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect.poll(() => loads).toBeGreaterThan(0);
+});
+
+test('trains near you is one tap and lists what is passing', async ({ page }) => {
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
+  await page.locator('[data-job="trains"]').click();
+  await expect(page.locator('#detail-title')).toHaveText('Trains near you');
+  await expect(page.locator('[data-line-train="train-live-1"]')).toContainText('400 m away');
+  await expect(page.locator('[data-line-train="train-live-1"]')).toContainText('6 min late');
+  await expect(page.locator('[data-layer-toggle="train"]')).toHaveAttribute('aria-pressed','true');
+  await page.locator('[data-line-train="train-live-1"]').click();
+  await expect(page.locator('#detail-title')).not.toHaveText('Trains near you');
+});
+
+test('my journey is remembered and runs again in one tap', async ({ page }) => {
+  await page.locator('[data-job="journey"]').click();
+  await page.locator('#journey-origin').fill('Milton Keynes');
+  await page.locator('#journey-destination').fill('London');
+  await page.locator('#journey-submit').click();
+  await expect(page.locator('#journey-results .journey-issue-summary')).toContainText('1 incident on this route');
+  await page.reload();
+  await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout:5000 });
+  await page.locator('[data-job="journey"]').click();
+  await expect(page.locator('#journey-destination')).toHaveValue('London');
+  await expect(page.locator('#journey-results .journey-issue-summary')).toContainText('1 incident on this route');
+});
+
+test('a late train says where the delay built up', async ({ page }) => {
+  await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { detail:{ available:true, runs:[{ headcode:'1A23',
+    delay_explanation:{ late:12, grew_by:8, between:['RUGBY','Nuneaton'], others_late:3 },
+    calling_points:[{ name:'Rugby', scheduled:'10:00', state:'passed' },{ name:'Nuneaton', scheduled:'10:15', expected:'10:27', state:'next' }] }] } } }));
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  const why = page.locator('.delay-why');
+  await expect(why).toContainText('12 min late.');
+  await expect(why).toContainText('Most of it (8 min) was lost between Rugby and Nuneaton.');
+  await expect(why).toContainText('3 other trains nearby are late too');
 });

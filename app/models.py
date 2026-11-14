@@ -79,6 +79,9 @@ class Vehicle(BaseModel):
     # When TRUST cancelled the service. It stays visible, struck through,
     # for a few minutes and then leaves the map.
     cancelled_at: datetime | None = None
+    # Recent lateness readings, oldest first: {"at", "tiploc", "delay"}.
+    # Shows where a delay built up. Kept short (see LiveState.upsert).
+    delay_history: list[dict] | None = None
     # The platform reported at the last railway report, and the one booked
     # there; they differ when the train was moved to another platform.
     platform: str | None = None

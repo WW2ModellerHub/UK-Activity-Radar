@@ -90,6 +90,36 @@ def _location_event_time(location: dict, event: str) -> datetime | None:
     return next((location.get(key) for key in order if location.get(key)), None)
 
 
+def delay_explanation(delay, history: list[dict], names: dict, others_late: int = 0) -> dict | None:
+    """Where a train's delay built up, from its recent lateness readings.
+
+    Network Rail's open feeds do not publish delay reasons, so this says what
+    the data shows: how late, between which stations most of it was lost, and
+    whether other trains nearby are late too (pointing at the line itself).
+    """
+    if delay is None or int(delay) < 3:
+        return None
+    out: dict = {"late": int(delay)}
+    best = None
+    for before, after in zip(history, history[1:]):
+        grew = int(after["delay"]) - int(before["delay"])
+        if grew >= 2 and (best is None or grew > best[0]):
+            best = (grew, before, after)
+    if best:
+        grew, before, after = best
+        out["grew_by"] = grew
+        start, end = names.get(str(before.get("tiploc") or "").upper()), names.get(str(after.get("tiploc") or "").upper())
+        if start and end and start != end:
+            out["between"] = [start, end]
+        elif end or start:
+            out["near"] = end or start
+    elif history and len(history) >= 2 and int(history[0]["delay"]) >= int(delay) - 1:
+        out["already_late"] = True
+    if others_late >= 2:
+        out["others_late"] = int(others_late)
+    return out
+
+
 def _with_bus_lateness(payload: dict, now: datetime | None = None) -> dict:
     """Add how late a bus is, and expected times at the stops ahead.
 
@@ -989,6 +1019,9 @@ class SmartPlacesService:
                         run["likely_train"] = likely
             except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
                 pass
+        explanation = self._delay_explanation(vehicle)
+        if explanation:
+            run["delay_explanation"] = explanation
         return {
             "available": True, "mode": "network_rail", "source": "Live railway and timetable data",
             "runs": [run],
@@ -998,6 +1031,23 @@ class SmartPlacesService:
                 "No timetable identity could be verified for this live signalling report, so no route has been attached. The marker remains at the last confirmed railway report."
             ),
         }
+
+    def _delay_explanation(self, vehicle) -> dict | None:
+        history = [row for row in (getattr(vehicle, 'delay_history', None) or []) if row.get('delay') is not None]
+        tiplocs = sorted({str(row.get('tiploc') or '').upper() for row in history if row.get('tiploc')})
+        try:
+            geography = self.schedules.location_geography(tiplocs) if tiplocs and self.schedules.ready() else {}
+        except (sqlite3.Error, AttributeError):
+            geography = {}
+        names = {code: (geography.get(code) or {}).get('name') for code in tiplocs}
+        others = 0
+        lat, lon = getattr(vehicle, 'lat', None), getattr(vehicle, 'lon', None)
+        if lat is not None and lon is not None and hasattr(self.state, 'trains_where'):
+            others = len(self.state.trains_where(lambda other: (
+                other.id != vehicle.id and (other.delay_minutes or 0) >= 5
+                and abs(float(other.lat) - float(lat)) < 0.15 and abs(float(other.lon) - float(lon)) < 0.25
+            )))
+        return delay_explanation(getattr(vehicle, 'delay_minutes', None), history, names, others)
 
     def scheduled_train_detail(self, train_uid: str, headcode: str | None = None, service_date: str | None = None) -> dict:
         """Return the published route for a board service with no live marker."""
