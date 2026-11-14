@@ -1142,3 +1142,11 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 
 .delay-why.special-why { background: #eef3ff; color: #1d3470; }
 .delay-why.special-why strong { color: #12265a; }
+
+/* Yours: saved stations, stops and trains, answered above "Near you". */
+.yours { display: grid; margin-bottom: 14px; }
+.yours.hidden { display: none; }
+.yours .job-row { width: 100%; }
+.yours-list { display: grid; }
+.yours-row small.is-late { color: #a15c00; font-weight: 600; }
+.yours-row small.is-bad { color: var(--bad); font-weight: 600; }
