@@ -948,6 +948,30 @@
     row.querySelectorAll('[data-sub-action="traffic"]').forEach(chip=>chip.setAttribute('aria-pressed',String(trafficMode!=='off')));
   }
 
+  // Every train operator in one list: good, minor or severe, worst first.
+  async function showLineStatus(){
+    const box=openInfoPanel('Line status','Checking every operator…','<p class="transport-empty">Checking live trains…</p>');
+    let operators=[];
+    try {
+      const response=await fetch('/api/rail/status',{cache:'no-store'});
+      if(!response.ok)throw new Error();
+      operators=(await response.json()).operators||[];
+    } catch { box.innerHTML='<p class="transport-empty">Line status couldn’t load right now.</p>';$('detail-subtitle').textContent='';return; }
+    const troubled=operators.filter(row=>['severe','minor'].includes(row.status)).length;
+    $('detail-subtitle').textContent=!operators.length?'No operators are reporting right now':troubled?`${troubled} operator${troubled===1?'':'s'} with delays`:'Good service everywhere';
+    const tone={severe:'is-very-late',minor:'is-late',good:'is-on-time',unknown:''};
+    box.innerHTML=operators.length?`<div class="line-trains line-status">${operators.map((row,index)=>{
+      const facts=row.status==='unknown'?`${row.running} running`:[`${row.late} of ${row.running} late`,row.late?`about ${row.average_delay} min`:null,row.cancelled?`${row.cancelled} cancelled`:null].filter(Boolean).join(' · ');
+      const worst=(row.worst||[]).map(train=>`<button type="button" class="line-train line-status-train" data-line-train="${esc(train.id)}"><i class="line-dot ${train.cancelled?'is-bad':'is-late'}" aria-hidden="true"></i><span><strong>${esc(train.name)}</strong>${train.destination?`<small>to ${esc(humanTransitLabel(train.destination))}</small>`:''}</span><b class="${train.cancelled?'is-bad':'is-late'}">${train.cancelled?'Cancelled':`${train.delay_minutes} min late`}</b></button>`).join('');
+      return `<div class="line-status-row" data-line-status="${esc(row.status)}"><button type="button" class="line-train" data-line-operator="${index}" aria-expanded="false"><i class="line-dot ${tone[row.status]||''}" aria-hidden="true"></i><span><strong>${esc(row.operator)}</strong><small>${esc(facts)}</small></span><b class="${row.status==='severe'?'is-bad':row.status==='minor'?'is-late':''}">${esc(row.label)}</b></button>${worst?`<div class="line-status-worst" hidden>${worst}</div>`:''}</div>`;
+    }).join('')}</div>`:'<p class="transport-empty">No operators are reporting right now.</p>';
+    box.querySelectorAll('[data-line-operator]').forEach(button=>button.addEventListener('click',()=>{
+      const list=button.parentElement.querySelector('.line-status-worst');if(!list)return;
+      list.hidden=!list.hidden;button.setAttribute('aria-expanded',String(!list.hidden));
+    }));
+    box.querySelectorAll('[data-line-train]').forEach(button=>button.addEventListener('click',()=>focusActivityById(button.dataset.lineTrain,Math.max(11,map.getZoom()))));
+  }
+
   function showBusDisruptions(){
     const bounds=map.getBounds?.();
     const rows=activities.filter(a=>a.type==='bus'&&a.details?.bus_disruption&&(!bounds||bounds.contains?.([Number(a.lat),Number(a.lon)])!==false));
@@ -4155,13 +4179,65 @@
       const registration=await navigator.serviceWorker.ready;
       let subscription=await registration.pushManager.getSubscription();
       if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKeyBytes(commuteAlertStatus.public_key)});
-      const preferences={mode:'trains-only',saved_trains:savedTrainIds()};
+      const preferences={mode:'trains-only',saved_trains:savedTrainIds(),spotter:commuteAlertStatus.preferences?.spotter||null};
       const response=await fetch('/api/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken(),subscription:subscription.toJSON(),preferences})});
       if(!response.ok)return false;
       commuteAlertStatus={...commuteAlertStatus,subscribed:true,preferences};renderCommuteAlertStatus();
       trackProduct('commute_alert_enabled','trains-only');
       return true;
     } catch { return false; }
+  }
+  // One place that makes sure this device is registered for phone alerts
+  // and stores what it wants to hear about.
+  async function savePushPreferences(preferences) {
+    if(!commuteAlertStatus.configured||pushUnsupportedReason())return false;
+    try {
+      const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();
+      if(permission!=='granted')return false;
+      const registration=await navigator.serviceWorker.ready;
+      let subscription=await registration.pushManager.getSubscription();
+      if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKeyBytes(commuteAlertStatus.public_key)});
+      const response=await fetch('/api/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken(),subscription:subscription.toJSON(),preferences})});
+      if(!response.ok)return false;
+      commuteAlertStatus={...commuteAlertStatus,subscribed:true,preferences};
+      renderCommuteAlertStatus();renderSpotter();
+      return true;
+    } catch { return false; }
+  }
+  function currentPushPreferences() {
+    return commuteAlertStatus.subscribed&&commuteAlertStatus.preferences
+      ? {...commuteAlertStatus.preferences,saved_trains:savedTrainIds()}
+      : {mode:'trains-only',saved_trains:savedTrainIds()};
+  }
+  // Spotter alerts: unusual things near where you are when you switch it on.
+  function renderSpotter() {
+    const state=$('spotter-state'),note=$('spotter-note'),button=$('spotter-toggle'),radius=$('spotter-radius');
+    if(!state||!note||!button)return;
+    const spotter=commuteAlertStatus.subscribed?commuteAlertStatus.preferences?.spotter:null;
+    state.textContent=spotter?'ON':'OFF';state.classList.toggle('active',Boolean(spotter));
+    button.textContent=spotter?'Turn off':'Turn on';
+    button.classList.toggle('primary-button',!spotter);button.classList.toggle('mini-button',Boolean(spotter));
+    if(spotter&&radius)radius.value=String(spotter.radius_miles);
+    const unsupported=pushUnsupportedReason();
+    note.textContent=!commuteAlertStatus.configured?'Alerts are not available yet.'
+      : spotter?`On within ${spotter.radius_miles} miles of where you switched it on. Turn it off and on again to move it.`
+      : unsupported||'A phone alert for steam trains, charters and military aircraft, 7am to 10pm.';
+  }
+  async function toggleSpotter() {
+    const on=Boolean(commuteAlertStatus.subscribed&&commuteAlertStatus.preferences?.spotter);
+    if(on){
+      const ok=await savePushPreferences({...currentPushPreferences(),spotter:null});
+      showToast(ok?'Spotter alerts are off.':'That couldn’t be changed right now.');
+      return;
+    }
+    if(pushUnsupportedReason()){showToast(pushUnsupportedReason());return;}
+    if(!commuteAlertStatus.configured){showToast('Alerts are not available yet.');return;}
+    let fix;
+    try { fix=await currentFix(); } catch(error){ showToast(error.message); return; }
+    const radius=Number($('spotter-radius')?.value||10);
+    const ok=await savePushPreferences({...currentPushPreferences(),spotter:{lat:fix.lat,lon:fix.lon,radius_miles:radius}});
+    showToast(ok?`Spotter alerts are on within ${radius} miles of you.`:'Alerts couldn’t be turned on. Check notifications are allowed for this site.');
+    if(ok)trackProduct('spotter_enabled',String(radius));
   }
   async function sendTestAlert() {
     try {
@@ -4302,6 +4378,7 @@
     else if(!savedPlaces.size)note.textContent='Save a train to be told about it, or save a station or stop for delays near it.';
     else note.textContent='Ready when you are. Your browser will ask before notifications are enabled.';
     renderCommuteAlertPlaces();
+    renderSpotter();
     const p=commuteAlertStatus.preferences;if(p){if($('commute-alert-mode'))$('commute-alert-mode').value=p.mode||'driving';if($('commute-alert-radius'))$('commute-alert-radius').value=String(p.radius_miles||12);if($('commute-alert-hours'))$('commute-alert-hours').value=`${p.start_hour}:${p.end_hour}`;}
   }
 
@@ -4334,7 +4411,7 @@
       let subscription=await registration.pushManager.getSubscription();
       if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKeyBytes(commuteAlertStatus.public_key)});
       const [startHour,endHour]=String($('commute-alert-hours')?.value||'5:11').split(':').map(Number);
-      const preferences={mode:$('commute-alert-mode')?.value||'driving',place_id:place.id,place_name:place.name,lat:Number(place.lat),lon:Number(place.lon),radius_miles:Number($('commute-alert-radius')?.value||12),start_hour:startHour,end_hour:endHour,activity_types:[...myRadarInterests].filter(type=>['train','bus','vessel','aircraft'].includes(type)),saved_trains:savedTrainIds()};
+      const preferences={mode:$('commute-alert-mode')?.value||'driving',place_id:place.id,place_name:place.name,lat:Number(place.lat),lon:Number(place.lon),radius_miles:Number($('commute-alert-radius')?.value||12),start_hour:startHour,end_hour:endHour,activity_types:[...myRadarInterests].filter(type=>['train','bus','vessel','aircraft'].includes(type)),saved_trains:savedTrainIds(),spotter:commuteAlertStatus.preferences?.spotter||null};
       const response=await fetch('/api/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken(),subscription:subscription.toJSON(),preferences})});
       const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.detail||'Alerts could not be enabled.');
       commuteAlertStatus={...commuteAlertStatus,subscribed:true,preferences};renderCommuteAlertStatus();showToast('Travel alerts are active on this device.');trackProduct('commute_alert_enabled',preferences.mode);
@@ -5301,6 +5378,8 @@
   $('commute-alert-enable')?.addEventListener('click',enableCommuteAlerts);
   $('commute-alert-disable')?.addEventListener('click',disableCommuteAlerts);
   $('commute-alert-test')?.addEventListener('click',sendTestAlert);
+  $('spotter-toggle')?.addEventListener('click',toggleSpotter);
+  $('spotter-radius')?.addEventListener('change',()=>{ if(commuteAlertStatus.subscribed&&commuteAlertStatus.preferences?.spotter)savePushPreferences({...currentPushPreferences(),spotter:{...commuteAlertStatus.preferences.spotter,radius_miles:Number($('spotter-radius').value||10)}}); });
 
   document.querySelectorAll('.workspace-tab[data-workspace]').forEach(btn=>btn.addEventListener('click',()=>{
     // On a phone a tab is a new screen: put the detail sheet away. A train
@@ -5326,7 +5405,8 @@
   document.querySelectorAll('[data-sub-action]').forEach(chip=>chip.addEventListener('click',()=>{
     const action=chip.dataset.subAction;
     trackProduct('sub_chip',action);
-    if(action==='trains-near')jobTrains();
+    if(action==='line-status')showLineStatus();
+    else if(action==='trains-near')jobTrains();
     else if(action==='station')$('station-boards')?.click();
     else if(action==='bus-next')$('near-me')?.click();
     else if(action==='bus-stops'){

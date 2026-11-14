@@ -1150,3 +1150,18 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 .yours-list { display: grid; }
 .yours-row small.is-late { color: #a15c00; font-weight: 600; }
 .yours-row small.is-bad { color: var(--bad); font-weight: 600; }
+
+/* Line status: one row per operator, late trains underneath when opened. */
+.line-status-row + .line-status-row { border-top: 1px solid var(--line); }
+.line-status-row > .line-train { width: 100%; }
+.line-status-worst { padding: 0 0 8px 22px; }
+.line-status-worst .line-train { min-height: 44px; width: 100%; }
+
+/* Spotter alerts card at the top of Discover. */
+.spotter-card { display: grid; gap: 8px; padding: 14px; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 12px; }
+.spotter-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.spotter-head span { font-size: 12px; font-weight: 700; color: var(--muted); }
+.spotter-head span.active { color: #1e9e6a; }
+.spotter-card p { margin: 0; font-size: 14px; color: var(--muted); }
+.spotter-actions { display: flex; gap: 8px; }
+.spotter-actions select { flex: 1; min-width: 0; }

@@ -44,7 +44,29 @@ def validate_subscription(subscription: dict) -> dict:
     return {"endpoint": endpoint, "keys": {"p256dh": p256dh, "auth": auth}}
 
 
+def normalise_spotter(raw) -> dict | None:
+    """Where to watch for unusual things, or None when spotting is off."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        lat, lon = float(raw.get("lat")), float(raw.get("lon"))
+        radius = float(raw.get("radius_miles") or 10)
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    kinds = sorted({str(k).lower() for k in (raw.get("kinds") or SPOTTER_KINDS) if str(k).lower() in SPOTTER_KINDS})
+    return {"lat": round(lat, 4), "lon": round(lon, 4), "radius_miles": max(2.0, min(radius, 50.0)),
+            "kinds": kinds or sorted(SPOTTER_KINDS)}
+
+
 def normalise_preferences(raw: dict) -> dict:
+    preferences = _normalise_preferences(raw)
+    preferences["spotter"] = normalise_spotter(raw.get("spotter"))
+    return preferences
+
+
+def _normalise_preferences(raw: dict) -> dict:
     mode = str(raw.get("mode") or "").lower()
     if mode == "trains-only":
         # Alerts for saved trains alone: no place, no hours.
@@ -76,6 +98,39 @@ def normalise_preferences(raw: dict) -> dict:
         "end_hour": end_hour,
         "activity_types": activity_types,
         "saved_trains": normalise_saved_trains(raw.get("saved_trains")),
+    }
+
+
+# ---- Spotter alerts -----------------------------------------------------
+# "Tell me when something unusual is near me": the same finds Discover lists
+# (steam, charters, military and rescue aircraft), within a chosen distance.
+SPOTTER_KINDS = {"rail", "air"}
+SPOTTER_HOURS = (7, 22)  # local time; nobody wants a Hercules at 3 am
+
+
+def spotter_alert(item, spotter: dict | None, now: datetime | None = None) -> dict | None:
+    if not spotter or not getattr(item, "cool_candidate", False):
+        return None
+    category = str(getattr(item, "cool_category", "") or "").lower()
+    # Live rescues are never something to travel towards.
+    if category not in spotter.get("kinds", ()) or getattr(item, "kind", "vehicle") != "vehicle":
+        return None
+    local = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("Europe/London"))
+    if not (SPOTTER_HOURS[0] <= local.hour < SPOTTER_HOURS[1]):
+        return None
+    km = _distance_km(spotter["lat"], spotter["lon"], item.lat, item.lon)
+    if km > spotter["radius_miles"] * 1.609344:
+        return None
+    miles = km / 1.609344
+    away = "under a mile away" if miles < 1 else f"about {round(miles)} mile{'s' if round(miles) != 1 else ''} away"
+    what = getattr(item, "aircraft_model", None) or getattr(item, "cool_explanation", None) or "Unusual"
+    heading = getattr(item, "destination", None)
+    return {
+        "key": f"spot:{item.id}",
+        "title": f"{str(what).rstrip('.')} {away}",
+        "body": " · ".join(x for x in (item.name, f"to {heading}" if heading else None, getattr(item, "cool_explanation", None)) if x),
+        "activity_id": item.id,
+        "mode": "spotter",
     }
 
 
