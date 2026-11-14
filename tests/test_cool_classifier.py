@@ -135,3 +135,19 @@ def test_live_state_serialises_server_owned_cool_fields():
     assert stored.cool_subtype == "combat-aircraft"
     assert stored.cool_score == 100
     assert stored.cool_candidate is True
+
+
+def test_an_extra_train_from_an_everyday_operator_is_not_a_discover_find():
+    from datetime import datetime, timezone
+
+    from app.cool_classifier import classify_activity
+    from app.models import Vehicle
+
+    now = datetime.now(timezone.utc)
+    extra = Vehicle(id="nr:1", type="train", name="1Z64", headcode="1Z64", lat=51.4, lon=0.0, source="Network Rail TRUST",
+                    operator="Southeastern", last_updated=now)
+    charter = extra.model_copy(update={"id": "nr:2", "operator": "West Coast Railways"})
+    unknown = extra.model_copy(update={"id": "nr:3", "operator": None})
+    assert classify_activity(extra, now=now).candidate is False and classify_activity(extra, now=now).badge == "EXTRA"
+    assert classify_activity(charter, now=now).candidate is True and classify_activity(charter, now=now).badge == "SPECIAL"
+    assert classify_activity(unknown, now=now).candidate is True
