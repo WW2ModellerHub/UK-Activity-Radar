@@ -391,8 +391,14 @@ class ADSBLolSARCollector:
             response = self._session.get(url, timeout=(4, 10))
             response.raise_for_status()
             rows, checked = parse_nearby_aircraft_response(response.json(), now=now)
+            # Only military, rescue and notable aircraft join the shared map.
+            # Everyday light aircraft and airliners found for one visitor's
+            # "planes above me" are returned to that visitor only; storing
+            # them filled everyone's Aircraft layer with ordinary traffic that
+            # then went stale.
             for row in rows:
-                self.state.upsert(row)
+                if row.interesting or row.type == "sar":
+                    self.state.upsert(row)
             self._nearby_cache[key] = (now, rows, checked)
             if len(self._nearby_cache) > 40:
                 oldest = min(self._nearby_cache, key=lambda item: self._nearby_cache[item][0])

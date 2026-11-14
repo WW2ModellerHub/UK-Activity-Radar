@@ -963,10 +963,10 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 
 /* Train facts: one row of equal cells with no empty cell, whether two or
    three facts are known. Hairlines come from the gap, not per-cell borders. */
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field { flex: 1 1 28%; border: 0 !important; background: var(--surface); }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field.is-technical { display: none; }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft).show-technical > .detail-fields > .detail-field.is-technical { display: grid; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field { flex: 1 1 28%; border: 0 !important; background: var(--surface); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field.is-technical { display: none; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic).show-technical > .detail-fields > .detail-field.is-technical { display: grid; }
 
 /* Map chips: fade the last chip when the row scrolls, so a cut-off chip
    reads as "more this way" rather than broken. */
@@ -990,19 +990,19 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 }
 
 /* ---- Compact train facts: one line of small chips, not big boxes ---- */
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields { display: flex; flex-wrap: wrap; gap: 6px; background: none; border: 0; border-radius: 0; overflow: visible; }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field { flex: none; display: inline-flex; align-items: baseline; gap: 5px; padding: 5px 10px; border: 0 !important; border-radius: 999px; background: var(--subtle, #f2f4f7); }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field.is-technical { display: none; }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft).show-technical > .detail-fields > .detail-field.is-technical { display: inline-flex; }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field span { font-size: 12px; }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field strong { font-size: 13px; font-weight: 700; }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-field="Status"] span { display: none; }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-tone="good"] { background: var(--good-soft, #e7f6ee); }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-tone="good"] strong { color: var(--good, #1e7a54); }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-tone="warn"] { background: #fff4dc; }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-tone="warn"] strong { color: #9a5b00; }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-tone="bad"] { background: var(--bad-soft); }
-.detail-panel:is(.is-train,.is-bus,.is-aircraft) > .detail-fields > .detail-field[data-tone="bad"] strong { color: var(--bad); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields { display: flex; flex-wrap: wrap; gap: 6px; background: none; border: 0; border-radius: 0; overflow: visible; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field { flex: none; display: inline-flex; align-items: baseline; gap: 5px; padding: 5px 10px; border: 0 !important; border-radius: 999px; background: var(--subtle, #f2f4f7); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field.is-technical { display: none; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic).show-technical > .detail-fields > .detail-field.is-technical { display: inline-flex; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field span { font-size: 12px; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field strong { font-size: 13px; font-weight: 700; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field[data-field="Status"] span { display: none; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field[data-tone="good"] { background: var(--good-soft, #e7f6ee); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field[data-tone="good"] strong { color: var(--good, #1e7a54); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field[data-tone="warn"] { background: #fff4dc; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field[data-tone="warn"] strong { color: #9a5b00; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field[data-tone="bad"] { background: var(--bad-soft); }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field[data-tone="bad"] strong { color: var(--bad); }
 
 /* ---- Shared stop list: earlier stops and bus lateness ---- */
 .transport-stops li.is-earlier { display: none; }
@@ -1079,3 +1079,15 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 .journey-issue-summary small { color: inherit; opacity: .85; }
 .journey-issue-summary.has-issues { background: var(--bad-soft); color: var(--bad); }
 .journey-issue-summary.is-clear { background: var(--good-soft, #e7f6ee); color: var(--good, #1e7a54); }
+
+.traffic-note { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--subtle, #f2f4f7); font-size: 14px; line-height: 1.45; }
+/* Incidents and roadworks: what it means first, the road camera after. */
+.detail-panel.is-traffic > * { order: 6; }
+.detail-panel.is-traffic > .detail-head { order: 0; }
+.detail-panel.is-traffic > #detail-subtitle { order: 1; }
+.detail-panel.is-traffic > .detail-fields { order: 2; }
+.detail-panel.is-traffic > .detail-insight { order: 3; }
+.detail-panel.is-traffic > .detail-photo { order: 4; }
+.detail-panel.is-traffic > .detail-photo img, .detail-panel.is-traffic > .detail-photo video { max-height: 180px; object-fit: cover; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field { max-width: 100%; flex-wrap: wrap; border-radius: 14px; }
+.detail-panel:is(.is-train,.is-bus,.is-aircraft,.is-traffic) > .detail-fields > .detail-field strong { white-space: normal; overflow-wrap: anywhere; }

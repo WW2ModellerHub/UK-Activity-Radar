@@ -1757,13 +1757,20 @@ flight_route_lookup = FlightRouteLookup(settings.adsb_lol_base_url)
 
 
 @app.get("/api/activity/{activity_id:path}/flight-route")
-def activity_flight_route(request: Request, activity_id: str):
-    """Departure and arrival airports for an airline flight, when known."""
+def activity_flight_route(request: Request, activity_id: str, callsign: str | None = None,
+                          lat: float | None = None, lon: float | None = None):
+    """Departure and arrival airports for an airline flight, when known.
+
+    Everyday aircraft from "planes above me" are not kept on the server, so
+    the caller may pass the callsign and position it already has.
+    """
     _enforce_public_budget(request, lookup_request_budget)
     item = state.get(activity_id)
-    if not item or item.type not in {"sar", "aircraft"}:
+    if item is not None and item.type in {"sar", "aircraft"}:
+        callsign, lat, lon = item.name, item.lat, item.lon
+    elif not (callsign and lat is not None and lon is not None and -90 <= lat <= 90 and -180 <= lon <= 180):
         raise HTTPException(status_code=404, detail="Aircraft activity not found")
-    route = flight_route_lookup.lookup(item.name, item.lat, item.lon)
+    route = flight_route_lookup.lookup(callsign, lat, lon)
     payload = {"found": route is not None, "route": route}
     if route is None:
         # Why there is no route: no published route for this callsign, or the
@@ -2061,10 +2068,12 @@ def cool_activities(request: Request, limit: int = 20, category: str | None = No
 
 
 @app.get("/api/today")
-def today_on_radar(request: Request, since: datetime | None = None):
+def today_on_radar(request: Request, since: datetime | None = None, lat: float | None = None, lon: float | None = None):
     """A small, public editorial summary built only from current verified state."""
     _enforce_public_budget(request, lookup_request_budget)
-    return build_today_payload(state.all_activities(), since=since)
+    if lat is not None and lon is not None and not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        lat = lon = None
+    return build_today_payload(state.all_activities(), since=since, lat=lat, lon=lon)
 
 
 @app.get("/api/share/{activity_id:path}")

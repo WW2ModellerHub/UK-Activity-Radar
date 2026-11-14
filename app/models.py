@@ -126,6 +126,12 @@ class Event(BaseModel):
     source: str = "unknown"
     source_id: str | None = None
     official_url: str | None = None
+    # Plain facts for travellers, filled by each source: management, cause,
+    # delay, lanes, validity periods, works promoter, public comment.
+    details: dict | None = None
+    # Computed when read (see road_impact.describe): what / where / impact /
+    # when / why and whether it is happening now.
+    impact: dict | None = None
     news_query: str | None = None
     social_query: str | None = None
     tracking_count: int = 0

@@ -67,7 +67,9 @@ def parse_siri_sx(xml_bytes: bytes, *, cancellation: bool = False) -> list[Event
         if lat is None or lon is None or not (49 <= lat <= 61.5 and -9.5 <= lon <= 3.5):
             continue
 
-        type_name = 'incident'
+        # Bus disruptions belong with buses: a closed stop is not a road
+        # incident, and showing them on the Incidents layer buried real ones.
+        type_name = 'bus'
         source = 'DfT BODS Cancellations' if cancellation else 'DfT BODS Disruptions'
         name = f"Bus cancellation • {line}" if cancellation and line else summary
         if not cancellation and line and line.lower() not in summary.lower():
@@ -92,7 +94,8 @@ def parse_siri_sx(xml_bytes: bytes, *, cancellation: bool = False) -> list[Event
             official_url='https://data.bus-data.dft.gov.uk/',
             news_query=f'"{summary}" bus {line or ""}'.strip(),
             social_query=f'"{summary}" bus {line or ""}'.strip(),
-            interesting=True,
+            interesting=False,
+            details={'bus_disruption': True, 'line': line, 'stop': stop_name, 'cancellation': cancellation},
             last_updated=datetime.now(timezone.utc),
         )
     return list(out.values())

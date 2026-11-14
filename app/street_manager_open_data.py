@@ -616,7 +616,18 @@ def open_data_message_to_event(message: StreetManagerOpenDataMessage) -> Event |
     lat, lon = position
     reference = message.object_reference or "unknown"
     query = " ".join(part for part in (street, town, reason, management) if part)
+    details = {
+        "management": management,
+        "cause": reason,
+        "category": _humanise(data.get("work_category") or data.get("work_category_ref")),
+        "promoter": _clean(data.get("promoter_organisation") or data.get("highway_authority")),
+        "location": _clean(data.get("works_location_description") or data.get("activity_location_description")),
+        "town": town,
+        "road_closed": str(data.get("is_ttro_required") or "").lower() == "true" or (management or "").lower() == "road closure",
+        "planned": True,
+    }
     return Event(
+        details=details,
         id=f"street-manager-open:{reference}",
         type="road",
         name=f"{street} — {reason}"[:220],

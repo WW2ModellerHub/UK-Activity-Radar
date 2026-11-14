@@ -38,11 +38,50 @@ def _scalars_for(obj: Any, names: set[str]) -> list[Any]:
 
 
 def _first(obj: Any, *names: str) -> str | None:
-    for value in _scalars_for(obj, set(names)):
-        text = str(value).strip()
-        if text and text.lower() not in {"none", "null"}:
-            return text
+    """The first usable value, trying ``names`` in the order given.
+
+    Names are in priority order: ``_first(r, "overallStartTime",
+    "situationRecordCreationTime")`` must prefer the works start even when the
+    record's creation time appears earlier in the document. (It used to take
+    whichever came first in the document, so planned works showed the date the
+    record was written as their start.)
+    """
+    for name in names:
+        for value in _scalars_for(obj, {name}):
+            text = str(value).strip()
+            if text and text.lower() not in {"none", "null"}:
+                return text
     return None
+
+
+def _all_text(obj: Any, *names: str) -> list[str]:
+    wanted = {_norm(n) for n in names}
+    out: list[str] = []
+    for node in _walk(obj):
+        for key, value in node.items():
+            if _norm(key) not in wanted:
+                continue
+            for inner in _walk(value) if isinstance(value, (dict, list)) else [{"v": value}]:
+                for leaf in inner.values():
+                    if isinstance(leaf, (dict, list)):
+                        continue
+                    text = re.sub(r"\s+", " ", str(leaf)).strip()
+                    if len(text) > 3 and not re.fullmatch(r"[a-z]{2}(-[A-Z]{2})?", text) and text not in out:
+                        out.append(text)
+    return out
+
+
+def _periods(record: dict) -> list[tuple[datetime, datetime | None]]:
+    """Every (start, end) window in the record's validity, in order."""
+    windows: list[tuple[datetime, datetime | None]] = []
+    for node in _walk(record):
+        keys = {_norm(k): k for k in node.keys()}
+        if "startofperiod" in keys:
+            start = _parse_dt(str(node[keys["startofperiod"]]))
+            end = _parse_dt(str(node[keys["endofperiod"]])) if "endofperiod" in keys else None
+            if start:
+                windows.append((start, end))
+    return sorted(set(windows), key=lambda row: row[0])
 
 
 
@@ -269,7 +308,7 @@ def parse_closure_payload(payload: Any, closure_type: str) -> list[Event]:
         location = _humanise(_first(record, "locationDescription", "locationName", "descriptor", "locationDescriptor"), allow_generic=True)
         status = _humanise(_first(record, "operatorActionStatus", "validityStatus"), allow_generic=True) or "Active"
         severity = _humanise(_first(record, "overallSeverity", "severity"), allow_generic=True)
-        lanes = _first(record, "numberOfLanesRestricted", "numberOfLanesClosed", "numberOfLanes")
+        lanes = _first(record, "numberOfLanesRestricted", "numberOfLanesClosed")
         start = _parse_dt(_first(record, "overallStartTime", "startOfPeriod", "situationRecordCreationTime"))
         end = _parse_dt(_first(record, "overallEndTime", "endOfPeriod"))
         updated = _parse_dt(_first(record, "situationRecordVersionTime", "situationRecordCreationTime")) or now
@@ -303,8 +342,27 @@ def parse_closure_payload(payload: Any, closure_type: str) -> list[Event]:
         action_for_query = reason or management or ("road closure" if closure_type == "unplanned" else "planned road closure")
         query = _dedupe_query_parts(road_for_query, location_for_query, direction, action_for_query)
 
+        delay_seconds = _first(record, "delayTimeValue", "delaysTimeValue")
+        queue = _first(record, "queueLength", "lengthAffected")
+        details = {
+            "management": _humanise(_first(record, "roadOrCarriagewayOrLaneManagementType", "trafficManagementType")),
+            "constriction": _humanise(_first(record, "trafficConstrictionType")),
+            "cause": _humanise(_first(record, "accidentType", "vehicleObstructionType", "obstructionType",
+                                      "poorEnvironmentType", "abnormalTrafficType", "roadMaintenanceType",
+                                      "causeType", "constructionWorkType")),
+            "delay_minutes": round(float(delay_seconds) / 60) if delay_seconds and re.fullmatch(r"[0-9.]+", delay_seconds) else None,
+            "delay_band": _humanise(_first(record, "delayBand")),
+            "queue_metres": float(queue) if queue and re.fullmatch(r"[0-9.]+", queue) else None,
+            "lanes_closed": int(lanes) if lanes and str(lanes).isdigit() else None,
+            "probability": _humanise(_first(record, "probabilityOfOccurrence")),
+            "comment": " ".join(_all_text(record, "generalPublicComment"))[:600] or None,
+            "location": location,
+            "direction": direction,
+            "periods": [[a.isoformat(), b.isoformat() if b else None] for a, b in _periods(record)][:20],
+            "planned": closure_type != "unplanned",
+        }
         events.append(Event(
-            id=f"nh:{source_id}", type=event_type, name=name[:220], subtitle=subtitle[:350],
+            id=f"nh:{source_id}", type=event_type, name=name[:220], subtitle=subtitle[:350], details=details,
             lat=lat, lon=lon, category=category, status=status, severity=severity,
             road=road, direction=direction, lanes_closed=lanes, reason=reason or management,
             start_time=start, end_time=end, position_method="static",
