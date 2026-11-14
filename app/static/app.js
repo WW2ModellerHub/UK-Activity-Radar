@@ -198,6 +198,8 @@
   placeGroup.addTo(map);
   let places = [];
   let placeMode = 'off';
+  let lastEnabledLayer = null;
+  let lateTrainsOnly = false;
   let fetchedPlaceMode = 'off';
   let placeFetchSeq = 0;
   let selectedPlaceId = null;
@@ -919,9 +921,42 @@
     if (effectivePlaceMode() !== fetchedPlaceMode) fetchPlaces();
     const wantRailLines = enabledActivityTypes.has('train');
     if (wantRailLines !== railLines.wanted) { railLines.wanted = wantRailLines; updateRailLines(); }
-    document.querySelectorAll('[data-rail-delays]').forEach(chip=>chip.classList.toggle('hidden',!wantRailLines));
     if (!wantRailLines && railView.delaysOn) setDelayHotspots(false);
+    if (!wantRailLines && lateTrainsOnly) lateTrainsOnly = false;
+    updateSubChips();
     syncBaseMap();
+  }
+
+  // The second row under the layer chips: things to do with the layer that
+  // was switched on last (Trains -> Delays, Late only, Near me...).
+  const SUB_LAYERS=['train','bus','aircraft','road','incident'];
+  function subLayerGroup(type){return type==='incident'?'road':type;}
+  function activeSubLayer(){
+    if(lastEnabledLayer&&enabledActivityTypes.has(lastEnabledLayer)&&SUB_LAYERS.includes(lastEnabledLayer))return subLayerGroup(lastEnabledLayer);
+    const first=SUB_LAYERS.find(type=>enabledActivityTypes.has(type));
+    return first?subLayerGroup(first):null;
+  }
+  function updateSubChips(){
+    const row=$('sub-chips');
+    if(!row)return;
+    const group=activeSubLayer();
+    row.hidden=!group;
+    row.dataset.layer=group||'';
+    row.querySelectorAll('[data-sub-for]').forEach(chip=>{chip.hidden=chip.dataset.subFor!==group;});
+    row.querySelectorAll('[data-late-only]').forEach(chip=>chip.setAttribute('aria-pressed',String(lateTrainsOnly)));
+    row.querySelectorAll('[data-sub-action="bus-stops"]').forEach(chip=>chip.setAttribute('aria-pressed',String(placeMode==='bus')));
+    row.querySelectorAll('[data-sub-action="traffic"]').forEach(chip=>chip.setAttribute('aria-pressed',String(trafficMode!=='off')));
+  }
+
+  function showBusDisruptions(){
+    const bounds=map.getBounds?.();
+    const rows=activities.filter(a=>a.type==='bus'&&a.details?.bus_disruption&&(!bounds||bounds.contains?.([Number(a.lat),Number(a.lon)])!==false));
+    const list=rows.slice(0,30).map(a=>{
+      const facts=[a.impact?.where,a.impact?.when].filter(Boolean).join(' · ');
+      return `<button type="button" class="line-train" data-bus-disruption="${esc(a.id)}"><i class="line-dot is-bad" aria-hidden="true"></i><span><strong>${esc(a.impact?.title||a.name)}</strong>${facts?`<small>${esc(facts)}</small>`:''}</span><b>›</b></button>`;
+    }).join('');
+    const box=openInfoPanel('Bus disruptions',rows.length?`${rows.length} in this area`:'None in this area right now',list?`<div class="line-trains">${list}</div>`:'<p class="transport-empty">No stop closures or diversions are reported here.</p>');
+    box.querySelectorAll('[data-bus-disruption]').forEach(button=>button.addEventListener('click',()=>focusActivityById(button.dataset.busDisruption,Math.max(15,map.getZoom()))));
   }
 
   function updateCoolRailSubtypeUi() {
@@ -2024,6 +2059,7 @@
       nearbyKey,
       selectedOperator,
       [...enabledActivityTypes].sort().join(','),
+      lateTrainsOnly,
     ].join('|');
     if (cacheKey === filteredCacheKey) return filteredCacheRows;
     const source=currentWorkspace==='cool'&&globalCoolActivities.length ? globalCoolRows() : activities;
@@ -2031,6 +2067,7 @@
       if (!layerTypeMatch(a, selectedType)) return false;
       if (!operatorMatches(a)) return false;
       if (!inNearby(a)) return false;
+      if (lateTrainsOnly && a.type === 'train' && !(a.cancelled_at || Number(a.delay_minutes) >= 5)) return false;
       if (!searchText) return true;
       return searchable(a).includes(searchText);
     });
@@ -4890,7 +4927,7 @@
   document.querySelectorAll('[data-layer-toggle]').forEach(button => button.addEventListener('click', async () => {
     const type = button.dataset.layerToggle;
     if (!toggleableActivityTypes.has(type)) return;
-    if (enabledActivityTypes.has(type)) enabledActivityTypes.delete(type); else enabledActivityTypes.add(type);
+    if (enabledActivityTypes.has(type)) enabledActivityTypes.delete(type); else { enabledActivityTypes.add(type); lastEnabledLayer = type; }
     // Live incidents (crashes, breakdowns, queues) are fetched by the server
     // for the area on screen, so they need a regional view, not all of Britain.
     if(['incident','road'].includes(type)&&enabledActivityTypes.has(type)&&map.getZoom()<8)showToast('Zoom in to see live incidents and roadworks near you.');
@@ -5131,6 +5168,30 @@
     const reopenMapPanel=btn.dataset.workspace==='useful'&&currentWorkspace==='useful'&&$('workspace-shell')?.classList.contains('collapsed');
     activateWorkspace(btn.dataset.workspace,true);
     if(btn.dataset.workspace==='useful'&&!reopenMapPanel)collapseWorkspaceOnPhone();
+  }));
+  document.querySelectorAll('[data-late-only]').forEach(chip=>chip.addEventListener('click',()=>{
+    lateTrainsOnly=!lateTrainsOnly;
+    trackProduct('sub_chip',lateTrainsOnly?'late-only-on':'late-only-off');
+    updateSubChips();
+    renderMap(); renderStats(); renderRanking();
+    if(lateTrainsOnly)showToast('Showing only trains running 5 min or more late, and cancellations.');
+  }));
+  document.querySelectorAll('[data-sub-action]').forEach(chip=>chip.addEventListener('click',()=>{
+    const action=chip.dataset.subAction;
+    trackProduct('sub_chip',action);
+    if(action==='trains-near')jobTrains();
+    else if(action==='station')$('station-boards')?.click();
+    else if(action==='bus-next')$('near-me')?.click();
+    else if(action==='bus-stops'){
+      placeMode=placeMode==='bus'?'off':'bus';
+      if($('place-mode'))$('place-mode').value=placeMode;
+      if(placeMode==='bus'&&map.getZoom()<14)showToast('Zoom in to see bus stops.');
+      fetchPlaces(); updateLayerToggleUi();
+    }
+    else if(action==='bus-disruptions')showBusDisruptions();
+    else if(action==='planes')jobPlanes();
+    else if(action==='journey')jobJourney();
+    else if(action==='traffic')$('traffic-quick')?.click();
   }));
   document.querySelectorAll('[data-layer-chip]').forEach(chip=>chip.addEventListener('click',()=>{
     document.querySelector(`.layer-toggle[data-layer-toggle="${chip.dataset.layerChip}"]`)?.click();
