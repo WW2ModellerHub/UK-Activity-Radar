@@ -1,5 +1,19 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — stabled trains, Discover rows, aircraft subtitle
+
+- **Trains in sidings.** Six trains sat fanned out on one spot by a line:
+  matched services that had finished without a terminating report stayed
+  until the 45-minute cut-off. Any train with no report for 20 minutes and
+  no timetable leg it is still running now leaves the map; trains between
+  sparse reports on a current leg stay.
+- **Discover.** Every find is one plain row: category icon, name, one-line
+  description, and "New · updated 19s ago". The big upper-case category
+  badges, the "NEW • LIVE INCIDENT • updated" kicker, the different-looking
+  first row and the "More finds" heading are gone.
+- **Aircraft subtitle.** Without a known route it is empty instead of
+  repeating the registration, type and operator shown on the line below.
+
 ## 2026-11-14 — aircraft panel and stale tabs
 
 - Aircraft panels use the compact chip row (altitude, speed, updated); the

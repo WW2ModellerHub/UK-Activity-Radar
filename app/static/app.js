@@ -3147,7 +3147,9 @@
     const detailCool=coolInfo(a);
     $('detail-title').innerHTML = `${currentWorkspace==='cool' && detailCool.score>=45 ? coolBadgeHtml(a,true)+' ' : ''}${esc(a.name)}`;
     const flightRoute=['sar','aircraft'].includes(a.type) ? flightRouteById.get(a.id) : null;
-    $('detail-subtitle').textContent = flightRoute ? flightRouteText(flightRoute) : humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
+    // Aircraft: the route, or nothing. Registration, type and operator are
+    // already on the operator line below; repeating them here was noise.
+    $('detail-subtitle').textContent = flightRoute ? flightRouteText(flightRoute) : ['aircraft','sar'].includes(a.type) ? '' : humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
     renderOperatorIdentity(a);
     renderInsight(a);
     renderDiscoveryDetail(a);
@@ -4172,9 +4174,16 @@
     const top=candidates[0];
     const more=candidates.slice(1,6);
     const emptyScope=radius==null?'in the current UK live feed':`within ${Math.round(radius/1.609344)} miles`;
-    const moreHtml=more.length?`<div class="cool-find-list"><div class="cool-find-head"><strong>More finds</strong></div>${more.map(x=>`<button type="button" class="cool-find-row${isNewDiscoveryActivity(x.a)?' is-new':''}" data-cool-find="${esc(x.a.id)}"><span>${coolBadgeHtml(x.a,true)}</span><span><strong>${isNewDiscoveryActivity(x.a)?'<em class="discovery-new-tag">NEW</em> ':''}${esc(x.a.name)}${activityMatchesInterests(x.a)?' <em class="interest-match">Your interest</em>':''}</strong><small>${esc(x.c.reasons[0]||x.a.subtitle||'Unusual live movement')} • updated ${esc(discoveryFreshness(x.a))}</small></span><b>›</b></button>`).join('')}</div>`:'';
+    // Every find is the same simple row: icon, name, what it is, and when.
+    const findRow=(x,first)=>{
+      const fresh=isNewDiscoveryActivity(x.a);
+      const meta=[fresh?'<em class="find-new">New</em>':'',`updated ${esc(discoveryFreshness(x.a))}`,activityMatchesInterests(x.a)?'your interest':'',first&&activityIsCollectible(x.a)?`${x.km<1?'under 1':Math.round(x.km)} km away`:''].filter(Boolean).join(' · ');
+      const attr=first?`class="discover-row cool-hero-hit${fresh?' is-new':''}" data-cool-top="${esc(x.a.id)}"`:`class="discover-row cool-find-row${fresh?' is-new':''}" data-cool-find="${esc(x.a.id)}"`;
+      return `<button type="button" ${attr}><span class="discover-icon cool-${esc(x.c.theme||'air')}">${iconSvg(coolIconFor(x.a,x.c))}</span><span class="discover-text"><strong>${esc(x.a.name)}</strong><small>${esc(x.c.reasons[0]||x.a.subtitle||'')}</small><i>${meta}</i></span><b aria-hidden="true">›</b></button>`;
+    };
+    const moreHtml=more.length?`<div class="cool-find-list">${more.map(x=>findRow(x,false)).join('')}</div>`:'';
     const previewNote=!globalCoolAvailability.fullAccess&&globalCoolAvailability.total>candidates.length?`<p class="cool-preview-note">Showing ${candidates.length} of ${globalCoolAvailability.total}. Radar+ shows them all.</p>`:'';
-    box.innerHTML=`<div class="cool-scoreboard">${counts.map(x=>`<div><span class="cool-mini-icon cool-${x.theme}">${x.theme==='air'?'▲':x.theme==='rail'?'◆':'✚'}</span><strong>${x.n}</strong><small>${x.label}</small></div>`).join('')}</div>${previewNote}${top?`<button class="cool-hero-hit${isNewDiscoveryActivity(top.a)?' is-new':''}" type="button" data-cool-top="${esc(top.a.id)}"><span>${coolBadgeHtml(top.a,false)}</span><div><small>${isNewDiscoveryActivity(top.a)?'NEW • ':''}${activityIsCollectible(top.a)?'BEST LIVE FIND':'LIVE INCIDENT'} • updated ${esc(discoveryFreshness(top.a))}</small><strong>${esc(top.a.name)}${activityMatchesInterests(top.a)?' <em class="interest-match">Your interest</em>':''}</strong><p>${esc(top.c.reasons[0]||top.a.subtitle||'Unusual live movement')}${activityIsCollectible(top.a)?` · ${top.km<1?'under 1':Math.round(top.km)} km away`:''}</p></div><b>›</b></button>${moreHtml}`:`<div class="cool-empty">Nothing unusual spotted ${emptyScope} right now.</div>`}`;
+    box.innerHTML=`${previewNote}${top?`<div class="discover-list">${findRow(top,true)}${moreHtml}</div>`:`<div class="cool-empty">Nothing unusual spotted ${emptyScope} right now.</div>`}`;
     box.querySelector('[data-cool-top]')?.addEventListener('click',e=>selectActivity(e.currentTarget.dataset.coolTop,true,11));
     box.querySelectorAll('[data-cool-find]').forEach(button=>button.addEventListener('click',()=>selectActivity(button.dataset.coolFind,true,11)));
   }

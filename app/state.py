@@ -24,6 +24,10 @@ CANCELLED_VISIBLE_MINUTES = 10
 # A Train Describer headcode that never matched a timetable and has not moved
 # for this long is usually stock stabled or laid over in a platform.
 UNMATCHED_TD_IDLE_MINUTES = 20
+# Any train with no report for this long, and no timetable leg it is still
+# expected to be running, has stopped running: stock stabled in sidings or a
+# depot after its service ended without a terminating report.
+STABLED_IDLE_MINUTES = 20
 
 
 def _train_finished(vehicle: Vehicle, now: datetime) -> bool:
@@ -37,10 +41,15 @@ def _train_finished(vehicle: Vehicle, now: datetime) -> bool:
         return True
     if str(vehicle.status or "").lower().startswith("terminated") and vehicle.last_updated < finished_before:
         return True
-    return bool(
+    if (
         vehicle.source == "Network Rail TD"
         and not vehicle.schedule_id
         and vehicle.last_updated < now - timedelta(minutes=UNMATCHED_TD_IDLE_MINUTES)
+    ):
+        return True
+    return bool(
+        vehicle.last_updated < now - timedelta(minutes=STABLED_IDLE_MINUTES)
+        and not _train_has_current_projection(vehicle, now)
     )
 
 

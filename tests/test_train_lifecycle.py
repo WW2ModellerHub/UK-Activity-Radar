@@ -54,18 +54,25 @@ def test_a_later_berth_step_does_not_revive_a_terminated_train():
     assert "nr:1F10" not in _train_ids(state)
 
 
-def test_unmatched_signalling_train_leaves_after_idling_but_matched_train_stays():
+def test_idle_trains_leave_unless_still_on_a_timetabled_leg():
     state = LiveState()
     now = datetime.now(timezone.utc)
     idle = now - timedelta(minutes=UNMATCHED_TD_IDLE_MINUTES + 5)
     state.upsert(Vehicle(id="td:BN:5Z99", type="train", name="5Z99", lat=52.48, lon=-1.9,
                          source="Network Rail TD", last_updated=idle))
+    # Stock stabled in a siding: matched to a timetable but no leg running.
     state.upsert(Vehicle(id="td:BN:1M42", type="train", name="1M42", lat=52.48, lon=-1.9,
                          source="Network Rail TD", last_updated=idle,
                          schedule_id=9, service_date=now.date().isoformat(), train_uid="M42"))
+    # Between sparse reports but still on its timetabled leg: stays.
+    state.upsert(Vehicle(id="nr:1A01", type="train", name="1A01", lat=52.48, lon=-1.9,
+                         source="Network Rail TRUST", last_updated=idle,
+                         schedule_id=10, service_date=now.date().isoformat(), train_uid="A01",
+                         estimate_path=[[52.48, -1.9], [52.6, -1.7], [52.7, -1.5]],
+                         estimate_started_at=idle, estimate_due_at=now + timedelta(minutes=10)))
     state.upsert(Vehicle(id="td:BN:2K10", type="train", name="2K10", lat=52.48, lon=-1.9,
                          source="Network Rail TD", last_updated=now - timedelta(minutes=5)))
-    assert _train_ids(state) == {"td:BN:1M42", "td:BN:2K10"}
+    assert _train_ids(state) == {"nr:1A01", "td:BN:2K10"}
 
 
 def test_a_matched_train_reporting_at_its_destination_is_terminated(tmp_path):

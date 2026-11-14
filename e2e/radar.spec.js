@@ -406,7 +406,7 @@ test('Useful and Cool workspaces alter visible layers and render Cool badges', a
   await expect(page.locator('body')).toHaveAttribute('data-experience', 'cool');
   await expect(page.locator('.cool-map-marker')).toHaveCount(2);
   await expect(page.locator('.cool-marker-wrap').first()).toHaveAttribute('data-clustered','false');
-  await expect(page.locator('.cool-badge').filter({ hasText: 'STEAM' }).first()).toBeVisible();
+  await expect(page.locator('#cool-summary .discover-row').filter({ hasText: 'Steam locomotive' }).first()).toBeVisible();
   // Cool markers come from the national Cool feed, not only the current
   // viewport snapshot, so zooming out cannot silently discard a category.
   await expect(page.locator('.aerial-map-marker')).toHaveCount(3);
@@ -417,10 +417,10 @@ test('Useful and Cool workspaces alter visible layers and render Cool badges', a
   await expect(page.locator('.ticker-items')).toContainText('RNLI RESCUE CONTEXT');
   await expect(page.locator('#cool-summary')).not.toContainText('matched live');
   await expect(page.locator('#cool-summary .cool-find-row')).toHaveCount(4);
-  await expect(page.locator('#cool-summary')).toContainText(/1\s*RESCUE/);
+  await expect(page.locator('#cool-summary .discover-row')).toHaveCount(5);
   await page.locator('.cool-filter[data-type="cool-rescue"]').click();
   await expect(page.locator('#ranking')).toContainText('RNLI RESCUE CONTEXT');
-  await expect(page.locator('#cool-summary')).toContainText('LIVE INCIDENT');
+  await expect(page.locator('#cool-summary')).not.toContainText('LIVE INCIDENT');
 });
 
 test('clicking an active Cool category turns Cool map markers off', async ({ page }) => {
@@ -638,7 +638,7 @@ test('aircraft media is not restarted on every live snapshot', async ({ page }) 
   page.on('request', request => { if (request.url().includes('/api/activity/aircraft-live-1/media')) mediaCalls += 1; });
   await page.getByRole('button', { name: /Discover/ }).click();
   await page.locator('.aerial-map-marker.aerial-aircraft').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
-  await expect(page.locator('#detail-photo')).toContainText('Eurofighter Typhoon');
+  await expect(page.locator('#detail-panel')).toContainText('Eurofighter Typhoon');
   await expect(page.locator('#detail-photo .image-truth')).toContainText('Example of this aircraft type');
   await page.evaluate(() => window.__fixtureSocket.onmessage({ data: JSON.stringify(window.__fixtureSnapshot) }));
   await page.waitForTimeout(50);

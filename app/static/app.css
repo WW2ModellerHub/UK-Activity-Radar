@@ -1025,3 +1025,32 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 [data-workspace-panel="live"]:not(.has-saved-places) .passing-next-card,
 [data-workspace-panel="live"]:not(.has-saved-places) .commute-alert-card,
 [data-workspace-panel="live"]:not(.has-saved-places) .my-radar-step:has(#my-radar-area) { display: none; }
+#detail-subtitle:empty { display: none; }
+
+/* ---- Discover: one plain row per find ---- */
+.discover-list { display: grid; }
+.discover-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 12px; align-items: center; gap: 12px; width: 100%; padding: 12px 0; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.discover-row:hover { background: var(--subtle, #f5f6f8); }
+.discover-icon { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: #e8f0fb; color: #0b63ce; }
+.discover-icon .ico { width: 20px; height: 20px; }
+.discover-icon.cool-rail, .discover-icon.cool-steam { background: #f4e9f3; color: #7b2d70; }
+.discover-icon.cool-rescue, .discover-icon.cool-sea, .discover-icon.cool-naval { background: #fdeee6; color: #b4471b; }
+.discover-text { display: grid; gap: 2px; min-width: 0; }
+.discover-text strong { font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.discover-text small { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.discover-text i { font-style: normal; font-size: 12px; color: var(--muted); }
+.discover-text .find-new { font-style: normal; font-weight: 700; color: #1e7a54; }
+.discover-row > b { color: var(--muted); font-weight: 400; }
+.cool-find-list { display: contents; }
+/* The first find uses the same row as the rest. */
+.discover-row.cool-hero-hit, .discover-row.cool-find-row { display: grid; min-height: 0; padding: 12px 0; }
+.discover-row.cool-hero-hit .discover-text strong { font-size: 15px; font-weight: 700; color: var(--text); }
+.discover-row.cool-hero-hit .discover-text small { font-size: 13px; font-weight: 400; color: var(--text); }
+.discover-row.cool-hero-hit .discover-icon { font-size: inherit; }
+.discover-row .discover-icon { color: #0b63ce; }
+.discover-row .discover-icon.cool-rail, .discover-row .discover-icon.cool-steam { color: #7b2d70; }
+.discover-row .discover-icon.cool-rescue, .discover-row .discover-icon.cool-sea, .discover-row .discover-icon.cool-naval { color: #b4471b; }
+.discover-row.cool-hero-hit span.discover-icon { color: #0b63ce !important; font-size: inherit; }
+.discover-row.cool-hero-hit span.discover-icon.cool-rail, .discover-row.cool-hero-hit span.discover-icon.cool-steam { color: #7b2d70 !important; }
+.discover-row.cool-hero-hit span.discover-icon.cool-rescue, .discover-row.cool-hero-hit span.discover-icon.cool-sea, .discover-row.cool-hero-hit span.discover-icon.cool-naval { color: #b4471b !important; }
+.discover-row.cool-hero-hit span.discover-text { font-size: inherit; color: inherit; }
