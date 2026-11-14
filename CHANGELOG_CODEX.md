@@ -1,5 +1,10 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — pale base map
+
+- Back to the pale Mapbox Light base map, now used everywhere (with or
+  without trains). The app's own dark rail line layer stands out on it.
+
 ## 2026-11-14 — nearby limit pill
 
 - "Aircraft above me" / nearby mode showed a large box mid-map ("Nearby mode

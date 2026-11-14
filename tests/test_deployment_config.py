@@ -248,9 +248,9 @@ def test_map_provider_configuration_cannot_pin_the_old_fallback_in_cache():
     assert "fetch('/api/map/config',{cache:'no-store'})" in app_js
     assert '"Cache-Control": "no-store"' in map_route
     assert '"base_map_provider": "Mapbox" if settings.mapbox_public_token' in main
-    assert "mapbox/streets-v12" in map_route
-    # The same base map is used with or without trains.
-    assert "light-v11" not in map_route
+    # One pale base map (Mapbox Light), the same with or without trains.
+    assert "mapbox/light-v11" in map_route
+    assert "streets-v12" not in map_route
     assert '"rail_tile_url": None' in map_route
 
 
