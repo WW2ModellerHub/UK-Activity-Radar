@@ -1,5 +1,19 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — journey watch and Leave now
+
+- **Journey watch**: after planning a drive, "Watch this drive" with a
+  leaving time. On weekdays, in the 45 minutes before that time, the phone
+  is alerted if a crash, closure or long delay is on the route. Silence
+  means it looks clear. Live incidents are fetched along the route for this.
+- **Leave now**: in a train's panel, "When should I leave?" — choose the stop
+  you board at and the minutes to get there. One alert about five minutes
+  before you need to set off, moved later if the train is running late, with
+  the platform when known. The train is saved too, so a cancellation or
+  platform change also reaches the phone.
+- Line status grading recalibrated against a normal evening: "severe" now
+  needs half the trains late (or 30% and 20+ minutes).
+
 ## 2026-11-14 — line status and spotter alerts
 
 - **Line status** (Trains → Line status): every passenger operator graded

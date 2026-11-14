@@ -1573,3 +1573,49 @@ test('spotter alerts switch on from Discover with the place and distance', async
   await expect(page.locator('#spotter-state')).toHaveText('OFF');
   expect(posted[1].preferences.spotter).toBeNull();
 });
+
+test('a drive can be watched, so the phone warns before leaving', async ({ page }) => {
+  const posted = [];
+  await page.route('**/api/alerts/subscribe', route => { posted.push(route.request().postDataJSON()); return route.fulfill({ json:{ ok:true } }); });
+  await page.locator('[data-job="journey"]').click();
+  await page.locator('#journey-origin').fill('Milton Keynes');
+  await page.locator('#journey-destination').fill('London');
+  await page.locator('#journey-mode').selectOption('car');
+  await page.locator('#journey-submit').click();
+  await expect(page.locator('.journey-watch')).toContainText('Warn me before I leave');
+  await page.locator('#journey-watch-time').fill('08:15');
+  await page.locator('[data-journey-watch="on"]').click();
+  await expect(page.locator('.journey-watch')).toContainText('Watching your drive to London');
+  await expect(page.locator('.journey-watch')).toContainText('before 08:15');
+  const journey = posted[0].preferences.journey;
+  expect(journey.leave_minutes).toBe(495);
+  expect(journey.points).toEqual([[52.034,-0.774],[51.8,-0.5],[51.528,-0.134]]);
+  await page.locator('[data-journey-watch="off"]').click();
+  await expect(page.locator('.journey-watch')).toContainText('Warn me before I leave');
+  expect(posted[1].preferences.journey).toBeNull();
+});
+
+test('a train panel can tell you when to leave for it', async ({ page }) => {
+  const posted = [];
+  await page.route('**/api/alerts/subscribe', route => { posted.push(route.request().postDataJSON()); return route.fulfill({ json:{ ok:true } }); });
+  const soon = minutes => new Date(Date.now() + minutes * 60000).toISOString();
+  await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json:{ detail:{ available:true, runs:[{ headcode:'1A23',
+    calling_points:[{ name:'Rugby', scheduled:soon(-10), state:'passed' },{ name:'Nuneaton', scheduled:soon(40), state:'next' },{ name:'Stafford', scheduled:soon(70) },{ name:'Crewe', scheduled:soon(95) }] }] } } }));
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-wrap-train .marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  const plan = page.locator('details.leave-plan');
+  await plan.locator('summary').click();
+  // Stops already passed, and the final stop, are not offered.
+  await expect(plan.locator('[data-leave-stop] option')).toHaveCount(2);
+  await plan.locator('[data-leave-stop]').selectOption('1');
+  await plan.locator('[data-leave-minutes]').fill('20');
+  await plan.locator('[data-leave-set]').click();
+  await expect(page.locator('p.leave-plan.is-set')).toContainText('from Stafford, allowing 20 min');
+  const saved = posted.at(-1).preferences.leave_plans;
+  expect(saved).toHaveLength(1);
+  expect(saved[0]).toMatchObject({ train_id:'train-live-1', station:'Stafford', minutes:20 });
+  await expect(page.locator('#follow')).toHaveText('Saved ✓');
+  await page.locator('[data-leave-cancel]').click();
+  await expect(page.locator('details.leave-plan')).toBeVisible();
+  expect(posted.at(-1).preferences.leave_plans).toEqual([]);
+});

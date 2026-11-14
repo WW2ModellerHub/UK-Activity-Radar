@@ -53,7 +53,8 @@ from .network_environment import blocked_proxy_variables
 from .models import SourceStatus
 from .engagement import build_today_payload, safe_share_payload
 from .commute_alerts import (
-    CommuteAlertStore, alert_for_activity, normalise_saved_trains, saved_train_alerts, spotter_alert,
+    CommuteAlertStore, alert_for_activity, journey_alerts, journey_bboxes, journey_due, leave_alert,
+    normalise_saved_trains, saved_train_alerts, spotter_alert,
     saved_train_status, within_alert_hours,
 )
 from .coverage import coverage_for_event
@@ -543,6 +544,9 @@ def _send_commute_push(subscription: dict, payload: dict) -> None:
     )
 
 
+_journey_checked: dict[str, float] = {}
+
+
 async def _commute_alert_loop() -> None:
     while True:
         await asyncio.sleep(settings.push_poll_seconds)
@@ -561,9 +565,27 @@ async def _commute_alert_loop() -> None:
             place_alerts = saved.preferences.get("mode") != "trains-only" and within_alert_hours(saved.preferences)
             spotter = saved.preferences.get("spotter")
             spots = [spotter_alert(item, spotter) for item in cool_now] if spotter else []
-            if not place_alerts and not train_alerts and not any(spots):
+            journey = saved.preferences.get("journey")
+            drive_alerts: list[dict] = []
+            if journey_due(journey):
+                # Live incidents are only fetched where someone is looking;
+                # fetch along this route at most every ten minutes.
+                last = _journey_checked.get(saved.endpoint_hash, 0.0)
+                if traffic_incident_service is not None and traffic_incident_service.ready and time.monotonic() - last > 600:
+                    _journey_checked[saved.endpoint_hash] = time.monotonic()
+                    for box in journey_bboxes(journey):
+                        try:
+                            await asyncio.to_thread(traffic_incident_service.ensure, box)
+                        except Exception:
+                            pass
+                drive_alerts = journey_alerts(state.all_events(), journey)
+            leave_alerts = [
+                leave_alert(plan, _saved_train_status(plan["train_id"]))
+                for plan in saved.preferences.get("leave_plans") or []
+            ]
+            if not place_alerts and not train_alerts and not any(spots) and not drive_alerts and not any(leave_alerts):
                 continue
-            candidates = train_alerts + spots + (
+            candidates = leave_alerts + train_alerts + drive_alerts + spots + (
                 [alert_for_activity(item, saved.preferences) for item in activities] if place_alerts else []
             )
             candidate = next((row for row in candidates if row and not store.already_delivered(saved.endpoint_hash, row["key"])), None)

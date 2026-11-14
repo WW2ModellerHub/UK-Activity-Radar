@@ -3069,6 +3069,61 @@
     button.textContent=open?'Hide earlier stops':`Show ${hidden} earlier stop${hidden===1?'':'s'}`;
   });
 
+  // Leave now: pick the stop you are boarding at and how long it takes to
+  // get there; the phone says when to set off, allowing for lateness.
+  let leaveStops=[], leaveFormOpenFor=null, leaveMinutesDraft=15;
+  function leaveDepartIso(value) {
+    if(!value)return null;
+    const text=String(typeof value==='object'?(value.at||value.scheduled||value.expected||value.time||''):value);
+    if(text.includes('T')){const parsed=new Date(text);return Number.isFinite(parsed.getTime())?parsed.toISOString():null;}
+    const match=text.match(/^(\d{1,2}):(\d{2})/);if(!match)return null;
+    const when=new Date();when.setHours(Number(match[1]),Number(match[2]),0,0);
+    if(Date.now()-when.getTime()>6*3600*1000)when.setDate(when.getDate()+1);
+    return when.toISOString();
+  }
+  function leavePlans() { return (commuteAlertStatus.subscribed&&commuteAlertStatus.preferences?.leave_plans)||[]; }
+  function leavePlanHtml(callingPoints) {
+    if(!selectedId||!commuteAlertStatus.configured)return '';
+    const plan=leavePlans().find(row=>row.train_id===selectedId);
+    if(plan){
+      const clock=new Date(plan.depart).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+      return `<p class="leave-plan is-set"><span><strong>You’ll be told when to leave</strong><small>For the ${esc(clock)} from ${esc(plan.station)}, allowing ${esc(plan.minutes)} min to get there.</small></span><button type="button" class="mini-button" data-leave-cancel>Cancel</button></p>`;
+    }
+    leaveStops=callingPoints.filter(point=>point?.state!=='passed'&&!point?.cancelled).map(point=>({
+      name:providerName(point?.station||point?.location||point?.name),
+      depart:leaveDepartIso(point?.scheduled||point?.expected||point?.time),
+    })).filter(stop=>stop.name&&stop.depart&&new Date(stop.depart).getTime()>Date.now()).slice(0,-1);
+    if(!leaveStops.length)return '';
+    const options=leaveStops.map((stop,stopIndex)=>`<option value="${stopIndex}">${esc(humanTransitLabel(stop.name))} · ${esc(new Date(stop.depart).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}))}</option>`).join('');
+    return `<details class="leave-plan"${leaveFormOpenFor===selectedId?' open':''}><summary>When should I leave?</summary><div class="leave-plan-form"><label><span>Boarding at</span><select data-leave-stop class="tool-select">${options}</select></label><label><span>Minutes to get there</span><input type="number" data-leave-minutes min="1" max="180" inputmode="numeric" value="${esc(leaveMinutesDraft)}"></label><button type="button" class="primary-button" data-leave-set>Tell me when to leave</button></div></details>`;
+  }
+  document.addEventListener('toggle',event=>{ if(event.target.matches?.('details.leave-plan'))leaveFormOpenFor=event.target.open?selectedId:null; },true);
+  document.addEventListener('input',event=>{ if(event.target.matches?.('[data-leave-minutes]'))leaveMinutesDraft=Math.max(1,Math.min(180,Number(event.target.value)||15)); });
+  document.addEventListener('click',async event=>{
+    const set=event.target.closest?.('[data-leave-set]'),cancel=event.target.closest?.('[data-leave-cancel]');
+    if(!set&&!cancel)return;
+    const trainId=selectedId;if(!trainId)return;
+    const others=leavePlans().filter(row=>row.train_id!==trainId);
+    if(cancel){
+      const ok=await savePushPreferences({...currentPushPreferences(),leave_plans:others});
+      showToast(ok?'You won’t be told when to leave for this train.':'That couldn’t be changed right now.');
+    } else {
+      if(pushUnsupportedReason()){showToast(pushUnsupportedReason());return;}
+      const form=set.closest('.leave-plan-form');
+      const stop=leaveStops[Number(form.querySelector('[data-leave-stop]').value)];
+      const minutes=Math.max(1,Math.min(180,Number(form.querySelector('[data-leave-minutes]').value)||15));
+      if(!stop)return;
+      // The train is saved too, so a cancellation or platform change also reaches the phone.
+      if(!followed.has(trainId)){followed.add(trainId);saveFollowed();renderMyRadar();$('follow').textContent='Saved ✓';}
+      const train=activityById(trainId);
+      const ok=await savePushPreferences({...currentPushPreferences(),leave_plans:[...others,{train_id:trainId,train_name:train?.name||'',station:humanTransitLabel(stop.name),minutes,depart:stop.depart}]});
+      showToast(ok?`You’ll be told when to leave for ${humanTransitLabel(stop.name)}.`:'Alerts couldn’t be turned on. Check notifications are allowed for this site.');
+      if(ok){leaveFormOpenFor=null;trackProduct('leave_plan_set','train');}
+    }
+    const live=activityById(trainId);
+    if(live&&selectedId===trainId)loadActivityIntelligence(live,true);
+  });
+
   function renderRailRun(run, index) {
     const train=run?.train && typeof run.train==='object' ? run.train : {};
     const progress=run?.progress && typeof run.progress==='object' ? run.progress : {};
@@ -3122,13 +3177,14 @@
     const specialText=subtype==='special-passenger'
       ? `${headcode.slice(0,4)}: a Z in the headcode marks a one-off working that is not in the regular timetable. On a normal operator's route like this it is usually an extra or relief train; it can also be a charter. It is not a railtour unless it says so.`
       : subtype==='locomotive-move' ? `${headcode.slice(0,4)}: a locomotive running on its own, with no passengers or wagons, usually to or from a depot or a job.` : '';
+    const leaveBox=index===0&&!run?.cancelled ? leavePlanHtml(callingPoints) : '';
     const specialTitle=subtype==='special-passenger'&&coolInfo(selected).score<45?'Extra train':'Why is it special?';
     const specialBox=specialText ? `<p class="delay-why special-why"><strong>${specialTitle}</strong> <span>${esc(specialText)}</span></p>` : '';
     const cancelledBanner=run?.cancelled ? `<p class="train-cancelled-banner">${iconSvg('incident')}<span>${cancelledFrom?`Cancelled from ${esc(humanTransitLabel(cancelledFrom))}`:'This train is cancelled'}</span></p>` : '';
     const operator=providerName(train.operator || run?.operator || run?.operator_code);
     const operatorTheme=trainLiveryTheme('',operator);
     const operatorStyle=operatorTheme.key!=='reference' ? ` style="--train-primary:${operatorTheme.primary};--train-secondary:${operatorTheme.secondary};--train-accent:${operatorTheme.accent};--train-ink:${operatorTheme.ink}"` : '';
-    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${cancelledBanner}${specialBox}${whyBox}${serviceLabel?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${facts.length?`<div class="transport-facts">${facts.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points}${unknown}</article>`;
+    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${cancelledBanner}${specialBox}${whyBox}${leaveBox}${serviceLabel?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${facts.length?`<div class="transport-facts">${facts.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points}${unknown}</article>`;
   }
 
   function trainLiveryTheme(livery, operator) {
@@ -4179,7 +4235,7 @@
       const registration=await navigator.serviceWorker.ready;
       let subscription=await registration.pushManager.getSubscription();
       if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKeyBytes(commuteAlertStatus.public_key)});
-      const preferences={mode:'trains-only',saved_trains:savedTrainIds(),spotter:commuteAlertStatus.preferences?.spotter||null};
+      const preferences={mode:'trains-only',saved_trains:savedTrainIds(),spotter:commuteAlertStatus.preferences?.spotter||null,journey:commuteAlertStatus.preferences?.journey||null};
       const response=await fetch('/api/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken(),subscription:subscription.toJSON(),preferences})});
       if(!response.ok)return false;
       commuteAlertStatus={...commuteAlertStatus,subscribed:true,preferences};renderCommuteAlertStatus();
@@ -4411,7 +4467,7 @@
       let subscription=await registration.pushManager.getSubscription();
       if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKeyBytes(commuteAlertStatus.public_key)});
       const [startHour,endHour]=String($('commute-alert-hours')?.value||'5:11').split(':').map(Number);
-      const preferences={mode:$('commute-alert-mode')?.value||'driving',place_id:place.id,place_name:place.name,lat:Number(place.lat),lon:Number(place.lon),radius_miles:Number($('commute-alert-radius')?.value||12),start_hour:startHour,end_hour:endHour,activity_types:[...myRadarInterests].filter(type=>['train','bus','vessel','aircraft'].includes(type)),saved_trains:savedTrainIds(),spotter:commuteAlertStatus.preferences?.spotter||null};
+      const preferences={mode:$('commute-alert-mode')?.value||'driving',place_id:place.id,place_name:place.name,lat:Number(place.lat),lon:Number(place.lon),radius_miles:Number($('commute-alert-radius')?.value||12),start_hour:startHour,end_hour:endHour,activity_types:[...myRadarInterests].filter(type=>['train','bus','vessel','aircraft'].includes(type)),saved_trains:savedTrainIds(),spotter:commuteAlertStatus.preferences?.spotter||null,journey:commuteAlertStatus.preferences?.journey||null,leave_plans:commuteAlertStatus.preferences?.leave_plans||[]};
       const response=await fetch('/api/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken(),subscription:subscription.toJSON(),preferences})});
       const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.detail||'Alerts could not be enabled.');
       commuteAlertStatus={...commuteAlertStatus,subscribed:true,preferences};renderCommuteAlertStatus();showToast('Travel alerts are active on this device.');trackProduct('commute_alert_enabled',preferences.mode);
@@ -4984,6 +5040,41 @@
     const issueBanner=itineraries.length?`<div class="journey-issue-summary ${issues.length?'has-issues':'is-clear'}">${iconSvg(issues.length?'incident':'route')}<span><strong>${esc(issueText)}</strong>${issues.length?`<small>${esc(issues.slice(0,3).map(row=>[row.name,row.road].filter(Boolean).join(' · ')).join(' • '))}</small>`:''}</span></div>`:'';
     box.innerHTML=`${issueBanner}<div class="journey-result-head"><div><strong>${esc(payload?.message || `${itineraries.length || railJourneys.length} journey options`)}</strong></div><span>Updated now</span></div>${resolution}<div class="journey-options">${results}</div><p class="journey-truth">Check with the operator before travelling.</p>`;
     box.querySelectorAll('.journey-show-map').forEach(button=>button.addEventListener('click',()=>showJourneyRoute(button.dataset.journeyOption)));
+    renderJourneyWatch();
+  }
+
+  // Journey watch: a phone alert before the usual leaving time if a crash,
+  // closure or long delay is on this drive.
+  function journeyWatchClock(minutes){return `${String(Math.floor(minutes/60)).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`;}
+  function renderJourneyWatch() {
+    const box=$('journey-results');if(!box)return;
+    box.querySelector('.journey-watch')?.remove();
+    const route=lastJourneyPayload?.itineraries?.[0]?.geometry;
+    const watching=commuteAlertStatus.subscribed?commuteAlertStatus.preferences?.journey:null;
+    const driving=($('journey-mode')?.value||'')==='car'&&Array.isArray(route)&&route.length>1;
+    if(!driving&&!watching)return;
+    const wrap=document.createElement('div');wrap.className='journey-watch';
+    wrap.innerHTML=watching
+      ? `<span><strong>Watching ${esc(watching.name)}</strong><small>Weekdays. You’ll be told in the 45 minutes before ${esc(journeyWatchClock(watching.leave_minutes))} if something serious is on it.</small></span><button type="button" class="mini-button" data-journey-watch="off">Stop</button>`
+      : `<span><strong>Warn me before I leave</strong><small>A phone alert on weekdays if a crash, closure or long delay is on this drive.</small></span><label>Leave at <input type="time" id="journey-watch-time" value="07:30"></label><button type="button" class="primary-button" data-journey-watch="on">Watch this drive</button>`;
+    const anchor=box.querySelector('.journey-issue-summary');
+    if(anchor)anchor.after(wrap);else box.prepend(wrap);
+    wrap.querySelector('[data-journey-watch]').addEventListener('click',async event=>{
+      if(event.currentTarget.dataset.journeyWatch==='off'){
+        const ok=await savePushPreferences({...currentPushPreferences(),journey:null});
+        showToast(ok?'Stopped watching that drive.':'That couldn’t be changed right now.');renderJourneyWatch();return;
+      }
+      if(pushUnsupportedReason()){showToast(pushUnsupportedReason());return;}
+      if(!commuteAlertStatus.configured){showToast('Alerts are not available yet.');return;}
+      const [hours,minutes]=String($('journey-watch-time')?.value||'07:30').split(':').map(Number);
+      const step=Math.max(1,Math.ceil(route.length/80));
+      const points=route.filter((_,index)=>index%step===0||index===route.length-1).map(point=>[Number(point.lat),Number(point.lon)]);
+      const destination=$('journey-destination')?.value.trim()||'work';
+      const ok=await savePushPreferences({...currentPushPreferences(),journey:{name:`your drive to ${destination}`,points,leave_minutes:hours*60+minutes,days:[0,1,2,3,4]}});
+      showToast(ok?`Watching your drive to ${destination}. You’ll only hear if something serious is on it.`:'Alerts couldn’t be turned on. Check notifications are allowed for this site.');
+      if(ok)trackProduct('journey_watch_enabled','car');
+      renderJourneyWatch();
+    });
   }
 
   async function submitJourney(event) {
