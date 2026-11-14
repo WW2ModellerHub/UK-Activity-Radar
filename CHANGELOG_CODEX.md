@@ -1,5 +1,14 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — options under each layer
+
+- A second chip row appears under the layer chips with options for the layer
+  switched on last: Trains → Delays, Late only, Near me, Nearest station;
+  Buses → Next bus, Bus stops, Disruptions; Aircraft → Above me; Roadworks and
+  Incidents → My journey, Live traffic. Delays moved here from the main row.
+- "Late only" keeps trains 5 min or more late and cancellations on the map.
+- "Disruptions" lists bus stop closures and diversions in view.
+
 ## 2026-11-14 — layers on the map, answers in the Map panel
 
 - The chip row under search is layer switches only again (Trains, Buses,

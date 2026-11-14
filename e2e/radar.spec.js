@@ -1185,6 +1185,44 @@ test('tapping a railway line lists the trains on that stretch in order', async (
   await expect(page.locator('#map')).not.toHaveAttribute('data-rail-line-view', /./);
 });
 
+test('a second row under the chips offers options for the layer switched on last', async ({ page }) => {
+  const row = page.locator('#sub-chips');
+  await expect(row).toBeHidden();
+  await page.locator('[data-layer-chip="train"]').click();
+  await expect(row).toBeVisible();
+  await expect(row.locator('.sub-chip:visible')).toHaveText(['Delays','Late only','Near me','Nearest station']);
+  // Late only hides trains that are on time (the fixture trains have no delay).
+  await expect(page.locator('.marker-wrap-train').first()).toBeAttached();
+  await row.locator('[data-late-only]').click();
+  await expect(row.locator('[data-late-only]')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('.marker-wrap-train')).toHaveCount(0);
+  await row.locator('[data-late-only]').click();
+  await expect(page.locator('.marker-wrap-train').first()).toBeAttached();
+  // Switching buses on shows the bus options; aircraft and roads have theirs.
+  await page.locator('[data-layer-chip="bus"]').click();
+  await expect(row.locator('.sub-chip:visible')).toHaveText(['Next bus','Bus stops','Disruptions']);
+  await row.locator('[data-sub-action="bus-disruptions"]').click();
+  await expect(page.locator('#detail-title')).toHaveText('Bus disruptions');
+  await page.locator('[data-layer-chip="aircraft"]').click();
+  await expect(row.locator('.sub-chip:visible')).toHaveText(['Above me']);
+  await page.locator('[data-layer-chip="incident"]').click();
+  await expect(row.locator('.sub-chip:visible')).toHaveText(['My journey','Live traffic']);
+  // Turning the latest layer off falls back to another one that is still on.
+  await page.locator('[data-layer-chip="incident"]').click();
+  await expect(row.locator('.sub-chip:visible').first()).toHaveText('Delays');
+  for (const type of ['train','bus','aircraft']) await page.locator(`[data-layer-chip="${type}"]`).click();
+  await expect(row).toBeHidden();
+});
+
+test('on a phone the option row sits just under the layer chips', async ({ page }) => {
+  await page.setViewportSize({ width:390, height:844 });
+  await page.locator('[data-layer-chip="train"]').click();
+  const chips = await page.locator('.layer-chips').boundingBox();
+  const sub = await page.locator('#sub-chips').boundingBox();
+  expect(sub.y).toBeGreaterThanOrEqual(chips.y + chips.height);
+  expect(sub.y - (chips.y + chips.height)).toBeLessThan(16);
+});
+
 test('Delays shows the stretches where trains are running late', async ({ page }) => {
   await expect(page.locator('[data-rail-delays]')).toBeHidden();
   await page.locator('[data-layer-chip="train"]').click();
