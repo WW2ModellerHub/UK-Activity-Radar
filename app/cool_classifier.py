@@ -148,134 +148,134 @@ def classify_activity(activity: Activity, *, now: datetime | None = None) -> Coo
         source = str(getattr(activity, "source", "") or "").upper()
         if "AIS" in source:
             return _classified(category="rescue", subtype="maritime-sar", score=90,
-                               explanation="Live maritime search-and-rescue target.", badge="MARITIME SAR",
+                               explanation="Search and rescue at sea.", badge="MARITIME SAR",
                                theme="rescue", icon="✚", activity=activity, now=now)
         if _COASTGUARD_AIR.search(text):
             return _classified(category="rescue", subtype="coastguard-aircraft", score=98,
-                               explanation="HM Coastguard / search-and-rescue aircraft.", badge="COASTGUARD",
+                               explanation="Coastguard rescue helicopter.", badge="COASTGUARD",
                                theme="rescue", icon="✚", activity=activity, now=now)
         if _HEMS.search(text):
             return _classified(category="rescue", subtype="air-ambulance", score=93,
-                               explanation="Live air-ambulance / HEMS aircraft.", badge="HEMS",
+                               explanation="Air ambulance.", badge="HEMS",
                                theme="rescue", icon="✚", activity=activity, now=now)
         return _classified(category="rescue", subtype="sar-aircraft", score=88,
-                           explanation="Live search-and-rescue aircraft.", badge="SAR AIR",
+                           explanation="Search and rescue aircraft.", badge="SAR AIR",
                            theme="rescue", icon="✚", activity=activity, now=now)
 
     if activity_type == "aircraft":
         if _DISPLAY.search(text):
             return _classified(category="air", subtype="display-aircraft", score=98,
-                               explanation="Identified display / aerobatic aircraft.", badge="DISPLAY",
+                               explanation="Display or aerobatic aircraft.", badge="DISPLAY",
                                theme="air", icon="▲", activity=activity, now=now)
         if _BOMBER.search(text):
             return _classified(category="air", subtype="bomber", score=100,
-                               explanation="Identified military bomber aircraft.", badge="BOMBER",
+                               explanation="Military bomber.", badge="BOMBER",
                                theme="air", icon="▲", activity=activity, now=now)
         if _COMBAT_AIRCRAFT.search(text):
             return _classified(category="air", subtype="combat-aircraft", score=100,
-                               explanation="Identified high-performance combat aircraft.", badge="FAST JET",
+                               explanation="Military fast jet.", badge="FAST JET",
                                theme="air", icon="▲", activity=activity, now=now)
         if _SURVEILLANCE.search(text):
             return _classified(category="air", subtype="airborne-surveillance", score=97,
-                               explanation="Identified airborne surveillance / early-warning aircraft.", badge="AWACS",
+                               explanation="Airborne early-warning aircraft.", badge="AWACS",
                                theme="air", icon="▲", activity=activity, now=now)
         if _TANKER.search(text):
             return _classified(category="air", subtype="military-tanker", score=94,
-                               explanation="Identified military aerial-refuelling aircraft.", badge="TANKER",
+                               explanation="Air-to-air refuelling tanker.", badge="TANKER",
                                theme="air", icon="▲", activity=activity, now=now)
         if _MARITIME_PATROL.search(text):
             return _classified(category="air", subtype="maritime-patrol", score=93,
-                               explanation="Identified maritime-patrol aircraft.", badge="MARITIME PATROL",
+                               explanation="Maritime patrol aircraft.", badge="MARITIME PATROL",
                                theme="air", icon="▲", activity=activity, now=now)
         if _INTELLIGENCE.search(text):
             return _classified(category="air", subtype="intelligence-aircraft", score=92,
-                               explanation="Identified intelligence / electronic-surveillance aircraft.", badge="INTELLIGENCE",
+                               explanation="Military surveillance aircraft.", badge="INTELLIGENCE",
                                theme="air", icon="▲", activity=activity, now=now)
         if _COMBAT_HELICOPTER.search(text):
             return _classified(category="air", subtype="military-helicopter", score=89,
-                               explanation="Identified operational military helicopter.", badge="MIL HELI",
+                               explanation="Military helicopter.", badge="MIL HELI",
                                theme="air", icon="▲", activity=activity, now=now)
         if _HEAVY_LIFT.search(text):
             return _classified(category="air", subtype="military-transport", score=84,
-                               explanation="Identified military heavy-lift / transport aircraft.", badge="AIRLIFT",
+                               explanation="Military transport aircraft.", badge="AIRLIFT",
                                theme="air", icon="▲", activity=activity, now=now)
         if _TRAINER.search(text):
             return _classified(category="air", subtype="military-trainer", score=18,
-                               explanation="Routine military training aircraft; excluded from Best Spot.", badge="TRAINER",
+                               explanation="Military training aircraft.", badge="TRAINER",
                                theme="air", icon="▲", activity=activity, now=now, force_exclude=True)
         if _MILITARY_IDENTITY.search(text) or bool(getattr(activity, "interesting", False)):
             return _classified(category="air", subtype="military-unresolved", score=40,
-                               explanation="Military/special feed record, but its role is not specific enough for Best Spot.",
+                               explanation="Military aircraft.",
                                badge="MIL / SPECIAL", theme="air", icon="▲", activity=activity, now=now,
                                force_exclude=True)
 
     if activity_type == "train":
         if _STEAM.search(text):
             return _classified(category="rail", subtype="steam", score=100,
-                               explanation="Steam-hauled movement.", badge="STEAM", theme="steam", icon="♨",
+                               explanation="Steam locomotive.", badge="STEAM", theme="steam", icon="♨",
                                activity=activity, now=now)
         if _RAILTOUR.search(text):
             return _classified(category="rail", subtype="railtour-special", score=95,
-                               explanation="Charter / special passenger movement.", badge="RAILTOUR",
+                               explanation="Charter train.", badge="RAILTOUR",
                                theme="rail", icon="◆", activity=activity, now=now)
         if headcode.startswith("1Z"):
             return _classified(category="rail", subtype="special-passenger", score=72,
-                               explanation="Special passenger working; this headcode alone does not prove it is a railtour.",
+                               explanation="Special passenger train.",
                                badge="SPECIAL", theme="rail", icon="◆", activity=activity, now=now)
         if _TEST_TRAIN.search(text) or headcode.startswith(("1Q", "3Q")):
             return _classified(category="rail", subtype="test-measurement", score=82,
-                               explanation="Test / railway measurement movement.", badge="TEST TRAIN",
+                               explanation="Test or track-recording train.", badge="TEST TRAIN",
                                theme="rail", icon="◇", activity=activity, now=now)
         if _ENGINEERING_TRAIN.search(text):
             return _classified(category="rail", subtype="engineering", score=76,
-                               explanation="Specialist railway engineering movement.", badge="ENGINEERING",
+                               explanation="Engineering train.", badge="ENGINEERING",
                                theme="rail", icon="⚒", activity=activity, now=now)
         if _FREIGHT.search(text) or (headcode and headcode[0] in {"4", "6", "7"}):
             return _classified(category="rail", subtype="freight", score=62,
-                               explanation="Freight / non-passenger movement.", badge="FREIGHT",
+                               explanation="Freight train.", badge="FREIGHT",
                                theme="freight", icon="▰", activity=activity, now=now)
         if headcode.startswith("0Z"):
             return _classified(category="rail", subtype="locomotive-move", score=70,
-                               explanation="Special locomotive movement.", badge="LOCO MOVE",
+                               explanation="Locomotive on its own.", badge="LOCO MOVE",
                                theme="rail", icon="◆", activity=activity, now=now)
 
     if activity_type == "vessel":
         if _NAVAL.search(text):
             return _classified(category="sea", subtype="naval", score=98,
-                               explanation="Military / naval vessel.", badge="NAVAL", theme="naval", icon="⚓",
+                               explanation="Naval ship.", badge="NAVAL", theme="naval", icon="⚓",
                                activity=activity, now=now)
         if _LIFEBOAT.search(text):
             return _classified(category="rescue", subtype="lifeboat", score=97,
-                               explanation="Live RNLI / lifeboat AIS target.", badge="LIFEBOAT",
+                               explanation="RNLI lifeboat.", badge="LIFEBOAT",
                                theme="rescue", icon="◆", activity=activity, now=now)
         if _MARITIME_RESCUE.search(text):
             return _classified(category="rescue", subtype="rescue-vessel", score=90,
-                               explanation="Coastguard / maritime rescue vessel.", badge="RESCUE",
+                               explanation="Coastguard vessel.", badge="RESCUE",
                                theme="rescue", icon="⚓", activity=activity, now=now)
         if _PATROL.search(text):
             return _classified(category="sea", subtype="patrol-vessel", score=82,
-                               explanation="Identified patrol vessel.", badge="PATROL", theme="sea", icon="⚓",
+                               explanation="Patrol vessel.", badge="PATROL", theme="sea", icon="⚓",
                                activity=activity, now=now)
         if _CRUISE.search(text):
             return _classified(category="sea", subtype="cruise", score=74,
-                               explanation="Cruise / notable passenger ship.", badge="CRUISE", theme="sea", icon="▤",
+                               explanation="Cruise ship.", badge="CRUISE", theme="sea", icon="▤",
                                activity=activity, now=now)
         if _SPECIALIST_VESSEL.search(text):
             return _classified(category="sea", subtype="specialist-vessel", score=70,
-                               explanation="Specialist / research vessel.", badge="SPECIALIST",
+                               explanation="Research vessel.", badge="SPECIALIST",
                                theme="sea", icon="⌁", activity=activity, now=now)
         if _TUG.search(text):
             return _classified(category="sea", subtype="tug", score=42,
-                               explanation="Working tug; classified but excluded from Best Spot priority.", badge="TUG",
+                               explanation="Tug.", badge="TUG",
                                theme="sea", icon="⚓", activity=activity, now=now, force_exclude=True)
 
     if activity_type == "rescue":
         if _LIFEBOAT.search(text):
             return _classified(category="rescue", subtype="rnli-launch", score=96,
-                               explanation="Officially reported RNLI lifeboat launch.", badge="RNLI LAUNCH",
+                               explanation="RNLI lifeboat launch.", badge="RNLI LAUNCH",
                                theme="rescue", icon="◆", activity=activity, now=now)
         return _classified(category="rescue", subtype="emergency-response", score=76,
-                           explanation="Live emergency-response activity.", badge="RESCUE",
+                           explanation="Emergency response.", badge="RESCUE",
                            theme="rescue", icon="✚", activity=activity, now=now)
 
     return CoolClassification()

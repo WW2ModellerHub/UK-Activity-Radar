@@ -226,7 +226,7 @@ async function installAppFixture(page) {
         }
         return route.fulfill({ json:{ ok:true, discovery:{
           id:'rail:steam', key:'rail:steam', activity_id:'steam-live-1', category:'rail', subtype:'steam', title:'Steam Train',
-          explanation:'Steam-hauled movement.', icon:'♨', confidence:'high', freshness:'live', age_seconds:60, fresh_for_seconds:2700,
+          explanation:'Steam locomotive.', icon:'♨', confidence:'high', freshness:'live', age_seconds:60, fresh_for_seconds:2700,
           observed_at:'2026-10-05T10:00:00Z', discovered_at:'2026-10-05T10:01:00Z', broad_region:'Northern England and Wales',
           source:'Network Rail TRUST', identity_level:'type', identity_note:'The movement type is classified, but its exact locomotive or formation is not confirmed.',
           weeks:['2026-W41'],

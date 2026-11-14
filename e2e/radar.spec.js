@@ -59,20 +59,23 @@ test('Buses near me enables buses and opens the nearest live stop board', async 
 
 test('Today on the Radar shows verified live highlights', async ({ page }) => {
   await expect(page.locator('#today-radar')).toContainText('Steam Railtour 1Z80');
-  await expect(page.locator('#today-radar')).toContainText('BEST NOW');
+  await expect(page.locator('#today-radar')).not.toContainText('BEST NOW');
   await page.locator('#today-radar [data-today-activity="today-remote-1"]').click();
   await expect(page.locator('#detail-title')).toContainText('Steam Railtour 1Z80');
   await expect(page.locator('#map')).toHaveAttribute('data-map-center','57.12,-3.15');
   await expect(page.locator('[data-layer-toggle="train"]')).toHaveAttribute('aria-pressed','true');
 });
 
-test('My Radar saves a real station locally', async ({ page }) => {
+test('Saved keeps a real station on this device', async ({ page }) => {
   await page.locator('#station-boards').click();
   await expect(page.locator('#detail-title')).toContainText('Milton Keynes Central');
   await page.locator('#save-place').click();
   await page.locator('[data-workspace="live"]').click();
   await expect(page.locator('#saved-places-list')).toContainText('Milton Keynes Central');
-  await expect(page.locator('#my-radar-area')).toContainText('saved area');
+  // With a place saved, the Saved tab shows its next departures and nearby activity.
+  await expect(page.locator('.passing-next-card')).toBeVisible();
+  await expect(page.locator('#my-radar-area')).toBeVisible();
+  await expect(page.locator('#saved-places-count')).toHaveText('1');
 });
 
 test('a train opened from a station board can return to that board', async ({ page }) => {
@@ -369,68 +372,20 @@ test('duplicate controls are removed and Clear map turns every overlay off', asy
   await expect(page.locator('#place-mode')).toHaveValue('off');
 });
 
-test('every density choice requests its live data and renders or explains the result', async ({ page }) => {
+test('weak extras are gone from the panels', async ({ page }) => {
   await page.locator('.workspace-tab[data-workspace="settings"]').click();
-
-  const lastViewportTypes = () => page.evaluate(() =>
-    window.__fixtureSocketMessages.filter(row => row.action === 'viewport').at(-1)?.types
-  );
-
-  await page.locator('#heat-mode').selectOption('train');
-  await expect.poll(lastViewportTypes).toEqual(['train']);
-  await expect(page.locator('.leaflet-heat-layer')).toHaveAttribute('data-point-count', '2');
-  await expect(page.locator('#bus-zoom-note')).toContainText('2 live points in rail density');
-
-  await page.locator('#heat-mode').selectOption('bus');
-  await expect.poll(lastViewportTypes).toEqual(['bus']);
-  await expect(page.locator('.leaflet-heat-layer')).toHaveAttribute('data-point-count', '1');
-
-  await page.locator('#heat-mode').selectOption('incident');
-  await expect.poll(lastViewportTypes).toEqual(['incident']);
-  await expect(page.locator('.leaflet-heat-layer')).toHaveAttribute('data-point-count', '1');
-
-  await page.locator('#heat-mode').selectOption('road');
-  await expect.poll(lastViewportTypes).toEqual(['road']);
-  await expect(page.locator('#bus-zoom-note')).toContainText('No roadworks density data in this view');
-  await expect(page.locator('.leaflet-heat-layer')).toHaveCount(0);
-
-  await page.locator('#heat-mode').selectOption('weather');
-  await expect.poll(lastViewportTypes).toEqual(['weather', 'flood']);
-  await expect(page.locator('#bus-zoom-note')).toContainText('No weather density data in this view');
-
-  await page.locator('#heat-mode').selectOption('all');
-  await expect.poll(lastViewportTypes).toBeNull();
-  await expect(page.locator('body')).toHaveAttribute('data-experience', 'settings');
-  await expect(page.locator('.leaflet-heat-layer')).toHaveAttribute('data-point-count', '8');
-
-  await page.locator('#heat-mode').selectOption('off');
-  await expect.poll(lastViewportTypes).toEqual([]);
-  await expect(page.locator('.leaflet-heat-layer')).toHaveCount(0);
-});
-
-test('density is additive and Off restores the selected Useful layers', async ({ page }) => {
-  await page.locator('[data-layer-toggle="train"]').click();
-  await expect(page.locator('.marker-bubble.marker-train')).toHaveCount(2);
-
-  await page.locator('.workspace-tab[data-workspace="settings"]').click();
-  await expect.poll(() => page.evaluate(() =>
-    window.__fixtureSocketMessages.filter(row => row.action === 'viewport').at(-1)?.types
-  )).toEqual(['train']);
-
-  await page.locator('#heat-mode').selectOption('bus');
-  await expect.poll(() => page.evaluate(() =>
-    window.__fixtureSocketMessages.filter(row => row.action === 'viewport').at(-1)?.types
-  )).toEqual(['train', 'bus']);
-  await expect(page.locator('.leaflet-heat-layer')).toHaveAttribute('data-point-count', '1');
-  await expect(page.locator('.marker-bubble.marker-train')).toHaveCount(2);
-  await expect(page.locator('.marker-bubble.marker-bus')).toHaveCount(0);
-
-  await page.locator('#heat-mode').selectOption('off');
-  await expect.poll(() => page.evaluate(() =>
-    window.__fixtureSocketMessages.filter(row => row.action === 'viewport').at(-1)?.types
-  )).toEqual(['train']);
-  await expect(page.locator('.leaflet-heat-layer')).toHaveCount(0);
-  await expect(page.locator('.marker-bubble.marker-train')).toHaveCount(2);
+  await expect(page.locator('#heat-mode')).toBeHidden();
+  await expect(page.locator('[data-layer-toggle="roadfeature"]')).toBeHidden();
+  await expect(page.locator('[data-workspace-panel="settings"]')).not.toContainText('Advanced access');
+  await page.locator('.workspace-tab[data-workspace="live"]').click();
+  await expect(page.locator('#add-watch-zone')).toBeHidden();
+  await expect(page.locator('.passing-next-card')).toBeHidden();
+  await expect(page.locator('.commute-alert-card')).toBeHidden();
+  await expect(page.locator('#saved-places-count')).toBeHidden();
+  await page.locator('.workspace-tab[data-workspace="useful"]').click();
+  await expect(page.locator('#near-centre')).toBeHidden();
+  await expect(page.locator('#nearby-summary')).toBeHidden();
+  await expect(page.locator('.layer-switch-grid')).not.toContainText(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/u);
 });
 
 test('removed CARTO dark mode falls back to the standard map', async ({ page }) => {
@@ -460,7 +415,7 @@ test('Useful and Cool workspaces alter visible layers and render Cool badges', a
   await expect(page.locator('#ranking')).toContainText('RAF AWACS SENTINEL01');
   await expect(page.locator('#ranking')).toContainText('RNLI RESCUE CONTEXT');
   await expect(page.locator('.ticker-items')).toContainText('RNLI RESCUE CONTEXT');
-  await expect(page.locator('#cool-summary')).toContainText('5 matched live');
+  await expect(page.locator('#cool-summary')).not.toContainText('matched live');
   await expect(page.locator('#cool-summary .cool-find-row')).toHaveCount(4);
   await expect(page.locator('#cool-summary')).toContainText(/1\s*RESCUE/);
   await page.locator('.cool-filter[data-type="cool-rescue"]').click();
@@ -606,7 +561,7 @@ test('an earlier Field Guide find stays unlocked without weekly mission revalida
     localStorage.setItem('ukRadarDiscoveryCollectionV1', JSON.stringify([record]));
   }, {
     id:'rail:steam', key:'rail:steam', activity_id:'old-steam-live', category:'rail', subtype:'steam', title:'Steam Train',
-    explanation:'Steam-hauled movement.', icon:'♨', confidence:'high', freshness:'live', observed_at:'2026-09-28T10:00:00Z',
+    explanation:'Steam locomotive.', icon:'♨', confidence:'high', freshness:'live', observed_at:'2026-09-28T10:00:00Z',
     discovered_at:'2026-09-28T10:01:00Z', first_discovered_at:'2026-09-28T10:01:00Z', broad_region:'Northern England and Wales',
     source:'Network Rail TRUST', identity_level:'type', identity_note:'The movement type was classified.', weeks:['2026-W40'],
   });
@@ -1170,7 +1125,7 @@ test('mobile first visit can find a bus, save the stop, and reach simple alerts'
   await expect(page.locator('#detail-placeboard')).toContainText('City Centre');
   await page.locator('#save-place').click();
   await page.locator('[data-workspace="live"]').click();
-  await expect(page.locator('[data-workspace-panel="live"] .experience-hero')).toContainText('Your regular stops');
+  await expect(page.locator('[data-workspace-panel="live"] .experience-hero')).toContainText('Saved');
   await expect(page.locator('#saved-places-list')).toContainText('Central Station Stop A');
   await expect(page.locator('#passing-next')).toContainText('City Centre');
   await expect(page.locator('.commute-alert-card')).toContainText('Travel alerts');
@@ -1183,7 +1138,7 @@ test('mobile nearby aircraft leaves the map visible and uses a compact toast', a
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
   await page.locator('#overhead-now').click();
   await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
-  await expect(page.locator('#watch-toast')).toContainText('positioned aircraft');
+  await expect(page.locator('#watch-toast')).toContainText(/aircraft near you/);
   const toast=await page.locator('#watch-toast').boundingBox();
   expect(toast.width).toBeLessThanOrEqual(370);
   expect(toast.height).toBeLessThan(90);

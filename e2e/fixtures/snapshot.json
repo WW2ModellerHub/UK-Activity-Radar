@@ -20,7 +20,7 @@
       "position_label": "North of York", "lat": 54.12, "lon": -1.08, "speed": 55, "speed_unit": "mph",
       "position_method": "report", "interesting": true, "last_updated": "2026-10-05T10:00:00Z",
       "source": "Recorded TRUST", "cool_category": "rail", "cool_subtype": "steam", "cool_score": 100,
-      "cool_explanation": "Steam-hauled movement.", "cool_badge": "STEAM", "cool_theme": "steam", "cool_icon": "♨", "cool_candidate": true
+      "cool_explanation": "Steam locomotive.", "cool_badge": "STEAM", "cool_theme": "steam", "cool_icon": "♨", "cool_candidate": true
     },
     {
       "id": "vessel-live-1", "kind": "vehicle", "type": "vessel", "name": "HMS TESTER",
@@ -28,7 +28,7 @@
       "lat": 50.78, "lon": -1.05, "speed": 14, "speed_unit": "kn", "bearing": 180,
       "position_method": "gps", "interesting": true, "last_updated": "2026-10-05T10:00:00Z",
       "source": "Recorded AIS", "cool_category": "sea", "cool_subtype": "naval", "cool_score": 98,
-      "cool_explanation": "Military / naval vessel.", "cool_badge": "NAVAL", "cool_theme": "naval", "cool_icon": "⚓", "cool_candidate": true
+      "cool_explanation": "Naval ship.", "cool_badge": "NAVAL", "cool_theme": "naval", "cool_icon": "⚓", "cool_candidate": true
     },
     {
       "id": "aircraft-live-1", "kind": "vehicle", "type": "aircraft", "name": "RAF TYPHOON RAZOR11",
@@ -37,7 +37,7 @@
       "speed": 420, "speed_unit": "kt", "bearing": 95, "altitude_ft": 18000,
       "position_method": "gps", "interesting": true, "last_updated": "2026-10-05T10:00:00Z",
       "source": "Recorded ADS-B", "cool_category": "air", "cool_subtype": "combat-aircraft", "cool_score": 100,
-      "cool_explanation": "Identified high-performance combat aircraft.", "cool_badge": "FAST JET", "cool_theme": "air", "cool_icon": "▲", "cool_candidate": true
+      "cool_explanation": "Military fast jet.", "cool_badge": "FAST JET", "cool_theme": "air", "cool_icon": "▲", "cool_candidate": true
     },
     {
       "id": "aircraft-live-2", "kind": "vehicle", "type": "aircraft", "name": "SHF475",

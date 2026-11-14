@@ -1017,3 +1017,11 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 .bus-lateness.is-good { background: var(--good-soft, #e7f6ee); color: var(--good, #1e7a54); }
 .bus-lateness.is-warn { background: #fff4dc; color: #9a5b00; }
 .bus-lateness.is-bad { background: var(--bad-soft); color: var(--bad); }
+
+/* ---- Wording and feature clean-up ---- */
+[hidden] { display: none !important; }
+.count-badge.hidden { display: none; }
+/* The Saved tab: until a place is saved, only the way to add one. */
+[data-workspace-panel="live"]:not(.has-saved-places) .passing-next-card,
+[data-workspace-panel="live"]:not(.has-saved-places) .commute-alert-card,
+[data-workspace-panel="live"]:not(.has-saved-places) .my-radar-step:has(#my-radar-area) { display: none; }
