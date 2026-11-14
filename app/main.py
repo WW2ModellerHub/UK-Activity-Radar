@@ -1760,6 +1760,23 @@ def activity_media(request: Request, activity_id: str):
         }
 
 
+@app.get("/api/media/reference")
+def media_reference(request: Request, kind: str, operator: str | None = None, model: str | None = None,
+                    callsign: str | None = None):
+    """An example photo of a kind of vehicle: this operator's colours, this type.
+
+    For things the server does not keep (everyday aircraft from "planes above
+    me"); the caller passes what it already knows.
+    """
+    _enforce_public_budget(request, lookup_request_budget)
+    if kind not in {"train", "bus", "aircraft", "sar"} or any(len(v or "") > 80 for v in (operator, model, callsign)):
+        raise HTTPException(status_code=400, detail="Unsupported reference request")
+    try:
+        return media_lookup.reference(kind, operator, model, callsign)
+    except Exception as exc:
+        return {"ok": False, "reason": f"Wikimedia lookup unavailable: {type(exc).__name__}"}
+
+
 flight_route_lookup = FlightRouteLookup(settings.adsb_lol_base_url)
 
 

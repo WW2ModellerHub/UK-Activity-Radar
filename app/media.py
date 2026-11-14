@@ -10,7 +10,12 @@ from urllib.parse import quote
 
 import requests
 
+from .media_reference import mentions_all, reference_for
 from .models import Event, Vehicle
+
+# Specials whose stock is unknown: an operator's everyday train would be a
+# misleading picture of a steam railtour.
+_NO_REFERENCE_TRAIN_SUBTYPES = {"steam", "railtour-special", "heritage", "royal"}
 
 
 @dataclass
@@ -201,6 +206,106 @@ class WikimediaLookup:
         return score
 
     def lookup(self, activity: Vehicle | Event) -> dict[str, Any]:
+        exact = self._lookup_exact(activity)
+        if exact.get("ok") or not isinstance(activity, Vehicle) or not self.enabled:
+            return exact
+        if activity.type == "train" and str(activity.cool_subtype or "") in _NO_REFERENCE_TRAIN_SUBTYPES:
+            return exact
+        try:
+            example = self.reference(activity.type, activity.operator, activity.aircraft_model, activity.name)
+        except Exception:
+            return exact
+        return example if example.get("ok") else exact
+
+    def reference(self, kind: str, operator: str | None = None, model: str | None = None,
+                  callsign: str | None = None) -> dict[str, Any]:
+        """An example photo of this operator's vehicles or this aircraft type."""
+        plan = reference_for(kind, operator, model, callsign)
+        if not self.enabled or not plan:
+            return {"ok": False, "reason": "no_reference" if self.enabled else "disabled"}
+        for step in (plan, plan.get("fallback")):
+            if not step:
+                continue
+            key = f"reference|{step['query']}".casefold()
+            with self._lock:
+                hit = self._cache.get(key)
+                if hit and hit.expires > time.time():
+                    value = hit.value
+                    if value.get("ok"):
+                        return value
+                    continue
+            value = {"ok": False, "query": step["query"], "reason": "no_confident_match",
+                     "search_url": f"https://commons.wikimedia.org/w/index.php?search={quote(step['query'])}"}
+            best = None
+            for page, info, title in self._search(step["query"], limit=12):
+                meta = info.get("extmetadata") or {}
+                text = " ".join(filter(None, [title, self._plain(meta.get("ImageDescription")),
+                                              self._plain(meta.get("ObjectName")), self._plain(meta.get("Categories"))]))
+                if any(word in text.casefold() for word in _BAD_TITLE_WORDS) or not mentions_all(text, step["require"]):
+                    continue
+                # Prefer photos named for exactly this (title words), then wide ones.
+                score = len(self._tokens(step["query"]) & self._tokens(title)) * 4
+                width, height = info.get("width") or 0, info.get("height") or 0
+                if width and height and width >= height:
+                    score += 2
+                if best is None or score > best[0]:
+                    best = (score, page, info, title)
+            if best:
+                _, page, info, title = best
+                value = self._payload(step["query"], 0.0, page, info, title)
+                if value.get("ok"):
+                    value.update({"match_kind": "type_reference", "reference_label": step["label"]})
+            with self._lock:
+                self._cache[key] = _CacheItem(time.time() + (24 * 3600 if value.get("ok") else 3 * 3600), value)
+            if value.get("ok"):
+                return value
+        return value
+
+    def _search(self, query: str, limit: int = 8) -> list[tuple[dict[str, Any], dict[str, Any], str]]:
+        params = {
+            "action": "query", "generator": "search", "gsrsearch": f"{query} filetype:bitmap",
+            "gsrnamespace": 6, "gsrlimit": limit, "prop": "imageinfo",
+            "iiprop": "url|extmetadata|size", "iiurlwidth": 640, "format": "json", "formatversion": 2,
+        }
+        response = self._session.get(self.api_url, params=params, timeout=(1.25, 3.0))
+        response.raise_for_status()
+        out = []
+        for page in (response.json().get("query") or {}).get("pages") or []:
+            infos = page.get("imageinfo") or []
+            if not infos:
+                continue
+            info = infos[0]
+            if _commercial_commons_licence(info.get("extmetadata") or {}) is None:
+                continue
+            if not (info.get("thumburl") or info.get("url")):
+                continue
+            out.append((page, info, str(page.get("title") or "").replace("File:", "").strip()))
+        return out
+
+    def _payload(self, query: str, score: float, page: dict[str, Any], info: dict[str, Any], title: str) -> dict[str, Any]:
+        meta = info.get("extmetadata") or {}
+        licence = _commercial_commons_licence(meta)
+        if licence is None:
+            return {"ok": False, "query": query, "reason": "commercial_licence_unavailable"}
+        licence_name, licence_url = licence
+        page_id = page.get("pageid")
+        return {
+            "ok": True,
+            "query": query,
+            "confidence": round(score, 1),
+            "title": title,
+            "thumbnail_url": info.get("thumburl") or info.get("url"),
+            "original_url": info.get("url"),
+            "page_url": f"https://commons.wikimedia.org/?curid={page_id}" if page_id else info.get("descriptionurl"),
+            "artist": self._plain(meta.get("Artist")),
+            "credit": self._plain(meta.get("Credit")),
+            "license": licence_name,
+            "license_url": licence_url,
+            "search_url": f"https://commons.wikimedia.org/w/index.php?search={quote(query)}",
+            "source": "Wikimedia Commons",
+        }
+
+    def _lookup_exact(self, activity: Vehicle | Event) -> dict[str, Any]:
         query = self.query_for(activity).strip()
         if not self.enabled or not query:
             suppress_fallback = (

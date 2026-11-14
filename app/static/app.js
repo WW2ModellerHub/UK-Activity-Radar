@@ -1269,7 +1269,7 @@
     box.classList.remove('hidden');
     box.innerHTML = '<div class="photo-loading">Looking for a matching photo…</div>';
     const controller = new AbortController();
-    const timeout = setTimeout(()=>controller.abort(), 3000);
+    const timeout = setTimeout(()=>controller.abort(), 8000);
     try {
       const response = await fetch(`/api/activity/${encodeURIComponent(a.id)}/media`,{signal:controller.signal});
       if (!response.ok) throw new Error('Image lookup unavailable');
@@ -1296,7 +1296,8 @@
       const sourceUrl = safeUrl(payload.page_url || payload.search_url);
       const licenceUrl = safeUrl(payload.license_url || payload.page_url || payload.search_url);
       let imageTruth = null;
-      if (a.type === 'train') {
+      if (payload.match_kind === 'type_reference' && payload.reference_label) imageTruth = payload.reference_label;
+      else if (a.type === 'train') {
         imageTruth = `Photo of this vehicle or class${a.vehicle_ref ? ` ${a.vehicle_ref}` : ''} — not live`;
       } else if (a.type === 'bus') imageTruth = `Photo matched to vehicle ${a.vehicle_ref} — not live`;
       else if (a.type === 'vessel') imageTruth = 'Photo of this vessel — not live';
@@ -1321,11 +1322,22 @@
       ? `${fallbackVisual}<div class="detail-photo-copy aircraft-known"><strong>${esc(fallback.title)}</strong><span>${esc(knownIdentity || 'Live aircraft')}</span><b class="image-truth">${esc(fallback.truth)}</b><span>${esc(fallback.credit)} • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a></span></div>`
       : '<div class="photo-loading">Looking for a licensed aircraft photo…</div>';
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
+    const timeout = setTimeout(() => controller.abort(), 8000);
     try {
-      const response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/media`,{cache:'no-store',signal:controller.signal});
+      let response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/media`,{cache:'no-store',signal:controller.signal});
+      // Everyday planes are not kept on the server: ask for an example of
+      // the type (in the airline's colours) from what this page knows.
+      if(response.status===404){
+        const q=new URLSearchParams({kind:a.type==='sar'?'sar':'aircraft'});
+        if(a.aircraft_model||a.aircraft_type_code)q.set('model',a.aircraft_model||a.aircraft_type_code);
+        if(a.name)q.set('callsign',a.name);
+        if(a.operator)q.set('operator',a.operator);
+        response=await fetch(`/api/media/reference?${q}`,{cache:'no-store',signal:controller.signal});
+      }
       if(!response.ok)throw new Error('lookup unavailable');
-      const reference=await response.json();
+      let reference=await response.json();
+      // A hand-picked photo of a military type beats a search result.
+      if(fallback&&reference.match_kind==='type_reference')reference={ok:false};
       if (requestId !== mediaRequest || selectedId !== a.id) return;
       const reg = a.vehicle_ref || null;
       const model = a.aircraft_model || a.aircraft_type_code || null;
@@ -1334,7 +1346,7 @@
       const imageUrl=referenceImage ? reference.thumbnail_url : null;
       const imagePage=reference.page_url || reference.search_url;
       const image = imageUrl ? `<a target="_blank" rel="noopener" href="${esc(safeUrl(imagePage))}"><img src="${esc(safeUrl(imageUrl))}" alt="${esc(identity || a.name)}" loading="lazy"></a>` : '';
-      const imageTruth=referenceImage ? (reference.match_kind==='exact_airframe' ? 'Archive photo of this aircraft registration — not live' : 'Example of this aircraft type — not necessarily this exact airframe') : null;
+      const imageTruth=referenceImage ? (reference.match_kind==='exact_airframe' ? 'Archive photo of this aircraft registration — not live' : (reference.reference_label || 'Example of this aircraft type — not necessarily this exact airframe')) : null;
       const imageCredit=referenceImage ? [reference.artist,reference.license,'Wikimedia Commons'].filter(Boolean).join(' • ') : fallback?.credit;
       const links = a.source_id ? `<a target="_blank" rel="noopener" href="https://www.planespotters.net/hex/${esc(String(a.source_id).toUpperCase())}">Planespotters ↗</a>` : '';
       const visibleTruth=imageTruth || fallback?.truth;
@@ -3322,7 +3334,7 @@
     renderDiscoveryDetail(a);
     if (selectionChanged) { clearPhoto(); clearActivityIntelligence(); }
     if (['sar','aircraft'].includes(a.type)) { loadAircraftInfo(a); if (!flightRouteById.has(a.id)) loadFlightRoute(a); }
-    else if ((a.type === 'train' && detailCool.candidate) || a.type === 'vessel' || (a.type === 'bus' && a.vehicle_ref)) loadPhoto(a);
+    else if (['train','bus','vessel'].includes(a.type)) loadPhoto(a);
     else if (['road','incident'].includes(a.type)) loadNearestCamera(a);
     renderRelated(a);
     loadEnvironmentContext(a);

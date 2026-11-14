@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — photos for trains, buses and planes
+
+- Trains only looked for a photo when the exact unit number was known (almost
+  never), buses only by fleet number, and everyday planes not at all. Now, when
+  there is no photo of the exact vehicle, the panel shows an example in the
+  operator's colours: a GWR Class 800, a Stagecoach bus, a Ryanair 737.
+  Each is labelled "Example of … — not this exact one".
+- A photo must mention both the operator and the vehicle type, and have a
+  licence that allows commercial use; an unknown operator gets no guess.
+  Steam and railtour specials never get an everyday train photo.
+- New `/api/media/reference` serves planes the server does not keep.
+
 ## 2026-11-14 — options under each layer
 
 - A second chip row appears under the layer chips with options for the layer
