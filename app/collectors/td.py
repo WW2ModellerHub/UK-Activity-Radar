@@ -431,6 +431,7 @@ class TDCollector(StompFeed):
             if (
                 not vehicle.schedule_id or vehicle.last_updated < oldest
                 or vehicle.terminated_at is not None
+                or vehicle.cancelled_at is not None
                 or str(vehicle.status or "").lower().startswith("terminated")
             ):
                 return False

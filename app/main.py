@@ -8,6 +8,7 @@ import math
 import os
 import re
 import shutil
+import sqlite3
 import time
 
 import requests
@@ -50,7 +51,10 @@ from .error_safety import same_origin_websocket
 from .network_environment import blocked_proxy_variables
 from .models import SourceStatus
 from .engagement import build_today_payload, safe_share_payload
-from .commute_alerts import CommuteAlertStore, alert_for_activity, within_alert_hours
+from .commute_alerts import (
+    CommuteAlertStore, alert_for_activity, normalise_saved_trains, saved_train_alerts,
+    saved_train_status, within_alert_hours,
+)
 from .coverage import coverage_for_event
 from .media import WikimediaLookup
 from .search import ActivitySearch
@@ -70,6 +74,7 @@ from .schedule_store import ScheduleStore, sync_schedule_data
 from .request_budget import FixedWindowBudget
 from .rail_snapshot import RailPositionSnapshot
 from .rail_lines import RailLineLayer
+from .rail_sections import delay_hotspots, line_at
 from .open_trip_planner import OpenTripPlannerClient
 from .tomtom_routing import TomTomRoutingClient
 from .billing import (
@@ -518,9 +523,18 @@ async def _commute_alert_loop() -> None:
             continue
         activities = state.all_activities()
         for saved in store.active():
-            if not within_alert_hours(saved.preferences):
+            # Saved trains alert whenever they change, not only in commute hours.
+            train_alerts = [
+                alert
+                for train_id in saved.preferences.get("saved_trains") or []
+                for alert in saved_train_alerts(_saved_train_status(train_id))
+            ]
+            if not within_alert_hours(saved.preferences) and not train_alerts:
                 continue
-            candidates = [alert_for_activity(item, saved.preferences) for item in activities]
+            candidates = train_alerts + (
+                [alert_for_activity(item, saved.preferences) for item in activities]
+                if within_alert_hours(saved.preferences) else []
+            )
             candidate = next((row for row in candidates if row and not store.already_delivered(saved.endpoint_hash, row["key"])), None)
             if candidate is None:
                 continue
@@ -1799,6 +1813,59 @@ def rail_lines_cell(request: Request, level: int, cx: int, cy: int):
     return JSONResponse(payload, headers={"Cache-Control": _RAIL_LINE_CACHE})
 
 
+_passenger_stations_cache: tuple[float, list[dict]] = (0.0, [])
+
+
+def _passenger_stations() -> list[dict]:
+    """Stations with a passenger code, for naming stretches of line."""
+    global _passenger_stations_cache
+    loaded_at, rows = _passenger_stations_cache
+    if rows and time.monotonic() - loaded_at < 3600:
+        return rows
+    found: dict[str, dict] = {}
+    try:
+        with sqlite3.connect(schedules.db_path) as conn:
+            for crs, name, lat, lon in conn.execute(
+                "SELECT crs, description, lat, lon FROM tiplocs WHERE crs IS NOT NULL AND crs<>'' AND lat IS NOT NULL AND lon IS NOT NULL"
+            ):
+                found.setdefault(str(crs), {"name": str(name or crs), "lat": float(lat), "lon": float(lon)})
+    except sqlite3.Error:
+        return rows
+    _passenger_stations_cache = (time.monotonic(), list(found.values()))
+    return _passenger_stations_cache[1]
+
+
+def _live_trains() -> list:
+    return [row for row in state.all(include_buses=False, include_vessels=False, train_limit=None) if row.type == "train"]
+
+
+@app.get("/api/rail/line")
+def rail_line_at(request: Request, lat: float, lon: float, zoom: float = 12):
+    """The stretch of railway at a tapped point, with the trains on it in order."""
+    _enforce_public_budget(request, lookup_request_budget)
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise HTTPException(status_code=400, detail="Invalid location")
+    # About 18 screen pixels at the caller's zoom, within sensible bounds.
+    metres_per_pixel = 156543.03 * math.cos(math.radians(lat)) / (2 ** max(5.0, min(19.0, zoom)))
+    reach_km = max(0.08, min(3.0, 18 * metres_per_pixel / 1000))
+    return line_at(rail_line_layer, _live_trains(), _passenger_stations(), lat, lon, reach_km, datetime.now(timezone.utc))
+
+
+_delay_hotspot_cache: tuple[float, list[dict]] = (0.0, [])
+
+
+@app.get("/api/rail/delays")
+def rail_delay_hotspots(request: Request):
+    """Stretches of line where trains are running late right now."""
+    global _delay_hotspot_cache
+    _enforce_public_budget(request, lookup_request_budget)
+    computed_at, rows = _delay_hotspot_cache
+    if time.monotonic() - computed_at > 20:
+        rows = delay_hotspots(rail_line_layer, _live_trains(), _passenger_stations(), datetime.now(timezone.utc))
+        _delay_hotspot_cache = (time.monotonic(), rows)
+    return {"hotspots": rows}
+
+
 @app.get("/api/rail/locate")
 def locate_rail_service(request: Request, train_uid: str | None = None, headcode: str | None = None, service_date: str | None = None):
     """Locate a station-board service even when its layer is not streamed."""
@@ -1828,6 +1895,29 @@ def activity_bus(request: Request, activity_id: str, limit: int = 12):
         "activity": activity_id,
         "detail": smart_places.bus_vehicle_journey(item, limit=max(3, min(int(limit), 30))),
     }
+
+
+def _saved_train_status(train_id: str) -> dict:
+    vehicle = state.get(train_id)
+    if vehicle is None or getattr(vehicle, "type", None) != "train":
+        return {"found": False, "id": train_id}
+    note = state.rail_notes.get(vehicle.train_uid, vehicle.service_date)
+    return saved_train_status(vehicle, note)
+
+
+@app.get("/api/trains/status")
+def saved_trains_status(request: Request, response: Response, ids: str = ""):
+    """Current state of up to twelve saved trains, wherever they are."""
+    _enforce_public_budget(request, lookup_request_budget)
+    response.headers["Cache-Control"] = "private, no-store"
+    wanted = normalise_saved_trains(ids.split(","))
+    trains = [_saved_train_status(train_id) for train_id in wanted]
+    for row in trains:
+        row["alerts"] = [
+            {"key": alert["key"], "title": alert["title"], "body": alert["body"]}
+            for alert in saved_train_alerts(row)
+        ]
+    return {"trains": trains}
 
 
 @app.get("/api/activity/{activity_id:path}")

@@ -8,6 +8,7 @@ from threading import RLock
 
 from .cool_classifier import apply_cool_classification
 from .models import Event, SourceStatus, Vehicle
+from .rail_service_notes import RailServiceNotes
 
 
 TRAIN_LIVE_REPORT_MINUTES = 45
@@ -18,6 +19,8 @@ TRAIN_ROLLOVER_GRACE_MINUTES = 10
 RESTORED_SNAPSHOT_MINUTES = 15
 # A finished service stays visible briefly so a viewer sees it arrive.
 TERMINATED_VISIBLE_MINUTES = 2
+# A cancelled train stays on the map, struck through, long enough to be seen.
+CANCELLED_VISIBLE_MINUTES = 10
 # A Train Describer headcode that never matched a timetable and has not moved
 # for this long is usually stock stabled or laid over in a platform.
 UNMATCHED_TD_IDLE_MINUTES = 20
@@ -29,6 +32,8 @@ def _train_finished(vehicle: Vehicle, now: datetime) -> bool:
         return False
     finished_before = now - timedelta(minutes=TERMINATED_VISIBLE_MINUTES)
     if vehicle.terminated_at is not None and vehicle.terminated_at <= finished_before:
+        return True
+    if vehicle.cancelled_at is not None and vehicle.cancelled_at <= now - timedelta(minutes=CANCELLED_VISIBLE_MINUTES):
         return True
     if str(vehicle.status or "").lower().startswith("terminated") and vehicle.last_updated < finished_before:
         return True
@@ -115,7 +120,7 @@ def _train_has_current_projection(vehicle: Vehicle, now: datetime) -> bool:
     """
     if vehicle.type != "train" or not vehicle.schedule_id or not vehicle.service_date:
         return False
-    if vehicle.terminated_at is not None:
+    if vehicle.terminated_at is not None or vehicle.cancelled_at is not None:
         return False
     if vehicle.last_updated < now - timedelta(minutes=TRAIN_PROJECTION_MINUTES):
         return False
@@ -138,6 +143,8 @@ class LiveState:
         self._events: dict[str, Event] = {}
         self._sources: dict[str, SourceStatus] = {}
         self._unmapped: deque[dict] = deque(maxlen=500)
+        # Cancellations and actual platforms by timetable identity.
+        self.rail_notes = RailServiceNotes()
         self._revision = 0
 
     @property
@@ -537,6 +544,7 @@ class LiveState:
         grow forever as vehicle identifiers change through the day.
         """
         current = now or datetime.now(timezone.utc)
+        self.rail_notes.prune()
         retention = {
             "bus": timedelta(minutes=15),
             "aircraft": timedelta(minutes=30),

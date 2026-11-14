@@ -1,5 +1,29 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — disruption, line view, saved-train alerts, aircraft icons
+
+- **Cancellations.** TRUST cancellations (and reinstatements) are now kept per
+  service, including trains that never started. Boards show "Cancelled" with
+  the time struck out (a part-cancelled train still arrives where it was cut
+  short); the train panel shows "Cancelled from …"; a cancelled train on the
+  map turns grey with a strike line for 10 minutes, then leaves.
+- **Platform changes.** The platform TRUST reports is compared with the
+  booked one. Boards and calling points show "Platform 5 (was 2)".
+- **Saved-train alerts.** Saving a train asks for notification permission and
+  alerts once per change: cancelled, late (5/15/30/60 min bands) or moved
+  platform. `/api/trains/status` serves the app; with travel alerts on, the
+  same alerts are pushed to the phone while the app is closed.
+- **Line view.** Tapping a railway line lists the trains on that stretch
+  (junction to junction, named after the stations at its ends) in order,
+  with lateness. `/api/rail/line`.
+- **Delays.** A "Delays" chip (shown with Trains) highlights stretches where
+  trains run late and lists them; tapping one zooms there and opens its line
+  view. `/api/rail/delays`.
+- **Aircraft icons.** One flat set of top-down silhouettes (airliner, heavy,
+  fast jet, light aircraft, helicopter, Apache, Chinook) on a white disc,
+  coloured by kind, shared by the map markers and the fast renderer; the old
+  dark-theme aircraft CSS overrides were removed.
+
 ## 2026-11-13 — one panel per tap
 
 - Touch screens no longer show the floating map card when a train, bus, station or camera is tapped; the detail panel is the only view. Mouse users keep the hover card.

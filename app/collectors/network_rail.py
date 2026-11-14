@@ -138,6 +138,8 @@ class TrustCollector(StompFeed):
             "booked_speed": schedule.booked_speed if schedule else None,
             "operating_characteristics": schedule.operating_characteristics if schedule else None,
             "schedule_source": body.get("schedule_source"),
+            # TRUST's own running date, for services the timetable cannot match.
+            "origin_date": str(body.get("tp_origin_timestamp") or "").strip()[:10] or None,
             "service_date": schedule.running_date if schedule else None,
             "schedule_id": schedule.schedule_id if schedule else None,
         }
@@ -410,6 +412,8 @@ class TrustCollector(StompFeed):
             interesting=False,
             restored_snapshot=False,
             terminated_at=event_time if str(body.get("train_terminated", "false")).lower() == "true" else None,
+            platform=platform or None,
+            booked_platform=self._booked_platform(activation.get("schedule_id"), station.get("tiploc")) if platform else None,
             last_updated=event_time,
             reported_lat=float(station["lat"]),
             reported_lon=float(station["lon"]),
@@ -420,23 +424,79 @@ class TrustCollector(StompFeed):
             estimate_due_at=due_at,
         )
         self.state.upsert(vehicle)
+        if platform:
+            self.state.rail_notes.platform(
+                activation.get("train_uid"), activation.get("service_date") or activation.get("origin_date"),
+                station.get("tiploc"), platform,
+            )
         status.movements_mapped += 1
         if replay and status.movements_unmapped > 0:
             status.movements_unmapped -= 1
         return True
 
+    def _booked_platform(self, schedule_id, tiploc) -> str | None:
+        if not schedule_id or not tiploc or not self.schedules.ready():
+            return None
+        try:
+            return self.schedules.booked_platform(int(schedule_id), str(tiploc))
+        except (AttributeError, TypeError, ValueError):
+            return None
+
+    def _service_identity(self, train_id: str) -> tuple[str, str | None, str | None, Vehicle | None]:
+        canonical_id = self._canonical_ids.get(train_id, train_id)
+        activation = self.activations.get(canonical_id) or {}
+        existing = self.state.get(f"nr:{canonical_id}")
+        existing = existing if isinstance(existing, Vehicle) else None
+        uid = activation.get("train_uid") or (existing.train_uid if existing else None)
+        service_date = (
+            activation.get("service_date") or activation.get("origin_date")
+            or (existing.service_date if existing else None)
+        )
+        if existing is None and uid:
+            existing = self.state.find_train_by_uid(uid, service_date)
+        return canonical_id, uid, service_date, existing
+
     def _cancellation(self, body: dict) -> None:
         train_id = str(body.get("train_id") or "").strip()
-        existing = self.state.get(f"nr:{self._canonical_ids.get(train_id, train_id)}")
+        if not train_id:
+            return
+        _canonical, uid, service_date, existing = self._service_identity(train_id)
+        stanox = str(body.get("loc_stanox") or "").strip()
+        if stanox.isdigit():
+            stanox = stanox.zfill(5)
+        station = self.stations.get(stanox) or {}
+        tiplocs = set(self.schedules.tiplocs_for_stanox(stanox)) if stanox and self.schedules.ready() else set()
+        if station.get("tiploc"):
+            tiplocs.add(station["tiploc"])
+        kind = str(body.get("canx_type") or "").strip().upper()
+        event_time = self._event_time(body)
+        self.state.rail_notes.cancel(
+            uid, service_date, tiplocs=tiplocs, location=station.get("name"), kind=kind,
+            at=event_time.isoformat(),
+        )
         if existing:
-            event_time = self._event_time(body)
-            if event_time < existing.last_updated:
+            if event_time < existing.last_updated - timedelta(minutes=30):
                 return
-            existing.status = f"Cancelled {str(body.get('canx_type') or '').title()}".strip()
-            existing.last_updated = event_time
+            existing.status = "Cancelled"
+            existing.cancelled_at = event_time
+            existing.last_updated = max(existing.last_updated, event_time)
             existing.next_lat = existing.next_lon = None
+            existing.next_location = None
             existing.estimate_path = None
+            existing.estimate_started_at = None
             existing.estimate_due_at = None
+            self.state.upsert(existing)
+
+    def _reinstatement(self, body: dict) -> None:
+        train_id = str(body.get("train_id") or "").strip()
+        if not train_id:
+            return
+        _canonical, uid, service_date, existing = self._service_identity(train_id)
+        self.state.rail_notes.reinstate(uid, service_date)
+        if existing and existing.cancelled_at is not None:
+            existing.cancelled_at = None
+            existing.status = "Reinstated"
+            existing.last_updated = max(existing.last_updated, self._event_time(body))
             self.state.upsert(existing)
 
     def _identity_change(self, body: dict) -> None:
@@ -476,6 +536,8 @@ class TrustCollector(StompFeed):
                 self._cancellation(body)
             elif msg_type == "0003":
                 self._movement(body, status)
+            elif msg_type == "0005":
+                self._reinstatement(body)
             elif msg_type == "0007":
                 self._identity_change(body)
 

@@ -118,12 +118,24 @@
   let trafficConfigured = false;
   let trafficTileErrorShown = false;
 
+  // Aircraft silhouettes, top-down on a 24px grid pointing north. The same
+  // shapes are drawn by the fast map renderer (live-object-renderer.js).
+  const AIRCRAFT_SHAPES = {
+    airliner:'<path class="ac-body" d="M12 1.5c.9 0 1.5 1 1.5 2.4V9l8 4.6v2.1l-8-2.4v5.2l2.4 1.8v1.6L12 21l-3.9.9v-1.6l2.4-1.8v-5.2l-8 2.4v-2.1l8-4.6V3.9c0-1.4.6-2.4 1.5-2.4z"/>',
+    heavy:'<path class="ac-body" d="M12 1c1 0 1.6 1.1 1.6 2.6V8.6l9.4 5v2.2l-9.4-2.6v5.6l2.6 1.8v1.7L12 21.4l-4.2.9v-1.7l2.6-1.8v-5.6L1 15.8v-2.2l9.4-5V3.6C10.4 2.1 11 1 12 1z"/><path class="ac-body" d="M5.2 12.6h1.8v2.6H5.2zM8 11.1h1.8v2.6H8zM14.2 11.1H16v2.6h-1.8zM17 12.6h1.8v2.6H17z"/>',
+    fastjet:'<path class="ac-body" d="M12 1l1.6 5 .4 5 8 6v2.2l-8-1.6-.6 2.6 3 2v1.6L12 22.2l-4.4.6v-1.6l3-2-.6-2.6-8 1.6V17l8-6 .4-5z"/>',
+    propeller:'<path class="ac-body" d="M12 4c.8 0 1.3.8 1.3 2v3.6l8.7 1.2v2.2l-8.7.6-.4 5.6 2.6 1.4v1.6L12 21.6l-3.5.6v-1.6l2.6-1.4-.4-5.6-8.7-.6v-2.2l8.7-1.2V6c0-1.2.5-2 1.3-2z"/><path class="ac-rotor" d="M8.4 3h7.2"/>',
+    helicopter:'<path class="ac-rotor" d="M3 2.5l18 15M21 2.5l-18 15"/><ellipse class="ac-body" cx="12" cy="10" rx="3.8" ry="5.6"/><path class="ac-body" d="M11.2 14.5h1.6v6h-1.6zM8.8 19.8h6.4v1.8H8.8z"/>',
+    apache:'<path class="ac-rotor" d="M3 2.5l18 15M21 2.5l-18 15"/><ellipse class="ac-body" cx="12" cy="9.6" rx="2.8" ry="6"/><path class="ac-body" d="M6 10.4h12v2.4H6zM11.2 14.5h1.6v6h-1.6zM8.8 19.8h6.4v1.8H8.8z"/>',
+    chinook:'<path class="ac-rotor" d="M6.5 1.5l11 8.6M17.5 1.5l-11 8.6M6.5 13.9l11 8.6M17.5 13.9l-11 8.6"/><rect class="ac-body" x="9.6" y="2.4" width="4.8" height="19.2" rx="2.4"/>',
+  };
+
   // One line-icon set for the whole interface (24px grid, stroked).
   const ICON_PATHS = {
     train:'<rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14M9 14h.01M15 14h.01M8 21l1.5-4M16 21l-1.5-4"/>',
     bus:'<rect x="4" y="3" width="16" height="14" rx="3"/><path d="M4 10h16M8 14h.01M16 14h.01M7 17v3M17 17v3"/>',
-    aircraft:'<path d="M12 2c.9 0 1.5.8 1.5 1.8V9l7 4v2l-7-2v5l2 1.5V21L12 20l-3.5 1v-1.5l2-1.5v-5l-7 2v-2l7-4V3.8C10.5 2.8 11.1 2 12 2z"/>',
-    sar:'<path d="M3 5h14M10 5v3"/><ellipse cx="11" cy="12" rx="6" ry="4"/><path d="M17 11h4M21 9v4M8 16v3M14 16v3M6 19h10"/>',
+    aircraft:'<path d="M12 2.5c.8 0 1.3.9 1.3 2.1V9.2l7.2 4.2v1.9l-7.2-2.2v4.7l2.2 1.6v1.5L12 20.2l-3.5.7v-1.5l2.2-1.6v-4.7l-7.2 2.2v-1.9l7.2-4.2V4.6c0-1.2.5-2.1 1.3-2.1z"/>',
+    sar:'<circle cx="12" cy="10" r="3.2"/><path d="M4.5 3.5l15 13M19.5 3.5l-15 13M12 13.2V21M9.5 21h5"/>',
     vessel:'<path d="M3 16l2 4h14l2-4zM6 16V9h12v7M12 9V4M9 6h6"/>',
     rescue:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M5.6 5.6l3.6 3.6M14.8 14.8l3.6 3.6M18.4 5.6l-3.6 3.6M9.2 14.8l-3.6 3.6"/>',
     incident:'<path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17h.01"/>',
@@ -696,6 +708,109 @@
     } catch {}
   }
 
+  // ---- Line view and delay hotspots ----
+  // Tap a railway line to list the trains on that stretch, in order, like a
+  // signal box diagram. "Delays" shows the stretches where trains run late.
+  const railView = { highlight:null, delaysOn:false, delaysTimer:null, lookup:0, hotspots:[] };
+
+  function clearRailHighlight() {
+    if (railView.highlight) { map.removeLayer(railView.highlight); railView.highlight=null; }
+    $('map')?.removeAttribute('data-rail-line-view');
+  }
+
+  function drawRailHighlight(stretches) {
+    clearRailHighlight();
+    const group=L.layerGroup();
+    for (const row of stretches) {
+      if (!Array.isArray(row.points) || row.points.length<2) continue;
+      group.addLayer(L.polyline(row.points,{pane:'railLinePane',color:row.color||'#0b63ce',weight:row.weight||7,opacity:.9,lineCap:'round',lineJoin:'round',interactive:false}));
+    }
+    railView.highlight=group.addTo(map);
+  }
+
+  function stretchTitle(row) {
+    const start=humanTransitLabel(row?.from||''), end=humanTransitLabel(row?.to||'');
+    return start&&end ? `${start} – ${end}` : start||end ? `Near ${start||end}` : 'Railway line';
+  }
+
+  function openInfoPanel(title, subtitle, html) {
+    closeDetailSelection();
+    $('detail-panel')?.classList.add('has-selection'); $('detail-sidebar')?.classList.remove('is-empty');
+    $('detail-title').textContent=title;
+    $('detail-subtitle').textContent=subtitle;
+    $('detail-fields').innerHTML='';
+    const box=$('detail-insight'); box.classList.remove('hidden'); box.innerHTML=html;
+    $('follow')?.classList.add('hidden');
+    return box;
+  }
+
+  function lineTrainRow(row) {
+    const status=trainStatusLabel({delay_minutes:row.delay_minutes,cancelled_at:row.cancelled?1:null});
+    const tone=row.cancelled ? 'is-bad' : punctualityClass(row.delay_minutes);
+    const where=[row.destination?`to ${humanTransitLabel(row.destination)}`:null,humanTransitLabel(row.operator||'')||null].filter(Boolean).join(' · ');
+    return `<button type="button" class="line-train" data-line-train="${esc(row.id)}"><i class="line-dot ${esc(tone)}" aria-hidden="true"></i><span><strong>${esc(row.name)}</strong>${where?`<small>${esc(where)}</small>`:''}</span><b class="${esc(tone)}">${esc(status==='Live'?'':status)}</b></button>`;
+  }
+
+  function showRailLine(result) {
+    const trains=result.trains||[];
+    const ends=result.from&&result.to?`<p class="line-ends"><span>${esc(humanTransitLabel(result.from))}</span><i aria-hidden="true"></i><span>${esc(humanTransitLabel(result.to))}</span></p>`:'';
+    const list=trains.length?`<div class="line-trains">${trains.map(lineTrainRow).join('')}</div>`:'<p class="transport-empty">No trains on this stretch right now.</p>';
+    const box=openInfoPanel(stretchTitle(result),`${trains.length} train${trains.length===1?'':'s'} on this line${result.length_km?` · ${Math.round(result.length_km)} km`:''}`,`<div class="line-view">${ends}${list}</div>`);
+    box.querySelectorAll('[data-line-train]').forEach(button=>button.addEventListener('click',()=>{ if(railView.delaysOn)$('map')?.removeAttribute('data-rail-line-view'); else clearRailHighlight(); selectActivity(button.dataset.lineTrain,true); }));
+    drawRailHighlight([{points:result.points}]);
+    $('map')?.setAttribute('data-rail-line-view', String(trains.length));
+  }
+
+  async function lookupRailLine(latlng) {
+    const seq=++railView.lookup;
+    try {
+      const response=await fetch(`/api/rail/line?lat=${encodeURIComponent(latlng.lat)}&lon=${encodeURIComponent(latlng.lng)}&zoom=${encodeURIComponent(map.getZoom())}`,{cache:'no-store'});
+      if(!response.ok||seq!==railView.lookup)return false;
+      const result=await response.json();
+      if(!result?.found||seq!==railView.lookup)return false;
+      showRailLine(result);
+      return true;
+    } catch { return false; }
+  }
+
+  async function refreshDelayHotspots(openPanel=false) {
+    if(!railView.delaysOn)return;
+    try {
+      const response=await fetch('/api/rail/delays',{cache:'no-store'});
+      if(!response.ok||!railView.delaysOn)return;
+      railView.hotspots=(await response.json()).hotspots||[];
+    } catch { return; }
+    const worst=Math.max(1,...railView.hotspots.map(row=>row.average_delay||0));
+    drawRailHighlight(railView.hotspots.map(row=>({points:row.points,color:(row.average_delay||0)>=15||row.cancelled?'#d64545':'#e8930c',weight:6+Math.round(6*(row.average_delay||0)/worst)})));
+    $('map')?.setAttribute('data-delay-hotspots', String(railView.hotspots.length));
+    if(!openPanel)return;
+    const rows=railView.hotspots.map((row,index)=>{
+      const facts=[row.late?`${row.late} late, about ${row.average_delay} min`:null,row.cancelled?`${row.cancelled} cancelled`:null].filter(Boolean).join(' · ');
+      return `<button type="button" class="line-train delay-spot" data-delay-spot="${index}"><i class="line-dot ${(row.average_delay||0)>=15||row.cancelled?'is-very-late':'is-late'}" aria-hidden="true"></i><span><strong>${esc(stretchTitle(row))}</strong><small>${esc(facts)}</small></span><b>›</b></button>`;
+    }).join('');
+    const box=openInfoPanel('Delays now',railView.hotspots.length?'Where trains are running late':'Trains are running well',rows?`<div class="line-trains">${rows}</div>`:'<p class="transport-empty">No stretch of line has late trains right now.</p>');
+    drawRailHighlight(railView.hotspots.map(row=>({points:row.points,color:(row.average_delay||0)>=15||row.cancelled?'#d64545':'#e8930c',weight:6+Math.round(6*(row.average_delay||0)/worst)})));
+    box.querySelectorAll('[data-delay-spot]').forEach(button=>button.addEventListener('click',()=>{
+      const row=railView.hotspots[Number(button.dataset.delaySpot)];
+      if(!row)return;
+      map.fitBounds(L.latLngBounds(row.points),{padding:[40,40],maxZoom:12});
+      lookupRailLine({lat:row.center[0],lng:row.center[1]});
+    }));
+  }
+
+  function setDelayHotspots(on) {
+    railView.delaysOn=Boolean(on)&&enabledActivityTypes.has('train');
+    document.querySelectorAll('[data-rail-delays]').forEach(chip=>chip.setAttribute('aria-pressed',String(railView.delaysOn)));
+    clearInterval(railView.delaysTimer); railView.delaysTimer=null;
+    if(railView.delaysOn){
+      refreshDelayHotspots(true);
+      railView.delaysTimer=setInterval(()=>refreshDelayHotspots(false),60000);
+    } else {
+      clearRailHighlight();
+      $('map')?.removeAttribute('data-delay-hotspots');
+    }
+  }
+
   function updateLayerToggleUi() {
     document.querySelectorAll('[data-layer-chip]').forEach(chip => {
       chip.setAttribute('aria-pressed', String(enabledActivityTypes.has(chip.dataset.layerChip)));
@@ -712,6 +827,8 @@
     if (effectivePlaceMode() !== fetchedPlaceMode) fetchPlaces();
     const wantRailLines = enabledActivityTypes.has('train');
     if (wantRailLines !== railLines.wanted) { railLines.wanted = wantRailLines; updateRailLines(); }
+    document.querySelectorAll('[data-rail-delays]').forEach(chip=>chip.classList.toggle('hidden',!wantRailLines));
+    if (!wantRailLines && railView.delaysOn) setDelayHotspots(false);
     syncBaseMap();
   }
 
@@ -1155,14 +1272,11 @@
 
   function aircraftMapShape(v) {
     const text=[v.aircraft_model,v.aircraft_type_code,v.subtitle].filter(Boolean).join(' ').toUpperCase();
-    // Original category-specific silhouettes; details remain visible at map size.
-    const helicopter='<svg class="map-aircraft-svg map-helicopter-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="rotor" d="M4 22h56M11 8l42 28M11 36 53 8"/><circle class="rotor-hub" cx="32" cy="22" r="3"/><path class="airframe" d="M32 13c-7 0-11 5-11 13 0 8 5 13 9 15l-2 14h8l-2-14c4-2 9-7 9-15 0-8-4-13-11-13Z"/><path class="tail-boom" d="M32 39v20"/><path class="tail-plane" d="M22 53h20"/><path class="tail-rotor" d="M32 54v10m-5-5h10"/></svg>';
-    const chinook='<svg class="map-aircraft-svg map-chinook-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="rotor" d="M4 17h34M12 5l18 24M12 29 30 5M26 47h34M34 35l18 24M34 59l18-24"/><circle class="rotor-hub" cx="21" cy="17" r="3"/><circle class="rotor-hub" cx="43" cy="47" r="3"/><path class="airframe" d="M20 12c-5 2-7 7-5 12l18 29c3 5 10 6 15 2 4-3 5-9 2-14L31 12c-2-3-7-4-11 0Z"/><path class="tail-plane" d="M38 48h18M15 17 7 24"/></svg>';
-    const apache='<svg class="map-aircraft-svg map-apache-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="rotor" d="M3 23h58M10 7l44 32M10 39 54 7"/><circle class="rotor-hub" cx="32" cy="23" r="3"/><path class="airframe" d="M32 10c-5 0-9 5-9 13l4 18 2 15h6l2-15 4-18c0-8-4-13-9-13Z"/><path class="stub-wing" d="M13 37h38l-5 5H18Z"/><path class="tail-rotor" d="M32 53v11m-5-5h10"/></svg>';
-    const fastJet='<svg class="map-aircraft-svg map-fastjet-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="airframe" d="M32 2c-3 4-5 12-5 20L8 43v6l19-8 1 10-9 7v3l13-4 13 4v-3l-9-7 1-10 19 8v-6L37 22c0-8-2-16-5-20Z"/><path class="jet-intake" d="m22 32 5-7v13Zm20 0-5-7v13Z"/><path class="tail-detail" d="m24 54 8-4 8 4"/></svg>';
-    const heavy='<svg class="map-aircraft-svg map-heavy-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="airframe" d="M32 2c-4 4-6 13-6 23L3 40v8l23-8 2 11-10 7v3l14-4 14 4v-3l-10-7 2-11 23 8v-8L38 25c0-10-2-19-6-23Z"/><ellipse class="engine" cx="13" cy="42" rx="3" ry="5"/><ellipse class="engine" cx="22" cy="37" rx="3" ry="5"/><ellipse class="engine" cx="42" cy="37" rx="3" ry="5"/><ellipse class="engine" cx="51" cy="42" rx="3" ry="5"/></svg>';
-    const airliner='<svg class="map-aircraft-svg map-airliner-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="airframe" d="M32 2c-3 4-5 13-5 25L5 42v6l22-8 1 12-9 6v3l13-4 13 4v-3l-9-6 1-12 22 8v-6L37 27c0-12-2-21-5-25Z"/><ellipse class="engine" cx="18" cy="42" rx="3" ry="5"/><ellipse class="engine" cx="46" cy="42" rx="3" ry="5"/></svg>';
-    const propeller='<svg class="map-aircraft-svg map-propeller-svg" viewBox="0 0 64 64" aria-hidden="true"><path class="airframe" d="M32 8c-3 4-4 12-4 21L9 38v7l19-5 1 12-9 6v3l12-4 12 4v-3l-9-6 1-12 19 5v-7l-19-9c0-9-1-17-4-21Z"/><circle class="prop-hub" cx="32" cy="8" r="3"/><path class="prop-line" d="M12 8h40M32 3v10"/><path class="cockpit-detail" d="M29 18h6"/></svg>';
+    // Flat top-down silhouettes on a 24px grid, pointing north.
+    const shape=(kind,body)=>`<svg class="map-aircraft-svg map-${kind}-svg" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
+    const P=AIRCRAFT_SHAPES;
+    const helicopter=shape('helicopter',P.helicopter), chinook=shape('chinook',P.chinook), apache=shape('apache',P.apache);
+    const fastJet=shape('fastjet',P.fastjet), heavy=shape('heavy',P.heavy), airliner=shape('airliner',P.airliner), propeller=shape('propeller',P.propeller);
     if(/CHINOOK|CH-?47|\bH47\b/.test(text)) return {kind:'chinook',html:chinook,rotorcraft:true};
     if(/APACHE|AH-?64/.test(text)) return {kind:'apache',html:apache,rotorcraft:true};
     if(v.type==='sar' || /LYNX|WILDCAT|MERLIN|GAZELLE|PUMA|HELICOPTER|SIKORSKY|AW1|EC1|H135|H145|DAUPHIN|\bS92\b/.test(text)) return {kind:'helicopter',html:helicopter,rotorcraft:true};
@@ -1207,8 +1321,8 @@
       const rotation = observedBearing;
       return L.divIcon({
         className:'marker-wrap aerial-marker-wrap',
-        html:`<div class="motion-shell aerial-motion-shell"><div class="aerial-map-marker aerial-${esc(type)} aircraft-shape-${shape.kind}" title="${esc(identity)} — ${esc(v.name)}"><span class="aircraft-silhouette${shape.rotorcraft?' rotorcraft-silhouette':''}" style="transform:rotate(${rotation}deg)">${shape.html}</span><small>${esc(identity)}</small>${priority}</div>${pointer}</div>`,
-        iconSize:[62,54],iconAnchor:[31,27]
+        html:`<div class="motion-shell aerial-motion-shell"><div class="aerial-map-marker aerial-${esc(type)} ac-${shape.kind} aircraft-shape-${shape.kind}" title="${esc(identity)} — ${esc(v.name)}"><span class="aircraft-silhouette${shape.rotorcraft?' rotorcraft-silhouette':''}" style="transform:rotate(${rotation}deg)">${shape.html}</span><small>${esc(identity)}</small>${priority}</div>${pointer}</div>`,
+        iconSize:[40,40],iconAnchor:[20,20]
       });
     }
     if(currentWorkspace==='cool' && cool.score>=45){
@@ -1232,12 +1346,13 @@
       ? `<i class="train-coincident-stem" style="width:${stemLength.toFixed(1)}px;transform:rotate(${stemAngle.toFixed(1)}deg)"></i><i class="train-coincident-origin" style="transform:translate(${-offsetX}px,${-offsetY}px)"></i>`
       : '';
     const trainIndex=coincidentCount>1 ? `<b class="train-coincident-index" aria-hidden="true">${coincidentSlot+1}</b>` : '';
-    const punctuality=type==='train' ? punctualityClass(v.delay_minutes) : '';
+    const cancelled=type==='train'&&Boolean(v.cancelled_at);
+    const punctuality=type==='train'&&!cancelled ? punctualityClass(v.delay_minutes) : '';
     const punctualityDot=punctuality ? `<i class="train-punctuality ${punctuality}" aria-hidden="true"></i>` : '';
     const sharedNote=coincidentCount>1 ? ` • ${coincidentCount} trains share this reported point` : '';
     return L.divIcon({
       className: `marker-wrap marker-wrap-${esc(type)}${coincidentCount>1?' train-coincident-wrap':''}`,
-      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}"${trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}${punctualityDot}</div>${pointer}${speedTag}</div>`,
+      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}${cancelled?' is-cancelled':''}"${cancelled?'':trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}${punctualityDot}</div>${pointer}${speedTag}</div>`,
       iconSize: [42,42], iconAnchor: [21-offsetX,21-offsetY],
       tooltipAnchor: type==='train' ? [offsetX,offsetY-17] : [0,0]
     });
@@ -1431,7 +1546,11 @@
     else if(/^live$/i.test(statusText)){status='Live';statusClass='is-good';}
     const place=kind==='arrival' ? humanTransitLabel(row.origin || '') : humanTransitLabel(row.destination || row.route || row.name || '');
     const operator=humanTransitLabel(row.operator_name || (kind==='bus'?row.operator:'') || '');
-    const facts=[row.platform?`Platform ${row.platform}`:null, kind==='bus'&&row.route?`Route ${row.route}`:null, operator||null].filter(Boolean).join(' · ');
+    const moved=row.platform_changed&&row.booked_platform;
+    const facts=[
+      row.platform?(moved?`<b class="platform-changed">Platform ${esc(row.platform)} (was ${esc(row.booked_platform)})</b>`:`Platform ${esc(row.platform)}`):null,
+      kind==='bus'&&row.route?`Route ${esc(row.route)}`:null, operator?esc(operator):null,
+    ].filter(Boolean).join(' · ');
     const live=row.live_train_id || row.live_vehicle_id;
     const serviceRef=live || row.headcode || row.trip_id || row.vehicle_ref;
     const attrs=[
@@ -1449,7 +1568,7 @@
       `data-activity-type="${kind==='bus'?'bus':'train'}"`,
     ].filter(Boolean).join(' ');
     const label=[kind==='arrival'?`From ${place||'unknown origin'}`:(place||'Service'),booked,status].filter(Boolean).join(', ');
-    return `<button type="button" class="board-row board-${kind}${serviceRef?' board-clickable':''}${live?' is-live':''}" aria-label="${esc(label)}" ${attrs}><span class="board-time">${esc(booked)}</span><span class="board-main"><strong>${kind==='arrival'&&place?`<small>from</small> `:''}${esc(place || 'Service')}</strong>${facts?`<span>${esc(facts)}</span>`:''}</span><span class="board-status ${statusClass}">${esc(status)}</span></button>`;
+    return `<button type="button" class="board-row board-${kind}${serviceRef?' board-clickable':''}${live?' is-live':''}${status==='Cancelled'?' is-cancelled':''}" aria-label="${esc(label)}" ${attrs}><span class="board-time">${esc(booked)}</span><span class="board-main"><strong>${kind==='arrival'&&place?`<small>from</small> `:''}${esc(place || 'Service')}</strong>${facts?`<span>${facts}</span>`:''}</span><span class="board-status ${statusClass}">${esc(status)}</span></button>`;
   }
 
   async function openScheduledTrain(btn) {
@@ -1977,7 +2096,7 @@
     const speed = zoomBand >= 1 ? a.speed : '';
     const speedUnit = zoomBand >= 2 ? a.speed_unit : '';
     const movementPosition=['aircraft','sar'].includes(a.type)?`${a.lat}|${a.lon}`:'';
-    return [a.type,a.position_method,a.name,punctualityClass(a.delay_minutes),a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon,a._coincidentCount,a._coincidentSlot,a._coincidentX,a._coincidentY].join('|');
+    return [a.type,a.position_method,a.name,a.cancelled_at?'cancelled':punctualityClass(a.delay_minutes),a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon,a._coincidentCount,a._coincidentSlot,a._coincidentX,a._coincidentY].join('|');
   }
 
   function markerTooltipSignature(a) {
@@ -2252,6 +2371,7 @@
 
   function trainStatusLabel(a) {
     if (a?.restored_snapshot === true) return 'Last known';
+    if (a?.cancelled_at) return 'Cancelled';
     if (a?.terminated_at) return 'Arrived';
     const raw = Number.isFinite(Number(a?.delay_minutes)) && a?.delay_minutes !== null ? Number(a.delay_minutes) : railDelayById.get(a?.id);
     if (raw == null || !Number.isFinite(Number(raw))) return 'Live';
@@ -2689,24 +2809,31 @@
       const expected=point?.scheduled&&point?.expected ? providerClock(point.expected) : '';
       const lateClock=expected&&expected!==booked ? expected : '';
       const platform=providerName(point?.platform);
-      const detail=platform ? `Platform ${platform}` : '';
+      const movedFrom=point?.platform_changed ? providerName(point?.booked_platform) : '';
+      const cancelledStop=Boolean(point?.cancelled);
+      const detailHtml=[
+        cancelledStop ? '<em class="stop-cancelled">Cancelled</em>' : '',
+        platform ? `<span class="${movedFrom?'platform-changed':''}">Platform ${esc(platform)}${movedFrom?` (was ${esc(movedFrom)})`:''}</span>` : '',
+      ].filter(Boolean).join(' · ');
       if(!name && !booked)return '';
       const state=['passed','current','next','upcoming'].includes(point?.state) ? point.state : '';
       // Between stations the train sits on the line before its next stop.
       const trainHere=state==='next'&&!atStation&&anyPassed
         ? '<li class="train-here" aria-label="Train is here"><i></i><span><small>Train is here</small></span><b></b></li>'
         : '';
-      return `${trainHere}<li class="${state}"${state==='current'?' aria-label="Train is at this station"':''}><i></i><span><strong>${esc(name || `Call ${pointIndex+1}`)}</strong>${detail?`<small>${esc(detail)}</small>`:''}</span><b>${esc(booked)}${lateClock?`<em class="stop-late">${esc(lateClock)}</em>`:''}</b></li>`;
+      return `${trainHere}<li class="${[state,cancelledStop?'is-cancelled':''].filter(Boolean).join(' ')}"${state==='current'?' aria-label="Train is at this station"':''}><i></i><span><strong>${esc(name || `Call ${pointIndex+1}`)}</strong>${detailHtml?`<small>${detailHtml}</small>`:''}</span><b>${esc(booked)}${lateClock?`<em class="stop-late">${esc(lateClock)}</em>`:''}</b></li>`;
     }).filter(Boolean).join('');
     // Only facts a traveller uses: lateness, the stops and, for special
     // workings, what kind of service it is. The route is already the panel
     // subtitle; data-source and inference notes are not shown.
     const facts=points ? [] : [next?`Next: ${next}`:null].filter(Boolean);
     const unknown=!points ? '<p class="transport-empty">Stops not published for this service.</p>' : '';
+    const cancelledFrom=providerName(run?.cancelled_from);
+    const cancelledBanner=run?.cancelled ? `<p class="train-cancelled-banner">${iconSvg('incident')}<span>${cancelledFrom?`Cancelled from ${esc(humanTransitLabel(cancelledFrom))}`:'This train is cancelled'}</span></p>` : '';
     const operator=providerName(train.operator || run?.operator || run?.operator_code);
     const operatorTheme=trainLiveryTheme('',operator);
     const operatorStyle=operatorTheme.key!=='reference' ? ` style="--train-primary:${operatorTheme.primary};--train-secondary:${operatorTheme.secondary};--train-accent:${operatorTheme.accent};--train-ink:${operatorTheme.ink}"` : '';
-    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${serviceLabel?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${facts.length?`<div class="transport-facts">${facts.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points?`<ol class="transport-stops train-full-route${hasProgress?' has-progress':''}">${points}</ol>`:''}${unknown}</article>`;
+    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${cancelledBanner}${serviceLabel?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${facts.length?`<div class="transport-facts">${facts.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points?`<ol class="transport-stops train-full-route${hasProgress?' has-progress':''}">${points}</ol>`:''}${unknown}</article>`;
   }
 
   function trainLiveryTheme(livery, operator) {
@@ -3531,6 +3658,54 @@
   }
   function saveFollowed() { try { localStorage.setItem('ukRadarFollowed', JSON.stringify([...followed])); } catch {} }
 
+  // Saved trains: alert when one is cancelled, becomes late or changes
+  // platform. The server works out the alerts; each is shown once.
+  const SAVED_TRAIN_ALERTS_KEY='ukRadarSavedTrainAlertsV1';
+  let savedTrainAlerted={};
+  try { savedTrainAlerted=JSON.parse(localStorage.getItem(SAVED_TRAIN_ALERTS_KEY)||'{}')||{}; } catch { savedTrainAlerted={}; }
+  function savedTrainIds() { return [...followed].filter(id=>/^(nr|td):/.test(id)).slice(0,12); }
+  function notifySavedTrain(alert, trainId) {
+    showToast(alert.title);
+    if(!document.hidden||!('Notification' in window)||Notification.permission!=='granted')return;
+    navigator.serviceWorker?.getRegistration?.().then(registration=>registration?.showNotification(alert.title,{
+      body:alert.body, tag:alert.key, icon:'/static/icon-192.png', data:{url:`/live/${encodeURIComponent(trainId)}`},
+    })).catch(()=>{});
+  }
+  async function checkSavedTrains() {
+    const ids=savedTrainIds();
+    if(!ids.length)return;
+    try {
+      const response=await fetch(`/api/trains/status?ids=${encodeURIComponent(ids.join(','))}`,{cache:'no-store'});
+      if(!response.ok)return;
+      const payload=await response.json();
+      for(const train of payload.trains||[]){
+        if(!train?.found)continue;
+        const seen=Array.isArray(savedTrainAlerted[train.id])?savedTrainAlerted[train.id]:[];
+        for(const alert of train.alerts||[]){
+          if(seen.includes(alert.key))continue;
+          seen.push(alert.key);
+          notifySavedTrain(alert,train.id);
+        }
+        savedTrainAlerted[train.id]=seen.slice(-12);
+      }
+      for(const id of Object.keys(savedTrainAlerted))if(!followed.has(id))delete savedTrainAlerted[id];
+      try { localStorage.setItem(SAVED_TRAIN_ALERTS_KEY,JSON.stringify(savedTrainAlerted)); } catch {}
+    } catch {}
+  }
+  async function syncSavedTrainsToPush() {
+    // Phone alerts while the app is closed reuse the travel-alert push
+    // subscription, when the visitor has turned it on.
+    if(!commuteAlertStatus.subscribed||!commuteAlertStatus.preferences)return;
+    try {
+      const registration=await navigator.serviceWorker?.ready;
+      const subscription=await registration?.pushManager?.getSubscription();
+      if(!subscription)return;
+      const preferences={...commuteAlertStatus.preferences,saved_trains:savedTrainIds()};
+      const response=await fetch('/api/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken(),subscription:subscription.toJSON(),preferences})});
+      if(response.ok)commuteAlertStatus={...commuteAlertStatus,preferences};
+    } catch {}
+  }
+
   function loadMyRadarPreferences() {
     try {
       const rows=JSON.parse(localStorage.getItem(MY_RADAR_PLACES_KEY)||'[]');
@@ -3666,7 +3841,7 @@
       let subscription=await registration.pushManager.getSubscription();
       if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKeyBytes(commuteAlertStatus.public_key)});
       const [startHour,endHour]=String($('commute-alert-hours')?.value||'5:11').split(':').map(Number);
-      const preferences={mode:$('commute-alert-mode')?.value||'driving',place_id:place.id,place_name:place.name,lat:Number(place.lat),lon:Number(place.lon),radius_miles:Number($('commute-alert-radius')?.value||12),start_hour:startHour,end_hour:endHour,activity_types:[...myRadarInterests].filter(type=>['train','bus','vessel','aircraft'].includes(type))};
+      const preferences={mode:$('commute-alert-mode')?.value||'driving',place_id:place.id,place_name:place.name,lat:Number(place.lat),lon:Number(place.lon),radius_miles:Number($('commute-alert-radius')?.value||12),start_hour:startHour,end_hour:endHour,activity_types:[...myRadarInterests].filter(type=>['train','bus','vessel','aircraft'].includes(type)),saved_trains:savedTrainIds()};
       const response=await fetch('/api/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken(),subscription:subscription.toJSON(),preferences})});
       const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.detail||'Alerts could not be enabled.');
       commuteAlertStatus={...commuteAlertStatus,subscribed:true,preferences};renderCommuteAlertStatus();showToast('Travel alerts are active on this device.');trackProduct('commute_alert_enabled',preferences.mode);
@@ -3701,7 +3876,7 @@
     renderMyRadarInterests();renderSavedPlaces();renderMyRadarArea();
     badge.textContent = followed.size;
     const live = [...followed].map(activityById).filter(Boolean).sort((a,b)=>new Date(b.last_updated)-new Date(a.last_updated));
-    if (!followed.size) { box.innerHTML = '<p class="my-radar-empty">Nothing followed yet. Select a train, incident, vessel or other live activity and tap Follow.</p>'; return; }
+    if (!followed.size) { box.innerHTML = '<p class="my-radar-empty">Nothing saved yet. Tap Save on a train to be told if it runs late, is cancelled or changes platform.</p>'; return; }
     if (!live.length) { box.innerHTML = `<p class="my-radar-empty">${followed.size} saved favourite${followed.size===1?'':'s'} • none are in the current live snapshot.</p>`; return; }
     box.innerHTML = live.slice(0,8).map(a => `<button type="button" class="my-radar-row" data-my-radar="${esc(a.id)}"><b>${icons[a.type] || '•'}</b><span><strong>${esc(a.name)}</strong><span>${esc(a.status || a.subtitle || 'Live')}</span></span><em>${(a.tracking_count||0) ? `${fmt(a.tracking_count)} watching` : 'LIVE'}</em></button>`).join('');
     box.querySelectorAll('[data-my-radar]').forEach(btn=>btn.addEventListener('click',()=>selectActivity(btn.dataset.myRadar,true)));
@@ -4304,6 +4479,9 @@
   map.on('click', e => {
     const liveId=liveObjectRenderer?.featureAt(e.containerPoint);
     if(liveId){selectActivity(liveId,true);return;}
+    if(enabledActivityTypes.has('train')&&railLines.drawn.size){
+      lookupRailLine(e.latlng).then(found=>{ if(found&&isPhoneLayout?.())setWorkspaceCollapsed(true); });
+    }
     if(window.matchMedia('(max-width: 760px)').matches){
       if(selectedTrainActivity())setDetailRouteView(true);
       else closeDetailSelection();
@@ -4427,6 +4605,9 @@
     if(closingTransientStop)clearTransientLocationModes();
     if(focusMarker){map.removeLayer(focusMarker);focusMarker=null;}
     clearSelectedTrail(); clearPhoto(); clearOperatorIdentity(); clearPlaceLink(); clearActivityIntelligence(); clearDiscoveryDetail();
+    if(!railView.delaysOn)clearRailHighlight();
+    $('map')?.removeAttribute('data-rail-line-view');
+    const insight=$('detail-insight'); if(insight){insight.classList.add('hidden');insight.innerHTML='';}
     sendWatching(null);
     syncBaseMap();
     $('track-activity')?.classList.add('hidden'); $('save-place')?.classList.add('hidden'); $('share-activity')?.classList.add('hidden');
@@ -4434,6 +4615,7 @@
     renderRanking();
   }
   $('detail-close')?.addEventListener('click',closeDetailSelection);
+  document.querySelectorAll('[data-rail-delays]').forEach(chip=>chip.addEventListener('click',()=>setDelayHotspots(!railView.delaysOn)));
   $('detail-route-view')?.addEventListener('click',()=>setDetailRouteView(true,{fit:true,focusPeek:true}));
   $('detail-route-restore')?.addEventListener('click',()=>setDetailRouteView(false,{focusDetails:true}));
   $('detail-route-fit')?.addEventListener('click',()=>focusSelectedTrainRoute({whole:true}));
@@ -4564,6 +4746,14 @@
     if (wasFollowing) followed.delete(selectedId); else followed.add(selectedId);
     saveFollowed(); renderMyRadar();
     const selected = activityById(selectedId);
+    if (selected?.type==='train') {
+      if (!wasFollowing) {
+        showToast('Saved. You will be told if this train is late, cancelled or changes platform.');
+        if ('Notification' in window && Notification.permission==='default') Notification.requestPermission().catch(()=>{});
+        checkSavedTrains();
+      }
+      syncSavedTrainsToPush();
+    }
     $('follow').textContent = followed.has(selectedId) ? 'Saved ✓' : 'Save';
     trackProduct(wasFollowing ? 'activity_unfollowed' : 'activity_followed', selected?.type || 'other');
   });
@@ -4688,6 +4878,8 @@
       if(status&&messages[status]){showToast(messages[status]);history.replaceState({},'',location.pathname+location.hash);}
     });
     loadCommuteAlertStatus();
+    checkSavedTrains();
+    setInterval(checkSavedTrains,60000);
     loadTodayRadar(true);
   };
   if('requestIdleCallback' in window) window.requestIdleCallback(loadStartupExtras,{timeout:1200});

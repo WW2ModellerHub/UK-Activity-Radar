@@ -696,7 +696,8 @@ test('known military helicopters show a bundled real photograph when live image 
   const marker=page.locator('.aircraft-shape-chinook').first();
   await expect(marker).toBeVisible();
   await expect(marker.locator('.rotorcraft-silhouette .map-chinook-svg')).toHaveCount(1);
-  await expect(marker.locator('.rotor-hub')).toHaveCount(2);
+  await expect(marker.locator('.map-chinook-svg .ac-rotor')).toHaveCount(1);
+  await expect(marker.locator('.map-chinook-svg .ac-body')).toHaveCount(1);
   await marker.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-photo img')).toHaveAttribute('src','/static/assets/aircraft/chinook-raf.jpg');
   await expect(page.locator('#detail-photo')).toContainText('Reference photo of this aircraft type');
@@ -716,7 +717,7 @@ test('aircraft markers distinguish airliners and propeller aircraft with the typ
   });
   const airliner=page.locator('.aircraft-shape-airliner').filter({ hasText:'737-8200' }).first();
   await expect(airliner).toBeVisible();
-  await expect(airliner.locator('.map-airliner-svg .engine')).toHaveCount(2);
+  await expect(airliner.locator('.map-airliner-svg')).toHaveCount(1);
   await page.evaluate(() => {
     const next=structuredClone(window.__fixtureSnapshot);
     const aircraft=next.activities.find(row=>row.id==='aircraft-live-1');
@@ -726,7 +727,7 @@ test('aircraft markers distinguish airliners and propeller aircraft with the typ
   const propeller=page.locator('.aircraft-shape-propeller').filter({hasText:'CESSNA 152'}).first();
   await expect(propeller).toBeVisible();
   await expect(propeller.locator('.map-propeller-svg')).toHaveCount(1);
-  await expect(propeller.locator('.prop-line')).toHaveCount(1);
+  await expect(propeller.locator('.ac-rotor')).toHaveCount(1);
   await expect(propeller.locator('.motion-speed')).toHaveCount(0);
 });
 
@@ -745,7 +746,7 @@ test('Westland Lynx aircraft use a helicopter silhouette and identity', async ({
   const lynx=page.locator('.aircraft-shape-helicopter').filter({hasText:'LYNX'}).first();
   await expect(lynx).toBeVisible();
   await expect(lynx.locator('.map-helicopter-svg')).toHaveCount(1);
-  await expect(lynx.locator('.rotor')).toHaveCount(1);
+  await expect(lynx.locator('.ac-rotor')).toHaveCount(1);
 });
 
 test('selected aircraft draws an honest browser-local live trail', async ({ page }) => {
@@ -1202,4 +1203,66 @@ test.describe('on a touch screen', () => {
     await expect(page.locator('#detail-title')).toContainText('London Express');
     await expect(page.locator('.activity-tooltip')).toHaveCount(0);
   });
+});
+
+test('tapping a railway line lists the trains on that stretch in order', async ({ page }) => {
+  await page.route(url => new URL(url).pathname === '/api/rail/line', route => route.fulfill({ json:{
+    found:true, from:'MILTON KEYNES CENTRAL', to:'Northampton', length_km:24.6,
+    points:[[52.03,-0.77],[52.23,-0.9]],
+    trains:[
+      { id:'train-live-1', name:'1A23', destination:'Manchester Piccadilly', operator:'Fixture Rail', delay_minutes:12, cancelled:false, along_km:3.1 },
+      { id:'train-other', name:'2N40', destination:'Northampton', operator:'Fixture Rail', delay_minutes:0, cancelled:false, along_km:9.4 },
+    ],
+  } }));
+  await page.locator('[data-layer-chip="train"]').click();
+  await expect(page.locator('#map')).toHaveAttribute('data-rail-lines', /[1-9]/);
+  await page.locator('#map').evaluate(element=>element.dispatchEvent(new MouseEvent('click',{bubbles:true})));
+  await expect(page.locator('#detail-title')).toHaveText('Milton Keynes Central – Northampton');
+  await expect(page.locator('#detail-subtitle')).toContainText('2 trains on this line');
+  await expect(page.locator('.line-train strong')).toHaveText(['1A23','2N40']);
+  await expect(page.locator('.line-train').first()).toContainText('12 min late');
+  await expect(page.locator('.line-train').nth(1)).toContainText('On time');
+  await expect(page.locator('#map')).toHaveAttribute('data-rail-line-view','2');
+  await page.locator('[data-line-train="train-live-1"]').click();
+  await expect(page.locator('#detail-title')).not.toHaveText('Milton Keynes Central – Northampton');
+  await expect(page.locator('#map')).not.toHaveAttribute('data-rail-line-view', /./);
+});
+
+test('Delays shows the stretches where trains are running late', async ({ page }) => {
+  await expect(page.locator('[data-rail-delays]')).toBeHidden();
+  await page.locator('[data-layer-chip="train"]').click();
+  await page.locator('[data-rail-delays]').click();
+  await expect(page.locator('[data-rail-delays]')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('#detail-title')).toHaveText('Delays now');
+  await expect(page.locator('.delay-spot')).toHaveCount(2);
+  await expect(page.locator('.delay-spot').first()).toContainText('Milton Keynes Central – Northampton');
+  await expect(page.locator('.delay-spot').first()).toContainText('3 late, about 18 min · 1 cancelled');
+  await expect(page.locator('#map')).toHaveAttribute('data-delay-hotspots','2');
+  await page.locator('[data-layer-chip="train"]').click();
+  await expect(page.locator('[data-rail-delays]')).toBeHidden();
+  await expect(page.locator('#map')).not.toHaveAttribute('data-delay-hotspots', /./);
+});
+
+test('station boards strike out cancelled trains and flag platform changes', async ({ page }) => {
+  await page.route('**/api/places/rail*MKC/board*', route => route.fulfill({ json:{ board:{ mode:'network_rail', departures:[
+    { scheduled:'10:14', expected:'10:14', destination:'Manchester Piccadilly', platform:'4', status:'Cancelled', cancelled:true, headcode:'1A23', train_uid:'C12345', service_date:'2026-10-05' },
+    { scheduled:'10:32', expected:'10:32', destination:'Birmingham New Street', platform:'5', booked_platform:'2', platform_changed:true, status:'Scheduled', headcode:'1Z80', train_uid:'C99999', service_date:'2026-10-05' },
+  ], arrivals:[] } } }));
+  await page.locator('#station-boards').click();
+  const cancelled = page.locator('#detail-placeboard .board-row').first();
+  await expect(cancelled).toHaveClass(/is-cancelled/);
+  await expect(cancelled.locator('.board-status')).toHaveText('Cancelled');
+  await expect(page.locator('#detail-placeboard .platform-changed')).toHaveText('Platform 5 (was 2)');
+});
+
+test('a cancelled train is drawn struck through and says so', async ({ page }) => {
+  await page.locator('[data-layer-toggle="train"]').click();
+  await waitForViewportRequestsToSettle(page);
+  await page.evaluate(() => {
+    const first = window.__fixtureSnapshot.activities.find(row => row.id === 'train-live-1');
+    const cancelled = { ...first, id:'train-cancelled', name:'1K40', delay_minutes:9, cancelled_at:new Date().toISOString(), lat:52.3, lon:-1.2 };
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[cancelled], stream:{ ...window.__fixtureSnapshot.stream, selected_types:['train'] } }) });
+  });
+  await expect(page.locator('.marker-bubble.marker-train.is-cancelled')).toHaveCount(1);
+  await expect(page.locator('.marker-bubble.marker-train.is-cancelled .train-punctuality')).toHaveCount(0);
 });

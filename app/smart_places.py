@@ -17,6 +17,7 @@ from urllib.parse import quote, urlparse, urlunparse
 import requests
 
 from .models import SourceStatus
+from .rail_service_notes import call_is_cancelled
 from .bus_timetable import BusTimetableService
 from .timeutils import london_tz
 from .reference_data import NAPTAN_URL, ensure_naptan_cache
@@ -642,17 +643,26 @@ class SmartPlacesService:
                             (day_text,day_text,f'%"tiploc_code"%"{tip}"%'),
                         ) if str(row[0] or '').strip())
         dep=[]; arr=[]; seen=set()
+        notes=getattr(self.state,'rail_notes',None)
         for service_date in service_dates:
             for row in self.schedules.effective_rows(service_date,train_uids=candidates[service_date]):
-              for loc in self.schedules.timed_locations(row,service_date):
-                if str(loc.get('tiploc_code') or '').upper() not in tiplocs:
+              row_locations=self.schedules.timed_locations(row,service_date)
+              row_codes=[str(item.get('tiploc_code') or '').strip().upper() for item in row_locations]
+              note=notes.get(row['train_uid'],service_date.isoformat()) if notes is not None else None
+              for loc_index,loc in enumerate(row_locations):
+                if row_codes[loc_index] not in tiplocs:
                     continue
+                booked_platform=str(loc.get('platform') or '').strip() or None
+                actual_platform=((note or {}).get('platforms') or {}).get(row_codes[loc_index])
                 common={
                     "headcode":row['signalling_id'],"train_uid":row['train_uid'],
                     "service_date":service_date.isoformat(),"schedule_id":int(row['id']),
                     "operator":row['atoc_code'],"operator_name":operator_name(row['atoc_code']),"origin":row['origin_name'],
-                    "destination":row['destination_name'],"platform":loc.get('platform'),
+                    "destination":row['destination_name'],"platform":actual_platform or booked_platform,
                 }
+                if actual_platform and booked_platform and actual_platform != booked_platform:
+                    common["platform_changed"]=True
+                    common["booked_platform"]=booked_platform
                 for bucket,kind in ((arr,'arrival'),(dep,'departure')):
                     event_at=loc.get(f'_public_{kind}_at') or loc.get(f'_{kind}_at')
                     if event_at is None:
@@ -665,6 +675,8 @@ class SmartPlacesService:
                     seen.add(key)
                     clock=event_at.strftime('%H:%M')
                     item={**common,"scheduled":clock,"expected":clock,"minutes":delta,"status":"Scheduled","_scheduled_at":event_at}
+                    if call_is_cancelled(note,row_codes,loc_index,kind):
+                        item["status"]="Cancelled"; item["cancelled"]=True
                     bucket.append(item)
         dep.sort(key=lambda x:x['minutes']); arr.sort(key=lambda x:x['minutes'])
         services={(str(item['train_uid']).strip(),item['service_date']) for item in [*dep,*arr]}
@@ -681,7 +693,10 @@ class SmartPlacesService:
             if (live is None and fallback is not None and not getattr(fallback,'service_date',None)
                     and len(service_dates_by_uid.get(uid,set())) == 1):
                 live=fallback
-            if live is not None:
+            if item.get('cancelled'):
+                if live is not None:
+                    item['live_train_id']=live.id
+            elif live is not None:
                 item['live_train_id']=live.id
                 delay=getattr(live,'delay_minutes',None)
                 if delay is not None:
@@ -826,6 +841,8 @@ class SmartPlacesService:
                         if isinstance(item, dict) and item.get('tiploc_code')
                     ]
                     geography = self.schedules.location_geography(codes)
+                    notes = getattr(self.state, 'rail_notes', None)
+                    note = notes.get(row['train_uid'], service_date.isoformat()) if notes is not None else None
                     calls = []
                     mapped_timing_points = 0
                     for location_index, item in enumerate(locations):
@@ -860,8 +877,15 @@ class SmartPlacesService:
                             ),
                         }
                         platform = str(item.get('platform') or '').strip()
-                        if platform:
-                            call["platform"] = platform
+                        actual = ((note or {}).get('platforms') or {}).get(code)
+                        if actual and platform and actual != platform:
+                            call["platform"] = actual
+                            call["booked_platform"] = platform
+                            call["platform_changed"] = True
+                        elif actual or platform:
+                            call["platform"] = actual or platform
+                        if call_is_cancelled(note, codes, location_index, 'departure' if location_index < len(codes) - 1 else 'arrival'):
+                            call["cancelled"] = True
                         if lat is not None and lon is not None:
                             call.update({"lat": float(lat), "lon": float(lon)})
                         calls.append(call)
@@ -875,6 +899,12 @@ class SmartPlacesService:
                         call.pop('_at', None)
                     route_path = self.schedules.published_route_points(schedule_id)
                     run.update(progress)
+                    if note and note.get('cancelled'):
+                        cancelled = note['cancelled']
+                        run["cancelled"] = True
+                        run["status"] = "Cancelled"
+                        if cancelled.get('scope') == 'part' and cancelled.get('location'):
+                            run["cancelled_from"] = cancelled['location']
                     run.update({
                         "origin": row['origin_name'] or run['origin'],
                         "destination": row['destination_name'] or run['destination'],

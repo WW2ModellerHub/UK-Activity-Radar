@@ -113,6 +113,28 @@ class ScheduleStore:
             self._schedule_calls.clear()
             self._ready_until = 0.0
 
+    def booked_platform(self, schedule_id: int, tiploc: str) -> str | None:
+        """The platform the timetable books a service into at ``tiploc``."""
+        code = str(tiploc or "").strip().upper()
+        if not code:
+            return None
+        try:
+            with self._connect() as conn:
+                row = conn.execute("SELECT locations_json FROM schedules WHERE id=?", (int(schedule_id),)).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None:
+            return None
+        try:
+            locations = json.loads(row[0] or "[]")
+        except ValueError:
+            return None
+        for item in locations:
+            if isinstance(item, dict) and str(item.get("tiploc_code") or "").strip().upper() == code:
+                value = str(item.get("platform") or "").strip()
+                return value or None
+        return None
+
     def tiplocs_for_stanox(self, stanox: str | None) -> frozenset[str]:
         code = str(stanox or "").strip()
         if not code:
