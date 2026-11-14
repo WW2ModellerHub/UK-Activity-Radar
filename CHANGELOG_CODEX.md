@@ -1,5 +1,13 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — why a train is "Special"
+
+- A train labelled Special now says why: a Z in the headcode (1Z64) marks a
+  one-off working not in the regular timetable, usually an extra or relief
+  train on a normal operator's route, sometimes a charter. Loco moves explain
+  themselves too.
+- The train panel showed two identical Share buttons; there is one now.
+
 ## 2026-11-14 — train badges sit upright
 
 - The live map layer turned every icon to its direction of travel, so the

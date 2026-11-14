@@ -3091,11 +3091,19 @@
       why.others_late ? `${why.others_late} other trains nearby are late too, so the problem is likely on the line rather than this train.` : '',
     ].filter(Boolean).join(' ') : '';
     const whyBox=whyText ? `<p class="delay-why"><strong>Why is it late?</strong> <span>${esc(whyText)}</span></p>` : '';
+    // A "Special" or "Loco move" label should say what it means.
+    const selected=activityById(selectedId);
+    const headcode=String(selected?.headcode||run?.headcode||train.headcode||selected?.name||'').toUpperCase();
+    const subtype=selected?coolInfo(selected).subtype:null;
+    const specialText=subtype==='special-passenger'
+      ? `${headcode.slice(0,4)}: a Z in the headcode marks a one-off working that is not in the regular timetable. On a normal operator's route like this it is usually an extra or relief train; it can also be a charter. It is not a railtour unless it says so.`
+      : subtype==='locomotive-move' ? `${headcode.slice(0,4)}: a locomotive running on its own, with no passengers or wagons, usually to or from a depot or a job.` : '';
+    const specialBox=specialText ? `<p class="delay-why special-why"><strong>Why is it special?</strong> <span>${esc(specialText)}</span></p>` : '';
     const cancelledBanner=run?.cancelled ? `<p class="train-cancelled-banner">${iconSvg('incident')}<span>${cancelledFrom?`Cancelled from ${esc(humanTransitLabel(cancelledFrom))}`:'This train is cancelled'}</span></p>` : '';
     const operator=providerName(train.operator || run?.operator || run?.operator_code);
     const operatorTheme=trainLiveryTheme('',operator);
     const operatorStyle=operatorTheme.key!=='reference' ? ` style="--train-primary:${operatorTheme.primary};--train-secondary:${operatorTheme.secondary};--train-accent:${operatorTheme.accent};--train-ink:${operatorTheme.ink}"` : '';
-    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${cancelledBanner}${whyBox}${serviceLabel?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${facts.length?`<div class="transport-facts">${facts.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points}${unknown}</article>`;
+    return `<article class="transport-run-card${operatorStyle?' operator-themed':''}" data-livery-theme="${esc(operatorTheme.key)}"${operatorStyle}>${cancelledBanner}${specialBox}${whyBox}${serviceLabel?`<small class="transport-service-label">${esc(serviceLabel)}</small>`:''}${facts.length?`<div class="transport-facts">${facts.map(value=>`<span>${esc(value)}</span>`).join('')}</div>`:''}${points}${unknown}</article>`;
   }
 
   function trainLiveryTheme(livery, operator) {
@@ -3932,13 +3940,15 @@
     }
     if(a.type==='train'&&identity.level==='type'){
       box.classList.add('hidden');box.innerHTML='';
-      save.classList.remove('hidden');share.classList.remove('hidden');
+      save.classList.remove('hidden');share.classList.add('hidden');
       save.disabled=discoveryClaimPending;save.textContent=record?'Field Guide ✓':'Save to Field Guide';
       return;
     }
     const plainIdentity=identity.label;
     box.innerHTML=`<div class="discovery-truth-row"><b class="identity-pill ${identity.level}">${esc(plainIdentity)}</b><span>Updated ${esc(freshness)}</span></div>${identity.level==='type'?`<small>${esc(identity.note)}</small>`:''}`;
-    save.classList.remove('hidden');share.classList.remove('hidden');
+    // One Share button: the live link. (A second, identically named one
+    // used to appear beside it.)
+    save.classList.remove('hidden');share.classList.add('hidden');
     save.disabled=discoveryClaimPending;
     save.textContent=record?'Field Guide ✓':'Save to Field Guide';
   }
