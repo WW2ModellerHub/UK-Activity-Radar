@@ -1469,3 +1469,21 @@ test('a plane the server does not keep still gets an example photo of its type',
   await expect.poll(()=>asked.length).toBeGreaterThan(0);
   expect(asked[0]).toContain('kind=aircraft');
 });
+
+test('saving a train turns phone alerts on for it, with a test alert to prove it', async ({ page }) => {
+  const posted = [];
+  await page.route('**/api/alerts/subscribe', route => { posted.push(route.request().postDataJSON()); return route.fulfill({ json:{ ok:true } }); });
+  let tests = 0;
+  await page.route('**/api/alerts/test', route => { tests += 1; return route.fulfill({ json:{ ok:true } }); });
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-wrap-train .marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await page.locator('#follow').click();
+  await expect.poll(() => posted.length).toBe(1);
+  expect(posted[0].preferences.mode).toBe('trains-only');
+  await expect(page.locator('#watch-toast')).toContainText('Your phone will tell you');
+  await page.locator('[data-workspace="live"]').click();
+  await expect(page.locator('#commute-alert-state')).toHaveText('ON');
+  await expect(page.locator('#commute-alert-note')).toContainText('On for your saved trains');
+  await page.locator('#commute-alert-test').click();
+  await expect.poll(() => tests).toBe(1);
+});

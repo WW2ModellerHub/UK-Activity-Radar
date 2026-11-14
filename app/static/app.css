@@ -1023,7 +1023,7 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 .count-badge.hidden { display: none; }
 /* The Saved tab: until a place is saved, only the way to add one. */
 [data-workspace-panel="live"]:not(.has-saved-places) .passing-next-card,
-[data-workspace-panel="live"]:not(.has-saved-places) .commute-alert-card,
+[data-workspace-panel="live"]:not(.has-saved-places):not(.has-saved-trains) .commute-alert-card,
 [data-workspace-panel="live"]:not(.has-saved-places) .my-radar-step:has(#my-radar-area) { display: none; }
 #detail-subtitle:empty { display: none; }
 
@@ -1135,3 +1135,7 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
   .layout:has(#workspace-shell.collapsed) .sub-chips { left: 0; }
   .sub-chips .layer-chip.sub-chip { height: 34px; }
 }
+
+/* Alerts for saved trains alone: no place to choose, so no place form. */
+[data-workspace-panel="live"]:not(.has-saved-places) .commute-alert-card :is(.commute-alert-main, .alert-options) { display: none; }
+.my-radar-row > span { display: grid; gap: 2px; min-width: 0; text-align: left; }

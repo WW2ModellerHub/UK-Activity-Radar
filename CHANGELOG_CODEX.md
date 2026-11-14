@@ -1,5 +1,19 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — phone alerts actually switch on
+
+- Alerts were built but dormant on the hosted site: they waited for Web Push
+  keys to be pasted into the host settings, so the app said "Alerts are not
+  available yet". The server now makes its own key pair on first start and
+  keeps it on the data disk (`app/push_keys.py`); `render.yaml` turns
+  `PUSH_ALERTS_ENABLED` on. Supplied `VAPID_*` values still win.
+- Saving a train turns phone alerts on for it in the same tap (after the
+  browser's permission prompt): late, cancelled, platform change. No place or
+  hours to choose first.
+- "Send a test alert" proves a device receives them; an expired registration
+  is switched off and says so.
+- iPhone: says to add the app to the Home Screen first, which iOS requires.
+
 ## 2026-11-14 — photos for trains, buses and planes
 
 - Trains only looked for a photo when the exact unit number was known (almost

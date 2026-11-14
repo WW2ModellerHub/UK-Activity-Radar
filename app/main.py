@@ -112,6 +112,30 @@ PRODUCT_DB = DATA_DIR / "product.sqlite"
 STREET_MANAGER_DB = DATA_DIR / "street_manager.sqlite"
 BILLING_DB = DATA_DIR / "billing.sqlite"
 ALERTS_DB = DATA_DIR / "commute_alerts.sqlite"
+
+
+def _provision_push_keys() -> None:
+    """Give the hosted site its own Web Push keys when none were supplied.
+
+    Only when alerts are switched on and the site is served over HTTPS; the
+    key pair lives on the data disk (see ``push_keys``).
+    """
+    if not settings.push_alerts_enabled or not settings.public_base_url.startswith("https://"):
+        return
+    if not (settings.vapid_subject.startswith("mailto:") or settings.vapid_subject.startswith("https://")):
+        object.__setattr__(settings, "vapid_subject", settings.public_base_url)
+    if settings.vapid_public_key and settings.vapid_private_key:
+        return
+    try:
+        from .push_keys import ensure
+        public, private = ensure(DATA_DIR)
+    except Exception:
+        return
+    object.__setattr__(settings, "vapid_public_key", public)
+    object.__setattr__(settings, "vapid_private_key", private)
+
+
+_provision_push_keys()
 RAIL_POSITION_SNAPSHOT = DATA_DIR / "rail_positions.json"
 UK_TRAIN_DATASET = BASE_DIR / "app" / "vendor" / "uk_train_dataset" / "trains.csv"
 APP_VERSION = "1.5.0"
@@ -533,11 +557,11 @@ async def _commute_alert_loop() -> None:
                 for train_id in saved.preferences.get("saved_trains") or []
                 for alert in saved_train_alerts(_saved_train_status(train_id))
             ]
-            if not within_alert_hours(saved.preferences) and not train_alerts:
+            place_alerts = saved.preferences.get("mode") != "trains-only" and within_alert_hours(saved.preferences)
+            if not place_alerts and not train_alerts:
                 continue
             candidates = train_alerts + (
-                [alert_for_activity(item, saved.preferences) for item in activities]
-                if within_alert_hours(saved.preferences) else []
+                [alert_for_activity(item, saved.preferences) for item in activities] if place_alerts else []
             )
             candidate = next((row for row in candidates if row and not store.already_delivered(saved.endpoint_hash, row["key"])), None)
             if candidate is None:
@@ -1122,6 +1146,29 @@ def subscribe_commute_alerts(payload: CommuteAlertIn, request: Request):
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, "message": "Commute alerts are active on this device"}
+
+
+@app.post("/api/alerts/test")
+async def test_commute_alert(payload: CommuteAlertRemoveIn, request: Request):
+    """Send one notification to this device, to prove alerts reach it."""
+    _require_same_origin_post(request)
+    _enforce_public_budget(request, lookup_request_budget)
+    if commute_alert_store is None or not settings.push_alerts_ready:
+        raise HTTPException(status_code=503, detail="Alerts are not available")
+    saved = commute_alert_store.subscription_for(payload.device_token)
+    if saved is None:
+        raise HTTPException(status_code=404, detail="Alerts are not on for this device")
+    try:
+        await asyncio.to_thread(_send_commute_push, saved.subscription, {
+            "title": "Alerts are working", "body": "This is how UK Activity Radar will tell you about your train.",
+            "url": f"{settings.public_base_url}/", "tag": "radar-test", "mode": "test",
+        })
+    except Exception as exc:
+        if getattr(exc, "status_code", None) in {404, 410} or getattr(getattr(exc, "response", None), "status_code", None) in {404, 410}:
+            commute_alert_store.deactivate(saved.endpoint_hash)
+            raise HTTPException(status_code=410, detail="This device's alert registration has expired. Turn alerts on again.") from exc
+        raise HTTPException(status_code=502, detail="The test alert could not be sent") from exc
+    return {"ok": True}
 
 
 @app.post("/api/alerts/unsubscribe")
