@@ -635,7 +635,8 @@ test('aircraft media is not restarted on every live snapshot', async ({ page }) 
   await page.getByRole('button', { name: /Discover/ }).click();
   await page.locator('.aerial-map-marker.aerial-aircraft').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-panel')).toContainText('Eurofighter Typhoon');
-  await expect(page.locator('#detail-photo .image-truth')).toContainText('Example of this aircraft type');
+  // A hand-picked photo of a known military type is kept over a search result.
+  await expect(page.locator('#detail-photo .image-truth')).toContainText('Reference photo of this aircraft type');
   await page.evaluate(() => window.__fixtureSocket.onmessage({ data: JSON.stringify(window.__fixtureSnapshot) }));
   await page.waitForTimeout(50);
   expect(mediaCalls).toBe(1);
@@ -1447,4 +1448,24 @@ test('common civil helicopters such as the Robinson R44 get the helicopter icon'
   });
   await expect(page.locator('.aerial-map-marker')).toHaveCount(3);
   await expect(page.locator('.aircraft-shape-helicopter')).toHaveCount(3);
+});
+
+test('an everyday train shows an example photo in its operator colours, clearly labelled', async ({ page }) => {
+  await page.route('**/api/activity/train-live-1/media', route => route.fulfill({ json:{ ok:true, title:'GWR 800 004 at Reading.jpg', thumbnail_url:'https://upload.wikimedia.org/fixture-gwr.jpg', page_url:'https://commons.wikimedia.org/?curid=2', artist:'A Photographer', license:'CC BY-SA 4.0', source:'Wikimedia Commons', match_kind:'type_reference', reference_label:'Example of a Great Western Railway train — not this exact one' } }));
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-wrap-train .marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  const photo = page.locator('#detail-photo');
+  await expect(photo.locator('img')).toBeVisible();
+  await expect(photo.locator('.image-truth')).toHaveText('Example of a Great Western Railway train — not this exact one');
+});
+
+test('a plane the server does not keep still gets an example photo of its type', async ({ page }) => {
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
+  const asked = [];
+  await page.route('**/api/activity/**/media', route => route.fulfill({ status:404, json:{ detail:'Activity not found' } }));
+  await page.route('**/api/media/reference**', route => { asked.push(route.request().url()); return route.fulfill({ json:{ ok:true, title:'Ryanair 737.jpg', thumbnail_url:'https://upload.wikimedia.org/fixture-ryanair-type.jpg', page_url:'https://commons.wikimedia.org/?curid=7', artist:'A Photographer', license:'CC BY-SA 4.0', source:'Wikimedia Commons', match_kind:'type_reference', reference_label:'Example of this type — not this exact aircraft' } }); });
+  await page.locator('[data-job="planes"]').click();
+  await page.locator('[data-job-plane]').first().click();
+  await expect.poll(()=>asked.length).toBeGreaterThan(0);
+  expect(asked[0]).toContain('kind=aircraft');
 });
