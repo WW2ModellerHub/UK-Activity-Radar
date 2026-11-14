@@ -38,6 +38,12 @@ def test_the_status_endpoint_serves_the_board(monkeypatch):
     for i in range(6):
         state.upsert(_train(i, "Avanti West Coast", 12, last_updated=datetime.now(timezone.utc)))
     monkeypatch.setattr(main, "state", state)
-    monkeypatch.setattr(main, "_operator_status_cache", (0.0, []))
+    monkeypatch.setattr(main, "_operator_status_cache", (-1e9, []))
     rows = TestClient(main.app).get("/api/rail/status").json()["operators"]
     assert rows[0]["operator"] == "Avanti West Coast" and rows[0]["status"] == "severe"
+
+
+def test_a_cache_that_was_never_filled_is_stale_even_just_after_boot(monkeypatch):
+    monkeypatch.setattr(main.time, "monotonic", lambda: 3.0)
+    assert main.time.monotonic() - main._operator_status_cache[0] > 30 or main._operator_status_cache[1]
+    assert main.time.monotonic() - main._delay_hotspot_cache[0] > 20 or main._delay_hotspot_cache[1]

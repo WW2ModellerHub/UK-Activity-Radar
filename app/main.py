@@ -1977,7 +1977,7 @@ def rail_line_at(request: Request, lat: float, lon: float, zoom: float = 12):
     return line_at(rail_line_layer, _live_trains(), _passenger_stations(), lat, lon, reach_km, datetime.now(timezone.utc))
 
 
-_delay_hotspot_cache: tuple[float, list[dict]] = (0.0, [])
+_delay_hotspot_cache: tuple[float, list[dict]] = (-1e9, [])
 
 
 @app.get("/api/rail/delays")
@@ -1992,7 +1992,8 @@ def rail_delay_hotspots(request: Request):
     return {"hotspots": rows}
 
 
-_operator_status_cache: tuple[float, list[dict]] = (0.0, [])
+# "Never computed" must be older than any clock reading, including just after boot.
+_operator_status_cache: tuple[float, list[dict]] = (-1e9, [])
 
 
 @app.get("/api/rail/status")
