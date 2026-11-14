@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — Discover is for unusual things
+
+- A 1Z train run by an everyday passenger operator (Southeastern, GWR…) is an
+  extra or relief service: it is labelled "Extra" and no longer ranks as a
+  Discover find. 1Z trains from charter firms or unknown operators still do.
+
 ## 2026-11-14 — why a train is "Special"
 
 - A train labelled Special now says why: a Z in the headcode (1Z64) marks a

@@ -96,6 +96,13 @@ def _age_minutes(activity: Activity, now: datetime) -> float:
     return max(0.0, (now - updated.astimezone(timezone.utc)).total_seconds() / 60.0)
 
 
+def _everyday_operator(operator: str | None) -> bool:
+    """A franchised passenger operator, as opposed to a charter firm."""
+    from .train_identity import ATOC_OPERATOR_NAMES
+    name = str(operator or "").strip().casefold()
+    return bool(name) and name in {value.casefold() for value in ATOC_OPERATOR_NAMES.values()}
+
+
 def _classified(
     *,
     category: CoolCategory,
@@ -218,6 +225,13 @@ def classify_activity(activity: Activity, *, now: datetime | None = None) -> Coo
             return _classified(category="rail", subtype="railtour-special", score=95,
                                explanation="Charter train.", badge="RAILTOUR",
                                theme="rail", icon="◆", activity=activity, now=now)
+        if headcode.startswith("1Z") and _everyday_operator(getattr(activity, "operator", None)):
+            # A timetable operator running a 1Z is nearly always an extra or
+            # relief service on its own route: labelled, but not a find.
+            return _classified(category="rail", subtype="special-passenger", score=30,
+                               explanation="Extra passenger train, not in the regular timetable.",
+                               badge="EXTRA", theme="rail", icon="◆", activity=activity, now=now,
+                               force_exclude=True)
         if headcode.startswith("1Z"):
             return _classified(category="rail", subtype="special-passenger", score=72,
                                explanation="Special passenger train.",

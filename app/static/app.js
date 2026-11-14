@@ -3098,7 +3098,8 @@
     const specialText=subtype==='special-passenger'
       ? `${headcode.slice(0,4)}: a Z in the headcode marks a one-off working that is not in the regular timetable. On a normal operator's route like this it is usually an extra or relief train; it can also be a charter. It is not a railtour unless it says so.`
       : subtype==='locomotive-move' ? `${headcode.slice(0,4)}: a locomotive running on its own, with no passengers or wagons, usually to or from a depot or a job.` : '';
-    const specialBox=specialText ? `<p class="delay-why special-why"><strong>Why is it special?</strong> <span>${esc(specialText)}</span></p>` : '';
+    const specialTitle=subtype==='special-passenger'&&coolInfo(selected).score<45?'Extra train':'Why is it special?';
+    const specialBox=specialText ? `<p class="delay-why special-why"><strong>${specialTitle}</strong> <span>${esc(specialText)}</span></p>` : '';
     const cancelledBanner=run?.cancelled ? `<p class="train-cancelled-banner">${iconSvg('incident')}<span>${cancelledFrom?`Cancelled from ${esc(humanTransitLabel(cancelledFrom))}`:'This train is cancelled'}</span></p>` : '';
     const operator=providerName(train.operator || run?.operator || run?.operator_code);
     const operatorTheme=trainLiveryTheme('',operator);
