@@ -96,7 +96,7 @@ from .street_manager_open_data import (
     StreetManagerSnapshotStore,
     verify_and_parse_sns_envelope,
 )
-from .state import state
+from .state import _estimated_train_position, state
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "app" / "static"
@@ -1926,6 +1926,35 @@ def _saved_train_status(train_id: str) -> dict:
         return {"found": False, "id": train_id}
     note = state.rail_notes.get(vehicle.train_uid, vehicle.service_date)
     return saved_train_status(vehicle, note)
+
+
+@app.get("/api/trains/near")
+def trains_near(request: Request, lat: float, lon: float, km: float = 5.0):
+    """Trains within ``km`` of a point, nearest first, at their moving position."""
+    _enforce_public_budget(request, lookup_request_budget)
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise HTTPException(status_code=400, detail="Invalid location")
+    radius = max(0.5, min(float(km), 25.0))
+    now = datetime.now(timezone.utc)
+    rows = []
+    for vehicle in _live_trains():
+        position = _estimated_train_position(vehicle, now) or (float(vehicle.lat), float(vehicle.lon))
+        distance = _haversine_km(lat, lon, position[0], position[1])
+        if distance <= radius:
+            rows.append({
+                "id": vehicle.id, "name": vehicle.name, "origin": vehicle.origin, "destination": vehicle.destination,
+                "operator": vehicle.operator, "delay_minutes": vehicle.delay_minutes,
+                "cancelled": bool(vehicle.cancelled_at), "next_location": vehicle.next_location,
+                "distance_km": round(distance, 2), "lat": round(position[0], 5), "lon": round(position[1], 5),
+            })
+    rows.sort(key=lambda row: row["distance_km"])
+    return {"radius_km": radius, "trains": rows[:12]}
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    h = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    return 2 * 6371 * math.asin(math.sqrt(h))
 
 
 @app.get("/api/trains/status")

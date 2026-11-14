@@ -1054,3 +1054,28 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 .discover-row.cool-hero-hit span.discover-icon.cool-rail, .discover-row.cool-hero-hit span.discover-icon.cool-steam { color: #7b2d70 !important; }
 .discover-row.cool-hero-hit span.discover-icon.cool-rescue, .discover-row.cool-hero-hit span.discover-icon.cool-sea, .discover-row.cool-hero-hit span.discover-icon.cool-naval { color: #b4471b !important; }
 .discover-row.cool-hero-hit span.discover-text { font-size: inherit; color: inherit; }
+
+/* ---- Quick answers bar: four everyday jobs, one tap each ---- */
+.jobs-bar { position: absolute; z-index: 820; left: 50%; bottom: 16px; transform: translateX(-50%); display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 4px 16px rgba(16, 24, 40, .14); width: min(460px, calc(100% - 24px)); }
+.jobs-bar button { display: grid; justify-items: center; gap: 3px; padding: 8px 4px; border: 0; border-radius: 12px; background: none; color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.jobs-bar button:hover, .jobs-bar button:focus-visible { background: var(--subtle, #f2f4f7); }
+.jobs-bar .ico { width: 22px; height: 22px; color: var(--accent, #0b63ce); }
+.live-ticker { display: none !important; }
+@media (max-width: 760px) {
+  .nearby-bar { display: none !important; }
+  .jobs-bar { left: 12px; right: 12px; width: auto; transform: none; bottom: calc(var(--nav-h) + 12px); }
+  body:has(#workspace-shell:not(.collapsed)) .jobs-bar, body:has(.detail-sidebar:not(.is-empty)) .jobs-bar { display: none; }
+}
+.job-station { margin-top: 4px; justify-self: start; }
+
+/* Why is my train late? */
+.delay-why { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: #fff4dc; color: #5c3b00; font-size: 14px; line-height: 1.4; }
+.delay-why strong { display: block; margin-bottom: 2px; color: #3d2800; }
+
+/* Journey: is anything in the way? */
+.journey-issue-summary { display: flex; gap: 10px; align-items: flex-start; padding: 12px; margin-bottom: 12px; border-radius: 12px; }
+.journey-issue-summary .ico { width: 20px; height: 20px; flex: none; margin-top: 1px; }
+.journey-issue-summary span { display: grid; gap: 2px; }
+.journey-issue-summary small { color: inherit; opacity: .85; }
+.journey-issue-summary.has-issues { background: var(--bad-soft); color: var(--bad); }
+.journey-issue-summary.is-clear { background: var(--good-soft, #e7f6ee); color: var(--good, #1e7a54); }

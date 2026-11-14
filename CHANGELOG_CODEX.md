@@ -1,5 +1,29 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — quick answers: one tap for the everyday jobs
+
+Walked the five things a visitor comes to do and cut the taps:
+
+| Job | Before | Now |
+|---|---|---|
+| Planes above me | open sheet, scroll, Planes overhead; result was a toast | 1 tap: a list, nearest first, with routes |
+| Trains going past | Trains chip, find yourself, find a train | 1 tap: trains within 5 km, nearest first, with lateness |
+| Next bus | open sheet, Buses near me | 1 tap |
+| Why is my train late | find it, open it; only "N min late" | the train panel says where the delay built up and whether trains nearby are late too |
+| Roadworks on my journey | sheet, scroll, planner, type both places, find, read each option | 1 tap once a journey is remembered; the answer is the first line |
+
+- **Quick answers bar** (Planes above, Trains near, Next bus, My journey) sits above
+  the tabs on phones and floats at the bottom of the map on desktop. The
+  Map panel's own location shortcuts are hidden; the bar replaces them.
+- `/api/trains/near` lists trains near a point at their moving position.
+- **Lateness history.** Each train keeps its last 12 lateness readings
+  (`delay_history`); the panel's "Why is it late?" names the stretch where
+  most time was lost and notes other late trains nearby. Network Rail's open
+  feeds do not publish delay reasons, so the panel states what the data shows.
+- **My journey** remembers from, to and mode, accepts "My location", runs
+  again in one tap, and leads with "N roadworks and N incidents on this
+  route" or "No roadworks or incidents on this route".
+
 ## 2026-11-14 — stabled trains, Discover rows, aircraft subtitle
 
 - **Trains in sidings.** Six trains sat fanned out on one spot by a line:

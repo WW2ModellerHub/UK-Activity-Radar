@@ -53,6 +53,27 @@ def _train_finished(vehicle: Vehicle, now: datetime) -> bool:
     )
 
 
+DELAY_HISTORY_LENGTH = 12
+
+
+def _carry_delay_history(previous: Vehicle | None, stored: Vehicle) -> None:
+    """Keep a short record of lateness readings across reports.
+
+    A new reading is added when the lateness or the reporting location
+    changes, so the panel can say where a delay built up.
+    """
+    # A report built from scratch (TRUST) carries none; one edited in place
+    # (TD) carries a copy of the previous history.
+    history = list(stored.delay_history or (previous.delay_history if previous is not None else None) or [])
+    delay = stored.delay_minutes
+    if delay is not None:
+        last = history[-1] if history else None
+        tiploc = stored.rail_tiploc
+        if last is None or last.get("delay") != delay or (tiploc and last.get("tiploc") != tiploc):
+            history.append({"at": stored.last_updated.isoformat(), "tiploc": tiploc, "delay": int(delay)})
+    stored.delay_history = history[-DELAY_HISTORY_LENGTH:] or None
+
+
 def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
     p1, p2 = radians(lat1), radians(lat2)
@@ -210,6 +231,8 @@ class LiveState:
                         return
                     stored.id = incumbent.id
                     previous = incumbent
+            if stored.type == 'train':
+                _carry_delay_history(previous, stored)
             if previous is not None:
                 self._unindex_unlocked(previous)
             self._vehicles[stored.id] = stored
