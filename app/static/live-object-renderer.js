@@ -29,8 +29,8 @@ function iconKind(activity){
   if(activity.type==='train')return 'train';
   const text=`${activity.aircraft_model||''} ${activity.aircraft_type_code||''} ${activity.kind||''}`.toLowerCase();
   if(activity.type==='sar'||/(helicopter|lynx|chinook|apache|merlin|puma|s92|h135|ec135|aw1|bell|robinson)/.test(text))return 'helicopter';
-  if(/(typhoon|fighter|hawk|f-?\d|fast jet)/.test(text))return 'fastjet';
-  if(/(c-?17|a400|atlas|hercules|transporter|kc-?135|voyager)/.test(text))return 'heavy';
+  if(/typhoon|eurofighter|fighter|fast jet|\b(hawk|f-?(15|16|18|22|35)|tornado|gripen|rafale)\b/.test(text))return 'fastjet';
+  if(/\b(c-?17|a400m?|atlas|hercules|transporter|kc-?135|voyager)\b/.test(text))return 'heavy';
   if(/(cessna|c152|c172|diamond|piper|spitfire|prop)/.test(text))return 'propeller';
   return 'airliner';
 }

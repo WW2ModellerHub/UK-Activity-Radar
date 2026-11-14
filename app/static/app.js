@@ -1204,7 +1204,7 @@
       : /APACHE|AH-?64/.test(text)?'apache'
       : /EUROFIGHTER|TYPHOON|\bEF2000\b/.test(text)?'typhoon'
       : /A400M|ATLAS C?\.?1|\bA4M\b/.test(text)?'a400m'
-      : /C-?17|GLOBEMASTER|\bC17\b/.test(text)?'c17'
+      : /\bC-?17\b|GLOBEMASTER/.test(text)?'c17'
       : /COASTGUARD|SIKORSKY S-?92|\bS92\b/.test(text)?'coastguard'
       : aircraftMapShape(a).kind;
     const media=AIRCRAFT_TYPE_PHOTOS[kind];
@@ -1344,14 +1344,14 @@
     const known=[
       [/LYNX|WILDCAT/, 'LYNX'],
       [/APACHE|AH-?64/, 'APACHE'], [/CHINOOK|CH-?47|\bH47\b/, 'CHINOOK'],
-      [/EUROFIGHTER|TYPHOON|\bEUFI\b/, 'TYPHOON'], [/F-?35|LIGHTNING II/, 'F-35'],
-      [/A400M|\bA400\b|ATLAS/, 'ATLAS'], [/C-?17|GLOBEMASTER/, 'C-17'],
-      [/VOYAGER|KC-?2|A330 MRTT/, 'VOYAGER'], [/C-?130|HERCULES|\bC30J\b/, 'HERCULES'],
-      [/HAWK/, 'HAWK'], [/OSPREY|V-?22/, 'OSPREY'], [/AWACS|SENTRY|E-?3/, 'AWACS'],
+      [/EUROFIGHTER|TYPHOON|\bEUFI\b/, 'TYPHOON'], [/\bF-?35\b|LIGHTNING II/, 'F-35'],
+      [/\bA400M?\b|\bATLAS\b/, 'ATLAS'], [/\bC-?17\b|GLOBEMASTER/, 'C-17'],
+      [/VOYAGER|\bKC-?2\b|A330 MRTT/, 'VOYAGER'], [/\bC-?130\b|HERCULES|\bC30J\b/, 'HERCULES'],
+      [/\bHAWK\b/, 'HAWK'], [/OSPREY|\bV-?22\b/, 'OSPREY'], [/AWACS|SENTRY|\bE-?3\b/, 'AWACS'],
       [/COASTGUARD|SIKORSKY S-?92|\bS92\b/, 'COASTGUARD'],
       [/SPITFIRE|\bSPIT\b/, 'SPITFIRE'], [/HURRICANE/, 'HURRICANE'], [/LANCASTER/, 'LANCASTER'],
       [/CESSNA\s*152|\bC152\b/, 'CESSNA 152'], [/CESSNA\s*172|\bC172\b/, 'CESSNA 172'],
-      [/KC-?135|STRATOTANKER/, 'KC-135'],
+      [/\bKC-?135\b|STRATOTANKER/, 'KC-135'],
     ];
     for (const [pattern,label] of known) if(pattern.test(text)) return label;
     const fallback=String(v.aircraft_model || v.aircraft_type_code || v.vehicle_ref || (v.type==='sar'?'RESCUE':'AIRCRAFT')).trim();
@@ -1368,8 +1368,8 @@
     if(/CHINOOK|CH-?47|\bH47\b/.test(text)) return {kind:'chinook',html:chinook,rotorcraft:true};
     if(/APACHE|AH-?64/.test(text)) return {kind:'apache',html:apache,rotorcraft:true};
     if(v.type==='sar' || /LYNX|WILDCAT|MERLIN|GAZELLE|PUMA|HELICOPTER|SIKORSKY|AW1|EC1|H135|H145|DAUPHIN|\bS92\b/.test(text)) return {kind:'helicopter',html:helicopter,rotorcraft:true};
-    if(/TYPHOON|EUROFIGHTER|F-?35|F-?16|F-?15|F-?18|TORNADO|HAWK|GRIPEN|RAFALE/.test(text)) return {kind:'fastjet',html:fastJet,rotorcraft:false};
-    if(/KC-?135|STRATOTANKER|VOYAGER|A330|A340|A350|A380|747|C-?17|GLOBEMASTER|A400M|ATLAS|HERCULES|C-?130|AWACS|SENTRY|RIVET/.test(text)) return {kind:'heavy',html:heavy,rotorcraft:false};
+    if(/TYPHOON|EUROFIGHTER|\b(?:F-?35|F-?16|F-?15|F-?18|TORNADO|HAWK|GRIPEN|RAFALE)\b/.test(text)) return {kind:'fastjet',html:fastJet,rotorcraft:false};
+    if(/\b(?:KC-?135|STRATOTANKER|VOYAGER|A330|A340|A350|A380|747|C-?17|GLOBEMASTER|A400M?|ATLAS|HERCULES|C-?130|AWACS|SENTRY|RIVET)\b/.test(text)) return {kind:'heavy',html:heavy,rotorcraft:false};
     if(/SPITFIRE|HURRICANE|LANCASTER|MUSTANG|DAKOTA|CESSNA|PIPER|CIRRUS|BEECH|DIAMOND|\bC1(?:52|72|82)\b|\bPA-?\d+\b|\bSR2\d\b|\bDA\d{2}\b|\bDH8\b|DASH\s*8|ATR\s*\d+/.test(text)) return {kind:'propeller',html:propeller,rotorcraft:false};
     return {kind:'airliner',html:airliner,rotorcraft:false};
   }

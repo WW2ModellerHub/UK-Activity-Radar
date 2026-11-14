@@ -1,5 +1,15 @@
 # Codex stabilization changelog
 
+## 2026-11-14 — aircraft type matching
+
+- A Cessna 172 (type code C172) was labelled "C-17" with the heavy military
+  transport icon: the app's type rules matched "C-?17" anywhere, including
+  the start of "C172". The same loose matching could turn a Reims Cessna F150
+  into a fast jet (F-?15), a Hawker business jet into a Hawk, and parts of
+  registrations into AWACS (E-?3). All type codes are now matched as whole
+  words in the marker label, marker shape and fast-renderer icon. The server
+  rules already used whole words.
+
 ## 2026-11-14 — quick answers: one tap for the everyday jobs
 
 Walked the five things a visitor comes to do and cut the taps:

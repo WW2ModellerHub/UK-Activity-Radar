@@ -1349,3 +1349,20 @@ test('a late train says where the delay built up', async ({ page }) => {
   await expect(why).toContainText('Most of it (8 min) was lost between Rugby and Nuneaton.');
   await expect(why).toContainText('3 other trains nearby are late too');
 });
+
+test('light aircraft and business jets are not mistaken for military types', async ({ page }) => {
+  await page.locator('[data-layer-toggle="aircraft"]').click();
+  await waitForViewportRequestsToSettle(page);
+  await page.evaluate(() => {
+    const first = window.__fixtureSnapshot.activities.find(row => row.id === 'aircraft-live-1');
+    const plane = (id, name, model, code, lat) => ({ ...first, id, name, vehicle_ref:name, aircraft_model:model, aircraft_type_code:code, subtitle:`${name} • ${code}`, lat, cool_category:null, cool_score:0, cool_label:null });
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[
+      plane('ac-c172','GBJXZ','','C172',52.1), plane('ac-f150','GAVGE','','F150',52.3), plane('ac-hawker','GOMHC','Hawker 800XP','H25B',52.5),
+    ] }) });
+  });
+  await expect(page.locator('.aerial-map-marker')).toHaveCount(3);
+  await expect(page.locator('.aerial-map-marker').filter({ hasText:'C-17' })).toHaveCount(0);
+  await expect(page.locator('.aerial-map-marker').filter({ hasText:'CESSNA 172' })).toHaveClass(/aircraft-shape-propeller/);
+  await expect(page.locator('.aircraft-shape-fastjet')).toHaveCount(0);
+  await expect(page.locator('.aircraft-shape-heavy')).toHaveCount(0);
+});
