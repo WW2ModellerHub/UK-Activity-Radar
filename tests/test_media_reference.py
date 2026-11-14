@@ -51,12 +51,13 @@ def test_a_routine_train_shows_its_operators_train_with_a_clear_label():
                     operator="Great Western Railway")
     lookup = _lookup({"GWR Class 800": [
         _page(1, "Southern 377 at Brighton.jpg", "Southern Class 377"),
+        _page(3, "GWR Class 800 Standard Class Interior.jpg", "Inside a GWR Class 800"),
         _page(2, "GWR 800 004 at Reading.jpg", "GWR Class 800 IET at Reading station"),
     ]})
     result = lookup.lookup(train)
     assert result["ok"] and result["title"] == "GWR 800 004 at Reading.jpg"
     assert result["match_kind"] == "type_reference"
-    assert result["reference_label"] == "Example of a Great Western Railway train — not this exact one"
+    assert result["reference_label"] == "Great Western Railway — example of their trains, not this exact one"
 
 
 def test_a_photo_of_another_operator_or_with_a_non_commercial_licence_is_never_shown():
@@ -72,7 +73,7 @@ def test_a_bus_shows_its_groups_colours():
     bus = Vehicle(id="bus:SCMN:1", type="bus", name="Bus 50", lat=53.4, lon=-2.2, source="BODS", operator="SCMN")
     lookup = _lookup({"Stagecoach bus": [_page(5, "Stagecoach Manchester Enviro400 MMC.jpg", "Stagecoach double-decker bus in Manchester")]})
     result = lookup.lookup(bus)
-    assert result["ok"] and result["reference_label"] == "Example of a Stagecoach bus — not this exact one"
+    assert result["ok"] and result["reference_label"] == "Stagecoach — example of their buses, not this exact one"
 
 
 def test_an_unknown_operator_gets_no_guess():

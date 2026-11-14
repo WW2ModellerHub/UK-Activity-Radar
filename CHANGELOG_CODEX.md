@@ -11,6 +11,8 @@
   licence that allows commercial use; an unknown operator gets no guess.
   Steam and railtour specials never get an everyday train photo.
 - New `/api/media/reference` serves planes the server does not keep.
+- Example photos show the outside of the vehicle (no interiors, cabs or
+  logos), and a Commons rate limit is retried once after a short wait.
 
 ## 2026-11-14 — options under each layer
 
