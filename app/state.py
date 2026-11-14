@@ -280,6 +280,16 @@ class LiveState:
                 self._events[event.id] = event
             self._touch_unlocked()
 
+    def replace_events_with_prefix(self, prefix: str, events: list[Event]) -> None:
+        """Replace every event whose id starts with ``prefix`` (one map cell)."""
+        classified = [apply_cool_classification(deepcopy(event)) for event in events]
+        with self._lock:
+            for old_id in [key for key in self._events if key.startswith(prefix)]:
+                self._events.pop(old_id, None)
+            for event in classified:
+                self._events[event.id] = event
+            self._touch_unlocked()
+
     def get(self, activity_id: str) -> Vehicle | Event | None:
         with self._lock:
             item = self._vehicles.get(activity_id) or self._events.get(activity_id)

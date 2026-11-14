@@ -4891,13 +4891,10 @@
     const type = button.dataset.layerToggle;
     if (!toggleableActivityTypes.has(type)) return;
     if (enabledActivityTypes.has(type)) enabledActivityTypes.delete(type); else enabledActivityTypes.add(type);
-    // National Highways only reports closures where physical signs/signals are
-    // set, so it is intentionally sparse. Pair the Incidents switch with the
-    // current TomTom incident overlay to provide genuine local coverage.
-    if(type==='incident'){
-      if(enabledActivityTypes.has(type)) await setTrafficMode('incidents',true);
-      else if(trafficMode==='incidents') await setTrafficMode('off',true);
-    }
+    // Live incidents (crashes, breakdowns, queues) are fetched by the server
+    // for the area on screen, so they need a regional view, not all of Britain.
+    if(['incident','road'].includes(type)&&enabledActivityTypes.has(type)&&map.getZoom()<8)showToast('Zoom in to see live incidents and roadworks near you.');
+    if(type==='incident'&&!enabledActivityTypes.has(type)&&trafficMode==='incidents') await setTrafficMode('off',true);
     selectedType='useful';
     updateLayerToggleUi();
     sendViewport();
