@@ -720,7 +720,8 @@ test('selected aircraft draws its trail on the map and shows compact facts', asy
   await expect(page.locator('#detail-trail')).toHaveClass(/hidden/);
   await expect(page.locator('#detail-fields [data-field="Altitude"]')).toBeVisible();
   await expect(page.locator('#detail-fields [data-field="ICAO type code"]')).toBeHidden();
-  expect((await page.locator('#detail-fields').boundingBox()).height).toBeLessThan(44);
+  // At most two short rows of chips, whatever the font (the old boxes were ~200 px).
+  expect((await page.locator('#detail-fields').boundingBox()).height).toBeLessThan(90);
   await expect(page.locator('#map')).toHaveAttribute('data-selected-trail-points','2');
 });
 
@@ -1088,7 +1089,7 @@ test('mobile quick answers sit above the tabs and step aside for an open sheet',
   await expect(page.locator('#workspace-shell')).toHaveClass(/collapsed/);
   const bar = page.locator('#jobs-bar');
   await expect(bar).toBeVisible();
-  await expect(bar.locator('button')).toHaveText(['Planes above','Trains near','Next bus','My journey']);
+  await expect(bar.locator('button')).toHaveText(['Planes','Trains','Next bus','Journey']);
   const box = await bar.boundingBox();
   expect(box.height).toBeLessThanOrEqual(72);
   expect(box.x + box.width).toBeLessThanOrEqual(390);

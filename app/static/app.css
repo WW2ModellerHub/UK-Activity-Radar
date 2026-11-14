@@ -1057,7 +1057,7 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 
 /* ---- Quick answers bar: four everyday jobs, one tap each ---- */
 .jobs-bar { position: absolute; z-index: 820; left: 50%; bottom: 16px; transform: translateX(-50%); display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 4px 16px rgba(16, 24, 40, .14); width: min(460px, calc(100% - 24px)); }
-.jobs-bar button { display: grid; justify-items: center; gap: 3px; padding: 8px 4px; border: 0; border-radius: 12px; background: none; color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.jobs-bar button { display: grid; justify-items: center; gap: 3px; padding: 7px 2px; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; border: 0; border-radius: 12px; background: none; color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .jobs-bar button:hover, .jobs-bar button:focus-visible { background: var(--subtle, #f2f4f7); }
 .jobs-bar .ico { width: 22px; height: 22px; color: var(--accent, #0b63ce); }
 .live-ticker { display: none !important; }
