@@ -1854,3 +1854,33 @@ test('the camera view opens straight away and finds your location while it runs'
   await expect(page.locator('#ar-direction')).toHaveText('Looking N, 0° up');
   await expect(page.locator('.ar-label.ar-train')).toContainText('1A23 to Leeds');
 });
+
+test('the Weather layer shows the rain radar with its time, scale and credit, and can play back', async ({ page }) => {
+  const frames = ['20261115T1145','20261115T1200','20261115T1215'].map(key => ({ key, time:`${key.slice(0,4)}-${key.slice(4,6)}-${key.slice(6,8)}T${key.slice(9,11)}:${key.slice(11,13)}:00Z` }));
+  await page.route('**/api/weather/radar', route => route.fulfill({ json:{ available:true, frames, bounds:[[49.4,-11.5],[61.2,2.6]], attribution:'Rain radar: EUMETNET OPERA, CC BY 4.0' } }));
+  await page.route('**/api/weather/radar/*.png', route => route.fulfill({ contentType:'image/png', body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==','base64') }));
+  await expect(page.locator('#radar-key')).toBeHidden();
+  await page.locator('[data-layer-chip="weather"]').click();
+  await expect(page.locator('#map')).toHaveAttribute('data-rain-radar','20261115T1215');
+  await expect(page.locator('.leaflet-image-layer')).toHaveAttribute('src','/api/weather/radar/20261115T1215.png');
+  await expect(page.locator('#radar-key')).toBeVisible();
+  await expect(page.locator('#radar-time')).toContainText('Rain radar');
+  await expect(page.locator('#radar-credit')).toHaveText('EUMETNET OPERA, CC BY 4.0');
+  const row = page.locator('#sub-chips');
+  await expect(row.locator('.sub-chip:visible')).toHaveText(['Rain radar','Play last 2 hours']);
+  // Playback starts two hours back and ends on the latest frame.
+  await row.locator('[data-sub-action="radar-play"]').click();
+  await expect(page.locator('#map')).toHaveAttribute('data-rain-radar','20261115T1145');
+  await expect(page.locator('#radar-time')).toContainText('Rain at');
+  await expect(page.locator('#map')).toHaveAttribute('data-rain-radar','20261115T1215', { timeout:5000 });
+  await expect(row.locator('[data-sub-action="radar-play"]')).toHaveAttribute('aria-pressed','false');
+  // Rain radar can be switched off on its own, and goes with the Weather layer.
+  await row.locator('[data-sub-action="radar"]').click();
+  await expect(page.locator('.leaflet-image-layer')).toHaveCount(0);
+  await expect(page.locator('#radar-key')).toBeHidden();
+  await row.locator('[data-sub-action="radar"]').click();
+  await expect(page.locator('.leaflet-image-layer')).toHaveCount(1);
+  await page.locator('[data-layer-chip="weather"]').click();
+  await expect(page.locator('.leaflet-image-layer')).toHaveCount(0);
+  await expect(page.locator('#map')).not.toHaveAttribute('data-rain-radar', /./);
+});

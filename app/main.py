@@ -544,6 +544,22 @@ def _send_commute_push(subscription: dict, payload: dict) -> None:
     )
 
 
+from .rain_radar import POLL_SECONDS as RAIN_RADAR_POLL_SECONDS, RainRadar
+
+rain_radar = RainRadar()
+
+
+async def _rain_radar_loop() -> None:
+    """Keep the last two hours of rain radar frames."""
+    await asyncio.sleep(5)
+    while True:
+        try:
+            await asyncio.to_thread(rain_radar.refresh)
+        except Exception as exc:  # never let the radar take the server down
+            rain_radar.last_error = f"radar refresh failed: {type(exc).__name__}"
+        await asyncio.sleep(RAIN_RADAR_POLL_SECONDS)
+
+
 _journey_checked: dict[str, float] = {}
 
 
@@ -666,6 +682,9 @@ async def lifespan(app: FastAPI):
             token_pepper=billing_configuration.token_pepper,
         )
         billing_service = StripeBillingService(billing_store, billing_configuration)
+
+    if settings.rain_radar_enabled and not settings.demo_mode:
+        tasks.append(asyncio.create_task(_rain_radar_loop()))
 
     if settings.push_alerts_ready:
         commute_alert_store = CommuteAlertStore(ALERTS_DB)
@@ -1174,6 +1193,24 @@ def billing_preview(payload: RadarPlusPreviewIn, request: Request):
     )
     response.headers["Cache-Control"] = "private, no-store"
     return response
+
+
+@app.get("/api/weather/radar")
+def rain_radar_index(response: Response):
+    """Which rain radar frames are available, where they go and how to credit them."""
+    response.headers["Cache-Control"] = "public, max-age=60"
+    return {**rain_radar.index(), "enabled": settings.rain_radar_enabled}
+
+
+@app.get("/api/weather/radar/{key}.png", include_in_schema=False)
+def rain_radar_frame(key: str):
+    if not re.fullmatch(r"\d{8}T\d{4}", key):
+        raise HTTPException(status_code=404, detail="No such radar frame")
+    png = rain_radar.png(key)
+    if png is None:
+        raise HTTPException(status_code=404, detail="That radar frame is no longer kept")
+    # A frame never changes once made.
+    return Response(content=png, media_type="image/png", headers={"Cache-Control": "public, max-age=86400, immutable"})
 
 
 @app.get("/api/alerts/status")

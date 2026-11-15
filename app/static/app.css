@@ -1257,3 +1257,12 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
   :root { --nav-h: calc(64px + env(safe-area-inset-bottom, 0px)); }
   .workspace-rail { box-sizing: border-box; height: var(--nav-h); padding-bottom: env(safe-area-inset-bottom, 0px); background: var(--surface); }
 }
+
+/* Rain radar key: time, colour scale and credit, above the map's bottom edge. */
+.radar-key { position: absolute; z-index: 790; left: 12px; bottom: 34px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; max-width: calc(100% - 96px); padding: 6px 10px; border-radius: 10px; background: rgba(255,255,255,.94); box-shadow: 0 1px 4px rgba(16,24,40,.16); font-size: 12px; color: var(--text); }
+.radar-key #radar-time { font-weight: 700; font-size: 13px; }
+.radar-scale { display: inline-flex; height: 10px; border-radius: 3px; overflow: hidden; }
+.radar-scale i { width: 14px; height: 10px; }
+.radar-key small { color: var(--muted); }
+.radar-key a { color: var(--muted); font-size: 11px; }
+@media (max-width: 760px) { .radar-key { bottom: calc(var(--nav-h) + 34px); left: 12px; max-width: calc(100% - 92px); } }

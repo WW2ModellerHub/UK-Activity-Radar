@@ -120,6 +120,15 @@
   window.L = {
     map: id => new MapStub(id),
     tileLayer: passive,
+    imageOverlay: (url, bounds, options = {}) => {
+      // A visible <img> so tests can see which radar frame is on the map.
+      const layer = new Layer();
+      layer.options = options; layer.bounds = bounds;
+      layer._attach = function () { if (this._el || !this._map) return; this._el = document.createElement('img'); this._el.className = 'leaflet-image-layer'; this._el.src = url; this._map._container.appendChild(this._el); };
+      layer.setUrl = function (next) { url = next; if (this._el) this._el.src = next; return this; };
+      layer.setOpacity = function () { return this; };
+      return layer;
+    },
     marker: (latlng, options) => new Marker(latlng, options),
     markerClusterGroup: () => new Group(true),
     layerGroup: (layers = []) => { const group=new Group(); layers.forEach(layer=>group.addLayer(layer)); return group; },

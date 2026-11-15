@@ -267,6 +267,8 @@ class Settings:
     # Free public mirror of Met Office NSWWS warning polygons. No key. The
     # mirror refreshes hourly; official Met Office links remain authoritative.
     met_office_enabled: bool = _commercial_source("MET_OFFICE_ENABLED")
+    # EUMETNET OPERA radar composite: CC BY 4.0, so allowed in the commercial build.
+    rain_radar_enabled: bool = _bool("RAIN_RADAR_ENABLED", True)
     met_office_arcgis_item: str = os.getenv("MET_OFFICE_ARCGIS_ITEM", "23e51204bd3348f1a37b50786b8abdea").strip()
     met_office_poll_seconds: int = max(300, int(os.getenv("MET_OFFICE_POLL_SECONDS", "900")))
 
