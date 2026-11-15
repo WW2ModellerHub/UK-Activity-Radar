@@ -35,8 +35,8 @@
       row('Aircraft',payload.aircraft_model),
       row('Height',height),
       row('Speed',payload.speed),
-      row('Status',plainStatus(payload.status)),
-      row('What it is',payload.what_it_is||payload.reason,true),
+      row('Status',running(payload)?'':plainStatus(payload.status)),  // "Late" is already under Running
+      row('What it is',payload.what_it_is||(payload.badge&&!/→/.test(payload.reason||'')?payload.reason:''),true),
       row('Its code',payload.code_note,true),
       row('Seen by',[payload.how_seen,payload.source].filter(Boolean).join(' · '),true),
     ].join('');
