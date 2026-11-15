@@ -10,3 +10,6 @@ sgp4>=2.24,<3.0
 cryptography>=47,<49
 stripe==16.1.0
 pywebpush==2.5.0
+h5py>=3.11,<4.0
+numpy>=1.26
+Pillow>=10.0

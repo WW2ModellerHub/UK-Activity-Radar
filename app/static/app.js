@@ -1173,18 +1173,78 @@
     if (!wantRailLines && railView.delaysOn) setDelayHotspots(false);
     if (!wantRailLines && lateTrainsOnly) lateTrainsOnly = false;
     updateSubChips();
+    if((enabledActivityTypes.has('weather')&&rainRadar.wanted)!==Boolean(rainRadar.refresh))syncRainRadar();
     syncBaseMap();
   }
 
   // The second row under the layer chips: things to do with the layer that
   // was switched on last (Trains -> Delays, Late only, Near me...).
-  const SUB_LAYERS=['train','bus','aircraft','road','incident'];
+  const SUB_LAYERS=['train','bus','aircraft','road','incident','weather'];
   function subLayerGroup(type){return type==='incident'?'road':type;}
   function activeSubLayer(){
     if(lastEnabledLayer&&enabledActivityTypes.has(lastEnabledLayer)&&SUB_LAYERS.includes(lastEnabledLayer))return subLayerGroup(lastEnabledLayer);
     const first=SUB_LAYERS.find(type=>enabledActivityTypes.has(type));
     return first?subLayerGroup(first):null;
   }
+  // Rain radar: the open EUMETNET OPERA composite, shown with the Weather
+  // layer. The server keeps the last two hours of 15-minute frames.
+  const rainRadar={wanted:true,frames:[],bounds:null,overlay:null,shown:null,loadedAt:0,timer:null,refresh:null,attribution:''};
+  function rainRadarUrl(frame){return `/api/weather/radar/${encodeURIComponent(frame.key)}.png`;}
+  function showRainRadarFrame(frame){
+    if(!frame||!rainRadar.bounds)return;
+    if(!rainRadar.overlay){
+      rainRadar.overlay=L.imageOverlay(rainRadarUrl(frame),rainRadar.bounds,{opacity:.8,interactive:false,attribution:rainRadar.attribution,className:'rain-radar-layer'}).addTo(map);
+    } else rainRadar.overlay.setUrl(rainRadarUrl(frame));
+    rainRadar.shown=frame.key;
+    const at=new Date(frame.time);
+    const minutes=Math.round((Date.now()-at.getTime())/60000);
+    const clock=at.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    const time=$('radar-time');if(time)time.textContent=rainRadar.timer?`Rain at ${clock}`:`Rain radar ${clock}${minutes>=0&&minutes<180?` (${minutes} min ago)`:''}`;
+    $('map')?.setAttribute('data-rain-radar',frame.key);
+  }
+  async function loadRainRadar(){
+    try {
+      const response=await fetch('/api/weather/radar',{cache:'no-store'});
+      if(!response.ok)throw new Error();
+      const index=await response.json();
+      if(!(enabledActivityTypes.has('weather')&&rainRadar.wanted))return;
+      rainRadar.loadedAt=Date.now();
+      rainRadar.frames=index.frames||[];rainRadar.bounds=index.bounds;rainRadar.attribution=index.attribution||'';
+      if(!rainRadar.frames.length){const time=$('radar-time');if(time)time.textContent='Rain radar is not available right now';return;}
+      // Warm the browser cache so playing back is smooth.
+      rainRadar.frames.forEach(frame=>{const image=new Image();image.src=rainRadarUrl(frame);});
+      if(!rainRadar.timer)showRainRadarFrame(rainRadar.frames[rainRadar.frames.length-1]);
+    } catch { const time=$('radar-time');if(time)time.textContent='Rain radar is not available right now'; }
+  }
+  function stopRainRadarPlay(){
+    clearInterval(rainRadar.timer);rainRadar.timer=null;
+    const latest=rainRadar.frames[rainRadar.frames.length-1];if(latest)showRainRadarFrame(latest);
+  }
+  function toggleRainRadarPlay(){
+    if(rainRadar.timer){stopRainRadarPlay();return;}
+    if(rainRadar.frames.length<2){showToast('Not enough radar history yet.');return;}
+    let index=0;
+    rainRadar.timer=setInterval(()=>{
+      index+=1;
+      // One pass from two hours ago to now, then rest on the latest.
+      if(index>=rainRadar.frames.length){stopRainRadarPlay();updateSubChips();return;}
+      showRainRadarFrame(rainRadar.frames[index]);
+    },700);
+    showRainRadarFrame(rainRadar.frames[0]);
+  }
+  function syncRainRadar(){
+    const on=enabledActivityTypes.has('weather')&&rainRadar.wanted;
+    const key=$('radar-key');if(key)key.hidden=!on;
+    if(on){
+      if(!rainRadar.refresh){loadRainRadar();rainRadar.refresh=setInterval(loadRainRadar,5*60000);}
+    } else {
+      if(rainRadar.timer)stopRainRadarPlay();
+      clearInterval(rainRadar.refresh);rainRadar.refresh=null;
+      if(rainRadar.overlay){map.removeLayer(rainRadar.overlay);rainRadar.overlay=null;rainRadar.shown=null;}
+      $('map')?.removeAttribute('data-rain-radar');
+    }
+  }
+
   function updateSubChips(){
     const row=$('sub-chips');
     if(!row)return;
@@ -1195,6 +1255,8 @@
     row.querySelectorAll('[data-late-only]').forEach(chip=>chip.setAttribute('aria-pressed',String(lateTrainsOnly)));
     row.querySelectorAll('[data-sub-action="bus-stops"]').forEach(chip=>chip.setAttribute('aria-pressed',String(placeMode==='bus')));
     row.querySelectorAll('[data-sub-action="traffic"]').forEach(chip=>chip.setAttribute('aria-pressed',String(trafficMode!=='off')));
+    row.querySelectorAll('[data-sub-action="radar"]').forEach(chip=>chip.setAttribute('aria-pressed',String(rainRadar.wanted)));
+    row.querySelectorAll('[data-sub-action="radar-play"]').forEach(chip=>{chip.setAttribute('aria-pressed',String(Boolean(rainRadar.timer)));chip.hidden=chip.dataset.subFor!==group||!rainRadar.wanted;});
   }
 
   // Every train operator in one list: good, minor or severe, worst first.
@@ -5850,6 +5912,8 @@
     else if(action==='camera')startCameraView(chip.dataset.subFor);
     else if(action==='journey')jobJourney();
     else if(action==='traffic')$('traffic-quick')?.click();
+    else if(action==='radar'){rainRadar.wanted=!rainRadar.wanted;syncRainRadar();updateSubChips();}
+    else if(action==='radar-play'){toggleRainRadarPlay();updateSubChips();}
   }));
   document.querySelectorAll('[data-layer-chip]').forEach(chip=>chip.addEventListener('click',()=>{
     document.querySelector(`.layer-toggle[data-layer-toggle="${chip.dataset.layerChip}"]`)?.click();

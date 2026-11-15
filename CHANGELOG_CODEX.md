@@ -1,5 +1,19 @@
 # Codex stabilization changelog
 
+## 2026-11-15 — rain radar
+
+- The Weather layer shows rain radar from the EUMETNET OPERA composite, which
+  joins Europe's national weather radars (15 in the UK, 2 in Ireland). It is
+  open under CC BY 4.0, so allowed in the commercial build with credit.
+- `app/rain_radar.py` fetches the newest 15-minute frames through the Open
+  Radar Data API every 5 minutes, keeps two hours, cuts each to the UK and
+  Ireland, reprojects the 2 km Lambert equal-area grid to Web Mercator and
+  colours it by rain rate (transparent where dry or out of range).
+  `/api/weather/radar` lists frames; `/api/weather/radar/{time}.png` serves one.
+- On the map: Weather → "Rain radar" (on by default) and "Play last 2
+  hours"; a key shows the time, the colour scale and the credit. Credited on
+  the data licences page. New dependency: h5py (radar files are ODIM HDF5).
+
 ## 2026-11-15 — alerts once, camera first, honest bus photos
 
 - **The same closure alerted again and again.** TomTom incident ids carry a
