@@ -113,7 +113,7 @@ def test_journey_watch_warns_only_before_leaving_and_only_for_serious_things_on_
     alerts = journey_alerts(events, journey, monday_7)
     assert [a["activity_id"] for a in alerts] == ["on-route"]
     assert alerts[0]["title"] == "Crash · M621 on your drive to Leeds"
-    assert alerts[0]["key"] == "journey:2026-11-16:on-route"
+    assert alerts[0]["key"].startswith("journey:road:2026-11-16:")
     assert journey_alerts(events, journey, monday_7.replace(hour=12)) == []
     assert normalise_preferences({"mode": "trains-only", "journey": {"points": [[1, 1]], "leave_minutes": 10}})["journey"] is None
 

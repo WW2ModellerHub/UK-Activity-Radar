@@ -209,7 +209,7 @@ def journey_alerts(events, journey: dict | None, now: datetime | None = None) ->
         if _distance_to_route_km(event.lat, event.lon, journey["points"]) > JOURNEY_REACH_KM:
             continue
         found.append((impact.get("rank") or 0, {
-            "key": f"journey:{local.date().isoformat()}:{event.id}",
+            "key": "journey:" + road_event_key(event, impact, now),
             "title": f"{impact.get('title') or 'Incident'} on {journey['name']}",
             "body": " · ".join(x for x in (impact.get("where"), impact.get("impact"), impact.get("when")) if x) or "Check before you leave.",
             "activity_id": event.id,
@@ -265,6 +265,15 @@ def _normalise_preferences(raw: dict) -> dict:
     }
 
 
+# Nearby roadworks and incidents are the noisiest alerts: at most this many a
+# day per phone, the most serious first.
+MAX_PLACE_ROAD_ALERTS_PER_DAY = 3
+
+
+def road_key_prefix(now: datetime | None = None) -> str:
+    return "road:" + (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("Europe/London")).date().isoformat() + ":"
+
+
 # ---- Spotter alerts -----------------------------------------------------
 # "Tell me when something unusual is near me": the same finds Discover lists
 # (steam, charters, military and rescue aircraft), within a chosen distance.
@@ -298,6 +307,18 @@ def spotter_alert(item, spotter: dict | None, now: datetime | None = None) -> di
     }
 
 
+def road_event_key(event, impact: dict | None = None, now: datetime | None = None) -> str:
+    """One alert per problem per day, however the feed names or splits it.
+
+    Feeds re-issue ids, and list a closure once for each direction; the same
+    kind of problem on the same road within about a kilometre is one thing.
+    """
+    impact = impact or getattr(event, "impact", None) or {}
+    day = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("Europe/London")).date().isoformat()
+    road = str(getattr(event, "road", None) or "").strip().upper()
+    return f"road:{day}:{impact.get('what') or event.type}:{road}:{round(float(event.lat), 2)},{round(float(event.lon), 2)}"
+
+
 def alert_for_activity(item: Activity, preferences: dict) -> dict | None:
     if _distance_km(preferences["lat"], preferences["lon"], item.lat, item.lon) > preferences["radius_miles"] * 1.609344:
         return None
@@ -325,8 +346,23 @@ def alert_for_activity(item: Activity, preferences: dict) -> dict | None:
             "mode": "my-radar",
         }
     if preferences["mode"] == "driving":
-        relevant = item.type in {"road", "incident", "weather", "flood"}
-        important = any(word in text for word in ("closed", "closure", "delay", "congestion", "incident", "severe", "flood", "warning", "lane"))
+        impact = getattr(item, "impact", None) or {}
+        if item.type in {"road", "incident"}:
+            # Only things that are happening and get in the way: closures,
+            # crashes, lane closures, long delays. Plain roadworks are not news.
+            if not impact.get("active") or (impact.get("rank") or 0) < 2:
+                return None
+            place = preferences["place_name"]
+            what = impact.get("what") or "Incident"
+            return {
+                "key": road_event_key(item, impact),
+                "title": f"{what} near {place}",
+                "body": " · ".join(x for x in (impact.get("where"), impact.get("impact"), impact.get("when")) if x) or "Check before you set off.",
+                "activity_id": item.id,
+                "mode": "driving",
+            }
+        relevant = item.type in {"weather", "flood"}
+        important = any(word in text for word in ("severe", "flood", "warning"))
         if not (relevant and important):
             return None
         title = f"Driving near {preferences['place_name']}?"
@@ -441,6 +477,13 @@ class CommuteAlertStore:
                 "SELECT 1 FROM deliveries WHERE endpoint_hash=? AND activity_id=?",
                 (endpoint_hash, activity_id),
             ).fetchone() is not None
+
+    def delivered_count(self, endpoint_hash: str, key_prefix: str) -> int:
+        with self._lock:
+            return self._connection.execute(
+                "SELECT COUNT(*) FROM deliveries WHERE endpoint_hash=? AND activity_id LIKE ? ESCAPE '\\'",
+                (endpoint_hash, key_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"),
+            ).fetchone()[0]
 
     def mark_delivered(self, endpoint_hash: str, activity_id: str) -> None:
         with self._lock:

@@ -143,7 +143,7 @@ def _model_keys(model: str) -> tuple[str, ...]:
 
 
 def reference_for(kind: str, operator: str | None = None, model: str | None = None,
-                  callsign: str | None = None) -> dict | None:
+                  callsign: str | None = None, route: str | None = None) -> dict | None:
     """Search plan for an example photo: query, required words and label.
 
     ``require`` is a list of groups; a photo must mention at least one word
@@ -165,10 +165,23 @@ def reference_for(kind: str, operator: str | None = None, model: str | None = No
         group = bus_group(operator)
         if not group:
             return None
-        return {
+        aliases = BUS_GROUP_ALIASES.get(group, (group.casefold(),))
+        bus_words = ("bus", "double-decker", "double decker", "single-decker")
+        colours = {
             "query": f"{group} bus",
-            "require": [BUS_GROUP_ALIASES.get(group, (group.casefold(),)), ("bus", "double-decker", "double decker", "single-decker")],
-            "label": f"{group} — example of their buses, not this exact one",
+            "require": [aliases, bus_words],
+            # Said plainly: the photo shows the colours, and the number on
+            # the front may be another route.
+            "label": f"{group} colours — an example bus, it may show another route",
+        }
+        number = re.sub(r"[^0-9A-Za-z]", "", str(route or ""))[:6]
+        if not number:
+            return colours
+        return {
+            "query": f"{group} bus route {number}",
+            "require": [aliases, bus_words, re.compile(rf"(?<![0-9a-z]){re.escape(number.casefold())}(?![0-9a-z])")],
+            "label": f"{group} bus on route {number} — an example, not this exact bus",
+            "fallback": colours,
         }
     if kind in {"aircraft", "sar"}:
         model = str(model or "").strip()
@@ -197,7 +210,19 @@ def reference_for(kind: str, operator: str | None = None, model: str | None = No
 def mentions_all(text: str, require: list) -> bool:
     hay = text.casefold()
     flat = hay.replace("-", "")
-    return all(any(word in hay or word.replace("-", "") in flat for word in group) for group in require)
+    return all(
+        bool(group.search(hay)) if isinstance(group, re.Pattern)
+        else any(word in hay or word.replace("-", "") in flat for word in group)
+        for group in require
+    )
+
+
+def tidy_title(title: str) -> str:
+    """A file name as a caption: no extension, no catalogue numbers."""
+    text = re.sub(r"\.(jpe?g|png|gif|tiff?|webp)$", "", str(title or ""), flags=re.I)
+    text = re.sub(r"\s*\((geograph\s*\d+|\d{6,})\)", "", text, flags=re.I)
+    text = re.sub(r"\s*-\s*geograph\.org\.uk\s*-\s*\d+", "", text, flags=re.I)
+    return re.sub(r"[_\s]+", " ", text).strip(" -")
 
 
 # A picture of the outside of the vehicle shows its colours; these do not.

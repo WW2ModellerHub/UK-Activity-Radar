@@ -1,5 +1,24 @@
 # Codex stabilization changelog
 
+## 2026-11-15 — alerts once, camera first, honest bus photos
+
+- **The same closure alerted again and again.** TomTom incident ids carry a
+  model version that changes every few minutes, so each refresh looked new.
+  Ids now keep only the incident part, and nearby road alerts are keyed by
+  what, road and place (to about a kilometre) for the day, so one closure
+  listed in both directions is one alert. At most three nearby road alerts a
+  day per phone, most serious first.
+- **"Watch out for Closed: Closed"** now reads "Road closed near Hinckley" with
+  where, impact and until when. Nearby alerts need an active closure, crash,
+  lane closure or long delay; plain roadworks no longer notify.
+- **Camera view waited for a location** and gave up after 8 seconds, so it
+  only worked after "Above me" had found one. It now opens at once and finds
+  the location while running. A "What's that?" row at the top of the Map
+  panel opens it on trains, buses and aircraft without choosing a layer.
+- **Bus 158 showed a photo of a 436.** A photo of the same route is looked
+  for first; otherwise the operator's colours with "it may show another
+  route". Photo captions drop file names and catalogue numbers.
+
 ## 2026-11-15 — phone alerts could never be switched on
 
 - The worker was registered from `/static/`, so it only covered that folder,

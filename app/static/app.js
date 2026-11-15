@@ -973,7 +973,7 @@
     const layer=$('ar-labels'),direction=$('ar-direction');if(!layer)return;
     const width=layer.clientWidth||window.innerWidth,height=layer.clientHeight||window.innerHeight;
     const ready=cameraView.heading!=null&&cameraView.elevation!=null;
-    if(direction)direction.textContent=ready?`Looking ${compassPoint(cameraView.heading)}, ${Math.round(cameraView.elevation)}° ${cameraView.elevation>=0?'up':'down'}`:'Waiting for your phone’s compass…';
+    if(direction&&!(cameraView.fix==null&&/location/.test(direction.textContent)))direction.textContent=!cameraView.fix?'Finding your location…':ready?`Looking ${compassPoint(cameraView.heading)}, ${Math.round(cameraView.elevation)}° ${cameraView.elevation>=0?'up':'down'}`:'Waiting for your phone’s compass…';
     if(!ready){layer.querySelectorAll('[data-ar-id]').forEach(node=>node.remove());return;}
     const halfV=AR_VERTICAL_FOV/2*Math.PI/180,tanV=Math.tan(halfV),tanH=tanV*width/height;
     const shown=[];
@@ -1037,6 +1037,7 @@
     cameraView.stream?.getTracks?.().forEach(track=>track.stop());cameraView.stream=null;
     const video=$('ar-video');if(video)video.srcObject=null;
     clearInterval(cameraView.refresh);cameraView.refresh=null;
+    if(cameraView.watch!=null){navigator.geolocation?.clearWatch?.(cameraView.watch);cameraView.watch=null;}
     clearTimeout(cameraView.pending);cameraView.pending=null;
     window.removeEventListener('deviceorientation',onCameraOrientation);
     window.removeEventListener('deviceorientationabsolute',onCameraOrientation);
@@ -1064,10 +1065,24 @@
     let stream;
     try { stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false}); }
     catch { showToast('The camera couldn’t be opened. Allow camera access for this site, or use Point at sky.');return; }
-    let fix;
-    try { fix=await currentFix(); } catch(error){ stream.getTracks().forEach(track=>track.stop());showToast(error.message);return; }
+    // Open straight away; find where you are while the camera runs. It used
+    // to wait for a location first and gave up after a few seconds, so it
+    // only worked if something else had already found you.
     stopSkyPointer();
-    Object.assign(cameraView,{active:true,fix,stream,heading:null,elevation:null,ground:[],kinds:new Set([['train','bus','aircraft'].includes(kind)?kind:'aircraft'])});
+    const known=lastFix||(lastKnownDeviceLocation?{...lastKnownDeviceLocation,at:Date.now()}:null);
+    Object.assign(cameraView,{active:true,fix:known,stream,heading:null,elevation:null,ground:[],kinds:new Set(kind==='all'?['train','bus','aircraft']:[['train','bus','aircraft'].includes(kind)?kind:'aircraft'])});
+    const onCameraFix=position=>{
+      if(!cameraView.active)return;
+      const first=!cameraView.fix;
+      cameraView.fix={lat:position.coords.latitude,lon:position.coords.longitude,at:Date.now()};
+      lastFix=cameraView.fix;
+      if(first){refreshCameraGround();if(cameraView.kinds.has('aircraft')&&!overheadActive)$('overhead-now')?.click();}
+      if(!cameraView.frame)cameraView.frame=requestAnimationFrame(drawCameraView);
+    };
+    const onCameraFixError=()=>{ if(cameraView.active&&!cameraView.fix)$('ar-direction').textContent='Turn on location for this app to see what is around you'; };
+    // A quick answer first (a recent fix will do), then follow the phone as it moves.
+    navigator.geolocation?.getCurrentPosition?.(onCameraFix,()=>{},{enableHighAccuracy:false,maximumAge:120000,timeout:30000});
+    cameraView.watch=navigator.geolocation?.watchPosition?.(onCameraFix,onCameraFixError,{enableHighAccuracy:true,maximumAge:30000,timeout:30000});
     const view=$('ar-view'),video=$('ar-video');
     video.srcObject=stream;video.play?.().catch(()=>{});
     view.hidden=false;document.body.classList.add('ar-open');
@@ -1076,7 +1091,7 @@
     window.addEventListener('deviceorientationabsolute',onCameraOrientation);
     syncCameraKinds();
     refreshCameraGround();
-    cameraView.refresh=setInterval(()=>{refreshCameraGround();currentFix().then(next=>{cameraView.fix=next;}).catch(()=>{});},15000);
+    cameraView.refresh=setInterval(refreshCameraGround,15000);
     trackProduct('camera_view_opened','ar');
   }
   // Close on the first touch, without waiting for a full click.
@@ -1136,6 +1151,7 @@
     else if(job==='trains')jobTrains();
     else if(job==='bus')$('near-me')?.click();
     else if(job==='journey')jobJourney();
+    else if(job==='camera')startCameraView('all');
   }));
 
   function updateLayerToggleUi() {
