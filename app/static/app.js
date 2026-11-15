@@ -4480,7 +4480,7 @@
     try {
       const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();
       if(permission!=='granted')return false;
-      const registration=await navigator.serviceWorker.ready;
+      const registration=await pushWorker();
       let subscription=await registration.pushManager.getSubscription();
       if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKeyBytes(commuteAlertStatus.public_key)});
       const preferences={mode:'trains-only',saved_trains:savedTrainIds(),spotter:commuteAlertStatus.preferences?.spotter||null,journey:commuteAlertStatus.preferences?.journey||null};
@@ -4493,6 +4493,15 @@
   }
   // One place that makes sure this device is registered for phone alerts
   // and stores what it wants to hear about.
+  // The worker that receives alerts. Never wait for it for ever: a button
+  // that silently does nothing is worse than a plain reason.
+  function pushWorker() {
+    if(!navigator.serviceWorker)return Promise.reject(new Error('this browser has no background worker'));
+    return Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error('the app’s background worker didn’t start; close the app fully and open it again')),8000)),
+    ]);
+  }
   let pushProblem='';
   function pushBlockedText() {
     const ios=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
@@ -4506,7 +4515,7 @@
     try {
       const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();
       if(permission!=='granted'){pushProblem=pushBlockedText();renderCommuteAlertStatus();return false;}
-      const registration=await navigator.serviceWorker.ready;
+      const registration=await pushWorker();
       let subscription=await registration.pushManager.getSubscription();
       if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKeyBytes(commuteAlertStatus.public_key)});
       const response=await fetch('/api/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken(),subscription:subscription.toJSON(),preferences})});
@@ -4570,7 +4579,7 @@
     // subscription, when the visitor has turned it on.
     if(!commuteAlertStatus.subscribed||!commuteAlertStatus.preferences)return;
     try {
-      const registration=await navigator.serviceWorker?.ready;
+      const registration=await pushWorker();
       const subscription=await registration?.pushManager?.getSubscription();
       if(!subscription)return;
       const preferences={...commuteAlertStatus.preferences,saved_trains:savedTrainIds()};
@@ -4759,7 +4768,11 @@
       const [startHour,endHour]=String($('commute-alert-hours')?.value||'5:11').split(':').map(Number);
       preferences={...currentPushPreferences(),mode:$('commute-alert-mode')?.value||'driving',place_id:place.id,place_name:humanTransitLabel(place.name),lat:Number(place.lat),lon:Number(place.lon),radius_miles:Number($('commute-alert-radius')?.value||12),start_hour:startHour,end_hour:endHour,activity_types:[...myRadarInterests].filter(type=>['train','bus','vessel','aircraft'].includes(type)),saved_trains:savedTrainIds()};
     } else preferences=currentPushPreferences();  // no saved place: saved trains alone
+    const button=$('commute-alert-enable');
+    if(button){button.disabled=true;button.textContent='Turning on…';}
     const ok=await savePushPreferences(preferences);
+    if(button)button.disabled=false;
+    renderCommuteAlertStatus();
     if(ok){showToast('Alerts are on for this phone.');trackProduct('commute_alert_enabled',preferences.mode);}
     else showToast(pushProblem||'Alerts couldn’t be turned on.');
   }
@@ -4767,7 +4780,7 @@
   async function disableCommuteAlerts() {
     try {
       await fetch('/api/alerts/unsubscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken()})});
-      const registration=await navigator.serviceWorker.ready;const subscription=await registration.pushManager.getSubscription();await subscription?.unsubscribe();
+      const registration=await pushWorker();const subscription=await registration.pushManager.getSubscription();await subscription?.unsubscribe();
     } catch {}
     pushProblem='';commuteAlertStatus={...commuteAlertStatus,subscribed:false,preferences:null};renderCommuteAlertStatus();showToast('Alerts are off for this phone.');trackProduct('commute_alert_disabled','alerts');
   }
@@ -5878,7 +5891,12 @@
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstallPrompt=e; $('install-app')?.classList.remove('hidden'); trackProduct('pwa_install_prompted','pwa'); });
   $('install-app')?.addEventListener('click', async()=>{ if(!deferredInstallPrompt)return; deferredInstallPrompt.prompt(); try { await deferredInstallPrompt.userChoice; } catch {} deferredInstallPrompt=null; $('install-app')?.classList.add('hidden'); });
   window.addEventListener('appinstalled',()=>trackProduct('pwa_installed','pwa'));
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/static/service-worker.js').catch(()=>{});
+  if ('serviceWorker' in navigator) {
+    // Registered at the top of the site so it covers this page. It used to
+    // be registered under /static/, which never did; that old one is removed.
+    navigator.serviceWorker.register('/service-worker.js',{scope:'/'}).catch(()=>{});
+    navigator.serviceWorker.getRegistrations?.().then(list=>list.forEach(registration=>{ if(new URL(registration.scope).pathname==='/static/')registration.unregister(); })).catch(()=>{});
+  }
   initAnalyticsConsent();
   trackProduct('app_open','web');
 

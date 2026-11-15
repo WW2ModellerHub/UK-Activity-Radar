@@ -143,7 +143,7 @@ async function installAppFixture(page) {
       if (pathname === '/static/share.css') return route.fulfill({ contentType: 'text/css', body: read('app/static/share.css') });
       if (pathname === '/static/app.css') return route.fulfill({ contentType: 'text/css', body: read('app/static/app.css') });
       if (pathname === '/static/map-markers.css') return route.fulfill({ contentType: 'text/css', body: read('app/static/map-markers.css') });
-      if (pathname === '/static/service-worker.js') return route.fulfill({ contentType: 'text/javascript', body: 'self.addEventListener("fetch",()=>{});' });
+      if (pathname === '/static/service-worker.js' || pathname === '/service-worker.js') return route.fulfill({ contentType: 'text/javascript', body: 'self.addEventListener("fetch",()=>{});' });
       if (pathname === '/static/manifest.webmanifest') return route.fulfill({ contentType: 'application/manifest+json', body: '{}' });
       if (pathname.startsWith('/static/icon-')) return route.fulfill({ contentType: 'image/png', body: Buffer.alloc(0) });
       if (pathname === '/api/map/config') return route.fulfill({ json:{provider:'Mapbox',configured:false,tile_url:null,tile_size:512,zoom_offset:-1,max_zoom:20,attribution:'Fixture map',live_object_renderer:false} });
