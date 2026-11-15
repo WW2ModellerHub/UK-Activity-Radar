@@ -53,7 +53,7 @@ from .network_environment import blocked_proxy_variables
 from .models import SourceStatus
 from .engagement import build_today_payload, safe_share_payload
 from .commute_alerts import (
-    CommuteAlertStore, alert_for_activity, journey_alerts, journey_bboxes, journey_due, leave_alert,
+    MAX_PLACE_ROAD_ALERTS_PER_DAY, CommuteAlertStore, alert_for_activity, journey_alerts, road_key_prefix, journey_bboxes, journey_due, leave_alert,
     normalise_saved_trains, saved_train_alerts, spotter_alert,
     saved_train_status, within_alert_hours,
 )
@@ -585,9 +585,18 @@ async def _commute_alert_loop() -> None:
             ]
             if not place_alerts and not train_alerts and not any(spots) and not drive_alerts and not any(leave_alerts):
                 continue
-            candidates = leave_alerts + train_alerts + drive_alerts + spots + (
-                [alert_for_activity(item, saved.preferences) for item in activities] if place_alerts else []
-            )
+            nearby = []
+            if place_alerts:
+                road_cap_reached = store.delivered_count(saved.endpoint_hash, road_key_prefix()) >= MAX_PLACE_ROAD_ALERTS_PER_DAY
+                scored = []
+                for item in activities:
+                    row = alert_for_activity(item, saved.preferences)
+                    if row is None or (road_cap_reached and row["key"].startswith("road:")):
+                        continue
+                    scored.append((-((getattr(item, "impact", None) or {}).get("rank") or 0), row))
+                # Most serious first: closures and crashes before lane closures.
+                nearby = [row for _, row in sorted(scored, key=lambda pair: pair[0])]
+            candidates = leave_alerts + train_alerts + drive_alerts + spots + nearby
             candidate = next((row for row in candidates if row and not store.already_delivered(saved.endpoint_hash, row["key"])), None)
             if candidate is None:
                 continue

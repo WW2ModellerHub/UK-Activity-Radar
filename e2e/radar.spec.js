@@ -1093,7 +1093,7 @@ test('the map row is layer switches only; the everyday answers are at the top of
   await page.locator('[data-workspace="useful"]').click();
   await expect(page.locator('#workspace-shell')).not.toHaveClass(/collapsed/);
   await expect(page.locator('.near-you')).toBeVisible();
-  await expect(page.locator('.near-you .job-row strong')).toHaveText(['Planes above you','Trains near you','Your next bus','My journey']);
+  await expect(page.locator('.near-you .job-row strong')).toHaveText(['What’s that?','Planes above you','Trains near you','Your next bus','My journey']);
   await page.locator('[data-job="bus"]').click();
   await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');
 });
@@ -1826,4 +1826,31 @@ test('on a phone the tab bar, map credits and locate button do not overlap', asy
     expect(box.y).toBeGreaterThanOrEqual(nav.y);
     expect(box.y + box.height).toBeLessThanOrEqual(nav.y + nav.height + 0.5);
   }
+});
+
+test('the camera view opens straight away and finds your location while it runs', async ({ page }) => {
+  // Location arrives late (as it can on a phone); the view must not give up.
+  await page.evaluate(() => {
+    let watcher = null;
+    window.__deliverFix = () => watcher?.({ coords:{ latitude:54.11, longitude:-2.45 } });
+    Object.defineProperty(navigator,'geolocation',{configurable:true,value:{
+      getCurrentPosition(){}, watchPosition(success){ watcher = success; return 7; }, clearWatch(){},
+    }});
+    window.DeviceOrientationEvent = class extends Event {};
+    const stream = document.createElement('canvas').captureStream();
+    Object.defineProperty(navigator, 'mediaDevices', { configurable:true, value:{ getUserMedia: async () => stream } });
+  });
+  await page.route('**/api/around**', route => route.fulfill({ json:{ vehicles:[
+    { id:'nr:north', type:'train', name:'1A23', destination:'LEEDS', operator:'Northern', lat:54.119, lon:-2.45 } ] } }));
+  // Straight from the Map panel, without choosing a layer first.
+  await page.locator('[data-job="camera"]').click();
+  await expect(page.locator('#ar-view')).toBeVisible();
+  await expect(page.locator('#ar-direction')).toHaveText('Finding your location…');
+  for (const kind of ['train','bus','aircraft']) await expect(page.locator(`[data-ar-kind="${kind}"]`)).toHaveAttribute('aria-pressed','true');
+  await page.waitForTimeout(9000);  // longer than the old 8-second give-up
+  await expect(page.locator('#ar-view')).toBeVisible();
+  await page.evaluate(() => window.__deliverFix());
+  await page.evaluate(() => { for (let i = 0; i < 25; i += 1) { const e = new Event('deviceorientation'); e.webkitCompassHeading = 0; e.beta = 90; window.dispatchEvent(e); } });
+  await expect(page.locator('#ar-direction')).toHaveText('Looking N, 0° up');
+  await expect(page.locator('.ar-label.ar-train')).toContainText('1A23 to Leeds');
 });

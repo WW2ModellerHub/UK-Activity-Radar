@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 import requests
 
-from .media_reference import mentions_all, reference_for, shows_the_outside
+from .media_reference import mentions_all, reference_for, shows_the_outside, tidy_title
 from .models import Event, Vehicle
 
 # Specials whose stock is unknown: an operator's everyday train would be a
@@ -212,15 +212,16 @@ class WikimediaLookup:
         if activity.type == "train" and str(activity.cool_subtype or "") in _NO_REFERENCE_TRAIN_SUBTYPES:
             return exact
         try:
-            example = self.reference(activity.type, activity.operator, activity.aircraft_model, activity.name)
+            example = self.reference(activity.type, activity.operator, activity.aircraft_model, activity.name,
+                                     route=activity.route if activity.type == "bus" else None)
         except Exception:
             return exact
         return example if example.get("ok") else exact
 
     def reference(self, kind: str, operator: str | None = None, model: str | None = None,
-                  callsign: str | None = None) -> dict[str, Any]:
+                  callsign: str | None = None, route: str | None = None) -> dict[str, Any]:
         """An example photo of this operator's vehicles or this aircraft type."""
-        plan = reference_for(kind, operator, model, callsign)
+        plan = reference_for(kind, operator, model, callsign, route)
         if not self.enabled or not plan:
             return {"ok": False, "reason": "no_reference" if self.enabled else "disabled"}
         for step in (plan, plan.get("fallback")):
@@ -303,7 +304,7 @@ class WikimediaLookup:
             "ok": True,
             "query": query,
             "confidence": round(score, 1),
-            "title": title,
+            "title": tidy_title(title),
             "thumbnail_url": info.get("thumburl") or info.get("url"),
             "original_url": info.get("url"),
             "page_url": f"https://commons.wikimedia.org/?curid={page_id}" if page_id else info.get("descriptionurl"),

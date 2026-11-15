@@ -56,7 +56,7 @@ def test_a_routine_train_shows_its_operators_train_with_a_clear_label():
         _page(2, "GWR 800 004 at Reading.jpg", "GWR Class 800 IET at Reading station"),
     ]})
     result = lookup.lookup(train)
-    assert result["ok"] and result["title"] == "GWR 800 004 at Reading.jpg"
+    assert result["ok"] and result["title"] == "GWR 800 004 at Reading"
     assert result["match_kind"] == "type_reference"
     assert result["reference_label"] == "Great Western Railway — example of their trains, not this exact one"
 
@@ -74,7 +74,7 @@ def test_a_bus_shows_its_groups_colours():
     bus = Vehicle(id="bus:SCMN:1", type="bus", name="Bus 50", lat=53.4, lon=-2.2, source="BODS", operator="SCMN")
     lookup = _lookup({"Stagecoach bus": [_page(5, "Stagecoach Manchester Enviro400 MMC.jpg", "Stagecoach double-decker bus in Manchester")]})
     result = lookup.lookup(bus)
-    assert result["ok"] and result["reference_label"] == "Stagecoach — example of their buses, not this exact one"
+    assert result["ok"] and result["reference_label"] == "Stagecoach colours — an example bus, it may show another route"
 
 
 def test_an_unknown_operator_gets_no_guess():
@@ -100,7 +100,7 @@ def test_an_airliner_shows_the_type_in_the_airlines_colours_then_falls_back_to_t
     ryanair = lookup.reference("aircraft", None, "Boeing 737-800", "RYR12AB")
     assert ryanair["ok"] and ryanair["reference_label"].startswith("Ryanair Boeing 737-800")
     other = lookup.reference("aircraft", None, "Airbus A320", "EZY12")
-    assert other["ok"] and other["title"] == "A320 at Heathrow.jpg"
+    assert other["ok"] and other["title"] == "A320 at Heathrow"
     assert other["reference_label"] == "Airbus A320 — example of this type, not this exact aircraft"
 
 
@@ -112,3 +112,25 @@ def test_planes_the_server_does_not_keep_can_still_get_a_photo(monkeypatch):
     assert client.get("/api/media/reference", params={"kind": "aircraft", "model": "Airbus A320", "callsign": "EZY12"}).status_code == 200
     assert calls == [("aircraft", "Airbus A320", "EZY12")]
     assert client.get("/api/media/reference", params={"kind": "ship"}).status_code == 400
+
+
+def test_a_bus_looks_for_its_own_route_first_then_says_the_route_may_differ():
+    from app.media_reference import tidy_title
+
+    bus = Vehicle(id="bus:AMID:1", type="bus", name="Bus 158", route="158", lat=52.4, lon=-1.5, source="BODS", operator="AMID")
+    lookup = _lookup({
+        "Arriva bus route 158": [
+            _page(1, "Arriva Midlands bus 1580 in Leicester.jpg", "Arriva bus fleet number 1580"),   # 1580 is not route 158
+            _page(2, "Arriva Midlands 158 to Nuneaton (geograph 6358807).jpg", "Arriva bus on the 158 at Hinckley"),
+        ],
+        "Arriva bus": [_page(3, "An Arriva Midlands bus at Cressage, Shropshire.jpg", "Arriva Midlands bus on route 436")],
+    })
+    result = lookup.lookup(bus)
+    assert result["title"] == "Arriva Midlands 158 to Nuneaton"
+    assert result["reference_label"] == "Arriva bus on route 158 — an example, not this exact bus"
+    # No photo of that route: the operator's colours, saying the route may differ.
+    other = _lookup({"Arriva bus": [_page(3, "An Arriva Midlands bus at Cressage, Shropshire.jpg", "Arriva Midlands bus")]}).lookup(
+        bus.model_copy(update={"id": "bus:AMID:2", "route": "48"}))
+    assert other["title"] == "An Arriva Midlands bus at Cressage, Shropshire"
+    assert other["reference_label"] == "Arriva colours — an example bus, it may show another route"
+    assert tidy_title("Scotrail Class 385 train at Gourock - geograph.org.uk - 5247699.jpg") == "Scotrail Class 385 train at Gourock"

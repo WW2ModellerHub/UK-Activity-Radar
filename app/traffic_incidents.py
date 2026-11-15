@@ -10,6 +10,7 @@ daily request cap.
 from __future__ import annotations
 
 import math
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -87,7 +88,11 @@ def parse_incidents(payload: dict) -> list[Event]:
         delay = props.get("delay")
         length = props.get("length")
         magnitude = int(props.get("magnitudeOfDelay") or 0)
-        incident_id = str(props.get("id") or f"{lat:.5f},{lon:.5f},{category}")
+        # TomTom ids look like "TTI-<model version>-TTR<incident>". The model
+        # version changes every few minutes, so keeping it made the same
+        # closure look new on each refresh (and alert again). Keep only the
+        # incident part.
+        incident_id = re.sub(r"^TTI-[0-9a-fA-F-]{36}-", "", str(props.get("id") or "")) or f"{lat:.5f},{lon:.5f},{category}"
         headline = descriptions[0] if descriptions else (cause or management or "Traffic incident")
         events.append(Event(
             id=f"tomtom:{incident_id}",
