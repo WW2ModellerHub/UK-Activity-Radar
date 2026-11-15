@@ -1,5 +1,25 @@
 # Codex stabilization changelog
 
+## 2026-11-15 — fixes from a morning on a real phone
+
+- **Camera view Close** was hard to hit: labels were rebuilt on every frame,
+  which swallowed taps. Labels are now moved, redraws are capped at about 15
+  a second, and Close is a larger button that acts on first touch.
+- **Pinching the interface zoomed the whole page** on an iPhone and was hard
+  to undo. The page no longer pinch-zooms; the map still does.
+- **A saved plane showed as "none running"**. Everything saved is now listed
+  with what it was; things not on the map say "Not in range right now" or
+  "Not running right now", and each has a remove button.
+- **Alerts on or off was unclear.** The Saved tab now states "Alerts are on
+  for this phone" with the list of what will be sent, or "Alerts are off.
+  Saving a station does not turn them on". The button names the place it
+  acts on. If turning on fails, the reason stays on the page (blocked
+  notifications with where to allow them, or the server's refusal).
+- **Tapping a saved place** now chooses it for the departures and alerts
+  below instead of opening a separate timetable; a Map button opens it on
+  the map. Station names are no longer in capitals.
+- The "Aircraft within 25 miles" bubble no longer covers the options row.
+
 ## 2026-11-15 — camera view shows what you opened it from
 
 - Opened from Trains it shows trains, from Buses buses, from Aircraft
