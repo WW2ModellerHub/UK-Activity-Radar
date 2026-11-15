@@ -70,6 +70,9 @@ def _headcode_note(headcode: str | None) -> str | None:
     code = str(headcode or "").strip().upper()
     if len(code) != 4 or code[0] not in HEADCODE_CLASS:
         return None
+    if code[1] == "Q":
+        # Test and measurement trains: the first figure only sets priority.
+        return f"{code} is its signalling code: Q marks a test or measurement train, and {code[0]} the priority it runs at."
     note = f"{code} is its signalling code: {code[0]} means {HEADCODE_CLASS[code[0]]}"
     if code[1] == "Z":
         note += ", Z a one-off move not in the regular timetable"
