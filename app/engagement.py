@@ -30,7 +30,53 @@ def _broad_region(lat: float, lon: float) -> str:
     return "Southern Britain"
 
 
-def safe_share_payload(item: Activity) -> dict:
+# What each kind of unusual train is, in a sentence.
+WHAT_IT_IS = {
+    "locomotive-move": "A locomotive running on its own, with no passengers or wagons, usually to or from a depot or its next job.",
+    "special-passenger": "A passenger train that is not in the regular timetable: often an extra or relief service, sometimes a charter.",
+    "railtour-special": "A charter train, usually for enthusiasts, often with a heritage locomotive or coaches.",
+    "steam": "A steam locomotive running on the main line, usually on a railtour or a positioning move.",
+    "freight": "A freight train.",
+    "engineering": "An engineering train, carrying staff, ballast or machines for work on the track.",
+    "test-measurement": "A test or measurement train, checking the track and overhead wires as it goes.",
+}
+# The first figure of a headcode is the class of train.
+HEADCODE_CLASS = {
+    "0": "a light locomotive", "1": "an express passenger train", "2": "a stopping passenger train",
+    "3": "a priority service, such as a test or parcels train", "4": "a fast freight train", "5": "an empty passenger train",
+    "6": "a freight train", "7": "a freight train", "8": "a slower freight train", "9": "a passenger train",
+}
+_PLAIN_METHOD = {
+    "td": "Signalling", "berth": "Signalling", "network_report": "Timing point report",
+    "gps": "GPS", "estimated": "Estimated between reports", "timetable": "Timetable",
+}
+
+
+def _how_seen(item) -> str | None:
+    source, method = str(item.source or ""), str(item.position_method or "").lower()
+    if " TD" in f" {source}" or "describer" in source.lower():
+        return "Railway signalling" + (", position estimated between signals" if method == "estimated" else "")
+    if "TRUST" in source:
+        return "Reported at a timing point" + (", position estimated since" if method == "estimated" else "")
+    return _PLAIN_METHOD.get(method)
+
+
+def _place_name(text) -> str:
+    words = str(text or "").strip()
+    return " ".join(w if any(c.islower() for c in w) else w.capitalize() for w in words.split()) if words else ""
+
+
+def _headcode_note(headcode: str | None) -> str | None:
+    code = str(headcode or "").strip().upper()
+    if len(code) != 4 or code[0] not in HEADCODE_CLASS:
+        return None
+    note = f"{code} is its signalling code: {code[0]} means {HEADCODE_CLASS[code[0]]}"
+    if code[1] == "Z":
+        note += ", Z a one-off move not in the regular timetable"
+    return note + "."
+
+
+def safe_share_payload(item: Activity, nearest_place: str | None = None) -> dict:
     """Public, bounded activity facts with no precise coordinates."""
     sensitive = _is_sensitive(item)
     reason = item.cool_explanation or getattr(item, "reason", None) or item.subtitle or item.status
@@ -59,6 +105,18 @@ def safe_share_payload(item: Activity) -> dict:
         "freshness": item.last_updated.isoformat(),
         "position_confidence": item.position_method,
         "location": _broad_region(item.lat, item.lon),
+        # Trains, buses and aircraft are public; a nearby place is fine there.
+        # Rescues and other sensitive activity keep only the broad area.
+        "near": None if sensitive or not nearest_place else f"Near {_place_name(nearest_place)}",
+        "what_it_is": WHAT_IT_IS.get(str(item.cool_subtype or "")),
+        "code_note": _headcode_note(getattr(item, "headcode", None) or (item.name if item.type == "train" else None)) if item.type == "train" else None,
+        "delay_minutes": getattr(item, "delay_minutes", None) if item.type == "train" else None,
+        "cancelled": bool(getattr(item, "cancelled_at", None)) or None,
+        "next_stop": _place_name(getattr(item, "next_location", None)) or None,
+        "aircraft_model": getattr(item, "aircraft_model", None),
+        "altitude_ft": getattr(item, "altitude_ft", None),
+        "speed": f"{round(float(item.speed))} {getattr(item, 'speed_unit', '') or ''}".strip() if getattr(item, "speed", None) else None,
+        "how_seen": _how_seen(item),
         "sensitive": sensitive,
         "safety_note": (
             "Broad-area context only. Never travel towards or interfere with an active response."

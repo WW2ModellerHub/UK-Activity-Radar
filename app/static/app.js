@@ -4447,7 +4447,7 @@
     showToast(alert.title);
     if(!document.hidden||!('Notification' in window)||Notification.permission!=='granted')return;
     navigator.serviceWorker?.getRegistration?.().then(registration=>registration?.showNotification(alert.title,{
-      body:alert.body, tag:alert.key, icon:'/static/icon-192.png', data:{url:`/live/${encodeURIComponent(trainId)}`},
+      body:alert.body, tag:alert.key, icon:'/static/icon-192.png', data:{url:`/?open=${encodeURIComponent(trainId)}`},
     })).catch(()=>{});
   }
   async function checkSavedTrains() {
@@ -5979,6 +5979,23 @@
   }
   initAnalyticsConsent();
   trackProduct('app_open','web');
+
+  // A link (a shared page, a phone alert) can open the app on one thing:
+  // /?open=<id>. Wait for the live connection, then show it and tidy the URL.
+  (()=>{
+    const wanted=new URLSearchParams(location.search).get('open');
+    if(!wanted||wanted.length>120)return;
+    history.replaceState(null,'',location.pathname+location.hash);
+    let tries=0;
+    const attempt=async()=>{
+      tries+=1;
+      const live=document.body.dataset.liveState==='live'||activities.length>0;
+      if(!live&&tries<40){setTimeout(attempt,250);return;}
+      if(await focusActivityById(wanted,13)===false)return;
+      trackProduct('deep_link_opened',wanted.split(':')[0]||'item');
+    };
+    setTimeout(attempt,300);
+  })();
 
   loadFollowed();
   loadWatchZones();

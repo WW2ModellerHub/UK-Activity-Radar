@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## 2026-11-15 — shared pages and alerts open the thing itself
+
+- "Open UK Activity Radar" on a shared page went to the home page, and phone
+  alerts opened the shared page, so neither reached the train. The app now
+  takes `/?open=<id>`, waits for the live feed, turns on that layer and
+  opens the item; shared pages ("Show it on the live map") and alerts link
+  there.
+- Shared pages say more, in plain words: last seen, on time or late, near
+  which station (trains and buses only; rescues keep the broad area), next
+  stop, operator, what a loco move or special is, what the headcode means,
+  and how it was seen. Feed wording such as "next berth unresolved" is gone.
+
 ## 2026-11-15 — bus photos: the right region, a real route number
 
 - Bus 8 showed a London Routemaster on route 159: "8 December 2005" in its

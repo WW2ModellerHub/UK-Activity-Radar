@@ -56,3 +56,26 @@ def test_today_prefers_verified_interest_and_lists_major_disruption():
     assert payload["best"]["activity_id"] == "train:1z80"
     assert {row["activity_id"] for row in payload["new_since"]} == {"train:1z80", "incident:m1"}
     assert payload["disruptions"][0]["activity_id"] == "incident:m1"
+
+
+def test_a_shared_loco_move_says_what_it_is_and_where_without_coordinates():
+    from datetime import datetime, timezone
+
+    from app.engagement import safe_share_payload
+    from app.models import Vehicle
+
+    loco = Vehicle(id="td:0Z37", type="train", name="0Z37", headcode="0Z37", lat=52.4231, lon=-1.3412,
+                   subtitle="Train describer • BRINKLOW", status="TD live • next berth unresolved",
+                   source="Network Rail TD", position_method="estimated", next_location="RUGBY",
+                   operator="DB Cargo UK", cool_subtype="locomotive-move", cool_badge="LOCO MOVE",
+                   cool_explanation="Locomotive on its own.", last_updated=datetime.now(timezone.utc))
+    payload = safe_share_payload(loco, "BRINKLOW")
+    assert payload["near"] == "Near Brinklow"
+    assert payload["what_it_is"].startswith("A locomotive running on its own")
+    assert payload["code_note"] == "0Z37 is its signalling code: 0 means a light locomotive, Z a one-off move not in the regular timetable."
+    assert payload["next_stop"] == "Rugby"
+    assert payload["how_seen"] == "Railway signalling, position estimated between signals"
+    assert "lat" not in payload and "lon" not in payload
+    # Sensitive activity never gets a nearby place.
+    rescue = loco.model_copy(update={"id": "rnli:1", "type": "rescue", "cool_category": "rescue"})
+    assert "near" not in safe_share_payload(rescue, "BRINKLOW")
