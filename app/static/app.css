@@ -985,7 +985,8 @@ dialog::backdrop { background: rgba(18, 22, 26, .4); }
 .nearby-note.hidden { display: none; }
 .nearby-note-close { width: 30px; height: 30px; border: 0; border-radius: 50%; background: var(--subtle, #f2f4f7); color: var(--text); font-size: 18px; line-height: 1; cursor: pointer; }
 @media (max-width: 760px) {
-  .nearby-note { top: 124px; font-size: 13px; }
+  /* Below the layer chips and the options row, not on top of it. */
+  .nearby-note { top: 166px; font-size: 13px; }
   .bus-zoom-note, .watch-toast { top: 168px; }
 }
 
@@ -1212,3 +1213,33 @@ body.ar-open { overflow: hidden; }
 .ar-kinds { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 92px); display: flex; justify-content: center; gap: 8px; }
 .ar-kinds button { height: 38px; padding: 0 14px; border: 1px solid rgba(255,255,255,.7); border-radius: 19px; background: rgba(0,0,0,.55); color: #fff; font: inherit; font-size: 14px; font-weight: 600; }
 .ar-kinds button[aria-pressed="true"] { background: #fff; color: #10151c; border-color: #fff; }
+
+/* The page never pinch-zooms; the map handles its own pinch. */
+html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
+
+/* Alerts: an unmissable on/off statement. */
+.commute-alert-summary { display: grid; gap: 4px; padding: 12px 14px; border-radius: 12px; background: #eaf7f0; border: 1px solid #bfe5d2; font-size: 14px; }
+.commute-alert-summary.is-off { background: var(--subtle, #f2f4f7); border-color: var(--line); }
+.commute-alert-summary strong { font-size: 16px; }
+.commute-alert-summary ul { margin: 2px 0 0; padding-left: 18px; display: grid; gap: 2px; }
+#commute-alert-note.is-problem { padding: 10px 12px; border-radius: 10px; background: #fdecec; color: #8a1f1f; font-weight: 600; }
+#commute-alert-state.active { color: #1e9e6a; }
+
+/* Saved places: the chosen one drives the departures and alerts below. */
+.saved-place-row.is-chosen > button:first-child { background: #eef4ff; border-radius: 10px; }
+.saved-place-map { display: inline-flex; align-items: center; gap: 4px; padding: 0 10px; height: 36px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); font: inherit; font-size: 13px; color: var(--text); }
+.saved-place-map svg { width: 16px; height: 16px; }
+.passing-next-label { padding: 4px 0 6px; font-size: 14px; color: var(--muted); }
+.passing-next-label b { color: var(--text); }
+.my-radar-saved.is-away strong { color: var(--muted); }
+.my-radar-saved > .my-radar-row { flex: 1; min-width: 0; }
+
+/* Camera view: a close button that is easy to hit. */
+.ar-top { z-index: 3; }
+#ar-close { width: auto; min-width: 96px; height: 48px; padding: 0 16px; border-radius: 24px; font-size: 16px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; touch-action: manipulation; }
+#ar-close span { font-size: 24px; line-height: 1; }
+.ar-labels { z-index: 1; } .ar-kinds, .ar-hint { z-index: 2; }
+.saved-place-row > button[data-unsave] { width: 40px; height: 40px; border: 0; background: transparent; color: var(--muted); font-size: 20px; border-radius: 8px; flex: none; }
+.commute-alert-actions { flex-wrap: wrap; }
+.commute-alert-actions .primary-button { flex: 1 1 100%; }
+.commute-alert-actions .mini-button { flex: 1; height: 44px; }

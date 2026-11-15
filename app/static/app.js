@@ -974,7 +974,7 @@
     const width=layer.clientWidth||window.innerWidth,height=layer.clientHeight||window.innerHeight;
     const ready=cameraView.heading!=null&&cameraView.elevation!=null;
     if(direction)direction.textContent=ready?`Looking ${compassPoint(cameraView.heading)}, ${Math.round(cameraView.elevation)}° ${cameraView.elevation>=0?'up':'down'}`:'Waiting for your phone’s compass…';
-    if(!ready){layer.innerHTML='';return;}
+    if(!ready){layer.querySelectorAll('[data-ar-id]').forEach(node=>node.remove());return;}
     const halfV=AR_VERTICAL_FOV/2*Math.PI/180,tanV=Math.tan(halfV),tanH=tanV*width/height;
     const shown=[];
     for(const object of cameraObjects()){
@@ -986,8 +986,24 @@
     }
     // Nearest first, and no more than a readable handful.
     shown.sort((a,b)=>a.km-b.km);
-    layer.innerHTML=shown.slice(0,8).map(object=>`<button type="button" class="ar-label ar-${esc(object.type)}" data-ar-id="${esc(object.id)}" style="left:${object.x.toFixed(0)}px;top:${object.y.toFixed(0)}px"><i aria-hidden="true">${icons[object.type==='aircraft'?'aircraft':object.type]||''}</i><span><strong>${esc(object.title)}</strong><small>${esc(object.facts.filter(Boolean).join(' · '))}</small></span></button>`).join('');
-    layer.dataset.shown=String(Math.min(8,shown.length));
+    // Labels are moved, not rebuilt: rebuilding them every frame swallowed
+    // taps (on the labels and on Close) on a real phone.
+    const wanted=shown.slice(0,8),keep=new Set(wanted.map(object=>object.id));
+    layer.querySelectorAll('[data-ar-id]').forEach(node=>{ if(!keep.has(node.dataset.arId))node.remove(); });
+    for(const object of wanted){
+      let node=layer.querySelector(`[data-ar-id="${CSS.escape(object.id)}"]`);
+      const text=`${object.title}|${object.facts.filter(Boolean).join(' · ')}`;
+      if(!node){
+        node=document.createElement('button');node.type='button';node.className=`ar-label ar-${object.type}`;node.dataset.arId=object.id;
+        layer.appendChild(node);
+      }
+      if(node.dataset.text!==text){
+        node.dataset.text=text;
+        node.innerHTML=`<i aria-hidden="true">${icons[object.type]||''}</i><span><strong>${esc(object.title)}</strong><small>${esc(object.facts.filter(Boolean).join(' · '))}</small></span>`;
+      }
+      node.style.left=`${object.x.toFixed(0)}px`;node.style.top=`${object.y.toFixed(0)}px`;
+    }
+    layer.dataset.shown=String(wanted.length);
   }
   function onCameraOrientation(event) {
     if(!cameraView.active)return;
@@ -1001,7 +1017,12 @@
       cameraView.heading=(cameraView.heading+((((heading-cameraView.heading+540)%360)-180)*0.35)+360)%360;
       cameraView.elevation+=(elevation-cameraView.elevation)*0.35;
     }
-    if(!cameraView.frame)cameraView.frame=requestAnimationFrame(drawCameraView);
+    // About fifteen redraws a second is smooth enough and leaves the phone free to answer taps.
+    // The last reading is always drawn, a moment later if need be.
+    if(cameraView.frame||cameraView.pending)return;
+    const wait=66-(Date.now()-(cameraView.drawnAt||0));
+    const draw=()=>{cameraView.pending=null;cameraView.drawnAt=Date.now();if(!cameraView.frame)cameraView.frame=requestAnimationFrame(drawCameraView);};
+    if(wait<=0)draw(); else cameraView.pending=setTimeout(draw,wait);
   }
   async function refreshCameraGround() {
     if(!cameraView.active||!cameraView.fix)return;
@@ -1016,6 +1037,7 @@
     cameraView.stream?.getTracks?.().forEach(track=>track.stop());cameraView.stream=null;
     const video=$('ar-video');if(video)video.srcObject=null;
     clearInterval(cameraView.refresh);cameraView.refresh=null;
+    clearTimeout(cameraView.pending);cameraView.pending=null;
     window.removeEventListener('deviceorientation',onCameraOrientation);
     window.removeEventListener('deviceorientationabsolute',onCameraOrientation);
     cameraView.heading=null;cameraView.elevation=null;cameraView.ground=[];
@@ -1057,7 +1079,13 @@
     cameraView.refresh=setInterval(()=>{refreshCameraGround();currentFix().then(next=>{cameraView.fix=next;}).catch(()=>{});},15000);
     trackProduct('camera_view_opened','ar');
   }
-  $('ar-close')?.addEventListener('click',stopCameraView);
+  // Close on the first touch, without waiting for a full click.
+  for(const type of ['pointerdown','click'])$('ar-close')?.addEventListener(type,event=>{event.preventDefault();stopCameraView();});
+  // Pinching anywhere but the map used to zoom the whole page on an iPhone,
+  // which is hard to undo. The map still pinch-zooms; the page does not.
+  for(const type of ['gesturestart','gesturechange','gestureend'])document.addEventListener(type,event=>event.preventDefault(),{passive:false});
+  document.addEventListener('touchmove',event=>{ if(event.touches.length>1&&!event.target.closest?.('#map'))event.preventDefault(); },{passive:false});
+
   $('ar-labels')?.addEventListener('click',event=>{
     const label=event.target.closest?.('[data-ar-id]');if(!label)return;
     const id=label.dataset.arId,type=label.classList.contains('ar-train')?'train':label.classList.contains('ar-bus')?'bus':'aircraft';
@@ -4318,6 +4346,18 @@
   setInterval(()=>{ if(!document.hidden)reloadIfNewVersion(); },600000);
 
   function saveFollowed() { try { localStorage.setItem('ukRadarFollowed', JSON.stringify([...followed])); } catch {} }
+  // What each saved thing was, so it can still be named when it is not live.
+  let followedInfo={};
+  try { followedInfo=JSON.parse(localStorage.getItem('ukRadarFollowedInfoV1')||'{}')||{}; } catch { followedInfo={}; }
+  function saveFollowedInfo() { try { localStorage.setItem('ukRadarFollowedInfoV1', JSON.stringify(followedInfo)); } catch {} }
+  function rememberFollowed(a) {
+    if(!a?.id)return;
+    const detail=['aircraft','sar'].includes(a.type)?(a.aircraft_model||a.aircraft_type_code||a.operator||''):(a.destination?`to ${humanTransitLabel(a.destination)}`:humanTransitLabel(a.operator||''));
+    const next={type:a.type,name:a.name,detail};
+    const before=followedInfo[a.id];
+    if(before&&before.name===next.name&&before.detail===next.detail)return;
+    followedInfo[a.id]=next;saveFollowedInfo();
+  }
 
   // Saved trains: alert when one is cancelled, becomes late or changes
   // platform. The server works out the alerts; each is shown once.
@@ -4453,20 +4493,35 @@
   }
   // One place that makes sure this device is registered for phone alerts
   // and stores what it wants to hear about.
+  let pushProblem='';
+  function pushBlockedText() {
+    const ios=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+    return ios?'Notifications are blocked for this app. Open iPhone Settings, then Notifications, find this app and allow notifications. Then tap Turn alerts on again.'
+      :'Notifications are blocked for this site. Allow them in your browser’s site settings, then tap Turn alerts on again.';
+  }
   async function savePushPreferences(preferences) {
-    if(!commuteAlertStatus.configured||pushUnsupportedReason())return false;
+    pushProblem='';
+    if(!commuteAlertStatus.configured){pushProblem='Alerts are not available yet.';return false;}
+    if(pushUnsupportedReason()){pushProblem=pushUnsupportedReason();return false;}
     try {
       const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();
-      if(permission!=='granted')return false;
+      if(permission!=='granted'){pushProblem=pushBlockedText();renderCommuteAlertStatus();return false;}
       const registration=await navigator.serviceWorker.ready;
       let subscription=await registration.pushManager.getSubscription();
       if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKeyBytes(commuteAlertStatus.public_key)});
       const response=await fetch('/api/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken(),subscription:subscription.toJSON(),preferences})});
-      if(!response.ok)return false;
+      if(!response.ok){
+        const payload=await response.json().catch(()=>({}));
+        pushProblem=`The server didn’t accept this phone’s alert registration (${typeof payload.detail==='string'?payload.detail:`error ${response.status}`}).`;
+        renderCommuteAlertStatus();return false;
+      }
       commuteAlertStatus={...commuteAlertStatus,subscribed:true,preferences};
       renderCommuteAlertStatus();renderSpotter();
       return true;
-    } catch { return false; }
+    } catch(error) {
+      pushProblem=`This phone couldn’t register for alerts (${error?.message||error?.name||'unknown error'}).`;
+      renderCommuteAlertStatus();return false;
+    }
   }
   function currentPushPreferences() {
     return commuteAlertStatus.subscribed&&commuteAlertStatus.preferences
@@ -4562,11 +4617,16 @@
     // until there is one, the Saved tab shows only how to add one.
     document.querySelector('[data-workspace-panel="live"]')?.classList.toggle('has-saved-places',savedPlaces.size>0);
     const rows=[...savedPlaces.values()];
-    renderCommuteAlertPlaces();
+    renderCommuteAlertStatus();
     if(!rows.length){box.innerHTML='<p class="my-radar-empty">No stations or stops saved yet.</p><button id="my-radar-add-place" class="primary-button my-radar-add-place" type="button">Add a station or bus stop</button>';$('my-radar-add-place')?.addEventListener('click',startAddingMyRadarPlace);return;}
-    box.innerHTML=`${rows.map(p=>`<div class="saved-place-row"><button type="button" data-saved-place="${esc(p.id)}"><b>${placeIcons[p.place_type]||iconSvg('pin')}</b><span><strong>${esc(p.name)}</strong><small>${esc((p.place_type||'place').replaceAll('_',' '))}</small></span></button><button type="button" data-remove-place="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">×</button></div>`).join('')}<button id="my-radar-add-place" class="ghost-button my-radar-add-place" type="button">＋ Add another place</button>`;
-    box.querySelectorAll('[data-saved-place]').forEach(button=>button.addEventListener('click',async()=>{
-      const row=savedPlaces.get(button.dataset.savedPlace);if(!row)return;
+    const chosen=rows.some(p=>p.id===chosenSavedPlace)?chosenSavedPlace:rows[0].id;
+    chosenSavedPlace=chosen;
+    box.innerHTML=`${rows.map(p=>`<div class="saved-place-row${p.id===chosen?' is-chosen':''}"><button type="button" data-saved-place="${esc(p.id)}" aria-pressed="${p.id===chosen}"><b>${placeIcons[p.place_type]||iconSvg('pin')}</b><span><strong>${esc(humanTransitLabel(p.name))}</strong><small>${esc(p.place_type==='rail_station'?'Rail station':p.place_type==='bus_stop'?'Bus stop':'Place')}${p.id===chosen?' · shown below':''}</small></span></button><button type="button" class="saved-place-map" data-saved-place-map="${esc(p.id)}" aria-label="Show ${esc(humanTransitLabel(p.name))} on the map">${iconSvg('pin')}<span>Map</span></button><button type="button" data-remove-place="${esc(p.id)}" aria-label="Remove ${esc(humanTransitLabel(p.name))}">×</button></div>`).join('')}<button id="my-radar-add-place" class="ghost-button my-radar-add-place" type="button">＋ Add another place</button>`;
+    // Tapping a saved place chooses it for this page: its departures and
+    // its alerts below. The map button opens it on the map instead.
+    box.querySelectorAll('[data-saved-place]').forEach(button=>button.addEventListener('click',()=>chooseSavedPlace(button.dataset.savedPlace)));
+    box.querySelectorAll('[data-saved-place-map]').forEach(button=>button.addEventListener('click',async()=>{
+      const row=savedPlaces.get(button.dataset.savedPlaceMap);if(!row)return;
       if(!places.some(p=>p.id===row.id))places.push(row);renderPlaces();await selectPlace(row.id,true);if(map.getZoom()<11)map.setZoom(11);
     }));
     box.querySelectorAll('[data-remove-place]').forEach(button=>button.addEventListener('click',()=>{savedPlaces.delete(button.dataset.removePlace);saveMyRadarPreferences();renderMyRadar();}));
@@ -4590,12 +4650,22 @@
     } catch { return ''; }
   }
 
+  let chosenSavedPlace=null;
+  function chooseSavedPlace(id) {
+    if(!savedPlaces.has(id))return;
+    chosenSavedPlace=id;
+    for(const selectId of ['passing-next-place','commute-alert-place']){const select=$(selectId);if(select&&[...select.options].some(option=>option.value===id))select.value=id;}
+    renderSavedPlaces();
+    loadPassingNext();
+    renderCommuteAlertStatus();
+  }
   function renderCommuteAlertPlaces() {
     const select=$('commute-alert-place');if(!select)return;
     const current=select.value||commuteAlertStatus.preferences?.place_id||'';
     const rows=[...savedPlaces.values()];
-    select.innerHTML=rows.length?rows.map(place=>`<option value="${esc(place.id)}">${esc(place.name)}</option>`).join(''):'<option value="">Save a place first</option>';
-    if(rows.some(place=>place.id===current))select.value=current;
+    select.innerHTML=rows.length?rows.map(place=>`<option value="${esc(place.id)}">${esc(humanTransitLabel(place.name))}</option>`).join(''):'<option value="">Save a place first</option>';
+    if(rows.some(place=>place.id===chosenSavedPlace))select.value=chosenSavedPlace;
+    else if(rows.some(place=>place.id===current))select.value=current;
     renderPassingNextPlaces();
   }
 
@@ -4603,8 +4673,9 @@
     const select=$('passing-next-place');if(!select)return;
     const current=select.value;
     const rows=[...savedPlaces.values()].filter(place=>['rail_station','bus_stop'].includes(place.place_type));
-    select.innerHTML=rows.length?rows.map(place=>`<option value="${esc(place.id)}">${esc(place.name)}</option>`).join(''):'<option value="">Save a station or stop first</option>';
-    if(rows.some(place=>place.id===current))select.value=current;
+    select.innerHTML=rows.length?rows.map(place=>`<option value="${esc(place.id)}">${esc(humanTransitLabel(place.name))}</option>`).join(''):'<option value="">Save a station or stop first</option>';
+    if(rows.some(place=>place.id===chosenSavedPlace))select.value=chosenSavedPlace;
+    else if(rows.some(place=>place.id===current))select.value=current;
     else if(rows[0])select.value=rows[0].id;
   }
 
@@ -4619,7 +4690,7 @@
       const payload=await response.json(),board=payload.board||{};
       const rows=place.place_type==='rail_station' ? (board.departures||[]).slice(0,5).map(row=>boardRow(row,'departure')).join('') : (board.rows||[]).slice(0,5).map(row=>boardRow(row,'bus')).join('');
       const label=place.place_type==='rail_station'?'NEXT DEPARTURES':'NEXT BUSES';
-      box.innerHTML=rows?`<div class="passing-next-label"><span>${label}</span><b>${esc(place.name)}</b></div>${rows}`:'<p class="my-radar-empty">Nothing due right now.</p>';
+      box.innerHTML=rows?`<div class="passing-next-label"><span>${label==='NEXT BUSES'?'Next buses from':'Next trains from'}</span> <b>${esc(humanTransitLabel(place.name))}</b></div>${rows}`:'<p class="my-radar-empty">Nothing due right now.</p>';
       bindBoardLiveLinks(box);
     } catch { box.innerHTML='<p class="my-radar-empty">Live times are unavailable right now.</p>'; }
   }
@@ -4628,22 +4699,44 @@
     const state=$('commute-alert-state'),note=$('commute-alert-note'),enable=$('commute-alert-enable'),disable=$('commute-alert-disable');
     if(!state||!note||!enable||!disable)return;
     const active=Boolean(commuteAlertStatus.subscribed);
-    document.querySelector('[data-workspace-panel="live"]')?.classList.toggle('has-saved-trains',savedTrainIds().length>0||[...followed].some(id=>activityById(id)?.type==='train')||active);
+    const p=(active&&commuteAlertStatus.preferences)||{};
+    document.querySelector('[data-workspace-panel="live"]')?.classList.toggle('has-saved-trains',followed.size>0||active);
     state.textContent=active?'ON':'OFF';state.classList.toggle('active',active);
-    enable.textContent=active?'Update alerts':'Turn alerts on';
     disable.classList.toggle('hidden',!active);
-    enable.classList.toggle('hidden',active&&!savedPlaces.size);
     $('commute-alert-test')?.classList.toggle('hidden',!active);
+    // Say plainly whether this phone gets alerts, and about what.
+    const summary=$('commute-alert-summary');
+    const chosen=savedPlaces.get($('commute-alert-place')?.value||'');
+    const placeOn=active&&p.mode&&p.mode!=='trains-only';
+    if(summary){
+      summary.classList.toggle('is-off',!active);
+      if(active){
+        const trains=(p.saved_trains||[]).length;
+        const items=[
+          `Your saved trains: late, cancelled or a platform change${trains?` (${trains} saved)`:' (none saved yet)'}`,
+          placeOn?`${p.mode==='train'?'Train':'Driving'} delays near ${p.place_name||'your saved place'}, ${String(p.start_hour).padStart(2,'0')}:00 to ${String(p.end_hour).padStart(2,'0')}:00`:null,
+          p.spotter?`Unusual trains and aircraft within ${p.spotter.radius_miles} miles`:null,
+          p.journey?`Trouble on ${p.journey.name} before you leave`:null,
+          (p.leave_plans||[]).length?`When to leave for ${(p.leave_plans||[]).length} train${(p.leave_plans||[]).length===1?'':'s'}`:null,
+        ].filter(Boolean);
+        summary.innerHTML=`<strong>Alerts are on for this phone.</strong><span>You’ll be told about:</span><ul>${items.map(item=>`<li>${esc(item)}</li>`).join('')}</ul>`;
+      } else summary.innerHTML='<strong>Alerts are off.</strong><span>Nothing is sent to this phone. Saving a station does not turn them on; the button below does.</span>';
+    }
+    // The button says exactly what tapping it will do.
+    const chosenName=chosen?humanTransitLabel(chosen.name):'';
+    const samePlace=placeOn&&chosen&&p.place_id===chosen.id;
+    enable.textContent=!active?(chosen?`Turn alerts on for ${chosenName}`:'Turn alerts on')
+      : !chosen?'Update alerts' : samePlace?`Update alerts for ${chosenName}` : `Add alerts for ${chosenName}`;
+    enable.classList.toggle('hidden',active&&!savedPlaces.size);
     const unsupported=pushUnsupportedReason();
-    if(!commuteAlertStatus.configured)note.textContent='Alerts are not available yet.';
-    else if(active&&commuteAlertStatus.preferences?.mode==='trains-only')note.textContent=savedPlaces.size?'On for your saved trains. Choose a saved place above and tap Update alerts to add delays near it.':'On for your saved trains. Save a station or stop to add delays near it.';
-    else if(active){const p=commuteAlertStatus.preferences||{};note.textContent=`Active for ${p.mode||'travel'} near ${p.place_name||'your saved place'} • ${p.start_hour}:00–${p.end_hour}:00.`;}
-    else if(unsupported)note.textContent=unsupported;
-    else if(!savedPlaces.size)note.textContent='Save a train to be told about it, or save a station or stop for delays near it.';
-    else note.textContent='Ready when you are. Your browser will ask before notifications are enabled.';
+    note.classList.toggle('is-problem',Boolean(pushProblem)||(!active&&Boolean(unsupported)));
+    note.textContent=pushProblem ? pushProblem
+      : !commuteAlertStatus.configured ? 'Alerts are not available yet.'
+      : active ? 'Use “Send a test alert” to check they reach this phone.'
+      : unsupported || 'Your phone will ask for permission the first time.';
     renderCommuteAlertPlaces();
     renderSpotter();
-    const p=commuteAlertStatus.preferences;if(p){if($('commute-alert-mode'))$('commute-alert-mode').value=p.mode||'driving';if($('commute-alert-radius'))$('commute-alert-radius').value=String(p.radius_miles||12);if($('commute-alert-hours'))$('commute-alert-hours').value=`${p.start_hour}:${p.end_hour}`;}
+    if(active&&p.mode&&p.mode!=='trains-only'&&!renderCommuteAlertStatus.filled){renderCommuteAlertStatus.filled=true;if($('commute-alert-mode'))$('commute-alert-mode').value=p.mode||'driving';if($('commute-alert-radius'))$('commute-alert-radius').value=String(p.radius_miles||12);if($('commute-alert-hours'))$('commute-alert-hours').value=`${p.start_hour}:${p.end_hour}`;if(!chosenSavedPlace&&savedPlaces.has(p.place_id))chosenSavedPlace=p.place_id;}
   }
 
   async function loadCommuteAlertStatus() {
@@ -4661,25 +4754,14 @@
 
   async function enableCommuteAlerts() {
     const place=savedPlaces.get($('commute-alert-place')?.value||'');
-    if(!place){
-      // No saved place: alerts for saved trains alone.
-      if(pushUnsupportedReason()){showToast(pushUnsupportedReason());return;}
-      showToast(await enableSavedTrainAlerts()?'Alerts are on for your saved trains.':commuteAlertStatus.subscribed?'Alerts are already on.':'Alerts couldn’t be turned on. Check notifications are allowed for this site.');
-      return;
-    }
-    if(!commuteAlertStatus.configured){showToast('Alerts are not available yet.');return;}
-    if(pushUnsupportedReason()){showToast(pushUnsupportedReason());return;}
-    try {
-      const permission=await Notification.requestPermission();if(permission!=='granted')throw new Error('Notification permission was not granted.');
-      const registration=await navigator.serviceWorker.ready;
-      let subscription=await registration.pushManager.getSubscription();
-      if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKeyBytes(commuteAlertStatus.public_key)});
+    let preferences;
+    if(place){
       const [startHour,endHour]=String($('commute-alert-hours')?.value||'5:11').split(':').map(Number);
-      const preferences={mode:$('commute-alert-mode')?.value||'driving',place_id:place.id,place_name:place.name,lat:Number(place.lat),lon:Number(place.lon),radius_miles:Number($('commute-alert-radius')?.value||12),start_hour:startHour,end_hour:endHour,activity_types:[...myRadarInterests].filter(type=>['train','bus','vessel','aircraft'].includes(type)),saved_trains:savedTrainIds(),spotter:commuteAlertStatus.preferences?.spotter||null,journey:commuteAlertStatus.preferences?.journey||null,leave_plans:commuteAlertStatus.preferences?.leave_plans||[]};
-      const response=await fetch('/api/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken(),subscription:subscription.toJSON(),preferences})});
-      const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.detail||'Alerts could not be enabled.');
-      commuteAlertStatus={...commuteAlertStatus,subscribed:true,preferences};renderCommuteAlertStatus();showToast('Travel alerts are active on this device.');trackProduct('commute_alert_enabled',preferences.mode);
-    } catch(error){showToast('Travel alerts couldn’t be turned on.');}
+      preferences={...currentPushPreferences(),mode:$('commute-alert-mode')?.value||'driving',place_id:place.id,place_name:humanTransitLabel(place.name),lat:Number(place.lat),lon:Number(place.lon),radius_miles:Number($('commute-alert-radius')?.value||12),start_hour:startHour,end_hour:endHour,activity_types:[...myRadarInterests].filter(type=>['train','bus','vessel','aircraft'].includes(type)),saved_trains:savedTrainIds()};
+    } else preferences=currentPushPreferences();  // no saved place: saved trains alone
+    const ok=await savePushPreferences(preferences);
+    if(ok){showToast('Alerts are on for this phone.');trackProduct('commute_alert_enabled',preferences.mode);}
+    else showToast(pushProblem||'Alerts couldn’t be turned on.');
   }
 
   async function disableCommuteAlerts() {
@@ -4687,7 +4769,7 @@
       await fetch('/api/alerts/unsubscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_token:alertDeviceToken()})});
       const registration=await navigator.serviceWorker.ready;const subscription=await registration.pushManager.getSubscription();await subscription?.unsubscribe();
     } catch {}
-    commuteAlertStatus={...commuteAlertStatus,subscribed:false,preferences:null};renderCommuteAlertStatus();showToast('Travel alerts are off on this device.');trackProduct('commute_alert_disabled','alerts');
+    pushProblem='';commuteAlertStatus={...commuteAlertStatus,subscribed:false,preferences:null};renderCommuteAlertStatus();showToast('Alerts are off for this phone.');trackProduct('commute_alert_disabled','alerts');
   }
 
   function renderMyRadarArea() {
@@ -4710,11 +4792,28 @@
     renderMyRadarInterests();renderSavedPlaces();renderMyRadarArea();renderYours();
     badge.textContent = followed.size;
     badge.classList.toggle('hidden', !followed.size);
-    const live = [...followed].map(activityById).filter(Boolean).sort((a,b)=>new Date(b.last_updated)-new Date(a.last_updated));
     if (!followed.size) { box.innerHTML = '<p class="my-radar-empty">Nothing saved yet. Tap Save on a train to be told if it runs late, is cancelled or changes platform.</p>'; return; }
-    if (!live.length) { box.innerHTML = '<p class="my-radar-empty">None of your saved trains or vehicles are running right now.</p>'; return; }
-    box.innerHTML = live.slice(0,8).map(a => `<button type="button" class="my-radar-row" data-my-radar="${esc(a.id)}"><b>${icons[a.type] || '•'}</b><span><strong>${esc(a.name)}</strong><span>${esc(a.status || a.subtitle || 'Live')}</span></span><em>${(a.tracking_count||0) ? `${fmt(a.tracking_count)} watching` : 'LIVE'}</em></button>`).join('');
-    box.querySelectorAll('[data-my-radar]').forEach(btn=>btn.addEventListener('click',()=>selectActivity(btn.dataset.myRadar,true)));
+    // Everything saved is listed. What is not on the map right now (a plane
+    // out of range, a train that has finished) says so instead of vanishing.
+    const rows=[...followed].map(id=>{
+      const a=activityById(id);
+      if(a){rememberFollowed(a);return {id,live:true,type:a.type,name:a.name,text:a.type==='train'?trainStatusLabel(a):(a.status||a.subtitle||'Live')};}
+      const kept=followedInfo[id]||{};
+      const type=kept.type||(/^(nr|td):/.test(id)?'train':/^bus:/.test(id)?'bus':/^(aircraft|sar):/.test(id)?'aircraft':'');
+      const away=['aircraft','sar'].includes(type)?'Not in range right now':type==='train'?'Not running right now':'Not on the map right now';
+      return {id,live:false,type,name:kept.name||(type==='train'?'Saved train':type==='bus'?'Saved bus':['aircraft','sar'].includes(type)?'Saved aircraft':'Saved item'),text:[kept.detail,away].filter(Boolean).join(' · ')};
+    }).sort((a,b)=>Number(b.live)-Number(a.live));
+    box.innerHTML = rows.slice(0,12).map(row => `<div class="saved-place-row my-radar-saved${row.live?'':' is-away'}"><button type="button" class="my-radar-row" data-my-radar="${esc(row.id)}"><b>${icons[row.type] || '•'}</b><span><strong>${esc(row.name)}</strong><span>${esc(row.text)}</span></span>${row.live?'<em>LIVE</em>':''}</button><button type="button" data-unsave="${esc(row.id)}" aria-label="Remove ${esc(row.name)}">×</button></div>`).join('');
+    box.querySelectorAll('[data-my-radar]').forEach(btn=>btn.addEventListener('click',()=>{
+      const id=btn.dataset.myRadar;
+      if(activityById(id))selectActivity(id,true);
+      else focusActivityById(id,Math.max(11,map.getZoom())).catch?.(()=>{});
+    }));
+    box.querySelectorAll('[data-unsave]').forEach(btn=>btn.addEventListener('click',()=>{
+      followed.delete(btn.dataset.unsave);delete followedInfo[btn.dataset.unsave];saveFollowed();saveFollowedInfo();
+      if(selectedId===btn.dataset.unsave)$('follow').textContent='Save';
+      renderMyRadar();syncSavedTrainsToPush();
+    }));
   }
 
   async function copyShareText(text) {
@@ -5629,7 +5728,8 @@
     if (!selectedId) return;
     const wasFollowing = followed.has(selectedId);
     if(!wasFollowing&&!billingState.plus&&followed.size>=3){openPlusDialog();showToast('You can save three items for free. Radar+ removes the limit.');return;}
-    if (wasFollowing) followed.delete(selectedId); else followed.add(selectedId);
+    if (wasFollowing) { followed.delete(selectedId); delete followedInfo[selectedId]; saveFollowedInfo(); }
+    else { followed.add(selectedId); rememberFollowed(activityById(selectedId)); }
     saveFollowed(); renderMyRadar();
     const selected = activityById(selectedId);
     if (selected?.type==='train') {
@@ -5673,7 +5773,8 @@
   });
   $('today-refresh')?.addEventListener('click',()=>loadTodayRadar(true));
   $('passing-next-refresh')?.addEventListener('click',loadPassingNext);
-  $('passing-next-place')?.addEventListener('change',loadPassingNext);
+  $('passing-next-place')?.addEventListener('change',event=>chooseSavedPlace(event.target.value));
+  $('commute-alert-place')?.addEventListener('change',event=>chooseSavedPlace(event.target.value));
   $('commute-alert-enable')?.addEventListener('click',enableCommuteAlerts);
   $('commute-alert-disable')?.addEventListener('click',disableCommuteAlerts);
   $('commute-alert-test')?.addEventListener('click',sendTestAlert);

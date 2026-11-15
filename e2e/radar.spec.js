@@ -103,7 +103,8 @@ test('a saved place can enable proactive train alerts after an explicit click', 
   await page.locator('#commute-alert-mode').selectOption('train');
   await page.locator('#commute-alert-enable').click();
   await expect(page.locator('#commute-alert-state')).toHaveText('ON');
-  await expect(page.locator('#commute-alert-note')).toContainText('train near Milton Keynes Central');
+  await expect(page.locator('#commute-alert-summary')).toContainText('Alerts are on for this phone.');
+  await expect(page.locator('#commute-alert-summary')).toContainText('Train delays near Milton Keynes Central, 05:00 to 11:00');
 });
 
 test('shared live pages show broad facts without coordinates', async ({ page }) => {
@@ -1483,7 +1484,7 @@ test('saving a train turns phone alerts on for it, with a test alert to prove it
   await expect(page.locator('#watch-toast')).toContainText('Your phone will tell you');
   await page.locator('[data-workspace="live"]').click();
   await expect(page.locator('#commute-alert-state')).toHaveText('ON');
-  await expect(page.locator('#commute-alert-note')).toContainText('On for your saved trains');
+  await expect(page.locator('#commute-alert-summary')).toContainText('Your saved trains: late, cancelled or a platform change');
   await page.locator('#commute-alert-test').click();
   await expect.poll(() => tests).toBe(1);
 });
@@ -1732,4 +1733,80 @@ test('the camera view shows only what it was opened from, until more is switched
   await expect(page.locator('.ar-label.ar-aircraft')).toHaveCount(1);
   await page.locator('[data-ar-kind="train"]').click();
   await expect(page.locator('.ar-label.ar-train')).toHaveCount(0);
+});
+
+test('the Saved tab says plainly whether alerts are on, and why they failed if they did', async ({ page }) => {
+  await page.locator('#station-boards').click();
+  await page.locator('#save-place').click();
+  await page.locator('[data-workspace="live"]').click();
+  const summary = page.locator('#commute-alert-summary');
+  await expect(summary).toContainText('Alerts are off.');
+  await expect(summary).toContainText('Saving a station does not turn them on');
+  await expect(page.locator('#commute-alert-enable')).toHaveText('Turn alerts on for Milton Keynes Central');
+  // The server refuses: the reason is shown and stays on the page.
+  await page.route('**/api/alerts/subscribe', route => route.fulfill({ status:400, json:{ detail:'Unsupported browser push endpoint' } }));
+  await page.locator('#commute-alert-enable').click();
+  await expect(page.locator('#commute-alert-note')).toHaveClass(/is-problem/);
+  await expect(page.locator('#commute-alert-note')).toContainText('Unsupported browser push endpoint');
+  await expect(page.locator('#commute-alert-state')).toHaveText('OFF');
+  // It works: on, with what will be sent, a test button and a way to turn it off.
+  await page.unroute('**/api/alerts/subscribe');
+  await page.locator('#commute-alert-enable').click();
+  await expect(summary).toContainText('Alerts are on for this phone.');
+  await expect(page.locator('#commute-alert-note')).not.toHaveClass(/is-problem/);
+  await expect(page.locator('#commute-alert-test')).toBeVisible();
+  await page.locator('#commute-alert-disable').click();
+  await expect(summary).toContainText('Alerts are off.');
+});
+
+test('tapping a saved place chooses it for the departures and alerts below; Map opens it', async ({ page }) => {
+  await page.evaluate(() => localStorage.setItem('ukRadarMyRadarV1', localStorage.getItem('ukRadarMyRadarV1') || ''));
+  await page.locator('#station-boards').click();
+  await page.locator('#save-place').click();
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
+  await page.locator('[data-job="bus"]').click();
+  await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');
+  await page.locator('#save-place').click();
+  await page.locator('#detail-close').click();
+  await page.locator('[data-workspace="live"]').click();
+  const rows = page.locator('#saved-places-list .saved-place-row');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveClass(/is-chosen/);
+  await rows.nth(1).locator('[data-saved-place]').click();
+  await expect(rows.nth(1)).toHaveClass(/is-chosen/);
+  await expect(page.locator('#passing-next-place')).toHaveValue(await page.locator('#commute-alert-place').inputValue());
+  await expect(page.locator('#commute-alert-enable')).toContainText('Central Station Stop A');
+  await expect(page.locator('#passing-next .passing-next-label')).toContainText('Next buses from Central Station Stop A');
+  // The detail panel did not open a separate timetable.
+  await expect(page.locator('#detail-panel')).not.toHaveClass(/has-selection/);
+  await rows.nth(0).locator('[data-saved-place-map]').click();
+  await expect(page.locator('#detail-title')).toContainText('Milton Keynes Central');
+});
+
+test('a saved plane that is out of range is still listed, and says so', async ({ page }) => {
+  await page.evaluate(() => {
+    localStorage.setItem('ukRadarFollowed', JSON.stringify(['aircraft:400abc']));
+    localStorage.setItem('ukRadarFollowedInfoV1', JSON.stringify({ 'aircraft:400abc':{ type:'aircraft', name:'BAW12K', detail:'Airbus A320neo' } }));
+  });
+  await page.reload();
+  await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout: 5000 });
+  await page.locator('[data-workspace="live"]').click();
+  const row = page.locator('#my-radar-list .my-radar-saved');
+  await expect(row).toContainText('BAW12K');
+  await expect(row).toContainText('Airbus A320neo · Not in range right now');
+  await row.locator('[data-unsave]').click();
+  await expect(page.locator('#my-radar-list')).toContainText('Nothing saved yet');
+});
+
+test('pinching the interface does not zoom the page', async ({ page }) => {
+  const prevented = await page.evaluate(() => {
+    const out = {};
+    const gesture = new Event('gesturestart', { cancelable:true, bubbles:true }); document.body.dispatchEvent(gesture); out.gesture = gesture.defaultPrevented;
+    const fire = target => { const e = new Event('touchmove', { cancelable:true, bubbles:true }); e.touches = [{}, {}]; target.dispatchEvent(e); return e.defaultPrevented; };
+    out.chips = fire(document.querySelector('.layer-chips'));
+    out.map = fire(document.querySelector('#map'));
+    const one = new Event('touchmove', { cancelable:true, bubbles:true }); one.touches = [{}]; document.querySelector('.layer-chips').dispatchEvent(one); out.scroll = one.defaultPrevented;
+    return out;
+  });
+  expect(prevented).toEqual({ gesture:true, chips:true, map:false, scroll:false });
 });
