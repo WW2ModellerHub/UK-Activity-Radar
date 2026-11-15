@@ -1208,3 +1208,7 @@ p.leave-plan.is-set small { color: #2f5e49; }
 .ar-label strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ar-label small { font-size: 12px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.ar-open { overflow: hidden; }
+
+.ar-kinds { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 92px); display: flex; justify-content: center; gap: 8px; }
+.ar-kinds button { height: 38px; padding: 0 14px; border: 1px solid rgba(255,255,255,.7); border-radius: 19px; background: rgba(0,0,0,.55); color: #fff; font: inherit; font-size: 14px; font-weight: 600; }
+.ar-kinds button[aria-pressed="true"] { background: #fff; color: #10151c; border-color: #fff; }

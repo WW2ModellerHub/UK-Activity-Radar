@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## 2026-11-15 — camera view shows what you opened it from
+
+- Opened from Trains it shows trains, from Buses buses, from Aircraft
+  aircraft (it showed everything). Three switches in the view add or remove
+  the others; aircraft are only looked up when wanted.
+
 ## 2026-11-15 — camera view, point at sky, platform predictor
 
 - **Camera view** (in the Trains, Buses and Aircraft options): the phone held
