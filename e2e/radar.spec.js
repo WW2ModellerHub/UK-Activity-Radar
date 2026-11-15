@@ -1810,3 +1810,20 @@ test('pinching the interface does not zoom the page', async ({ page }) => {
   });
   expect(prevented).toEqual({ gesture:true, chips:true, map:false, scroll:false });
 });
+
+test('on a phone the tab bar, map credits and locate button do not overlap', async ({ page }) => {
+  await page.setViewportSize({ width:390, height:844 });
+  await page.reload();
+  await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout: 5000 });
+  // The tab bar is 64px plus the iPhone home-bar inset (none in this browser).
+  expect(await page.evaluate(() => [...document.styleSheets].some(sheet => { try { return [...sheet.cssRules].some(rule => rule.cssText.includes('--nav-h: calc(64px + env(safe-area-inset-bottom')); } catch { return false; } }))).toBe(true);
+  const nav = await page.locator('.workspace-rail').boundingBox();
+  const locate = await page.locator('#recenter').boundingBox();
+  expect(Math.round(nav.y + nav.height)).toBe(844);
+  expect(locate.y + locate.height).toBeLessThanOrEqual(nav.y - 26);
+  for (const tab of await page.locator('.workspace-rail .workspace-tab:visible').all()) {
+    const box = await tab.boundingBox();
+    expect(box.y).toBeGreaterThanOrEqual(nav.y);
+    expect(box.y + box.height).toBeLessThanOrEqual(nav.y + nav.height + 0.5);
+  }
+});

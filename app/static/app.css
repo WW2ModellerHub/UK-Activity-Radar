@@ -1243,3 +1243,17 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
 .commute-alert-actions { flex-wrap: wrap; }
 .commute-alert-actions .primary-button { flex: 1 1 100%; }
 .commute-alert-actions .mini-button { flex: 1; height: 44px; }
+
+/* Phone: the locate button sits above the map credits, not on top of them. */
+@media (max-width: 760px) {
+  #recenter { bottom: calc(var(--nav-h) + 34px); }
+  .map-controls { bottom: calc(var(--nav-h) + 34px + 56px); }
+}
+
+/* iPhone home bar: the tab bar grows by the height of the home bar, so the
+   icons and labels sit above it, and everything placed above the tab bar
+   (locate button, credits, sheets) moves up with it. */
+@media (max-width: 760px) {
+  :root { --nav-h: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  .workspace-rail { box-sizing: border-box; height: var(--nav-h); padding-bottom: env(safe-area-inset-bottom, 0px); background: var(--surface); }
+}
