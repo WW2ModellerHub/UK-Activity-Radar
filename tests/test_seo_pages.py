@@ -61,7 +61,7 @@ def test_a_station_page_reads_well_with_live_departures(monkeypatch):
     html = page.text
     assert "<title>Rugby live departures and delays | UK Activity Radar</title>" in html
     assert "<h1>Rugby departures</h1>" in html
-    assert "1 of the next 4 trains are on time, 1 running late, 1 cancelled" in html
+    assert "1 of the next 4 trains are on time or within 5 minutes, 1 running late, 1 cancelled" in html
     assert "Birmingham New Street" in html and "Expected 17:24" in html and "Cancelled" in html
     assert "usually 6" in html
     assert 'href="/?place=rail-station:RUG"' in html
@@ -92,3 +92,10 @@ def test_the_sitemap_lists_every_station_and_operator(monkeypatch):
     sitemap = client.get("/sitemap.xml").text
     for path in ("/stations", "/operators", "/station/rugby-rug", "/station/london-euston-eus", "/operator/lner"):
         assert f"http://testserver{path}</loc>" in sitemap
+
+
+def test_a_bare_train_still_previews_with_something_useful(monkeypatch):
+    from app.main import _share_preview_text
+    title, description = _share_preview_text({"type": "train", "name": "1H71", "near": "Near Rugby"})
+    assert title == "1H71 · Near Rugby"
+    assert description == "Live train near Rugby · follow it on the live map"
