@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## 2026-11-15 — tab bar and the iPhone home bar
+
+- The tab bar grows by the height of the iPhone home bar, so its icons and
+  labels are neither squashed (16210) nor covered by the bar (before).
+  Everything placed above it moves up with it.
+- The locate button sits above the map credits instead of on top of them.
+
 ## 2026-11-15 — fixes from a morning on a real phone
 
 - **Camera view Close** was hard to hit: labels were rebuilt on every frame,
