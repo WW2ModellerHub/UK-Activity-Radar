@@ -1689,6 +1689,9 @@ test('the camera view labels the aircraft, train and bus in the direction the ph
   expect(Math.abs(box.x + box.width / 2 - size.width / 2)).toBeLessThan(40);
   expect(Math.abs(box.y + box.height / 2 - size.height / 2)).toBeLessThan(40);
   await expect(page.locator('.ar-label.ar-train')).toHaveCount(0);
+  // Opened from Aircraft, so trains and buses are switched on in the view.
+  await page.locator('[data-ar-kind="train"]').click();
+  await page.locator('[data-ar-kind="bus"]').click();
   // Facing north at the horizon: the train, not the plane or the bus behind you.
   await face(0, 90);
   await expect(page.locator('.ar-label.ar-train')).toContainText('1A23 to Leeds');
@@ -1698,4 +1701,35 @@ test('the camera view labels the aircraft, train and bus in the direction the ph
   await expect(page.locator('.ar-label.ar-bus')).toContainText('Bus 7 to City Centre');
   await page.locator('#ar-close').click();
   await expect(page.locator('#ar-view')).toBeHidden();
+});
+
+test('the camera view shows only what it was opened from, until more is switched on', async ({ page }) => {
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
+  let aircraftAsked = 0;
+  // A plane and a train both due north, so both would be in view.
+  await page.route('**/api/aircraft/nearby**', route => { aircraftAsked += 1; return route.fulfill({ json:{ checked:1, radius_miles:50, activities:[
+    { kind:'vehicle', id:'aircraft:north', type:'aircraft', name:'EZY12AB', lat:54.2, lon:-2.45, altitude_ft:3000, aircraft_model:'Airbus A320', source:'ADSB.lol', last_updated:new Date().toISOString() } ] } }); });
+  await page.route('**/api/around**', route => route.fulfill({ json:{ vehicles:[
+    { id:'nr:north', type:'train', name:'1A23', destination:'LEEDS', operator:'Northern', lat:54.119, lon:-2.45 },
+    { id:'bus:north', type:'bus', name:'Bus 7', destination:'City Centre', operator:'Stagecoach', lat:54.113, lon:-2.4495 } ] } }));
+  await page.evaluate(() => {
+    window.DeviceOrientationEvent = class extends Event {};
+    const stream = document.createElement('canvas').captureStream();
+    Object.defineProperty(navigator, 'mediaDevices', { configurable:true, value:{ getUserMedia: async () => stream } });
+  });
+  const face = (heading, beta) => page.evaluate(([h, b]) => { for (let i = 0; i < 25; i += 1) { const e = new Event('deviceorientation'); e.webkitCompassHeading = h; e.beta = b; window.dispatchEvent(e); } }, [heading, beta]);
+  await page.locator('[data-layer-chip="train"]').click();
+  await page.locator('[data-sub-action="camera"]:visible').click();
+  await face(0, 90);
+  await expect(page.locator('.ar-label.ar-train')).toHaveCount(1);
+  await expect(page.locator('.ar-label')).toHaveCount(1);
+  await expect(page.locator('[data-ar-kind="train"]')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('[data-ar-kind="aircraft"]')).toHaveAttribute('aria-pressed','false');
+  expect(aircraftAsked).toBe(0);
+  await page.locator('[data-ar-kind="bus"]').click();
+  await expect(page.locator('.ar-label.ar-bus')).toHaveCount(1);
+  await page.locator('[data-ar-kind="aircraft"]').click();
+  await expect(page.locator('.ar-label.ar-aircraft')).toHaveCount(1);
+  await page.locator('[data-ar-kind="train"]').click();
+  await expect(page.locator('.ar-label.ar-train')).toHaveCount(0);
 });

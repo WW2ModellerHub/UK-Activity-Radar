@@ -949,7 +949,7 @@
   // each aircraft, train and bus in that direction. Nothing is recognised
   // from the picture; labels are placed from live positions, the phone's
   // location, its compass and its tilt.
-  const cameraView={active:false,fix:null,heading:null,elevation:null,stream:null,ground:[],frame:0,refresh:null};
+  const cameraView={active:false,fix:null,heading:null,elevation:null,stream:null,ground:[],frame:0,refresh:null,kinds:new Set()};
   const AR_VERTICAL_FOV=62;
   function cameraObjects() {
     const fix=cameraView.fix;if(!fix)return [];
@@ -964,7 +964,8 @@
       return {id:v.id,type:v.type,title:v.destination?`${v.name} to ${humanTransitLabel(v.destination)}`:v.name,facts:[humanTransitLabel(v.operator||''),late,awayText(km)],
         km,bearing:bearingBetween(fix.lat,fix.lon,Number(v.lat),Number(v.lon)),up:0};
     }).filter(row=>Number.isFinite(row.km)&&row.km>=0.03);
-    return [...sky,...ground];
+    // Only what was asked for: opened from Trains, it shows trains.
+    return [...sky,...ground].filter(row=>cameraView.kinds.has(row.type));
   }
   function drawCameraView() {
     cameraView.frame=0;
@@ -1021,7 +1022,18 @@
     const view=$('ar-view');if(view)view.hidden=true;
     document.body.classList.remove('ar-open');
   }
-  async function startCameraView() {
+  function syncCameraKinds() {
+    document.querySelectorAll('[data-ar-kind]').forEach(button=>button.setAttribute('aria-pressed',String(cameraView.kinds.has(button.dataset.arKind))));
+    // Aircraft come from "planes above me", which is only switched on when wanted.
+    if(cameraView.active&&cameraView.kinds.has('aircraft')&&!overheadActive)$('overhead-now')?.click();
+    if(cameraView.active&&!cameraView.frame)cameraView.frame=requestAnimationFrame(drawCameraView);
+  }
+  document.querySelectorAll('[data-ar-kind]').forEach(button=>button.addEventListener('click',()=>{
+    const kind=button.dataset.arKind;
+    if(cameraView.kinds.has(kind))cameraView.kinds.delete(kind);else cameraView.kinds.add(kind);
+    syncCameraKinds();
+  }));
+  async function startCameraView(kind) {
     if(!('DeviceOrientationEvent' in window)||!navigator.mediaDevices?.getUserMedia){showToast('This needs a phone with a camera and a compass.');return;}
     // iPhone asks for motion access, and only from a tap, so ask first.
     try {
@@ -1033,15 +1045,14 @@
     let fix;
     try { fix=await currentFix(); } catch(error){ stream.getTracks().forEach(track=>track.stop());showToast(error.message);return; }
     stopSkyPointer();
-    Object.assign(cameraView,{active:true,fix,stream,heading:null,elevation:null,ground:[]});
+    Object.assign(cameraView,{active:true,fix,stream,heading:null,elevation:null,ground:[],kinds:new Set([['train','bus','aircraft'].includes(kind)?kind:'aircraft'])});
     const view=$('ar-view'),video=$('ar-video');
     video.srcObject=stream;video.play?.().catch(()=>{});
     view.hidden=false;document.body.classList.add('ar-open');
     $('ar-labels').innerHTML='';$('ar-direction').textContent='Waiting for your phone’s compass…';
     window.addEventListener('deviceorientation',onCameraOrientation);
     window.addEventListener('deviceorientationabsolute',onCameraOrientation);
-    // Aircraft come from "planes above me"; trains and buses from close by.
-    if(!overheadActive)$('overhead-now')?.click();
+    syncCameraKinds();
     refreshCameraGround();
     cameraView.refresh=setInterval(()=>{refreshCameraGround();currentFix().then(next=>{cameraView.fix=next;}).catch(()=>{});},15000);
     trackProduct('camera_view_opened','ar');
@@ -3918,6 +3929,7 @@
       const note=$('overhead-now')?.querySelector('small');
       if(note)note.textContent=`${nearbyAircraftRows.length} live aircraft • refreshing automatically`;
       if(skyPointer.active)renderSkyPointer();
+      if(cameraView.active&&!cameraView.frame)cameraView.frame=requestAnimationFrame(drawCameraView);
       if(pendingPlanesList){pendingPlanesList=false;showPlanesList();}
       else if(announce)showToast(nearbyAircraftRows.length?`${nearbyAircraftRows.length} aircraft near you.`:'No aircraft near you right now.');
     }catch(error){
@@ -5705,7 +5717,7 @@
     else if(action==='bus-disruptions')showBusDisruptions();
     else if(action==='planes')jobPlanes();
     else if(action==='sky')startSkyPointer();
-    else if(action==='camera')startCameraView();
+    else if(action==='camera')startCameraView(chip.dataset.subFor);
     else if(action==='journey')jobJourney();
     else if(action==='traffic')$('traffic-quick')?.click();
   }));
