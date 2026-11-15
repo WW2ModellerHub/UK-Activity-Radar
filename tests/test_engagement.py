@@ -79,3 +79,10 @@ def test_a_shared_loco_move_says_what_it_is_and_where_without_coordinates():
     # Sensitive activity never gets a nearby place.
     rescue = loco.model_copy(update={"id": "rnli:1", "type": "rescue", "cool_category": "rescue"})
     assert "near" not in safe_share_payload(rescue, "BRINKLOW")
+
+
+def test_a_test_train_code_is_not_called_an_express_passenger_train():
+    from app.engagement import _headcode_note
+    assert _headcode_note("1Q31") == "1Q31 is its signalling code: Q marks a test or measurement train, and 1 the priority it runs at."
+    assert _headcode_note("1A23") == "1A23 is its signalling code: 1 means an express passenger train."
+    assert _headcode_note("abc") is None
