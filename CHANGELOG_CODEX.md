@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## 2026-11-15 — phone alerts could never be switched on
+
+- The worker was registered from `/static/`, so it only covered that folder,
+  never the app page at `/`. Turning alerts on waits for a worker covering
+  the page, so the button did nothing, for everyone, since alerts were built.
+  The worker is now served and registered at `/service-worker.js` with
+  scope `/`; the old registration is removed.
+- Waiting for the worker gives up after 8 seconds with a plain reason, and
+  the button shows "Turning on…" while it works.
+- New test with a real worker on a local server; the other browser tests
+  fake the worker, which is how this went unnoticed.
+
 ## 2026-11-15 — tab bar and the iPhone home bar
 
 - The tab bar grows by the height of the iPhone home bar, so its icons and

@@ -1113,6 +1113,20 @@ def shared_live_page(activity_id: str):
     return FileResponse(STATIC_DIR / "share.html")
 
 
+@app.get("/service-worker.js", include_in_schema=False)
+def service_worker():
+    """The worker, served from the top of the site.
+
+    A worker only covers pages at or below its own path. Served from
+    /static/ it never covered the app's page at "/", so phone alerts (which
+    wait for a worker covering the page) could not be switched on.
+    """
+    return FileResponse(
+        STATIC_DIR / "service-worker.js", media_type="text/javascript",
+        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+    )
+
+
 @app.get("/api/billing/status")
 def billing_status(request: Request, response: Response):
     context = _billing_context(request)

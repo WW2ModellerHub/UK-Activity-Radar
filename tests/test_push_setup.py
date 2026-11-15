@@ -146,3 +146,15 @@ def test_leave_now_times_the_alert_to_the_train_and_moves_with_its_delay():
     assert "from the timetable" in leave_alert(plan, {"found": False}, depart - timedelta(minutes=20))["body"]
     assert leave_alert(plan, {"found": True, "cancelled": True}, depart - timedelta(minutes=20)) is None
     assert leave_alert(plan, on_time, depart + timedelta(minutes=1)) is None
+
+
+def test_the_worker_is_served_from_the_top_of_the_site_so_it_covers_the_app_page():
+    client = TestClient(main.app)
+    response = client.get("/service-worker.js")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/javascript")
+    assert response.headers["cache-control"] == "no-cache"
+    assert "addEventListener('push'" in response.text
+    script = (main.STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    assert "register('/service-worker.js',{scope:'/'})" in script
+    assert "register('/static/service-worker.js')" not in script
