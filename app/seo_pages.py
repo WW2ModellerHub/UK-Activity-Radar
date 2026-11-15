@@ -113,7 +113,9 @@ def _status(row: dict) -> tuple[str, str]:
     delay = row.get("delay_minutes")
     if isinstance(delay, (int, float)) and delay >= 1:
         expected = _clock(row.get("expected"))
-        return (f"Expected {expected}" if expected and expected != _clock(row.get("scheduled")) else f"{round(delay)} min late"), ("bad" if delay >= 15 else "late")
+        text = f"Expected {expected}" if expected and expected != _clock(row.get("scheduled")) else f"{round(delay)} min late"
+        # The railway counts up to five minutes as on time; so do we.
+        return text, ("bad" if delay >= 15 else "late" if delay >= 5 else "good")
     if isinstance(delay, (int, float)):
         return "On time", "good"
     return "Scheduled", ""
@@ -141,7 +143,7 @@ def station_page(origin: str, station: dict, board: dict | None, nearby: list[di
     if not departures:
         summary = f"No departures are due from {escape(name)} in the next few hours."
     else:
-        parts = [f"{known - late - cancelled} of the next {len(departures)} trains are on time"] if known else []
+        parts = [f"{known - late - cancelled} of the next {len(departures)} trains are on time or within 5 minutes"] if known else []
         if late:
             parts.append(f"{late} running late")
         if cancelled:

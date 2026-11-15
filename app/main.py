@@ -1260,7 +1260,11 @@ def _share_preview_text(payload: dict) -> tuple[str, str]:
     running = lines["running"][0] if lines["running"] else None
     title = " · ".join(x for x in (lines["title"], lines["line"]) if x)
     description = " · ".join(x for x in (running, lines["where"], lines["details"], payload.get("what_it_is")) if x)
-    return title, description or "Live on UK Activity Radar"
+    if not description:
+        kind = {"train": "train", "bus": "bus", "aircraft": "aircraft", "sar": "rescue aircraft"}.get(payload.get("type"), "activity")
+        where = "n" + lines["line"][1:] if lines["line"].startswith("Near ") else ""
+        description = f"Live {kind} {where}".strip() + " · follow it on the live map"
+    return title, description
 
 
 _card_cache: dict[str, tuple[float, bytes]] = {}
