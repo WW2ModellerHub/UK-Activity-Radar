@@ -250,7 +250,7 @@ def tidy_title(title: str) -> str:
 # A picture of the outside of the vehicle shows its colours; these do not.
 NOT_THE_OUTSIDE = re.compile(
     r"\b(interior|internal|inside|first class|standard class|saloon|vestibule|seats?|seating|cab|cockpit|flight deck|toilet|table|luggage|window|"
-    r"logo|sign|signage|livery diagram|model|toy|scale|cabin|galley|wheel|bogie|engine detail|plaque)\b", re.I)
+    r"logo|sign|signage|livery diagram|model|toy|scale|cabin|galley|wheel|bogie|engine|engines|power unit|spare|component|plaque)\b", re.I)
 
 
 def shows_the_outside(text: str) -> bool:

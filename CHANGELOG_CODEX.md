@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## 2026-11-15 — photo and shared page tidy-ups
+
+- Example train photos skip engines, spare power units and parts (a DRS
+  freight showed a spare Class 68 engine on a pallet).
+- Shared pages no longer repeat the journey under "What it is", or "Late"
+  under Status when Running already says it.
+
 ## 2026-11-15 — shared pages and alerts open the thing itself
 
 - "Open UK Activity Radar" on a shared page went to the home page, and phone

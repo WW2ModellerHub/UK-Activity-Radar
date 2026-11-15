@@ -161,3 +161,10 @@ def test_a_photo_that_names_the_route_is_used_for_that_route():
     ]})
     result = lookup.lookup(bus)
     assert result["reference_label"] == "Arriva Midlands bus on route 8 — an example, not this exact bus"
+
+
+def test_a_spare_engine_is_not_a_picture_of_a_train():
+    from app.media_reference import shows_the_outside
+    assert not shows_the_outside("Direct Rail Services spare class 68 engine")
+    assert not shows_the_outside("Class 66 power unit on a pallet")
+    assert shows_the_outside("DRS Class 68 68033 at Crewe")
