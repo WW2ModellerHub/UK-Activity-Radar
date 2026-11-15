@@ -113,6 +113,38 @@ test('shared live pages show broad facts without coordinates', async ({ page }) 
   await expect(page.locator('#share-card')).toContainText('Central Britain');
   await expect(page.locator('#share-card')).not.toContainText('52.0');
   await expect(page.locator('#share-card')).toContainText('No precise coordinates');
+  await expect(page.locator('#share-card .open-radar')).toHaveAttribute('href','/?open=train-live-1');
+});
+
+test('a shared loco move explains itself in plain words', async ({ page }) => {
+  const pageNow = await page.evaluate(() => Date.now());  // the test pages run on a fixed clock
+  await page.route('**/api/share/td*', route => route.fulfill({ json:{
+    activity_id:'td:0Z37', type:'train', name:'0Z37', badge:'LOCO MOVE', subtitle:'Train describer • BRINKLOW', status:'TD live • next berth unresolved',
+    operator:'DB Cargo UK', next_stop:'Rugby', near:'Near Brinklow', location:'Southern Britain', delay_minutes:0,
+    what_it_is:'A locomotive running on its own, with no passengers or wagons, usually to or from a depot or its next job.',
+    code_note:'0Z37 is its signalling code: 0 means a light locomotive, Z a one-off move not in the regular timetable.',
+    how_seen:'Railway signalling, position estimated between signals', source:'Network Rail TD',
+    freshness:new Date(pageNow-3*60000).toISOString(), sensitive:false, safety_note:'No precise coordinates are included on this public page.', open_url:'/?open=td%3A0Z37' } }));
+  await page.goto('/live/td%3A0Z37');
+  const card = page.locator('#share-card');
+  await expect(card.locator('.subtitle')).toHaveText('Near Brinklow');
+  await expect(card.locator('.seen')).toHaveText('Last seen 3 min ago');
+  await expect(card).toContainText('On time');
+  await expect(card).toContainText('Rugby');
+  await expect(card).toContainText('DB Cargo UK');
+  await expect(card).toContainText('A locomotive running on its own');
+  await expect(card).toContainText('0 means a light locomotive');
+  await expect(card).not.toContainText('berth');
+  await expect(card).not.toContainText('Train describer');
+  await expect(card.locator('.open-radar')).toHaveText('Show it on the live map');
+  await expect(card.locator('.open-radar')).toHaveAttribute('href','/?open=td%3A0Z37');
+});
+
+test('a link to the app with ?open= shows that train', async ({ page }) => {
+  await page.goto('/?open=train-live-1');
+  await expect(page.locator('#detail-title')).toContainText('London Express', { timeout:8000 });
+  await expect(page.locator('[data-layer-toggle="train"]')).toHaveAttribute('aria-pressed','true');
+  expect(new URL(page.url()).search).toBe('');
 });
 
 test('identical live snapshots do not churn existing map markers', async ({ page }) => {

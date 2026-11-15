@@ -616,7 +616,8 @@ async def _commute_alert_loop() -> None:
             candidate = next((row for row in candidates if row and not store.already_delivered(saved.endpoint_hash, row["key"])), None)
             if candidate is None:
                 continue
-            candidate["url"] = f"{settings.public_base_url}/live/{quote(candidate['activity_id'], safe='')}"
+            # Opens the app on the item itself, not the shared summary page.
+            candidate["url"] = f"{settings.public_base_url}/?open={quote(candidate['activity_id'], safe='')}"
             candidate["tag"] = f"commute-{hashlib.sha256(candidate['key'].encode()).hexdigest()[:20]}"
             try:
                 await asyncio.to_thread(_send_commute_push, saved.subscription, candidate)
@@ -2321,8 +2322,17 @@ def shared_activity(activity_id: str, request: Request):
     item = state.get(activity_id)
     if item is None:
         raise HTTPException(status_code=404, detail="This live activity is no longer available")
-    payload = safe_share_payload(item)
+    nearest = None
+    if item.type in {"train", "bus"}:
+        best = None
+        for station in _passenger_stations():
+            distance = _haversine_km(item.lat, item.lon, station["lat"], station["lon"])
+            if distance <= 15 and (best is None or distance < best[0]):
+                best = (distance, station["name"])
+        nearest = best[1] if best else None
+    payload = safe_share_payload(item, nearest)
     payload["share_url"] = str(request.base_url).rstrip("/") + "/live/" + quote(activity_id, safe="")
+    payload["open_url"] = "/?open=" + quote(activity_id, safe="")
     return payload
 
 
