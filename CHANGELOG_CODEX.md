@@ -1,5 +1,15 @@
 # Codex stabilization changelog
 
+## 2026-11-15 — bus photos: the right region, a real route number
+
+- Bus 8 showed a London Routemaster on route 159: "8 December 2005" in its
+  title was read as route 8. A route number now has to read as a route
+  ("route 8", "service 8", "the 8 to …").
+- Regional companies (Arriva Midlands, North West, North East, Yorkshire)
+  are searched by their own name first, then the group's. London buses are
+  red whoever runs them, so London photos are never used for buses outside
+  London.
+
 ## 2026-11-15 — rain radar
 
 - The Weather layer shows rain radar from the EUMETNET OPERA composite, which

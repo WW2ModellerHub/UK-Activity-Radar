@@ -66,6 +66,14 @@ BUS_GROUP_CODES = {
     "WMSA": "National Express",
 }
 BUS_GROUP_PREFIXES = (("SC", "Stagecoach"),)
+# The regional company, where its colours differ from the group's elsewhere.
+BUS_BRANDS = {
+    "AMID": "Arriva Midlands", "ANWE": "Arriva North West", "ANEA": "Arriva North East",
+    "AYKS": "Arriva Yorkshire",
+}
+# London buses are red whoever runs them, so a London photo is never a fair
+# picture of the same group's buses anywhere else.
+LONDON_WORDS = ("london", "routemaster", "tfl", "transport for london")
 BUS_GROUP_NAMES = {
     "arriva": "Arriva", "stagecoach": "Stagecoach", "first": "First", "go-ahead": "Go-Ahead",
     "go north east": "Go North East", "national express": "National Express",
@@ -167,20 +175,34 @@ def reference_for(kind: str, operator: str | None = None, model: str | None = No
             return None
         aliases = BUS_GROUP_ALIASES.get(group, (group.casefold(),))
         bus_words = ("bus", "double-decker", "double decker", "single-decker")
+        code = str(operator or "").strip().upper()
+        brand = BUS_BRANDS.get(code)
+        in_london = "london" in str(operator or "").casefold()
+        exclude = () if in_london else LONDON_WORDS
+        names = (brand.casefold(),) if brand else aliases
+        who = brand or group
         colours = {
-            "query": f"{group} bus",
-            "require": [aliases, bus_words],
+            "query": f"{who} bus", "require": [names, bus_words], "exclude": exclude,
             # Said plainly: the photo shows the colours, and the number on
             # the front may be another route.
-            "label": f"{group} colours — an example bus, it may show another route",
+            "label": f"{who} colours — an example bus, it may show another route",
         }
+        if brand:
+            colours["fallback"] = {
+                "query": f"{group} bus", "require": [aliases, bus_words], "exclude": exclude,
+                "label": f"{group} colours — an example bus, it may show another route",
+            }
         number = re.sub(r"[^0-9A-Za-z]", "", str(route or ""))[:6]
         if not number:
             return colours
+        n = re.escape(number.casefold())
+        # The number must read as a route ("route 8", "service 8", "the 8 to"),
+        # not a date or fleet number ("8 December", "bus 1580").
+        as_route = re.compile(rf"(?:route|service|line|number|no\.?)\s*{n}(?![0-9a-z])|(?<![0-9a-z]){n}\s+to\s")
         return {
-            "query": f"{group} bus route {number}",
-            "require": [aliases, bus_words, re.compile(rf"(?<![0-9a-z]){re.escape(number.casefold())}(?![0-9a-z])")],
-            "label": f"{group} bus on route {number} — an example, not this exact bus",
+            "query": f"{who} bus route {number}",
+            "require": [names, bus_words, as_route], "exclude": exclude,
+            "label": f"{who} bus on route {number} — an example, not this exact bus",
             "fallback": colours,
         }
     if kind in {"aircraft", "sar"}:

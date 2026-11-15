@@ -224,9 +224,11 @@ class WikimediaLookup:
         plan = reference_for(kind, operator, model, callsign, route)
         if not self.enabled or not plan:
             return {"ok": False, "reason": "no_reference" if self.enabled else "disabled"}
-        for step in (plan, plan.get("fallback")):
-            if not step:
-                continue
+        steps, step = [], plan
+        while step:  # the plan, then each fallback in turn
+            steps.append(step)
+            step = step.get("fallback")
+        for step in steps:
             key = f"reference|{step['query']}".casefold()
             with self._lock:
                 hit = self._cache.get(key)
@@ -243,6 +245,8 @@ class WikimediaLookup:
                 text = " ".join(filter(None, [title, self._plain(meta.get("ImageDescription")),
                                               self._plain(meta.get("ObjectName")), self._plain(meta.get("Categories"))]))
                 if any(word in text.casefold() for word in _BAD_TITLE_WORDS) or not mentions_all(text, step["require"]):
+                    continue
+                if any(word in text.casefold() for word in step.get("exclude") or ()):
                     continue
                 if not shows_the_outside(f"{title} {self._plain(meta.get('ImageDescription')) or ''}"):
                     continue
