@@ -862,6 +862,200 @@
     }).catch(()=>{}));
   }
 
+  // What's that overhead: point the top of the phone at an aircraft and the
+  // one in that direction is named. Uses the phone's compass and tilt with
+  // the "planes above me" list.
+  const skyPointer={active:false,heading:null,elevation:null,fix:null,lastDraw:0};
+  const COMPASS_POINTS=['N','NE','E','SE','S','SW','W','NW'];
+  const compassPoint=degrees=>COMPASS_POINTS[Math.round((((degrees%360)+360)%360)/45)%8];
+  function bearingBetween(lat1,lon1,lat2,lon2){
+    const toRad=x=>x*Math.PI/180,y=Math.sin(toRad(lon2-lon1))*Math.cos(toRad(lat2)),x=Math.cos(toRad(lat1))*Math.sin(toRad(lat2))-Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(toRad(lon2-lon1));
+    return (Math.atan2(y,x)*180/Math.PI+360)%360;
+  }
+  // Where each aircraft is in the sky from here, and how far off the pointing direction.
+  function skyCandidates() {
+    const {fix,heading,elevation}=skyPointer;
+    if(!fix)return [];
+    return nearbyAircraftRows.map(a=>{
+      const km=distanceKm(fix.lat,fix.lon,Number(a.lat),Number(a.lon));
+      if(!Number.isFinite(km)||a.altitude_ft==null)return null;
+      const up=Math.atan2(Number(a.altitude_ft)*0.3048,Math.max(1,km*1000))*180/Math.PI;
+      const bearing=bearingBetween(fix.lat,fix.lon,Number(a.lat),Number(a.lon));
+      let off=null;
+      if(heading!=null&&elevation!=null){
+        const turn=Math.abs(((bearing-heading+540)%360)-180)*Math.cos(Math.max(up,elevation)*Math.PI/180);
+        off=Math.hypot(turn,up-elevation);
+      }
+      return {a,km,up,bearing,off};
+    }).filter(Boolean);
+  }
+  function renderSkyPointer() {
+    if(!skyPointer.active)return;
+    const box=$('detail-insight');if(!box||$('detail-title').textContent!=='Point at the sky'){stopSkyPointer();return;}
+    const rows=skyCandidates();
+    const hasSensor=skyPointer.heading!=null&&skyPointer.elevation!=null;
+    const pointing=hasSensor?`Pointing ${compassPoint(skyPointer.heading)}, ${Math.max(0,Math.round(skyPointer.elevation))}° up`:'Waiting for your phone’s compass…';
+    const best=hasSensor?rows.filter(row=>row.off<=20).sort((x,y)=>x.off-y.off)[0]:null;
+    const card=row=>{
+      const a=row.a,height=`${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} ft`;
+      return `<button type="button" class="line-train sky-match" data-sky-plane="${esc(a.id)}"><i class="line-dot is-on-time" aria-hidden="true"></i><span><strong>${esc(a.name||'Aircraft')}</strong><small>${esc([a.aircraft_model||a.aircraft_type_code,height,awayText(row.km)].filter(Boolean).join(' · '))}</small></span><b>›</b></button>`;
+    };
+    let body;
+    if(!rows.length)body='<p class="transport-empty">No aircraft are being tracked near you right now.</p>';
+    else if(best)body=`<p class="sky-found">That’s this one:</p>${card(best)}`;
+    else {
+      const nearest=[...rows].sort((x,y)=>(hasSensor?x.off-y.off:x.km-y.km))[0];
+      body=`<p class="transport-empty">${hasSensor?'Nothing in that direction.':'Hold your phone up and point its top edge at an aircraft.'} The closest to where you’re pointing is to the ${compassPoint(nearest.bearing)}, ${Math.round(nearest.up)}° up:</p>${card(nearest)}`;
+    }
+    box.innerHTML=`<div class="sky-pointer"><p class="sky-direction" data-sky-direction>${esc(pointing)}</p>${body}</div>`;
+    $('detail-subtitle').textContent=`${rows.length} aircraft near you`;
+    box.querySelectorAll('[data-sky-plane]').forEach(button=>button.addEventListener('click',()=>{const id=button.dataset.skyPlane;stopSkyPointer();focusActivityById(id,map.getZoom());}));
+  }
+  function onSkyOrientation(event) {
+    if(!skyPointer.active)return;
+    // iPhone gives a true compass heading; elsewhere alpha counts the other way round.
+    const heading=Number.isFinite(event.webkitCompassHeading)?event.webkitCompassHeading:(event.absolute&&Number.isFinite(event.alpha)?(360-event.alpha)%360:null);
+    if(heading==null||!Number.isFinite(event.beta))return;
+    skyPointer.heading=heading;skyPointer.elevation=Math.max(-10,Math.min(90,event.beta));
+    // Redraw a few times a second at most, and never drop the last reading.
+    const wait=400-(Date.now()-skyPointer.lastDraw);
+    clearTimeout(skyPointer.timer);
+    if(wait<=0){skyPointer.lastDraw=Date.now();renderSkyPointer();}
+    else skyPointer.timer=setTimeout(()=>{skyPointer.lastDraw=Date.now();renderSkyPointer();},wait);
+  }
+  function stopSkyPointer() {
+    skyPointer.active=false;skyPointer.heading=null;skyPointer.elevation=null;
+    window.removeEventListener('deviceorientation',onSkyOrientation);
+    window.removeEventListener('deviceorientationabsolute',onSkyOrientation);
+  }
+  async function startSkyPointer() {
+    if(!('DeviceOrientationEvent' in window)){showToast('This needs a phone with a compass.');return;}
+    // iPhone asks for permission, and only from a tap.
+    try {
+      if(typeof DeviceOrientationEvent.requestPermission==='function'&&await DeviceOrientationEvent.requestPermission()!=='granted'){showToast('Allow motion and orientation access to point at aircraft.');return;}
+    } catch { showToast('Allow motion and orientation access to point at aircraft.');return; }
+    let fix;
+    try { fix=await currentFix(); } catch(error){ showToast(error.message); return; }
+    stopSkyPointer();
+    Object.assign(skyPointer,{active:true,fix,lastDraw:0});
+    openInfoPanel('Point at the sky','Finding aircraft near you…','<div class="sky-pointer"><p class="sky-direction">Waiting for your phone’s compass…</p></div>');
+    window.addEventListener('deviceorientation',onSkyOrientation);
+    window.addEventListener('deviceorientationabsolute',onSkyOrientation);
+    if(overheadActive&&nearbyAircraftRows.length)renderSkyPointer(); else $('overhead-now')?.click();
+    trackProduct('sky_pointer_opened','aircraft');
+  }
+
+  // Camera view: the phone held upright like a camera, with a label over
+  // each aircraft, train and bus in that direction. Nothing is recognised
+  // from the picture; labels are placed from live positions, the phone's
+  // location, its compass and its tilt.
+  const cameraView={active:false,fix:null,heading:null,elevation:null,stream:null,ground:[],frame:0,refresh:null};
+  const AR_VERTICAL_FOV=62;
+  function cameraObjects() {
+    const fix=cameraView.fix;if(!fix)return [];
+    const sky=nearbyAircraftRows.filter(a=>a.altitude_ft!=null).map(a=>{
+      const km=distanceKm(fix.lat,fix.lon,Number(a.lat),Number(a.lon));
+      return {id:a.id,type:'aircraft',title:a.name||'Aircraft',facts:[a.aircraft_model||a.aircraft_type_code,`${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} ft`,awayText(km)],
+        km,bearing:bearingBetween(fix.lat,fix.lon,Number(a.lat),Number(a.lon)),up:Math.atan2(Number(a.altitude_ft)*0.3048,Math.max(1,km*1000))*180/Math.PI};
+    }).filter(row=>Number.isFinite(row.km)&&row.km<=60);
+    const ground=cameraView.ground.map(v=>{
+      const km=distanceKm(fix.lat,fix.lon,Number(v.lat),Number(v.lon));
+      const late=v.type==='train'&&Number(v.delay_minutes)>=1?`${Math.round(Number(v.delay_minutes))} min late`:null;
+      return {id:v.id,type:v.type,title:v.destination?`${v.name} to ${humanTransitLabel(v.destination)}`:v.name,facts:[humanTransitLabel(v.operator||''),late,awayText(km)],
+        km,bearing:bearingBetween(fix.lat,fix.lon,Number(v.lat),Number(v.lon)),up:0};
+    }).filter(row=>Number.isFinite(row.km)&&row.km>=0.03);
+    return [...sky,...ground];
+  }
+  function drawCameraView() {
+    cameraView.frame=0;
+    if(!cameraView.active)return;
+    const layer=$('ar-labels'),direction=$('ar-direction');if(!layer)return;
+    const width=layer.clientWidth||window.innerWidth,height=layer.clientHeight||window.innerHeight;
+    const ready=cameraView.heading!=null&&cameraView.elevation!=null;
+    if(direction)direction.textContent=ready?`Looking ${compassPoint(cameraView.heading)}, ${Math.round(cameraView.elevation)}° ${cameraView.elevation>=0?'up':'down'}`:'Waiting for your phone’s compass…';
+    if(!ready){layer.innerHTML='';return;}
+    const halfV=AR_VERTICAL_FOV/2*Math.PI/180,tanV=Math.tan(halfV),tanH=tanV*width/height;
+    const shown=[];
+    for(const object of cameraObjects()){
+      const dx=(((object.bearing-cameraView.heading+540)%360)-180)*Math.PI/180,dy=(object.up-cameraView.elevation)*Math.PI/180;
+      if(Math.abs(dx)>=Math.PI/2||Math.abs(dy)>=Math.PI/2)continue;
+      const x=width/2+Math.tan(dx)/tanH*width/2,y=height/2-Math.tan(dy)/tanV*height/2;
+      if(x<-40||x>width+40||y<40||y>height-40)continue;
+      shown.push({...object,x,y});
+    }
+    // Nearest first, and no more than a readable handful.
+    shown.sort((a,b)=>a.km-b.km);
+    layer.innerHTML=shown.slice(0,8).map(object=>`<button type="button" class="ar-label ar-${esc(object.type)}" data-ar-id="${esc(object.id)}" style="left:${object.x.toFixed(0)}px;top:${object.y.toFixed(0)}px"><i aria-hidden="true">${icons[object.type==='aircraft'?'aircraft':object.type]||''}</i><span><strong>${esc(object.title)}</strong><small>${esc(object.facts.filter(Boolean).join(' · '))}</small></span></button>`).join('');
+    layer.dataset.shown=String(Math.min(8,shown.length));
+  }
+  function onCameraOrientation(event) {
+    if(!cameraView.active)return;
+    const heading=Number.isFinite(event.webkitCompassHeading)?event.webkitCompassHeading:(event.absolute&&Number.isFinite(event.alpha)?(360-event.alpha)%360:null);
+    if(heading==null||!Number.isFinite(event.beta))return;
+    // Upright (beta 90) looks at the horizon; tipping the top back looks up.
+    const elevation=Math.max(-60,Math.min(85,event.beta-90));
+    // Smooth the readings so labels do not jitter; the heading wraps at north.
+    if(cameraView.heading==null){cameraView.heading=heading;cameraView.elevation=elevation;}
+    else {
+      cameraView.heading=(cameraView.heading+((((heading-cameraView.heading+540)%360)-180)*0.35)+360)%360;
+      cameraView.elevation+=(elevation-cameraView.elevation)*0.35;
+    }
+    if(!cameraView.frame)cameraView.frame=requestAnimationFrame(drawCameraView);
+  }
+  async function refreshCameraGround() {
+    if(!cameraView.active||!cameraView.fix)return;
+    try {
+      const response=await fetch(`/api/around?lat=${encodeURIComponent(cameraView.fix.lat)}&lon=${encodeURIComponent(cameraView.fix.lon)}`,{cache:'no-store'});
+      if(response.ok&&cameraView.active){cameraView.ground=(await response.json()).vehicles||[];if(!cameraView.frame)cameraView.frame=requestAnimationFrame(drawCameraView);}
+    } catch {}
+  }
+  function stopCameraView() {
+    if(!cameraView.active)return;
+    cameraView.active=false;
+    cameraView.stream?.getTracks?.().forEach(track=>track.stop());cameraView.stream=null;
+    const video=$('ar-video');if(video)video.srcObject=null;
+    clearInterval(cameraView.refresh);cameraView.refresh=null;
+    window.removeEventListener('deviceorientation',onCameraOrientation);
+    window.removeEventListener('deviceorientationabsolute',onCameraOrientation);
+    cameraView.heading=null;cameraView.elevation=null;cameraView.ground=[];
+    const view=$('ar-view');if(view)view.hidden=true;
+    document.body.classList.remove('ar-open');
+  }
+  async function startCameraView() {
+    if(!('DeviceOrientationEvent' in window)||!navigator.mediaDevices?.getUserMedia){showToast('This needs a phone with a camera and a compass.');return;}
+    // iPhone asks for motion access, and only from a tap, so ask first.
+    try {
+      if(typeof DeviceOrientationEvent.requestPermission==='function'&&await DeviceOrientationEvent.requestPermission()!=='granted'){showToast('Allow motion and orientation access to use the camera view.');return;}
+    } catch { showToast('Allow motion and orientation access to use the camera view.');return; }
+    let stream;
+    try { stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false}); }
+    catch { showToast('The camera couldn’t be opened. Allow camera access for this site, or use Point at sky.');return; }
+    let fix;
+    try { fix=await currentFix(); } catch(error){ stream.getTracks().forEach(track=>track.stop());showToast(error.message);return; }
+    stopSkyPointer();
+    Object.assign(cameraView,{active:true,fix,stream,heading:null,elevation:null,ground:[]});
+    const view=$('ar-view'),video=$('ar-video');
+    video.srcObject=stream;video.play?.().catch(()=>{});
+    view.hidden=false;document.body.classList.add('ar-open');
+    $('ar-labels').innerHTML='';$('ar-direction').textContent='Waiting for your phone’s compass…';
+    window.addEventListener('deviceorientation',onCameraOrientation);
+    window.addEventListener('deviceorientationabsolute',onCameraOrientation);
+    // Aircraft come from "planes above me"; trains and buses from close by.
+    if(!overheadActive)$('overhead-now')?.click();
+    refreshCameraGround();
+    cameraView.refresh=setInterval(()=>{refreshCameraGround();currentFix().then(next=>{cameraView.fix=next;}).catch(()=>{});},15000);
+    trackProduct('camera_view_opened','ar');
+  }
+  $('ar-close')?.addEventListener('click',stopCameraView);
+  $('ar-labels')?.addEventListener('click',event=>{
+    const label=event.target.closest?.('[data-ar-id]');if(!label)return;
+    const id=label.dataset.arId,type=label.classList.contains('ar-train')?'train':label.classList.contains('ar-bus')?'bus':'aircraft';
+    stopCameraView();
+    if(type!=='aircraft'&&!enabledActivityTypes.has(type)){enabledActivityTypes.add(type);updateLayerToggleUi();sendViewport();}
+    focusActivityById(id,Math.max(13,map.getZoom()));
+  });
+  document.addEventListener('visibilitychange',()=>{ if(document.hidden)stopCameraView(); });
+
   function jobPlanes() {
     if(overheadActive&&nearbyAircraftRows.length){showPlanesList();return;}
     pendingPlanesList=true;
@@ -1717,6 +1911,7 @@
     const moved=row.platform_changed&&row.booked_platform;
     const facts=[
       row.platform?(moved?`<b class="platform-changed">Platform ${esc(row.platform)} (was ${esc(row.booked_platform)})</b>`:`Platform ${esc(row.platform)}`):null,
+      row.usual_platform?`<span class="usual-platform" title="From the platforms this train has used recently">${row.platform?'usually':'Usually platform'} ${esc(row.usual_platform.platform)} <small>(${esc(row.usual_platform.seen)} of last ${esc(row.usual_platform.of)})</small></span>`:null,
       kind==='bus'&&row.route?`Route ${esc(row.route)}`:null, operator?esc(operator):null,
     ].filter(Boolean).join(' · ');
     const live=row.live_train_id || row.live_vehicle_id;
@@ -3722,6 +3917,7 @@
       const checked=Number(payload.checked||0);
       const note=$('overhead-now')?.querySelector('small');
       if(note)note.textContent=`${nearbyAircraftRows.length} live aircraft • refreshing automatically`;
+      if(skyPointer.active)renderSkyPointer();
       if(pendingPlanesList){pendingPlanesList=false;showPlanesList();}
       else if(announce)showToast(nearbyAircraftRows.length?`${nearbyAircraftRows.length} aircraft near you.`:'No aircraft near you right now.');
     }catch(error){
@@ -4160,7 +4356,7 @@
     const cancelled=row.cancelled||/cancel/i.test(String(row.status||''));
     const late=!cancelled&&Number.isFinite(delay)&&delay>=1&&expected&&expected!==booked;
     const status=cancelled?'Cancelled':late?`expected ${expected}`:'On time';
-    return {text:[`${booked} ${place}`.trim(),row.platform?`Plat ${row.platform}`:null,status].filter(Boolean).join(' · '),tone:cancelled?'is-bad':late?'is-late':''};
+    return {text:[`${booked} ${place}`.trim(),row.platform?`Plat ${row.platform}`:row.usual_platform?`usually plat ${row.usual_platform.platform}`:null,status].filter(Boolean).join(' · '),tone:cancelled?'is-bad':late?'is-late':''};
   }
   async function renderYours(force=false) {
     const section=$('yours'),list=$('yours-list');if(!section||!list)return;
@@ -5508,6 +5704,8 @@
     }
     else if(action==='bus-disruptions')showBusDisruptions();
     else if(action==='planes')jobPlanes();
+    else if(action==='sky')startSkyPointer();
+    else if(action==='camera')startCameraView();
     else if(action==='journey')jobJourney();
     else if(action==='traffic')$('traffic-quick')?.click();
   }));

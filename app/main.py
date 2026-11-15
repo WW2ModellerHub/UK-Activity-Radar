@@ -644,6 +644,13 @@ async def lifespan(app: FastAPI):
     tasks: list[asyncio.Task] = []
     tasks.append(asyncio.create_task(_state_maintenance_loop()))
 
+    # Remembers which platform each train uses, for "usually platform N".
+    try:
+        from .platform_history import PlatformHistory
+        state.platform_history = PlatformHistory(DATA_DIR / "platform_history.sqlite")
+    except Exception:
+        state.platform_history = None
+
     if billing_configuration.enabled:
         billing_store = BillingStore(
             BILLING_DB,
@@ -928,7 +935,7 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)")
+    response.headers.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=(self)")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     response.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
     if settings.public_deployment:
@@ -2102,6 +2109,37 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     p1, p2 = math.radians(lat1), math.radians(lat2)
     h = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
     return 2 * 6371 * math.asin(math.sqrt(h))
+
+
+@app.get("/api/around")
+def vehicles_around(request: Request, lat: float, lon: float):
+    """Trains within 3 km and buses within 1 km of a point, for the camera view."""
+    _enforce_public_budget(request, lookup_request_budget)
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise HTTPException(status_code=400, detail="Invalid location")
+    now = datetime.now(timezone.utc)
+    rows = []
+    for vehicle in _live_trains():
+        if vehicle.cancelled_at or vehicle.terminated_at:
+            continue
+        position = _estimated_train_position(vehicle, now) or (float(vehicle.lat), float(vehicle.lon))
+        distance = _haversine_km(lat, lon, position[0], position[1])
+        if distance <= 3.0:
+            rows.append({"id": vehicle.id, "type": "train", "name": vehicle.name, "destination": vehicle.destination,
+                         "operator": vehicle.operator, "delay_minutes": vehicle.delay_minutes,
+                         "distance_km": round(distance, 2), "lat": round(position[0], 5), "lon": round(position[1], 5)})
+    span_lat, span_lon = 1.0 / 111.32, 1.0 / (111.32 * max(0.2, math.cos(math.radians(lat))))
+    for vehicle in state.all(bbox=(lon - span_lon, lat - span_lat, lon + span_lon, lat + span_lat),
+                             include_trains=False, include_vessels=False, max_age_minutes=5):
+        if vehicle.type != "bus":
+            continue
+        distance = _haversine_km(lat, lon, float(vehicle.lat), float(vehicle.lon))
+        if distance <= 1.0:
+            rows.append({"id": vehicle.id, "type": "bus", "name": vehicle.name, "destination": vehicle.destination,
+                         "operator": vehicle.operator, "delay_minutes": None,
+                         "distance_km": round(distance, 2), "lat": round(float(vehicle.lat), 5), "lon": round(float(vehicle.lon), 5)})
+    rows.sort(key=lambda row: row["distance_km"])
+    return {"vehicles": rows[:30]}
 
 
 @app.get("/api/trains/status")
