@@ -119,18 +119,45 @@ def test_a_bus_looks_for_its_own_route_first_then_says_the_route_may_differ():
 
     bus = Vehicle(id="bus:AMID:1", type="bus", name="Bus 158", route="158", lat=52.4, lon=-1.5, source="BODS", operator="AMID")
     lookup = _lookup({
-        "Arriva bus route 158": [
+        "Arriva Midlands bus route 158": [
             _page(1, "Arriva Midlands bus 1580 in Leicester.jpg", "Arriva bus fleet number 1580"),   # 1580 is not route 158
             _page(2, "Arriva Midlands 158 to Nuneaton (geograph 6358807).jpg", "Arriva bus on the 158 at Hinckley"),
         ],
-        "Arriva bus": [_page(3, "An Arriva Midlands bus at Cressage, Shropshire.jpg", "Arriva Midlands bus on route 436")],
+        "Arriva Midlands bus": [_page(3, "An Arriva Midlands bus at Cressage, Shropshire.jpg", "Arriva Midlands bus on route 436")],
     })
     result = lookup.lookup(bus)
     assert result["title"] == "Arriva Midlands 158 to Nuneaton"
-    assert result["reference_label"] == "Arriva bus on route 158 — an example, not this exact bus"
+    assert result["reference_label"] == "Arriva Midlands bus on route 158 — an example, not this exact bus"
     # No photo of that route: the operator's colours, saying the route may differ.
-    other = _lookup({"Arriva bus": [_page(3, "An Arriva Midlands bus at Cressage, Shropshire.jpg", "Arriva Midlands bus")]}).lookup(
+    other = _lookup({"Arriva Midlands bus": [_page(3, "An Arriva Midlands bus at Cressage, Shropshire.jpg", "Arriva Midlands bus")]}).lookup(
         bus.model_copy(update={"id": "bus:AMID:2", "route": "48"}))
     assert other["title"] == "An Arriva Midlands bus at Cressage, Shropshire"
-    assert other["reference_label"] == "Arriva colours — an example bus, it may show another route"
+    assert other["reference_label"] == "Arriva Midlands colours — an example bus, it may show another route"
     assert tidy_title("Scotrail Class 385 train at Gourock - geograph.org.uk - 5247699.jpg") == "Scotrail Class 385 train at Gourock"
+
+
+def test_a_date_is_not_a_route_and_a_london_bus_is_not_a_midlands_one():
+    bus = Vehicle(id="bus:AMID:8", type="bus", name="Bus 8", route="8", lat=52.5, lon=-1.4, source="BODS", operator="AMID")
+    lookup = _lookup({
+        "Arriva Midlands bus route 8": [
+            _page(1, "Arriva London Routemaster bus RML2636, Westminster Bridge, route 159, 8 December 2005.jpg",
+                  "Arriva London Routemaster on route 159, 8 December 2005"),
+            _page(2, "Arriva Midlands bus 8 December 2019.jpg", "An Arriva Midlands bus photographed on 8 December"),
+        ],
+        "Arriva Midlands bus": [
+            _page(3, "Arriva London bus in Brixton.jpg", "Arriva London double-decker bus"),
+            _page(4, "Arriva Midlands Enviro400 in Hinckley.jpg", "Arriva Midlands double-decker bus in Hinckley"),
+        ],
+    })
+    result = lookup.lookup(bus)
+    assert result["title"] == "Arriva Midlands Enviro400 in Hinckley"
+    assert result["reference_label"] == "Arriva Midlands colours — an example bus, it may show another route"
+
+
+def test_a_photo_that_names_the_route_is_used_for_that_route():
+    bus = Vehicle(id="bus:AMID:8b", type="bus", name="Bus 8", route="8", lat=52.5, lon=-1.4, source="BODS", operator="AMID")
+    lookup = _lookup({"Arriva Midlands bus route 8": [
+        _page(5, "Arriva Midlands Streetlite on service 8 to Nuneaton.jpg", "Arriva Midlands bus on service 8"),
+    ]})
+    result = lookup.lookup(bus)
+    assert result["reference_label"] == "Arriva Midlands bus on route 8 — an example, not this exact bus"
