@@ -429,6 +429,12 @@ class TrustCollector(StompFeed):
                 activation.get("train_uid"), activation.get("service_date") or activation.get("origin_date"),
                 station.get("tiploc"), platform,
             )
+            history = getattr(self.state, "platform_history", None)
+            if history is not None:
+                history.record(
+                    activation.get("train_uid"), activation.get("service_date") or activation.get("origin_date"),
+                    station.get("tiploc"), platform,
+                )
         status.movements_mapped += 1
         if replay and status.movements_unmapped > 0:
             status.movements_unmapped -= 1

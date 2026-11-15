@@ -120,3 +120,38 @@ def test_cancelled_service_is_not_given_a_live_delay(tmp_path: Path):
     rows = {row["train_uid"]: row for row in service._scheduled_station_calls("LEI", 10)["departures"]}
     assert rows["CANX01"]["status"] == "Cancelled"
     assert "delay_minutes" not in rows["CANX01"]
+
+
+def test_platform_history_predicts_only_when_recent_days_mostly_agree():
+    from app.platform_history import PlatformHistory
+
+    history = PlatformHistory(":memory:")
+    for day, platform in (("2026-11-09", "6"), ("2026-11-10", "6")):
+        history.record("normal", day, "lester", platform)
+    assert history.usual("NORMAL", "LESTER") is None  # two days is not a habit
+    history.record("NORMAL", "2026-11-11", "LESTER", "6")
+    history.record("NORMAL", "2026-11-12", "LESTER", "4")
+    assert history.usual("NORMAL", "LESTER") == {"platform": "6", "seen": 3, "of": 4}
+    history.record("NORMAL", "2026-11-12", "LESTER", "6")  # a correction replaces that day's entry
+    assert history.usual("NORMAL", "LESTER") == {"platform": "6", "seen": 4, "of": 4}
+    for day, platform in (("2026-11-09", "1"), ("2026-11-10", "2"), ("2026-11-11", "3")):
+        history.record("VARIES", day, "LESTER", platform)
+    assert history.usual("VARIES", "LESTER") is None
+    history.record("", "2026-11-11", "LESTER", "3")  # ignored
+    history.close()
+
+
+def test_board_says_the_usual_platform_until_the_real_one_is_announced(tmp_path: Path):
+    from app.platform_history import PlatformHistory
+
+    service, state, day = _board_service(tmp_path)
+    state.platform_history = PlatformHistory(":memory:")
+    for index in range(4):
+        past = f"2026-10-0{index + 1}"
+        state.platform_history.record("NORMAL", past, "LESTER", "6")   # booked 2, always uses 6
+        state.platform_history.record("CANX01", past, "LESTER", "2")   # uses what is booked: nothing to add
+        state.platform_history.record("MOVED1", past, "LESTER", "6")
+    state.rail_notes.platform("MOVED1", day, "LESTER", "5")            # announced today: no prediction
+    rows = {row["train_uid"]: row for row in service._scheduled_station_calls("LEI", 10)["departures"]}
+    assert rows["NORMAL"]["usual_platform"] == {"platform": "6", "seen": 4, "of": 4}
+    assert "usual_platform" not in rows["CANX01"] and "usual_platform" not in rows["MOVED1"]

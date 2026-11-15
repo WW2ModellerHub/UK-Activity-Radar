@@ -740,6 +740,13 @@ class SmartPlacesService:
                 if actual_platform and booked_platform and actual_platform != booked_platform:
                     common["platform_changed"]=True
                     common["booked_platform"]=booked_platform
+                if not actual_platform:
+                    # Not announced yet: say which one this train usually uses,
+                    # when a few days of history mostly agree.
+                    history=getattr(self.state,'platform_history',None)
+                    usual=history.usual(row['train_uid'],row_codes[loc_index]) if history is not None else None
+                    if usual and usual['platform']!=str(booked_platform or '').upper():
+                        common["usual_platform"]=usual
                 for bucket,kind in ((arr,'arrival'),(dep,'departure')):
                     event_at=loc.get(f'_public_{kind}_at') or loc.get(f'_{kind}_at')
                     if event_at is None:

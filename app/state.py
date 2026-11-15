@@ -181,6 +181,7 @@ class LiveState:
         self._unmapped: deque[dict] = deque(maxlen=500)
         # Cancellations and actual platforms by timetable identity.
         self.rail_notes = RailServiceNotes()
+        self.platform_history = None  # set at startup; see platform_history.py
         self._revision = 0
 
     @property

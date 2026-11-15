@@ -1,5 +1,22 @@
 # Codex stabilization changelog
 
+## 2026-11-15 — camera view, point at sky, platform predictor
+
+- **Camera view** (in the Trains, Buses and Aircraft options): the phone held
+  upright shows the camera with a label over each aircraft, train (within
+  3 km) and bus (within 1 km) in that direction; tap a label to open it.
+  Labels are placed from live positions, the phone's location, compass and
+  tilt. Nothing is recognised from the picture. New `/api/around`; the
+  Permissions-Policy header now allows the camera for this site only.
+- **Point at sky** (Aircraft options): no camera needed; point the top of the
+  phone at an aircraft and it is named, or you are told where the nearest is.
+- **Platform predictor**: every platform reported by the live feed is
+  remembered per train and station (`app/platform_history.py`, on the data
+  disk, 120 days). Once three or more days mostly agree, boards and "Yours"
+  say "usually platform 6 (8 of last 10)" until the real one is announced.
+- Fix: the line status and delay caches returned nothing for the first
+  seconds after the server started.
+
 ## 2026-11-14 — journey watch and Leave now
 
 - **Journey watch**: after planning a drive, "Watch this drive" with a

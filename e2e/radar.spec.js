@@ -1191,7 +1191,7 @@ test('a second row under the chips offers options for the layer switched on last
   await expect(row).toBeHidden();
   await page.locator('[data-layer-chip="train"]').click();
   await expect(row).toBeVisible();
-  await expect(row.locator('.sub-chip:visible')).toHaveText(['Delays','Line status','Late only','Near me','Nearest station']);
+  await expect(row.locator('.sub-chip:visible')).toHaveText(['Delays','Line status','Late only','Near me','Nearest station','Camera view']);
   // Late only hides trains that are on time (the fixture trains have no delay).
   await expect(page.locator('.marker-wrap-train').first()).toBeAttached();
   await row.locator('[data-late-only]').click();
@@ -1201,11 +1201,11 @@ test('a second row under the chips offers options for the layer switched on last
   await expect(page.locator('.marker-wrap-train').first()).toBeAttached();
   // Switching buses on shows the bus options; aircraft and roads have theirs.
   await page.locator('[data-layer-chip="bus"]').click();
-  await expect(row.locator('.sub-chip:visible')).toHaveText(['Next bus','Bus stops','Disruptions']);
+  await expect(row.locator('.sub-chip:visible')).toHaveText(['Next bus','Bus stops','Disruptions','Camera view']);
   await row.locator('[data-sub-action="bus-disruptions"]').click();
   await expect(page.locator('#detail-title')).toHaveText('Bus disruptions');
   await page.locator('[data-layer-chip="aircraft"]').click();
-  await expect(row.locator('.sub-chip:visible')).toHaveText(['Above me']);
+  await expect(row.locator('.sub-chip:visible')).toHaveText(['Above me','Point at sky','Camera view']);
   await page.locator('[data-layer-chip="incident"]').click();
   await expect(row.locator('.sub-chip:visible')).toHaveText(['My journey','Live traffic']);
   // Turning the latest layer off falls back to another one that is still on.
@@ -1618,4 +1618,84 @@ test('a train panel can tell you when to leave for it', async ({ page }) => {
   await page.locator('[data-leave-cancel]').click();
   await expect(page.locator('details.leave-plan')).toBeVisible();
   expect(posted.at(-1).preferences.leave_plans).toEqual([]);
+});
+
+test('pointing the phone at the sky names the aircraft in that direction', async ({ page }) => {
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
+  // One aircraft 10 km due east at 10,000 ft: about 17 degrees above the horizon.
+  await page.route('**/api/aircraft/nearby**', route => route.fulfill({ json:{ checked:1, radius_miles:50, activities:[
+    { kind:'vehicle', id:'aircraft:east', type:'aircraft', name:'EZY12AB', lat:54.11, lon:-2.297, altitude_ft:10000, aircraft_model:'Airbus A320', bearing:270, source:'ADSB.lol', last_updated:new Date().toISOString() },
+  ] } }));
+  const point = (heading, beta) => page.evaluate(([h, b]) => { const e = new Event('deviceorientation'); e.webkitCompassHeading = h; e.beta = b; window.dispatchEvent(e); }, [heading, beta]);
+  await page.locator('[data-layer-chip="aircraft"]').click();
+  // Without a compass the feature says so instead of opening.
+  await page.locator('[data-sub-action="sky"]').click();
+  await expect(page.locator('#watch-toast')).toContainText('needs a phone with a compass');
+  await page.evaluate(() => { window.DeviceOrientationEvent = class extends Event {}; });
+  await page.locator('[data-sub-action="sky"]').click();
+  await expect(page.locator('#detail-title')).toHaveText('Point at the sky');
+  await expect(page.locator('.sky-match')).toContainText('EZY12AB');
+  await point(88, 15);
+  await expect(page.locator('[data-sky-direction]')).toHaveText('Pointing E, 15° up');
+  await expect(page.locator('.sky-found')).toHaveText('That’s this one:');
+  await expect(page.locator('.sky-match')).toContainText('Airbus A320 · 10,000 ft');
+  await page.waitForTimeout(450);
+  await point(270, 40);
+  await expect(page.locator('[data-sky-direction]')).toHaveText('Pointing W, 40° up');
+  await expect(page.locator('.sky-pointer')).toContainText('Nothing in that direction. The closest to where you’re pointing is to the E, 17° up');
+  await expect(page.locator('.sky-found')).toHaveCount(0);
+});
+
+test('a board says which platform a train usually uses before it is announced', async ({ page }) => {
+  await page.route('**/api/places/rail*MKC/board*', route => route.fulfill({ json:{ board:{ mode:'network_rail', departures:[
+    { scheduled:'10:14', expected:'10:14', destination:'Manchester Piccadilly', status:'Scheduled', headcode:'1A23', train_uid:'C12345', service_date:'2026-10-05', usual_platform:{ platform:'6', seen:8, of:10 } },
+    { scheduled:'10:32', expected:'10:32', destination:'Birmingham New Street', platform:'5', status:'Scheduled', headcode:'1B01', train_uid:'C22222', service_date:'2026-10-05', usual_platform:{ platform:'7', seen:4, of:5 } },
+  ], arrivals:[] } } }));
+  await page.locator('#station-boards').click();
+  const rows = page.locator('#detail-placeboard .board-row');
+  await expect(rows.nth(0).locator('.usual-platform')).toHaveText('Usually platform 6 (8 of last 10)');
+  await expect(rows.nth(1)).toContainText('Platform 5');
+  await expect(rows.nth(1).locator('.usual-platform')).toHaveText('usually 7 (4 of last 5)');
+});
+
+test('the camera view labels the aircraft, train and bus in the direction the phone faces', async ({ page }) => {
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
+  // An aircraft 10 km due east at 10,000 ft (about 17 degrees up), a train 1 km north, a bus 300 m south.
+  await page.route('**/api/aircraft/nearby**', route => route.fulfill({ json:{ checked:1, radius_miles:50, activities:[
+    { kind:'vehicle', id:'aircraft:east', type:'aircraft', name:'EZY12AB', lat:54.11, lon:-2.297, altitude_ft:10000, aircraft_model:'Airbus A320', bearing:270, source:'ADSB.lol', last_updated:new Date().toISOString() },
+  ] } }));
+  await page.route('**/api/around**', route => route.fulfill({ json:{ vehicles:[
+    { id:'nr:north', type:'train', name:'1A23', destination:'LEEDS', operator:'Northern', delay_minutes:6, lat:54.119, lon:-2.45 },
+    { id:'bus:south', type:'bus', name:'Bus 7', destination:'City Centre', operator:'Stagecoach', lat:54.1073, lon:-2.45 },
+  ] } }));
+  await page.locator('[data-layer-chip="aircraft"]').click();
+  await page.locator('[data-sub-action="camera"]:visible').click();
+  await expect(page.locator('#watch-toast')).toContainText('needs a phone with a camera and a compass');
+  await page.evaluate(() => {
+    window.DeviceOrientationEvent = class extends Event {};
+    const stream = document.createElement('canvas').captureStream();
+    Object.defineProperty(navigator, 'mediaDevices', { configurable:true, value:{ getUserMedia: async () => stream } });
+  });
+  const face = (heading, beta) => page.evaluate(([h, b]) => { for (let i = 0; i < 25; i += 1) { const e = new Event('deviceorientation'); e.webkitCompassHeading = h; e.beta = b; window.dispatchEvent(e); } }, [heading, beta]);
+  await page.locator('[data-sub-action="camera"]:visible').click();
+  await expect(page.locator('#ar-view')).toBeVisible();
+  // Facing east and tilted up at the aircraft: it is labelled near the middle of the screen.
+  await face(90, 107);
+  await expect(page.locator('#ar-direction')).toHaveText('Looking E, 17° up');
+  const plane = page.locator('.ar-label.ar-aircraft');
+  await expect(plane).toContainText('EZY12AB');
+  await expect(plane).toContainText('Airbus A320 · 10,000 ft');
+  const size = page.viewportSize(), box = await plane.boundingBox();
+  expect(Math.abs(box.x + box.width / 2 - size.width / 2)).toBeLessThan(40);
+  expect(Math.abs(box.y + box.height / 2 - size.height / 2)).toBeLessThan(40);
+  await expect(page.locator('.ar-label.ar-train')).toHaveCount(0);
+  // Facing north at the horizon: the train, not the plane or the bus behind you.
+  await face(0, 90);
+  await expect(page.locator('.ar-label.ar-train')).toContainText('1A23 to Leeds');
+  await expect(page.locator('.ar-label.ar-train')).toContainText('6 min late');
+  await expect(page.locator('.ar-label')).toHaveCount(1);
+  await face(180, 90);
+  await expect(page.locator('.ar-label.ar-bus')).toContainText('Bus 7 to City Centre');
+  await page.locator('#ar-close').click();
+  await expect(page.locator('#ar-view')).toBeHidden();
 });

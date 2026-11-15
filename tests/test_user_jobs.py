@@ -44,3 +44,24 @@ def test_delay_explanation_names_where_time_was_lost():
     assert delay_explanation(2, history, names) is None
     steady = [{"tiploc": "RUGBY", "delay": 8}, {"tiploc": "NUNEATN", "delay": 8}]
     assert delay_explanation(8, steady, names) == {"late": 8, "already_late": True}
+
+
+def test_the_camera_view_gets_trains_and_buses_close_by_only(monkeypatch):
+    from datetime import datetime, timezone
+
+    from fastapi.testclient import TestClient
+
+    import app.main as main
+    from app.models import Vehicle
+    from app.state import LiveState
+
+    state = LiveState()
+    now = datetime.now(timezone.utc)
+    state.upsert(Vehicle(id="nr:near", type="train", name="1A23", lat=52.010, lon=-1.0, destination="London", source="Network Rail TRUST", last_updated=now))
+    state.upsert(Vehicle(id="nr:far", type="train", name="2B00", lat=52.2, lon=-1.0, source="Network Rail TRUST", last_updated=now))
+    state.upsert(Vehicle(id="bus:A:1", type="bus", name="Bus 7", lat=52.003, lon=-1.0, destination="City Centre", source="BODS", last_updated=now))
+    state.upsert(Vehicle(id="bus:A:2", type="bus", name="Bus 9", lat=52.02, lon=-1.0, source="BODS", last_updated=now))
+    monkeypatch.setattr(main, "state", state)
+    rows = TestClient(main.app).get("/api/around", params={"lat": 52.0, "lon": -1.0}).json()["vehicles"]
+    assert [(row["id"], row["type"]) for row in rows] == [("bus:A:1", "bus"), ("nr:near", "train")]
+    assert rows[0]["distance_km"] < 0.5 and rows[1]["destination"] == "London"
