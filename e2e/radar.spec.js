@@ -1916,3 +1916,12 @@ test('the Weather layer shows the rain radar with its time, scale and credit, an
   await expect(page.locator('.leaflet-image-layer')).toHaveCount(0);
   await expect(page.locator('#map')).not.toHaveAttribute('data-rain-radar', /./);
 });
+
+test('a station page link opens that station in the app', async ({ page }) => {
+  await page.route('**/api/places/rail-station*MKC/board**', route => route.fulfill({ json:{
+    place:{ id:'rail-station:MKC', kind:'place', place_type:'rail_station', name:'Milton Keynes Central', crs:'MKC', lat:52.034, lon:-0.774 },
+    board:{ mode:'network_rail', departures:[{ scheduled:'10:14', expected:'10:14', destination:'Manchester Piccadilly', platform:'4', status:'On time', headcode:'1A23' }], arrivals:[] } } }));
+  await page.goto('/?place=rail-station:MKC');
+  await expect(page.locator('#detail-title')).toContainText('Milton Keynes Central', { timeout:8000 });
+  expect(new URL(page.url()).search).toBe('');
+});

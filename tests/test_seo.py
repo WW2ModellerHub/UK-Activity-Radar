@@ -56,7 +56,9 @@ def test_robots_and_sitemap_publish_only_preferred_public_pages(monkeypatch):
     sitemap = main.sitemap(_request("/sitemap.xml")).body.decode()
 
     assert "Disallow: /api/" in robots
-    assert "Disallow: /live/" in robots
+    # Link-preview crawlers must be able to read shared pages; those pages
+    # carry their own noindex instead.
+    assert "Disallow: /live/" not in robots
     assert "Sitemap: https://example.test/sitemap.xml" in robots
     assert "https://example.test/about" in sitemap
     assert "https://example.test/privacy" in sitemap
@@ -67,3 +69,34 @@ def test_robots_and_sitemap_publish_only_preferred_public_pages(monkeypatch):
 def test_shared_live_pages_are_explicitly_noindex():
     share = (main.STATIC_DIR / "share.html").read_text(encoding="utf-8")
     assert '<meta name="robots" content="noindex,nofollow">' in share
+
+
+def test_a_shared_link_previews_with_its_own_title_and_picture(monkeypatch):
+    from datetime import datetime, timezone
+
+    from fastapi.testclient import TestClient
+
+    from app.models import Vehicle
+    from app.state import LiveState
+
+    state = LiveState()
+    state.upsert(Vehicle(id="nr:1D90", type="train", name="1D90", headcode="1D90", lat=52.38, lon=-1.26,
+                         origin="LONDON EUSTON", destination="CHESTER", operator="Avanti West Coast", delay_minutes=11,
+                         source="Network Rail TRUST", last_updated=datetime.now(timezone.utc)))
+    monkeypatch.setattr(main, "state", state)
+    monkeypatch.setattr(main, "_card_cache", {})
+    client = TestClient(main.app)
+    page = client.get("/live/nr%3A1D90").text
+    assert '<meta property="og:title" content="1D90 · London Euston → Chester">' in page
+    assert 'og:description" content="11 min late · Southern Britain · Avanti West Coast"' in page  # no stations loaded in the test
+    assert '/live/nr%3A1D90/card.png' in page and 'summary_large_image' in page
+    assert 'name="robots" content="noindex' in page          # still kept out of search results
+    assert "52.38" not in page and "-1.26" not in page        # no coordinates, even in the tags
+    card = client.get("/live/nr%3A1D90/card.png")
+    assert card.status_code == 200 and card.content.startswith(b"\x89PNG")
+    from PIL import Image
+    import io
+    assert Image.open(io.BytesIO(card.content)).size == (1200, 630)
+    gone = client.get("/live/nr%3Agone")
+    assert 'content="UK Activity Radar"' in gone.text and "/card.png" in gone.text
+    assert client.get("/card.png").content.startswith(b"\x89PNG")

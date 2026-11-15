@@ -5982,6 +5982,23 @@
 
   // A link (a shared page, a phone alert) can open the app on one thing:
   // /?open=<id>. Wait for the live connection, then show it and tidy the URL.
+  // /?place=rail-station:RUG (from a station page) opens that station's board.
+  (()=>{
+    const placeId=new URLSearchParams(location.search).get('place');
+    if(!placeId||!/^rail-station:[A-Z]{3}$/.test(placeId))return;
+    history.replaceState(null,'',location.pathname+location.hash);
+    setTimeout(async()=>{
+      try {
+        const response=await fetch(`/api/places/${encodeURIComponent(placeId)}/board?limit=6`,{cache:'no-store'});
+        if(!response.ok)return;
+        const {place}=await response.json();
+        if(!place?.id)return;
+        if(!places.some(p=>p.id===place.id))places.push(place);
+        renderPlaces();await selectPlace(place.id,true);if(map.getZoom()<12)map.setZoom(13);
+        trackProduct('deep_link_opened','station');
+      } catch {}
+    },400);
+  })();
   (()=>{
     const wanted=new URLSearchParams(location.search).get('open');
     if(!wanted||wanted.length>120)return;
