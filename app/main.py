@@ -1092,16 +1092,120 @@ def robots(request: Request):
         "Allow: /\n"
         "Disallow: /api/\n"
         "Disallow: /billing/\n"
-        "Disallow: /live/\n"
         f"Sitemap: {origin}/sitemap.xml\n"
     )
     return Response(body, media_type="text/plain", headers={"Cache-Control": "public, max-age=3600"})
 
 
+# ---- Pages for search: stations and operators -----------------------------
+_station_directory: tuple[float, list[dict]] = (-1e9, [])
+_seo_page_cache: dict[str, tuple[float, str]] = {}
+
+
+def _stations() -> list[dict]:
+    """Every station with a CRS code, named and pathed, refreshed hourly."""
+    global _station_directory
+    from .seo_pages import directory
+    built_at, rows = _station_directory
+    if rows and time.monotonic() - built_at < 3600:
+        return rows
+    places = []
+    if smart_places is not None:
+        places = list(getattr(smart_places, "_rail", []) or []) + smart_places.rail_places((-9.9, 49.0, 3.5, 61.8), 6000)
+    rows = directory(places)
+    if rows:
+        _station_directory = (time.monotonic(), rows)
+    return rows
+
+
+def _operator_rows() -> list[dict]:
+    global _operator_status_cache
+    computed_at, rows = _operator_status_cache
+    if time.monotonic() - computed_at > 30:
+        from .line_status import operator_status
+        rows = operator_status(_live_trains())
+        _operator_status_cache = (time.monotonic(), rows)
+    return rows
+
+
+def _cached_page(key: str, seconds: int, build) -> Response:
+    # Search engines fetch many pages; a short cache keeps that cheap.
+    now = time.monotonic()
+    hit = _seo_page_cache.get(key)
+    if not hit or now - hit[0] > seconds:
+        hit = (now, build())
+        _seo_page_cache[key] = hit
+        if len(_seo_page_cache) > 3000:
+            for old in sorted(_seo_page_cache, key=lambda k: _seo_page_cache[k][0])[:500]:
+                _seo_page_cache.pop(old, None)
+    return Response(hit[1], media_type="text/html", headers={"Cache-Control": f"public, max-age={seconds}"})
+
+
+@app.get("/stations", include_in_schema=False)
+def stations_page(request: Request):
+    from .seo_pages import stations_index
+    origin = _site_origin(request)
+    return _cached_page("stations", 3600, lambda: stations_index(origin, _stations()))
+
+
+@app.get("/station/{name}", include_in_schema=False)
+def station_page_route(name: str, request: Request):
+    from .seo_pages import crs_from_path, station_page
+    crs = crs_from_path(name)
+    station = next((row for row in _stations() if row["crs"] == crs), None) if crs else None
+    if station is None:
+        raise HTTPException(status_code=404, detail="Station not found")
+    if name != station["path"].rsplit("/", 1)[-1]:
+        return RedirectResponse(station["path"], status_code=301)  # one address per station
+    origin = _site_origin(request)
+
+    def build() -> str:
+        board = None
+        if smart_places is not None:
+            try:
+                board = smart_places.rail_board(crs, 16)
+            except Exception:
+                board = None
+        others = sorted(
+            (row for row in _stations() if row["crs"] != crs),
+            key=lambda row: _haversine_km(station["lat"], station["lon"], row["lat"], row["lon"]),
+        )[:6]
+        return station_page(origin, station, board, others, _operator_rows())
+    return _cached_page(f"station:{crs}", 90, build)
+
+
+@app.get("/operators", include_in_schema=False)
+def operators_page(request: Request):
+    from .seo_pages import operators_index
+    origin = _site_origin(request)
+    return _cached_page("operators", 90, lambda: operators_index(origin, _operator_rows()))
+
+
+@app.get("/operator/{name}", include_in_schema=False)
+def operator_page_route(name: str, request: Request):
+    from .line_status import PASSENGER_OPERATORS
+    from .seo_pages import operator_page, slug
+    wanted = next((op for op in sorted(set(PASSENGER_OPERATORS.values())) if slug(op) == name), None)
+    if wanted is None:
+        raise HTTPException(status_code=404, detail="Operator not found")
+    origin = _site_origin(request)
+
+    def build() -> str:
+        row = next((r for r in _operator_rows() if r["operator"] == wanted), None) or {
+            "operator": wanted, "status": "unknown", "label": "No trains reporting", "running": 0, "late": 0,
+            "cancelled": 0, "average_delay": 0, "worst": []}
+        return operator_page(origin, row)
+    return _cached_page(f"operator:{wanted}", 90, build)
+
+
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap(request: Request):
+    from .line_status import PASSENGER_OPERATORS
+    from .seo_pages import operator_path
     origin = html_escape(_site_origin(request), quote=True)
-    urls = ("/", "/about", "/privacy", "/terms", "/data-licences")
+    urls = ("/", "/about", "/privacy", "/terms", "/data-licences", "/stations", "/operators",
+            *(operator_path(op) for op in sorted(set(PASSENGER_OPERATORS.values()))),
+            *(row["path"] for row in _stations()))
     entries = "".join(f"<url><loc>{origin}{path}</loc></url>" for path in urls)
     body = f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{entries}</urlset>'
     return Response(body, media_type="application/xml", headers={"Cache-Control": "public, max-age=3600"})
@@ -1137,9 +1241,83 @@ def privacy_notice(request: Request):
     return _legal_page("privacy.html", request)
 
 
+def _share_payload_for(item) -> dict:
+    """The safe shared facts for an item, with the nearest station for trains and buses."""
+    nearest = None
+    if item.type in {"train", "bus"}:
+        best = None
+        for station in _passenger_stations():
+            distance = _haversine_km(item.lat, item.lon, station["lat"], station["lon"])
+            if distance <= 15 and (best is None or distance < best[0]):
+                best = (distance, station["name"])
+        nearest = best[1] if best else None
+    return safe_share_payload(item, nearest)
+
+
+def _share_preview_text(payload: dict) -> tuple[str, str]:
+    from .share_card import card_lines
+    lines = card_lines(payload)
+    running = lines["running"][0] if lines["running"] else None
+    title = " · ".join(x for x in (lines["title"], lines["line"]) if x)
+    description = " · ".join(x for x in (running, lines["where"], lines["details"], payload.get("what_it_is")) if x)
+    return title, description or "Live on UK Activity Radar"
+
+
+_card_cache: dict[str, tuple[float, bytes]] = {}
+
+
+@app.get("/card.png", include_in_schema=False)
+def site_card():
+    from .share_card import render
+    now = time.monotonic()
+    hit = _card_cache.get("")
+    if not hit or now - hit[0] > 86400:
+        hit = (now, render(None))
+        _card_cache[""] = hit
+    return Response(hit[1], media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/live/{activity_id:path}/card.png", include_in_schema=False)
+def shared_live_card(activity_id: str):
+    """The preview picture for a shared link: 1200 x 630, no coordinates."""
+    from .share_card import render
+    item = state.get(activity_id)
+    if item is None:
+        return site_card()
+    now = time.monotonic()
+    hit = _card_cache.get(activity_id)
+    if not hit or now - hit[0] > 120:
+        hit = (now, render(_share_payload_for(item)))
+        _card_cache[activity_id] = hit
+        if len(_card_cache) > 500:  # keep the cache small
+            for key in sorted(_card_cache, key=lambda k: _card_cache[k][0])[:100]:
+                _card_cache.pop(key, None)
+    return Response(hit[1], media_type="image/png", headers={"Cache-Control": "public, max-age=120"})
+
+
 @app.get("/live/{activity_id:path}", include_in_schema=False)
-def shared_live_page(activity_id: str):
-    return FileResponse(STATIC_DIR / "share.html")
+def shared_live_page(activity_id: str, request: Request):
+    """The shared page, with this item's title and picture for link previews."""
+    page = (STATIC_DIR / "share.html").read_text(encoding="utf-8")
+    item = state.get(activity_id)
+    origin = _site_origin(request)
+    if item is not None:
+        title, description = _share_preview_text(_share_payload_for(item))
+        image = f"{origin}/live/{quote(activity_id, safe='')}/card.png"
+    else:
+        title, description, image = "UK Activity Radar", "Live UK trains, buses, aircraft and roads on one map.", f"{origin}/card.png"
+    url = f"{origin}/live/{quote(activity_id, safe='')}"
+    tags = "".join([
+        f'<meta property="og:type" content="website"><meta property="og:site_name" content="UK Activity Radar">',
+        f'<meta property="og:title" content="{html_escape(title, quote=True)}">',
+        f'<meta property="og:description" content="{html_escape(description, quote=True)}">',
+        f'<meta property="og:url" content="{html_escape(url, quote=True)}">',
+        f'<meta property="og:image" content="{html_escape(image, quote=True)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">',
+        f'<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{html_escape(title, quote=True)}">',
+        f'<meta name="twitter:description" content="{html_escape(description, quote=True)}"><meta name="twitter:image" content="{html_escape(image, quote=True)}">',
+    ])
+    page = page.replace("<title>Live activity — UK Activity Radar</title>", f"<title>{html_escape(title)} — UK Activity Radar</title>{tags}", 1)
+    return Response(page, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/service-worker.js", include_in_schema=False)
@@ -2322,15 +2500,7 @@ def shared_activity(activity_id: str, request: Request):
     item = state.get(activity_id)
     if item is None:
         raise HTTPException(status_code=404, detail="This live activity is no longer available")
-    nearest = None
-    if item.type in {"train", "bus"}:
-        best = None
-        for station in _passenger_stations():
-            distance = _haversine_km(item.lat, item.lon, station["lat"], station["lon"])
-            if distance <= 15 and (best is None or distance < best[0]):
-                best = (distance, station["name"])
-        nearest = best[1] if best else None
-    payload = safe_share_payload(item, nearest)
+    payload = _share_payload_for(item)
     payload["share_url"] = str(request.base_url).rstrip("/") + "/live/" + quote(activity_id, safe="")
     payload["open_url"] = "/?open=" + quote(activity_id, safe="")
     return payload

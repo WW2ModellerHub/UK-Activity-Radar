@@ -1,5 +1,25 @@
 # Codex stabilization changelog
 
+## 2026-11-15 — link previews and pages for search
+
+- **Link previews.** A shared link (WhatsApp, iMessage, X, Facebook) now
+  previews with its own picture and title: a 1200 × 630 card drawn on the
+  server (`app/share_card.py`, Inter font bundled under the OFL) showing the
+  train, bus or plane, where it is going, roughly where it is and whether it
+  is late. Never coordinates. The rest of the site previews with a general
+  card instead of the app icon. `/live/` pages stay out of search results by
+  their own noindex, so robots.txt no longer blocks them (preview crawlers
+  need to read them).
+- **Station pages** (`/station/rugby-rug`, about 2,500): live departures,
+  platforms (including "usually 6"), delays and cancellations in a readable
+  table, a one-line summary, the operators there with today's status, nearby
+  stations, schema.org TrainStation data and a button that opens the station
+  in the live map (`/?place=rail-station:RUG`).
+- **Operator pages** (`/operator/avanti-west-coast`): today's status, the
+  share of trains late, the most delayed trains.
+- Indexes at `/stations` and `/operators`; all are in the sitemap. Pages are
+  built on the server and cached for 90 seconds, so crawlers are cheap.
+
 ## 2026-11-15 — photo and shared page tidy-ups
 
 - Example train photos skip engines, spare power units and parts (a DRS
