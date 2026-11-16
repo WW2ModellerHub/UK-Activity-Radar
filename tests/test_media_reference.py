@@ -212,3 +212,70 @@ def test_the_exact_vehicle_and_the_example_are_looked_up_side_by_side():
     lookup = WikimediaLookup("https://commons.example/api", enabled=True)
     lookup._session = Slow({"Stagecoach bus": [_page(5, "Stagecoach Manchester Enviro400 MMC.jpg", "Stagecoach double-decker bus in Manchester")]})
     assert lookup.lookup(bus)["ok"]
+
+
+def test_a_plane_photo_comes_back_in_one_request_with_what_the_phone_knows(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main.media_lookup, "reference", lambda kind, operator, model, callsign: calls.append((kind, operator, model, callsign)) or {"ok": True})
+    monkeypatch.setattr(main, "state", LiveState())
+    client = TestClient(main.app)
+    answer = client.get("/api/activity/aircraft:40837b/media", params={"kind": "aircraft", "model": "Airbus A321neo", "callsign": "EXS95CX", "operator": "Jet2"})
+    assert answer.status_code == 200 and answer.json()["ok"]
+    assert calls == [("aircraft", "Jet2", "Airbus A321neo", "EXS95CX")]
+    # Without the details, an unknown id is still "not found".
+    assert client.get("/api/activity/aircraft:40837b/media").status_code == 404
+
+
+def test_photos_for_a_list_of_planes_are_found_ahead_and_only_once():
+    import threading
+    release = threading.Event()
+
+    class Waiting(FakeCommons):
+        def get(self, url, params=None, timeout=None):
+            release.wait(2)
+            return super().get(url, params, timeout)
+    lookup = WikimediaLookup("https://commons.example/api", enabled=True)
+    lookup._session = Waiting({"Ryanair Boeing 737-800": [_page(7, "EI-DCL Ryanair Boeing 737-8AS.jpg", "Ryanair Boeing 737-800 landing")]})
+    plans = [("aircraft", None, "Boeing 737-800", "RYR12AB"), ("aircraft", None, "Boeing 737-800", "RYR12AB"), ("aircraft", None, None, "G-ABCD")]
+    assert lookup.prefetch(plans) == 1
+    # A tap while that search is still running waits for it rather than searching again.
+    answer = {}
+    tap = threading.Thread(target=lambda: answer.update(lookup.reference("aircraft", None, "Boeing 737-800", "RYR12AB")))
+    tap.start()
+    release.set()
+    tap.join(3)
+    assert answer["ok"] and lookup._session.queries == ["Ryanair Boeing 737-800"]
+    assert lookup.prefetch(plans) == 0   # already found
+
+
+def test_a_slow_exact_search_does_not_hold_up_a_ready_example(monkeypatch):
+    import time as clock
+
+    import app.media as media
+    monkeypatch.setattr(media, "EXACT_WAIT_SECONDS", 0.2)
+
+    class SlowExact(FakeCommons):
+        def get(self, url, params=None, timeout=None):
+            if "filetype:bitmap" not in params["gsrsearch"]:   # the exact-vehicle search
+                clock.sleep(1.0)
+            return super().get(url, params, timeout)
+    bus = Vehicle(id="bus:SCMN:10", type="bus", name="Bus 50", vehicle_ref="15724", lat=53.4, lon=-2.2, source="BODS", operator="SCMN")
+    lookup = WikimediaLookup("https://commons.example/api", enabled=True)
+    lookup._session = SlowExact({"Stagecoach bus": [_page(5, "Stagecoach Manchester Enviro400 MMC.jpg", "Stagecoach double-decker bus in Manchester")]})
+    started = clock.time()
+    assert lookup.lookup(bus)["ok"]
+    assert clock.time() - started < 0.8
+
+
+def test_commons_is_asked_only_for_the_picture_details_used():
+    from app.media import META_FIELDS
+    seen = []
+
+    class Recording(FakeCommons):
+        def get(self, url, params=None, timeout=None):
+            seen.append(params.get("iiextmetadatafilter"))
+            return super().get(url, params, timeout)
+    lookup = WikimediaLookup("https://commons.example/api", enabled=True)
+    lookup._session = Recording({})
+    lookup.lookup(Vehicle(id="bus:SCMN:11", type="bus", name="Bus 50", vehicle_ref="15724", lat=53.4, lon=-2.2, source="BODS", operator="SCMN"))
+    assert seen and set(seen) == {META_FIELDS} and "LicenseShortName" in META_FIELDS

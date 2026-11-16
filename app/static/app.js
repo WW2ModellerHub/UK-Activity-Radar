@@ -1619,16 +1619,17 @@
   async function mediaFor(a, signal) {
     const hit=mediaCache.get(a.id);
     if(hit&&Date.now()-hit.at<10*60000)return hit.payload;
-    let response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/media`,{signal});
-    // Everyday planes are not kept on the server: ask for an example of the
-    // type (in the airline's colours) from what this page knows.
-    if(response.status===404&&['aircraft','sar'].includes(a.type)){
-      const q=new URLSearchParams({kind:a.type==='sar'?'sar':'aircraft'});
+    // Everyday planes are not kept on the server, so say what this page knows
+    // (type, callsign, airline): the server answers with an example of the
+    // type in the same trip instead of "not found" and a second request.
+    const q=new URLSearchParams();
+    if(['aircraft','sar'].includes(a.type)){
+      q.set('kind',a.type==='sar'?'sar':'aircraft');
       if(a.aircraft_model||a.aircraft_type_code)q.set('model',a.aircraft_model||a.aircraft_type_code);
       if(a.name)q.set('callsign',a.name);
       if(a.operator)q.set('operator',a.operator);
-      response=await fetch(`/api/media/reference?${q}`,{signal});
     }
+    const response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/media${String(q)?`?${q}`:''}`,{signal});
     if(!response.ok)throw new Error('Image lookup unavailable');
     const payload=await response.json();
     mediaCache.set(a.id,{at:Date.now(),payload});

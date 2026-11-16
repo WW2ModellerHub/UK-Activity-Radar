@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 import json
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from pathlib import Path
 import re
 import threading
@@ -74,6 +74,11 @@ def _commercial_commons_licence(meta: dict[str, Any]) -> tuple[str, str | None] 
 # up to the next one: 520 or 640 came back as 960 px, four times the pixels a
 # phone panel needs. 500 is a standard width.
 THUMB_WIDTH = 500
+# Only the picture details this code reads. Commons otherwise sends dozens of
+# fields per photo (camera, GPS, every category), most of a slow reply.
+META_FIELDS = "LicenseShortName|UsageTerms|LicenseUrl|Artist|Credit|ImageDescription|ObjectName|Categories"
+# How long a photo of the exact vehicle may hold up an example that is ready.
+EXACT_WAIT_SECONDS = 1.2
 
 
 class WikimediaLookup:
@@ -94,6 +99,10 @@ class WikimediaLookup:
         self._lock = threading.RLock()
         self._disk: Path | None = None
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="media")
+        # Searches under way, so a second asker waits for the first answer
+        # instead of searching again.
+        self._inflight: dict[str, threading.Event] = {}
+        self._queued: set[tuple] = set()
 
     # ---- Keeping example photos across restarts --------------------------
     # Example photos (an operator's train, an airline's type) are the same for
@@ -136,6 +145,42 @@ class WikimediaLookup:
             time.sleep(1.0)  # gentle on Wikimedia
         self._save_disk_cache()
         return ready
+
+    def prefetch(self, plans: list[tuple[str, str | None, str | None, str | None]], limit: int = 16) -> int:
+        """Start looking up example photos in the background; returns how many started.
+
+        Called when a list of planes is sent to a phone, so by the time one is
+        tapped its photo is usually ready.
+        """
+        if not self.enabled:
+            return 0
+        started = 0
+        for plan in dict.fromkeys(plans):
+            if started >= limit:
+                break
+            kind, operator, model, callsign = plan
+            search = reference_for(kind, operator, model, callsign)
+            if not search:
+                continue
+            key = f"reference|{search['query']}".casefold()
+            with self._lock:
+                hit = self._cache.get(key)
+                if (hit and hit.expires > time.time()) or key in self._inflight or plan in self._queued or len(self._queued) > 48:
+                    continue
+                self._queued.add(plan)
+            started += 1
+
+            def run(plan=plan):
+                try:
+                    self.reference(*plan)
+                except Exception:
+                    pass
+                finally:
+                    with self._lock:
+                        self._queued.discard(plan)
+                    self._save_soon()
+            self._pool.submit(run)
+        return started
 
     @staticmethod
     def query_for(activity: Vehicle | Event) -> str:
@@ -276,13 +321,21 @@ class WikimediaLookup:
         # one after the other: a miss on the first no longer doubles the wait.
         exact_future = self._pool.submit(self._lookup_exact, activity)
         found = example()
-        exact = exact_future.result()
-        if exact.get("ok"):
-            return exact
         if found.get("ok"):
+            # An example is ready: wait only briefly for the exact vehicle.
+            # A slow search carries on and is remembered for next time.
+            try:
+                exact = exact_future.result(timeout=EXACT_WAIT_SECONDS)
+            except FutureTimeout:
+                self._save_soon()
+                return found
+            except Exception:
+                exact = {"ok": False}
+            if exact.get("ok"):
+                return exact
             self._save_soon()
             return found
-        return exact
+        return exact_future.result()
 
     def _save_soon(self) -> None:
         # Writing the file for every new example is cheap but needless; once a
@@ -302,51 +355,85 @@ class WikimediaLookup:
         while step:  # the plan, then each fallback in turn
             steps.append(step)
             step = step.get("fallback")
+        value: dict[str, Any] = {"ok": False}
         for step in steps:
             key = f"reference|{step['query']}".casefold()
+            cached = self._cached_or_claim(key)
+            if cached is not None:
+                value = cached
+                if value.get("ok"):
+                    return value
+                continue
+            try:
+                value = self._search_reference(step)
+            except Exception:
+                self._release(key)
+                raise
+            with self._lock:
+                self._cache[key] = _CacheItem(time.time() + (24 * 3600 if value.get("ok") else 3 * 3600), value)
+            self._release(key)
+            if value.get("ok"):
+                return value
+        return value
+
+    def _cached_or_claim(self, key: str) -> dict[str, Any] | None:
+        """The cached answer; else wait for a search already under way; else claim it."""
+        while True:
             with self._lock:
                 hit = self._cache.get(key)
                 if hit and hit.expires > time.time():
-                    value = hit.value
-                    if value.get("ok"):
-                        return value
-                    continue
-            value = {"ok": False, "query": step["query"], "reason": "no_confident_match",
-                     "search_url": f"https://commons.wikimedia.org/w/index.php?search={quote(step['query'])}"}
-            best = None
-            for page, info, title in self._search(step["query"], limit=12):
-                meta = info.get("extmetadata") or {}
-                text = " ".join(filter(None, [title, self._plain(meta.get("ImageDescription")),
-                                              self._plain(meta.get("ObjectName")), self._plain(meta.get("Categories"))]))
-                if any(word in text.casefold() for word in _BAD_TITLE_WORDS) or not mentions_all(text, step["require"]):
-                    continue
-                if any(word in text.casefold() for word in step.get("exclude") or ()):
-                    continue
-                if not shows_the_outside(f"{title} {self._plain(meta.get('ImageDescription')) or ''}"):
-                    continue
-                # Prefer photos named for exactly this (title words), then wide ones.
-                score = len(self._tokens(step["query"]) & self._tokens(title)) * 4
-                width, height = info.get("width") or 0, info.get("height") or 0
-                if width and height and width >= height:
-                    score += 2
-                if best is None or score > best[0]:
-                    best = (score, page, info, title)
-            if best:
-                _, page, info, title = best
-                value = self._payload(step["query"], 0.0, page, info, title)
-                if value.get("ok"):
-                    value.update({"match_kind": "type_reference", "reference_label": step["label"]})
+                    return hit.value
+                waiting = self._inflight.get(key)
+                if waiting is None:
+                    self._inflight[key] = threading.Event()
+                    return None
+            if not waiting.wait(timeout=6.0):
+                return {"ok": False, "reason": "lookup_slow"}
             with self._lock:
-                self._cache[key] = _CacheItem(time.time() + (24 * 3600 if value.get("ok") else 3 * 3600), value)
+                hit = self._cache.get(key)
+                if hit and hit.expires > time.time():
+                    return hit.value
+            # The other search failed without an answer: try again ourselves.
+
+    def _release(self, key: str) -> None:
+        with self._lock:
+            done = self._inflight.pop(key, None)
+        if done is not None:
+            done.set()
+
+    def _search_reference(self, step: dict[str, Any]) -> dict[str, Any]:
+        value = {"ok": False, "query": step["query"], "reason": "no_confident_match",
+                 "search_url": f"https://commons.wikimedia.org/w/index.php?search={quote(step['query'])}"}
+        best = None
+        for page, info, title in self._search(step["query"], limit=12):
+            meta = info.get("extmetadata") or {}
+            text = " ".join(filter(None, [title, self._plain(meta.get("ImageDescription")),
+                                          self._plain(meta.get("ObjectName")), self._plain(meta.get("Categories"))]))
+            if any(word in text.casefold() for word in _BAD_TITLE_WORDS) or not mentions_all(text, step["require"]):
+                continue
+            if any(word in text.casefold() for word in step.get("exclude") or ()):
+                continue
+            if not shows_the_outside(f"{title} {self._plain(meta.get('ImageDescription')) or ''}"):
+                continue
+            # Prefer photos named for exactly this (title words), then wide ones.
+            score = len(self._tokens(step["query"]) & self._tokens(title)) * 4
+            width, height = info.get("width") or 0, info.get("height") or 0
+            if width and height and width >= height:
+                score += 2
+            if best is None or score > best[0]:
+                best = (score, page, info, title)
+        if best:
+            _, page, info, title = best
+            value = self._payload(step["query"], 0.0, page, info, title)
             if value.get("ok"):
-                return value
+                value.update({"match_kind": "type_reference", "reference_label": step["label"]})
         return value
 
     def _search(self, query: str, limit: int = 8) -> list[tuple[dict[str, Any], dict[str, Any], str]]:
         params = {
             "action": "query", "generator": "search", "gsrsearch": f"{query} filetype:bitmap",
             "gsrnamespace": 6, "gsrlimit": limit, "prop": "imageinfo",
-            "iiprop": "url|extmetadata|size", "iiurlwidth": THUMB_WIDTH, "format": "json", "formatversion": 2,
+            "iiprop": "url|extmetadata|size", "iiextmetadatafilter": META_FIELDS, "iiurlwidth": THUMB_WIDTH, "format": "json", "formatversion": 2,
         }
         response = self._session.get(self.api_url, params=params, timeout=(1.25, 3.0))
         if getattr(response, "status_code", 200) == 429:
@@ -431,6 +518,7 @@ class WikimediaLookup:
             "gsrlimit": 8,
             "prop": "imageinfo",
             "iiprop": "url|extmetadata",
+            "iiextmetadatafilter": META_FIELDS,
             "iiurlwidth": THUMB_WIDTH,
             "format": "json",
             "formatversion": 2,
