@@ -1956,3 +1956,29 @@ test('without Radar+, spotter alerts point to Radar+ once it can be bought', asy
   await expect(page.locator('#plus-dialog')).toHaveAttribute('open', '');
   expect(subscribed).toBe(0);
 });
+
+test('on an iPhone in Safari, alerts say up front they need the Home Screen app', async ({ page }) => {
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  await page.addInitScript(ua => Object.defineProperty(navigator, 'userAgent', { get: () => ua }), iphone);
+  await page.reload();
+  await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout:5000 });
+  await page.locator('#station-boards').click();
+  await page.locator('#save-place').click();
+  await page.locator('[data-workspace="live"]').click();
+  const savedHint = page.locator('.commute-alert-card [data-install-hint]');
+  await expect(savedHint).toBeVisible();
+  await expect(savedHint).toContainText('Alerts need Radar on your Home Screen');
+  await expect(savedHint).toContainText('Add to Home Screen');
+  await page.getByRole('button', { name: /Discover/ }).click();
+  await expect(page.locator('#spotter-card [data-install-hint]')).toBeVisible();
+  // Tapping turn-on says the same instead of failing quietly.
+  await page.locator('#spotter-toggle').click();
+  await expect(page.locator('#watch-toast')).toContainText('Home Screen');
+});
+
+test('on a computer or Android, no Home Screen message is shown', async ({ page }) => {
+  await page.locator('#station-boards').click();
+  await page.locator('#save-place').click();
+  await page.locator('[data-workspace="live"]').click();
+  await expect(page.locator('.commute-alert-card [data-install-hint]')).toBeHidden();
+});

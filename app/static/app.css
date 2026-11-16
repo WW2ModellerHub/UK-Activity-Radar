@@ -1270,3 +1270,11 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
 /* Radar+: monthly and yearly side by side, and the trial said up front. */
 .plus-buttons { display: grid; gap: 8px; }
 .plus-trial { margin: 4px 0 8px; font-size: 14px; color: #1e7a54; font-weight: 600; }
+
+/* "Alerts need Radar on your Home Screen" (iPhone and iPad in Safari). */
+.install-hint { display: grid; gap: 4px; margin: 8px 0; padding: 12px 14px; border-radius: 12px; background: #eef3ff; border: 1px solid #c9d6f5; color: #1d3470; font-size: 14px; line-height: 1.4; }
+.install-hint[hidden] { display: none; }
+.install-hint strong { font-size: 15px; color: #12265a; }
+.plus-install-note { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
+.journey-watch .install-hint { flex: 1 1 100%; margin: 0; }
+.leave-plan .install-hint { margin: 10px 0 0; }

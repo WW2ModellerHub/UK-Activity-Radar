@@ -3424,7 +3424,7 @@
     })).filter(stop=>stop.name&&stop.depart&&new Date(stop.depart).getTime()>Date.now()).slice(0,-1);
     if(!leaveStops.length)return '';
     const options=leaveStops.map((stop,stopIndex)=>`<option value="${stopIndex}">${esc(humanTransitLabel(stop.name))} · ${esc(new Date(stop.depart).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}))}</option>`).join('');
-    return `<details class="leave-plan"${leaveFormOpenFor===selectedId?' open':''}><summary>When should I leave?</summary><div class="leave-plan-form"><label><span>Boarding at</span><select data-leave-stop class="tool-select">${options}</select></label><label><span>Minutes to get there</span><input type="number" data-leave-minutes min="1" max="180" inputmode="numeric" value="${esc(leaveMinutesDraft)}"></label><button type="button" class="primary-button" data-leave-set>Tell me when to leave</button></div></details>`;
+    return `<details class="leave-plan"${leaveFormOpenFor===selectedId?' open':''}><summary>When should I leave?</summary>${alertsNeedHomeScreen()?HOME_SCREEN_HINT:''}<div class="leave-plan-form"><label><span>Boarding at</span><select data-leave-stop class="tool-select">${options}</select></label><label><span>Minutes to get there</span><input type="number" data-leave-minutes min="1" max="180" inputmode="numeric" value="${esc(leaveMinutesDraft)}"></label><button type="button" class="primary-button" data-leave-set>Tell me when to leave</button></div></details>`;
   }
   document.addEventListener('toggle',event=>{ if(event.target.matches?.('details.leave-plan'))leaveFormOpenFor=event.target.open?selectedId:null; },true);
   document.addEventListener('input',event=>{ if(event.target.matches?.('[data-leave-minutes]'))leaveMinutesDraft=Math.max(1,Math.min(180,Number(event.target.value)||15)); });
@@ -4562,11 +4562,18 @@
   document.addEventListener('visibilitychange',()=>{ if(!document.hidden)renderYours(); });
 
   // Why this device cannot take phone alerts, in words someone can act on.
+  // iPhones and iPads only deliver web alerts to a site added to the Home
+  // Screen and opened from there. Android and computers do in the browser.
+  function isAppleMobile(){ return /iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1); }
+  function isInstalledApp(){ return Boolean(window.matchMedia?.('(display-mode: standalone)').matches||navigator.standalone); }
+  function alertsNeedHomeScreen(){ return isAppleMobile()&&!isInstalledApp(); }
+  function showInstallHints(){
+    document.querySelectorAll('[data-install-hint]').forEach(el=>{el.hidden=!alertsNeedHomeScreen();});
+  }
+  const HOME_SCREEN_HINT='<div class="install-hint"><strong>Alerts need Radar on your Home Screen</strong><span>On iPhone and iPad, phone alerts only work when Radar is opened from your Home Screen. Tap <b>Share</b>, then <b>Add to Home Screen</b>, then open Radar from that icon.</span></div>';
   function pushUnsupportedReason() {
+    if(alertsNeedHomeScreen())return 'On iPhone and iPad, alerts only work from the Home Screen app: tap Share, then Add to Home Screen, then open Radar from that icon.';
     if('serviceWorker' in navigator&&'Notification' in window&&'PushManager' in window)return '';
-    const ios=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-    const installed=window.matchMedia?.('(display-mode: standalone)').matches||navigator.standalone;
-    if(ios&&!installed)return 'On iPhone, add this app to your Home Screen first (Share, then Add to Home Screen), open it from there, and turn alerts on.';
     return 'This browser does not support phone alerts.';
   }
   // Saving a train is enough to be told about it: turn phone alerts on for
@@ -4635,6 +4642,7 @@
   }
   // Spotter alerts: unusual things near where you are when you switch it on.
   function renderSpotter() {
+    showInstallHints();
     const state=$('spotter-state'),note=$('spotter-note'),button=$('spotter-toggle'),radius=$('spotter-radius');
     if(!state||!note||!button)return;
     const spotter=commuteAlertStatus.subscribed?commuteAlertStatus.preferences?.spotter:null;
@@ -4645,7 +4653,7 @@
     const unsupported=pushUnsupportedReason();
     note.textContent=!commuteAlertStatus.configured?'Alerts are not available yet.'
       : spotter?`On within ${spotter.radius_miles} miles of where you switched it on. Turn it off and on again to move it.`
-      : unsupported||'A phone alert for steam trains, charters and military aircraft, 7am to 10pm.';
+      : (alertsNeedHomeScreen()?'':unsupported)||'A phone alert for steam trains, charters and military aircraft, 7am to 10pm.';
   }
   async function toggleSpotter() {
     const on=Boolean(commuteAlertStatus.subscribed&&commuteAlertStatus.preferences?.spotter);
@@ -4802,6 +4810,7 @@
   }
 
   function renderCommuteAlertStatus() {
+    showInstallHints();
     const state=$('commute-alert-state'),note=$('commute-alert-note'),enable=$('commute-alert-enable'),disable=$('commute-alert-disable');
     if(!state||!note||!enable||!disable)return;
     const active=Boolean(commuteAlertStatus.subscribed);
@@ -4834,7 +4843,8 @@
     enable.textContent=!active?(chosen?`Turn alerts on for ${chosenName}`:'Turn alerts on')
       : !chosen?'Update alerts' : samePlace?`Update alerts for ${chosenName}` : `Add alerts for ${chosenName}`;
     enable.classList.toggle('hidden',active&&!savedPlaces.size);
-    const unsupported=pushUnsupportedReason();
+    // The Home Screen message is already shown above; don't repeat it here.
+    const unsupported=alertsNeedHomeScreen()?'':pushUnsupportedReason();
     note.classList.toggle('is-problem',Boolean(pushProblem)||(!active&&Boolean(unsupported)));
     note.textContent=pushProblem ? pushProblem
       : !commuteAlertStatus.configured ? 'Alerts are not available yet.'
@@ -5474,7 +5484,7 @@
     const wrap=document.createElement('div');wrap.className='journey-watch';
     wrap.innerHTML=watching
       ? `<span><strong>Watching ${esc(watching.name)}</strong><small>Weekdays. You’ll be told in the 45 minutes before ${esc(journeyWatchClock(watching.leave_minutes))} if something serious is on it.</small></span><button type="button" class="mini-button" data-journey-watch="off">Stop</button>`
-      : `<span><strong>Warn me before I leave</strong><small>A phone alert on weekdays if a crash, closure or long delay is on this drive.</small></span><label>Leave at <input type="time" id="journey-watch-time" value="07:30"></label><button type="button" class="primary-button" data-journey-watch="on">Watch this drive</button>`;
+      : `${alertsNeedHomeScreen()?HOME_SCREEN_HINT:''}<span><strong>Warn me before I leave</strong><small>A phone alert on weekdays if a crash, closure or long delay is on this drive.</small></span><label>Leave at <input type="time" id="journey-watch-time" value="07:30"></label><button type="button" class="primary-button" data-journey-watch="on">Watch this drive</button>`;
     const anchor=box.querySelector('.journey-issue-summary');
     if(anchor)anchor.after(wrap);else box.prepend(wrap);
     wrap.querySelector('[data-journey-watch]').addEventListener('click',async event=>{
