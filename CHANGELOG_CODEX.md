@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## 2026-11-16 — Radar+ box fits on computers
+
+- With "Already have Radar+?" open, the code box and Turn on button were
+  wider than the Radar+ card's column on computer screens, pushing the card
+  100px past the box edge with a sideways scrollbar. Cards and the code row
+  now shrink to fit.
+
 ## 2026-11-16 — cancelling Radar+ always possible; train alerts near stations
 
 - A failed Radar+ check (the server busy for a moment) reset the visit to

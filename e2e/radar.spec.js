@@ -2089,3 +2089,19 @@ test('if Radar+ cannot be checked for a moment, it says so and keeps trying inst
   await expect(page.locator('#radar-plus-portal-login')).toBeVisible();
   await expect(page.locator('#radar-plus-portal-login')).toHaveAttribute('href', 'https://billing.stripe.com/p/login/test123');
 });
+
+test('the Radar+ box fits a computer screen with nothing cut off', async ({ page }) => {
+  await page.setViewportSize({ width:1024, height:900 });
+  await page.route('**/api/billing/status', route => route.fulfill({ json:{ enabled:true, plan:'free', plus:false, features:[], price_display:'£3.99/month', yearly_available:true, yearly_price_display:'£24.99/year', trial_days:7 } }));
+  await page.reload();
+  await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout:5000 });
+  await page.evaluate(() => document.getElementById('radar-plus')?.click());
+  await page.locator('#radar-plus-have summary').click();   // the code box open: it pushed the card past the edge
+  await expect(page.locator('#radar-plus-link-code')).toBeVisible();
+  const overflow = await page.evaluate(() => {
+    const shell = document.querySelector('#plus-dialog .plus-shell');
+    const card = document.querySelector('#plan-cards .highlight');
+    return { shell: shell.scrollWidth - shell.clientWidth, card: card.scrollWidth - card.clientWidth };
+  });
+  expect(overflow).toEqual({ shell:0, card:0 });
+});
