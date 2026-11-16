@@ -1613,6 +1613,29 @@
     };
   }
 
+  // Photos already found this visit are not asked for again: reopening a
+  // train or plane shows its picture at once.
+  const mediaCache=new Map();
+  async function mediaFor(a, signal) {
+    const hit=mediaCache.get(a.id);
+    if(hit&&Date.now()-hit.at<10*60000)return hit.payload;
+    let response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/media`,{signal});
+    // Everyday planes are not kept on the server: ask for an example of the
+    // type (in the airline's colours) from what this page knows.
+    if(response.status===404&&['aircraft','sar'].includes(a.type)){
+      const q=new URLSearchParams({kind:a.type==='sar'?'sar':'aircraft'});
+      if(a.aircraft_model||a.aircraft_type_code)q.set('model',a.aircraft_model||a.aircraft_type_code);
+      if(a.name)q.set('callsign',a.name);
+      if(a.operator)q.set('operator',a.operator);
+      response=await fetch(`/api/media/reference?${q}`,{signal});
+    }
+    if(!response.ok)throw new Error('Image lookup unavailable');
+    const payload=await response.json();
+    mediaCache.set(a.id,{at:Date.now(),payload});
+    if(mediaCache.size>200)mediaCache.delete(mediaCache.keys().next().value);
+    return payload;
+  }
+
   async function loadPhoto(a) {
     const box = $('detail-photo');
     if (!box) return;
@@ -1624,9 +1647,7 @@
     const controller = new AbortController();
     const timeout = setTimeout(()=>controller.abort(), 8000);
     try {
-      const response = await fetch(`/api/activity/${encodeURIComponent(a.id)}/media`,{signal:controller.signal});
-      if (!response.ok) throw new Error('Image lookup unavailable');
-      const payload = await response.json();
+      const payload = await mediaFor(a, controller.signal);
       if (requestId !== mediaRequest || selectedId !== a.id) return;
       if (!payload.ok || !payload.thumbnail_url) {
         // A missing image is cleaner than a plausible-but-wrong historic photo.
@@ -1654,7 +1675,7 @@
         imageTruth = `Photo of this vehicle or class${a.vehicle_ref ? ` ${a.vehicle_ref}` : ''} — not live`;
       } else if (a.type === 'bus') imageTruth = `Photo matched to vehicle ${a.vehicle_ref} — not live`;
       else if (a.type === 'vessel') imageTruth = 'Photo of this vessel — not live';
-      box.innerHTML = `<a target="_blank" rel="noopener" href="${esc(sourceUrl)}"><img src="${esc(safeUrl(payload.thumbnail_url))}" alt="${esc(payload.title || a.name)}" loading="lazy"></a><div class="detail-photo-copy"><strong>${esc(payload.title || a.name)}</strong>${imageTruth ? `<b class="image-truth">${esc(imageTruth)}</b>` : ''}<span>${esc(attribution || payload.source || 'Wikimedia Commons')} • <a target="_blank" rel="noopener" href="${esc(sourceUrl)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(licenceUrl)}">licence ↗</a></span></div>`;
+      box.innerHTML = `<a target="_blank" rel="noopener" href="${esc(sourceUrl)}"><img src="${esc(safeUrl(payload.thumbnail_url))}" alt="${esc(payload.title || a.name)}" loading="eager" fetchpriority="high" decoding="async"></a><div class="detail-photo-copy"><strong>${esc(payload.title || a.name)}</strong>${imageTruth ? `<b class="image-truth">${esc(imageTruth)}</b>` : ''}<span>${esc(attribution || payload.source || 'Wikimedia Commons')} • <a target="_blank" rel="noopener" href="${esc(sourceUrl)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(licenceUrl)}">licence ↗</a></span></div>`;
     } catch {
       if (requestId !== mediaRequest) return;
       box.classList.add('hidden'); box.innerHTML = '';
@@ -1677,18 +1698,7 @@
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
-      let response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/media`,{cache:'no-store',signal:controller.signal});
-      // Everyday planes are not kept on the server: ask for an example of
-      // the type (in the airline's colours) from what this page knows.
-      if(response.status===404){
-        const q=new URLSearchParams({kind:a.type==='sar'?'sar':'aircraft'});
-        if(a.aircraft_model||a.aircraft_type_code)q.set('model',a.aircraft_model||a.aircraft_type_code);
-        if(a.name)q.set('callsign',a.name);
-        if(a.operator)q.set('operator',a.operator);
-        response=await fetch(`/api/media/reference?${q}`,{cache:'no-store',signal:controller.signal});
-      }
-      if(!response.ok)throw new Error('lookup unavailable');
-      let reference=await response.json();
+      let reference=await mediaFor(a, controller.signal);
       // A hand-picked photo of a military type beats a search result.
       if(fallback&&reference.match_kind==='type_reference')reference={ok:false};
       if (requestId !== mediaRequest || selectedId !== a.id) return;
@@ -1698,7 +1708,7 @@
       const referenceImage=reference.ok && reference.thumbnail_url;
       const imageUrl=referenceImage ? reference.thumbnail_url : null;
       const imagePage=reference.page_url || reference.search_url;
-      const image = imageUrl ? `<a target="_blank" rel="noopener" href="${esc(safeUrl(imagePage))}"><img src="${esc(safeUrl(imageUrl))}" alt="${esc(identity || a.name)}" loading="lazy"></a>` : '';
+      const image = imageUrl ? `<a target="_blank" rel="noopener" href="${esc(safeUrl(imagePage))}"><img src="${esc(safeUrl(imageUrl))}" alt="${esc(identity || a.name)}" loading="eager" fetchpriority="high" decoding="async"></a>` : '';
       const imageTruth=referenceImage ? (reference.match_kind==='exact_airframe' ? 'Archive photo of this aircraft registration — not live' : (reference.reference_label || 'Example of this aircraft type — not necessarily this exact airframe')) : null;
       const imageCredit=referenceImage ? [reference.artist,reference.license,'Wikimedia Commons'].filter(Boolean).join(' • ') : fallback?.credit;
       const links = a.source_id ? `<a target="_blank" rel="noopener" href="https://www.planespotters.net/hex/${esc(String(a.source_id).toUpperCase())}">Planespotters ↗</a>` : '';

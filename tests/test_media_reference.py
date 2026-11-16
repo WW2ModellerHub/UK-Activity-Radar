@@ -168,3 +168,47 @@ def test_a_spare_engine_is_not_a_picture_of_a_train():
     assert not shows_the_outside("Direct Rail Services spare class 68 engine")
     assert not shows_the_outside("Class 66 power unit on a pallet")
     assert shows_the_outside("DRS Class 68 68033 at Crewe")
+
+
+def test_photos_ask_wikimedia_for_a_standard_thumbnail_width():
+    from app.media import THUMB_WIDTH
+    seen = []
+
+    class Recording(FakeCommons):
+        def get(self, url, params=None, timeout=None):
+            seen.append(params.get("iiurlwidth"))
+            return super().get(url, params, timeout)
+    lookup = WikimediaLookup("https://commons.example/api", enabled=True)
+    lookup._session = Recording({})
+    lookup.reference("train", "Great Western Railway")
+    assert THUMB_WIDTH == 500 and seen and set(seen) == {500}
+
+
+def test_example_photos_survive_a_restart_and_can_be_looked_up_ahead(tmp_path):
+    results = {"GWR Class 800": [_page(2, "GWR 800 004 at Reading.jpg", "GWR Class 800 IET at Reading station")]}
+    first = _lookup(results)
+    first.use_disk_cache(tmp_path / "examples.json")
+    assert first.warm([("train", "Great Western Railway", None), ("train", "Some Heritage Railway", None)]) == 1
+    # A new server process, with no network at all, still has it.
+    restarted = WikimediaLookup("https://commons.example/api", enabled=True)
+    restarted._session = None  # any network call would fail
+    restarted.use_disk_cache(tmp_path / "examples.json")
+    again = restarted.reference("train", "Great Western Railway")
+    assert again["ok"] and again["title"] == "GWR 800 004 at Reading"
+
+
+def test_the_exact_vehicle_and_the_example_are_looked_up_side_by_side():
+    import threading
+    import time as clock
+
+    both_running = threading.Barrier(2, timeout=2)
+
+    class Slow(FakeCommons):
+        def get(self, url, params=None, timeout=None):
+            both_running.wait()          # fails unless both searches are in flight together
+            clock.sleep(0.05)
+            return super().get(url, params, timeout)
+    bus = Vehicle(id="bus:SCMN:9", type="bus", name="Bus 50", vehicle_ref="15724", lat=53.4, lon=-2.2, source="BODS", operator="SCMN")
+    lookup = WikimediaLookup("https://commons.example/api", enabled=True)
+    lookup._session = Slow({"Stagecoach bus": [_page(5, "Stagecoach Manchester Enviro400 MMC.jpg", "Stagecoach double-decker bus in Manchester")]})
+    assert lookup.lookup(bus)["ok"]
