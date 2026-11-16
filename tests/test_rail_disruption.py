@@ -43,9 +43,11 @@ def test_cancelled_train_is_struck_through_then_leaves_the_map(tmp_path):
 
 def test_a_train_cancelled_before_it_runs_is_remembered_and_can_be_reinstated(tmp_path):
     collector, state, now = make_collector(tmp_path)
-    day = now.astimezone(london_tz()).date().isoformat()
+    departs = now + timedelta(hours=2)
+    # The service date is the departure's own day (after 22:00 that is tomorrow).
+    day = departs.astimezone(london_tz()).date().isoformat()
     _trust(collector, "0001", train_uid="C1F10", toc_id="28", tp_origin_timestamp=day,
-           origin_dep_timestamp=int((now + timedelta(hours=2)).timestamp() * 1000),
+           origin_dep_timestamp=int(departs.timestamp() * 1000),
            creation_timestamp=int(now.timestamp() * 1000))
     _trust(collector, "0002", loc_stanox="12345", canx_type="AT ORIGIN")
     assert state.rail_notes.get("C1F10", day)["cancelled"]["scope"] == "whole"
