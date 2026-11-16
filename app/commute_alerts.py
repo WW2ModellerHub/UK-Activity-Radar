@@ -287,7 +287,7 @@ SPOTTER_KIND_SUBTYPES = {
     "test": {"test-measurement"},
     "loco": {"locomotive-move", "engineering"},
     "military": {"combat-aircraft", "military-transport", "military-tanker", "military-helicopter", "bomber",
-                 "airborne-surveillance", "intelligence-aircraft", "maritime-patrol", "display-aircraft"},
+                 "airborne-surveillance", "intelligence-aircraft", "maritime-patrol", "display-aircraft", "jet-trainer"},
 }
 SPOTTER_KINDS = set(SPOTTER_KIND_SUBTYPES)
 _SUBTYPE_KIND = {subtype: kind for kind, subtypes in SPOTTER_KIND_SUBTYPES.items() for subtype in subtypes}

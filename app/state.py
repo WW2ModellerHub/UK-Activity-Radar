@@ -170,6 +170,34 @@ def _train_has_current_projection(vehicle: Vehicle, now: datetime) -> bool:
     return _estimated_train_position(vehicle, now) is not None
 
 
+def one_per_train(rows: list) -> list:
+    """One entry per unusual train, keeping order.
+
+    The same train can be reported by the main train-position feed and by
+    several signalling areas at once (3Q56 three times). Unusual headcodes
+    (test, light engine, charter) are not reused by two trains at the same
+    moment, so for Discover the freshest report wins, preferring the main
+    feed's record.
+    """
+    best: dict[str, object] = {}
+    for row in rows:
+        code = str(getattr(row, "headcode", None) or "").strip().upper() if getattr(row, "type", None) == "train" else ""
+        if not code:
+            continue
+        key = f"{getattr(row, 'cool_subtype', '')}|{code}"
+        kept = best.get(key)
+        rank = (str(getattr(row, "id", "")).startswith("nr:"), getattr(row, "last_updated", None))
+        if kept is None or rank > (str(getattr(kept, "id", "")).startswith("nr:"), getattr(kept, "last_updated", None)):
+            best[key] = row
+    keep_ids = {id(row) for row in best.values()}
+    out = []
+    for row in rows:
+        code = str(getattr(row, "headcode", None) or "").strip().upper() if getattr(row, "type", None) == "train" else ""
+        if not code or id(row) in keep_ids:
+            out.append(row)
+    return out
+
+
 class LiveState:
     def __init__(self) -> None:
         self._lock = RLock()
@@ -585,6 +613,7 @@ class LiveState:
                 key=lambda item: (int(item.cool_score or 0), item.last_updated),
                 reverse=True,
             )
+            candidates = one_per_train(candidates)
             return deepcopy(candidates[:max(1, min(int(limit), 50))])
 
     def set_tracking_count(self, activity_id: str, count: int) -> None:

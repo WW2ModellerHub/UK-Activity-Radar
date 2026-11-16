@@ -45,7 +45,7 @@ def test_catalogue_is_stable_and_contains_only_safe_classified_subtypes():
     rows = payload["collectibles"]
 
     assert payload["version"] == 1
-    assert payload["count"] == 20
+    assert payload["count"] == 21
     assert len({row["id"] for row in rows}) == len(rows)
     assert all(row["id"] == row["key"] == f"{row['category']}:{row['subtype']}" for row in rows)
     assert {row["category"] for row in rows} == {"air", "rail", "sea"}
@@ -161,8 +161,8 @@ def test_missing_stale_and_non_collectible_activity_are_rejected():
 def test_force_excluded_cool_subtypes_cannot_be_claimed():
     trainer = _vehicle(
         id="live:trainer",
-        name="RAF Hawk trainer VYT51",
-        aircraft_model="BAE Systems Hawk T2 trainer",
+        name="RAF Tutor trainer VYT51",
+        aircraft_model="Grob Tutor T1 trainer",
     )
     tug = _vehicle(
         id="ais:235009999",
@@ -206,7 +206,7 @@ def test_http_routes_expose_contract_and_structured_claim_errors(monkeypatch):
     live = _vehicle(last_updated=datetime.now(timezone.utc), vehicle_ref="ZJ939")
     monkeypatch.setattr(main.state, "get", lambda activity_id: live if activity_id == live.id else None)
 
-    assert main.discovery_catalogue()["count"] == 20
+    assert main.discovery_catalogue()["count"] == 21
     assert main.discovery_missions()["missions"]
     claimed = main.discovery_claim(main.DiscoveryClaimIn(activity_id=live.id))
     assert claimed["ok"] is True

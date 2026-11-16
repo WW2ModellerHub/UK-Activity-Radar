@@ -53,6 +53,9 @@ _TRAINER = re.compile(
     r"\b(?:TRAINER|TRAINING\s+(?:AIRCRAFT|FLIGHT)|HAWK|TUTOR|PREFECT|TEXAN|JUNO|JUPITER|"
     r"GROB|T[- ]?6|PC[- ]?21|PHENOM)\b"
 )
+# Fast-jet trainers (the RAF Hawk, also the Red Arrows' aircraft) are worth
+# seeing; small propeller trainers (Tutor, Prefect, Juno) are everyday.
+_JET_TRAINER = re.compile(r"\b(?:HAWK|GOSHAWK|T[- ]?45|M[- ]?346|ALPHA\s*JET)\b")
 _MILITARY_IDENTITY = re.compile(r"\b(?:RRR|RFR|ASCOT|RCH|CNV|BAF|IAM|MMF|VAMP|OBI|VYT)\w*\b")
 
 _STEAM = re.compile(
@@ -205,6 +208,10 @@ def classify_activity(activity: Activity, *, now: datetime | None = None) -> Coo
         if _HEAVY_LIFT.search(text):
             return _classified(category="air", subtype="military-transport", score=84,
                                explanation="Military transport aircraft.", badge="AIRLIFT",
+                               theme="air", icon="▲", activity=activity, now=now)
+        if _JET_TRAINER.search(text):
+            return _classified(category="air", subtype="jet-trainer", score=80,
+                               explanation="RAF fast-jet trainer, the same Hawk the Red Arrows fly.", badge="JET TRAINER",
                                theme="air", icon="▲", activity=activity, now=now)
         if _TRAINER.search(text):
             return _classified(category="air", subtype="military-trainer", score=18,
