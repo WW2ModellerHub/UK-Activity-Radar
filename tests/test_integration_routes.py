@@ -154,3 +154,15 @@ def test_launch_preview_grants_plus_without_stripe(monkeypatch):
     assert main.PREVIEW_COOKIE in cookie
     assert "HttpOnly" in cookie
     assert main._preview_context(main._preview_cookie_value()).plus is True
+
+
+def test_the_server_reports_how_busy_it_is_even_without_a_free_worker_thread():
+    import inspect
+
+    from fastapi.testclient import TestClient
+
+    import app.main as main
+    assert inspect.iscoroutinefunction(main.health_runtime)   # no worker thread needed
+    report = TestClient(main.app).get("/api/health/runtime").json()
+    for key in ("uptime_seconds", "memory_mb", "worker_threads_busy", "worker_threads_total", "loop_lag_ms"):
+        assert key in report

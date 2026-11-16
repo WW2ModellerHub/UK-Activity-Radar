@@ -2052,3 +2052,9 @@ test('a subscriber can put Radar+ on another device with a one-time code', async
   expect(typed).toEqual(['abcd 2345']);
   await expect(page.locator('#radar-plus-device')).toBeVisible();
 });
+
+test('a military jet with no airline still says what it is under its callsign', async ({ page }) => {
+  await page.locator('[data-layer-chip="aircraft"]').click();
+  await page.locator('.aerial-map-marker.aerial-aircraft').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-subtitle')).toHaveText(/(Eurofighter Typhoon • ZK001|Boeing CH-47 Chinook • ZH900)/);
+});

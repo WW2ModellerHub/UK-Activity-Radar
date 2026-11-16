@@ -698,11 +698,62 @@ async def _state_maintenance_loop() -> None:
         state.prune_stale()
 
 
+# How the server itself is doing, for /api/health: a stall (every worker
+# thread busy, or the event loop held up) shows here before it shows as 502s.
+_runtime = {"started": time.time(), "loop_lag_ms": 0.0, "loop_lag_max_ms": 0.0,
+            "threads_busy": 0, "threads_total": 0, "threads_busy_max": 0}
+
+
+def _memory_mb() -> float | None:
+    try:
+        for line in Path("/proc/self/status").read_text().splitlines():
+            if line.startswith("VmRSS:"):
+                return round(int(line.split()[1]) / 1024, 1)
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def runtime_report() -> dict:
+    return {
+        "uptime_seconds": round(time.time() - _runtime["started"]),
+        "memory_mb": _memory_mb(),
+        "os_threads": threading.active_count(),
+        "worker_threads_busy": _runtime["threads_busy"],
+        "worker_threads_total": _runtime["threads_total"],
+        "worker_threads_busy_max_5min": _runtime["threads_busy_max"],
+        "loop_lag_ms": _runtime["loop_lag_ms"],
+        "loop_lag_max_ms_5min": _runtime["loop_lag_max_ms"],
+    }
+
+
+async def _runtime_monitor_loop() -> None:
+    import anyio.to_thread
+    window_started = time.monotonic()
+    while True:
+        before = time.monotonic()
+        await asyncio.sleep(1.0)
+        lag = max(0.0, (time.monotonic() - before - 1.0) * 1000)
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        if time.monotonic() - window_started > 300:
+            window_started = time.monotonic()
+            _runtime["loop_lag_max_ms"] = 0.0
+            _runtime["threads_busy_max"] = 0
+        _runtime.update(
+            loop_lag_ms=round(lag, 1),
+            loop_lag_max_ms=round(max(_runtime["loop_lag_max_ms"], lag), 1),
+            threads_busy=limiter.borrowed_tokens,
+            threads_total=int(limiter.total_tokens),
+            threads_busy_max=max(_runtime["threads_busy_max"], limiter.borrowed_tokens),
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global trust_collector, td_collector, vstp_collector, rail_feed_hub, bods_collector, bods_sx_collector, roads_collector, vms_collector, speed_collector, features_collector, floods_collector, ais_collector, rnli_collector, adsb_sar_collector, london_fire_collector, met_office_collector, traffic_flow_service, world_collectors, smart_places, journey_planner, street_manager_store, billing_store, billing_service, commute_alert_store
     tasks: list[asyncio.Task] = []
     tasks.append(asyncio.create_task(_state_maintenance_loop()))
+    tasks.append(asyncio.create_task(_runtime_monitor_loop()))
 
     # Remembers which platform each train uses, for "usually platform N".
     try:
@@ -1679,6 +1730,12 @@ async def billing_webhook(request: Request):
     }
 
 
+@app.get("/api/health/runtime")
+async def health_runtime():
+    """Answers even when every worker thread is busy (it needs none)."""
+    return JSONResponse(runtime_report(), headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/health")
 def health():
     mode = "live" if settings.network_rail_enabled else ("demo" if settings.demo_mode else "setup")
@@ -1744,6 +1801,7 @@ def health():
         "storage_healthy": storage["healthy"],
         "storage_free_mb": storage["free_mb"],
         "billing_enabled": bool(billing_service),
+        "runtime": runtime_report(),
         "seller_details_ready": settings.seller_details_ready,
     }
 

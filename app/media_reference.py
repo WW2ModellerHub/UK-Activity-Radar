@@ -143,9 +143,14 @@ def _model_keys(model: str) -> tuple[str, ...]:
         if base:
             keys.append(base.group(1))
             keys.append(base.group(1).replace("-", ""))
-    for word in re.findall(r"[a-z]{5,}", lower):
-        if word not in {"boeing", "airbus", "lockheed", "martin", "embraer", "bombardier", "leonardo",
-                        "systems", "canada", "havilland", "sikorsky", "agustawestland", "eurocopter", "cessna", "piper"}:
+    maker_words = {"boeing", "airbus", "lockheed", "martin", "embraer", "bombardier", "leonardo",
+                   "systems", "canada", "havilland", "sikorsky", "agustawestland", "eurocopter", "cessna", "piper",
+                   "aero", "aircraft", "bell", "jets", "type", "westland", "agusta"}
+    # Names without a number (Hawk, Puma, Lynx) need the short word itself;
+    # with a number, the number is enough and a maker's word would be too loose.
+    shortest = 5 if keys else 4
+    for word in re.findall(rf"[a-z]{{{shortest},}}", lower):
+        if word not in maker_words:
             keys.append(word)
     return tuple(dict.fromkeys(k for k in keys if len(k) >= 3))
 
