@@ -1,5 +1,20 @@
 # Codex stabilization changelog
 
+## 2026-11-16 — faster plane photos
+
+- Everyday planes are not kept on the server, so a tapped plane asked for
+  its photo, got "not found", then asked again for an example. The phone now
+  sends the type, callsign and airline in the first request and gets the
+  example back in one trip.
+- When the "planes near me" list is sent, the server starts finding photos
+  for those types in the background, so a tapped plane's photo is usually
+  ready. A tap during that search waits for it instead of searching again.
+- Twice as many common airline and type pairs are looked up at start-up.
+- Commons is asked only for the picture details we read (licence, author,
+  description), not every camera and GPS field, for smaller, quicker replies.
+- When an example photo is ready, the search for the exact vehicle may hold
+  it up for 1.2 seconds at most; a slow search carries on and is remembered.
+
 ## 2026-11-16 — faster photos
 
 - Photos came from Wikimedia at 960 px: it rounds non-standard widths (we

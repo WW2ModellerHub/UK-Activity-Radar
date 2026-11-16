@@ -561,6 +561,11 @@ def _common_photo_plans() -> list[tuple[str, str | None, str | None]]:
         ("easyJet", "Airbus A320neo"), ("British Airways", "Airbus A320"), ("British Airways", "Airbus A320neo"),
         ("Jet2", "Boeing 737-800"), ("TUI Airways", "Boeing 737-800"), ("Wizz Air", "Airbus A321neo"),
         ("Loganair", "ATR 72-600"), ("Aer Lingus", "Airbus A320"),
+        ("easyJet", "Airbus A321neo"), ("British Airways", "Airbus A319"), ("British Airways", "Airbus A321neo"),
+        ("British Airways", "Boeing 777-300ER"), ("British Airways", "Boeing 787-9"), ("British Airways", "Airbus A350-1000"),
+        ("Ryanair", "Boeing 737 MAX 8"), ("Jet2", "Airbus A321neo"), ("TUI Airways", "Boeing 787-8"),
+        ("Virgin Atlantic", "Airbus A350-1000"), ("Virgin Atlantic", "Boeing 787-9"), ("Wizz Air", "Airbus A321"),
+        ("Loganair", "Embraer ERJ-145"), ("Aer Lingus", "Airbus A320neo"), ("KLM", "Embraer 175"),
     )]
     return plans
 
@@ -1748,6 +1753,15 @@ def nearby_aircraft(request: Request, lat: float, lon: float, radius_miles: floa
         rows, checked = adsb_sar_collector.fetch_nearby(lat, lon, radius_nm)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Nearby aircraft lookup failed: {public_error(exc)}") from exc
+    # Start finding their photos now, so a tapped plane shows one at once.
+    try:
+        media_lookup.prefetch([
+            ("sar" if row.type == "sar" else "aircraft", row.operator, row.aircraft_model or row.aircraft_type_code, row.name)
+            for row in rows
+            if row.aircraft_model or row.aircraft_type_code
+        ])
+    except Exception:
+        pass
     return {
         "activities": [row.model_dump(mode="json") for row in rows],
         "checked": checked,
@@ -2138,7 +2152,8 @@ def nearest_camera(request: Request, lat: float, lon: float, max_km: float = 25.
 
 
 @app.get("/api/activity/{activity_id:path}/media")
-def activity_media(request: Request, activity_id: str):
+def activity_media(request: Request, activity_id: str, kind: str | None = None, model: str | None = None,
+                   callsign: str | None = None, operator: str | None = None):
     _enforce_public_budget(request, lookup_request_budget)
     # A photograph is part of the core identification experience, not an
     # advanced-analysis feature. Keep the lookup rate limited, but available
@@ -2146,6 +2161,13 @@ def activity_media(request: Request, activity_id: str):
     # blank space.
     item = state.get(activity_id)
     if not item:
+        # Everyday planes are not kept here. With what the phone already
+        # knows, answer with an example of the type in one trip, not two.
+        if kind in {"aircraft", "sar"} and model and not any(len(v or "") > 80 for v in (model, callsign, operator)):
+            try:
+                return media_lookup.reference(kind, operator, model, callsign)
+            except Exception as exc:
+                return {"ok": False, "reason": f"Wikimedia lookup unavailable: {type(exc).__name__}"}
         raise HTTPException(status_code=404, detail="Activity not found")
     try:
         return media_lookup.lookup(item)
