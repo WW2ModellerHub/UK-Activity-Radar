@@ -1278,3 +1278,5 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
 .plus-install-note { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
 .journey-watch .install-hint { flex: 1 1 100%; margin: 0; }
 .leave-plan .install-hint { margin: 10px 0 0; }
+
+.cool-preview-note { display: block; width: 100%; margin: 12px 0 4px; padding: 12px; border: 1px dashed var(--line); border-radius: 10px; background: none; color: var(--accent, #0b63ce); font: inherit; font-weight: 600; text-align: center; cursor: pointer; }
