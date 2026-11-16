@@ -460,3 +460,64 @@ def test_yearly_needs_its_own_price_and_trials_are_optional(service, gateway):
     assert any("YEARLY" in e for e in billing_configuration_errors(config(stripe_plus_yearly_price_id="year")))
     assert any("YEARLY" in e for e in billing_configuration_errors(config(stripe_plus_yearly_price_id="price_plus")))
     assert any("TRIAL" in e for e in billing_configuration_errors(config(trial_days=90)))
+
+
+def _paid(store, customer_id="cus_1", status="active"):
+    store.upsert_customer(customer_id, f"{customer_id}@example.com")
+    store.upsert_subscription(subscription_id=f"sub_{customer_id}", customer_id=customer_id, plan="plus",
+                              price_id="price_plus", status=status)
+
+
+def test_a_device_code_adds_radar_plus_to_another_device_once(store, clock):
+    _paid(store)
+    code = store.create_device_code("cus_1")
+    assert len(code) == 9 and code[4] == "-"
+    # Typed loosely on the other phone: lower case, a space instead of the dash.
+    assert store.consume_device_code(code.lower().replace("-", " ")) == "cus_1"
+    assert store.consume_device_code(code) is None            # once only
+    late = store.create_device_code("cus_1")
+    clock.advance(601)
+    assert store.consume_device_code(late) is None            # ten minutes
+    assert store.consume_device_code("not a code") is None and store.consume_device_code("") is None
+    # The raw code is never stored.
+    import sqlite3 as db
+    with db.connect(store.path) as conn:
+        stored = [row[0] for row in conn.execute("SELECT code_hash FROM billing_device_codes")]
+    assert all(code.replace("-", "") not in value for value in stored)
+
+
+def test_a_device_code_stops_working_when_the_subscription_ends(store):
+    _paid(store)
+    code = store.create_device_code("cus_1")
+    store.upsert_subscription(subscription_id="sub_cus_1", customer_id="cus_1", plan="plus",
+                              price_id="price_plus", status="canceled")
+    assert store.consume_device_code(code) is None
+
+
+def test_device_code_routes_give_the_second_device_its_own_access(monkeypatch, tmp_path, clock):
+    from fastapi.testclient import TestClient
+
+    import app.main as main
+    store = BillingStore(tmp_path / "b.sqlite", token_pepper=PEPPER, clock=clock, token_factory=TokenFactory())
+    _paid(store)
+    first_token = store.issue_access_token("cus_1")
+    monkeypatch.setattr(main, "billing_store", store)
+    monkeypatch.setattr(main, "billing_service", object())
+    monkeypatch.setattr(main, "settings", replace(main.settings, public_deployment=True))
+    headers = {"origin": "https://testserver", "host": "testserver"}
+
+    # Only a device with Radar+ can make a code.
+    stranger = TestClient(main.app, base_url="https://testserver")
+    assert stranger.post("/api/billing/device-code", headers=headers).status_code == 401
+
+    owner = TestClient(main.app, base_url="https://testserver")
+    owner.cookies.set(main.ACCESS_COOKIE, first_token)
+    code = owner.post("/api/billing/device-code", headers=headers).json()["code"]
+
+    other = TestClient(main.app, base_url="https://testserver")
+    assert other.post("/api/billing/device-link", json={"code": "ZZZZ-ZZZZ"}, headers=headers).status_code == 400
+    linked = other.post("/api/billing/device-link", json={"code": code}, headers=headers)
+    assert linked.status_code == 200
+    assert other.get("/api/billing/status").json()["plus"] is True
+    assert other.cookies.get(main.ACCESS_COOKIE) != first_token   # its own sign-in, revocable alone
+    assert other.post("/api/billing/device-link", json={"code": code}, headers=headers).status_code == 400

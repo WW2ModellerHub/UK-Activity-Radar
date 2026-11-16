@@ -626,7 +626,9 @@ test('an earlier Field Guide find stays unlocked without weekly mission revalida
 });
 
 test('Live cameras appear on the map and open their current provider media', async ({ page }) => {
-  await page.locator('.workspace-tab[data-workspace="settings"]').click();
+  // Next to Live traffic in the Map tools, not tucked away in More.
+  await expect(page.locator('[data-workspace-panel="settings"] #live-webcams')).toHaveCount(0);
+  await page.locator('.workspace-tab[data-workspace="useful"]').click();
   await page.locator('#live-webcams').click();
   await expect(page.locator('#live-webcams')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.camera-map-marker')).toHaveCount(1);
@@ -1240,7 +1242,7 @@ test('a second row under the chips offers options for the layer switched on last
   await page.locator('[data-layer-chip="aircraft"]').click();
   await expect(row.locator('.sub-chip:visible')).toHaveText(['Above me','Point at sky','Camera view']);
   await page.locator('[data-layer-chip="incident"]').click();
-  await expect(row.locator('.sub-chip:visible')).toHaveText(['My journey','Live traffic']);
+  await expect(row.locator('.sub-chip:visible')).toHaveText(['My journey','Live traffic','Traffic cameras']);
   // Turning the latest layer off falls back to another one that is still on.
   await page.locator('[data-layer-chip="incident"]').click();
   await expect(row.locator('.sub-chip:visible').first()).toHaveText('Delays');
@@ -2005,4 +2007,48 @@ test('Google Tag Manager loads only after analytics are allowed, and never for a
   const layer = await page.evaluate(()=>window.dataLayer.map(row=>row.event || (row[0]==='consent' ? row[2] : null)).filter(Boolean));
   expect(layer).toContainEqual(expect.objectContaining({ ad_storage:'denied', ad_personalization:'denied' }));
   expect(layer).toContain('gtm.js');
+});
+
+test('with Roadworks or Incidents on, a Traffic cameras chip sits beside Live traffic', async ({ page }) => {
+  await page.locator('[data-layer-chip="incident"]').click();
+  const chip = page.locator('#sub-chips [data-sub-action="webcams"]');
+  await expect(chip).toBeVisible();
+  await chip.click();
+  await expect(chip).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.camera-map-marker')).toHaveCount(1);
+});
+
+test('free visitors see which features are Radar+ before they tap; subscribers do not', async ({ page }) => {
+  await expect(page.locator('#traffic-quick')).not.toHaveClass(/needs-plus/);   // fixture visitor has Radar+
+  await page.route('**/api/billing/status', route => route.fulfill({ json:{ enabled:true, plan:'free', plus:false, features:[], price_display:'£3.99/month', trial_days:7 } }));
+  await page.reload();
+  await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout:5000 });
+  for (const id of ['#traffic-quick', '#live-webcams', '#journey-planner', '#track-activity']) await expect(page.locator(id)).toHaveClass(/needs-plus/);
+  const label = await page.locator('#traffic-quick strong').evaluate(el => getComputedStyle(el, '::after').content);
+  expect(label).toBe('"Radar+"');
+  await expect(page.locator('#station-boards')).not.toHaveClass(/needs-plus/);
+});
+
+test('a subscriber can put Radar+ on another device with a one-time code', async ({ page }) => {
+  await page.route('**/api/billing/device-code', route => route.fulfill({ json:{ code:'ABCD-2345', expires_in:600 } }));
+  await page.evaluate(() => document.getElementById('radar-plus')?.click());
+  await expect(page.locator('#radar-plus-have')).toBeHidden();
+  await page.locator('#radar-plus-device').click();
+  await expect(page.locator('#radar-plus-code')).toHaveText('ABCD-2345');
+
+  // The other device: no Radar+ yet, types the code.
+  let plus = false; const typed = [];
+  await page.route('**/api/billing/status', route => route.fulfill({ json: plus
+    ? { enabled:true, plan:'plus', plus:true, subscription_status:'active', price_display:'£3.99/month', features:['traffic_pro','live_cameras'] }
+    : { enabled:true, plan:'free', plus:false, features:[], price_display:'£3.99/month' } }));
+  await page.route('**/api/billing/device-link', route => { typed.push(route.request().postDataJSON().code); plus = true; return route.fulfill({ json:{ ok:true } }); });
+  await page.reload();
+  await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout:5000 });
+  await page.evaluate(() => document.getElementById('radar-plus')?.click());
+  await page.locator('#radar-plus-have summary').click();
+  await page.locator('#radar-plus-link-code').fill('abcd 2345');
+  await page.locator('#radar-plus-link button[type="submit"]').click();
+  await expect(page.locator('#watch-toast')).toContainText('Radar+ is now on for this device');
+  expect(typed).toEqual(['abcd 2345']);
+  await expect(page.locator('#radar-plus-device')).toBeVisible();
 });

@@ -495,6 +495,11 @@
     $('radar-plus-portal')?.classList.toggle('hidden',!plus);
     $('radar-plus-logout')?.classList.toggle('hidden',!plus);
     $('radar-plus-preview')?.classList.toggle('hidden',plus||!billingState.preview_available);
+    $('radar-plus-device')?.classList.toggle('hidden',!plus||!billingState.enabled);
+    if(!plus)$('radar-plus-code-box')?.classList.add('hidden');
+    $('radar-plus-have')?.classList.toggle('hidden',plus||!billingState.enabled);
+    // Paid features say so up front, once Radar+ can be bought.
+    document.querySelectorAll('[data-plus]').forEach(el=>el.classList.toggle('needs-plus',Boolean(billingState.enabled)&&!hasPlusFeature(el.dataset.plus)));
     const top=$('radar-plus'); if(top)top.textContent=plus?'Radar+ ✓':'Radar+';
   }
 
@@ -1289,6 +1294,7 @@
     row.querySelectorAll('[data-late-only]').forEach(chip=>chip.setAttribute('aria-pressed',String(lateTrainsOnly)));
     row.querySelectorAll('[data-sub-action="bus-stops"]').forEach(chip=>chip.setAttribute('aria-pressed',String(placeMode==='bus')));
     row.querySelectorAll('[data-sub-action="traffic"]').forEach(chip=>chip.setAttribute('aria-pressed',String(trafficMode!=='off')));
+    row.querySelectorAll('[data-sub-action="webcams"]').forEach(chip=>chip.setAttribute('aria-pressed',String(webcamsEnabled)));
     row.querySelectorAll('[data-sub-action="radar"]').forEach(chip=>chip.setAttribute('aria-pressed',String(rainRadar.wanted)));
     row.querySelectorAll('[data-sub-action="radar-play"]').forEach(chip=>{chip.setAttribute('aria-pressed',String(Boolean(rainRadar.timer)));chip.hidden=chip.dataset.subFor!==group||!rainRadar.wanted;});
   }
@@ -1924,6 +1930,7 @@
     button.classList.toggle('active', webcamsEnabled);
     button.setAttribute('aria-pressed', String(webcamsEnabled));
     $('map').dataset.webcams = webcamsEnabled ? 'on' : 'off';
+    updateSubChips();
     const label = button.querySelector('small');
     if (label) label.textContent = webcamsEnabled ? `${cameras.length} mapped live cameras` : 'Official mapped feeds in this view';
   }
@@ -5992,6 +5999,7 @@
     else if(action==='camera')startCameraView(chip.dataset.subFor);
     else if(action==='journey')jobJourney();
     else if(action==='traffic')$('traffic-quick')?.click();
+    else if(action==='webcams'){$('live-webcams')?.click();updateSubChips();}
     else if(action==='radar'){rainRadar.wanted=!rainRadar.wanted;syncRainRadar();updateSubChips();}
     else if(action==='radar-play'){toggleRainRadarPlay();updateSubChips();}
   }));
@@ -6042,6 +6050,29 @@
     finally{button.disabled=false;button.textContent=label;}
   });
   $('radar-plus-portal')?.addEventListener('click',async()=>{try{const payload=await postBilling('/api/billing/portal');location.assign(payload.portal_url);}catch(error){showToast(error.message);}});
+  $('radar-plus-device')?.addEventListener('click',async()=>{
+    try{
+      const payload=await postBilling('/api/billing/device-code');
+      $('radar-plus-code').textContent=payload.code;
+      $('radar-plus-code-box')?.classList.remove('hidden');
+      trackProduct('plus_device_code','');
+    }catch(error){showToast(error.message||'Could not make a code right now.');}
+  });
+  $('radar-plus-link')?.addEventListener('submit',async event=>{
+    event.preventDefault();
+    const input=$('radar-plus-link-code');
+    const code=String(input?.value||'').trim();
+    if(!code){input?.focus();return;}
+    try{
+      const response=await fetch('/api/billing/device-link',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({code})});
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(typeof payload.detail==='string'?payload.detail:'That code did not work.');
+      if(input)input.value='';
+      await loadBillingStatus();
+      showToast('Radar+ is now on for this device.');
+      trackProduct('plus_device_linked','');
+    }catch(error){showToast(error.message||'That code did not work.');}
+  });
   $('radar-plus-logout')?.addEventListener('click',async()=>{try{await fetch('/api/billing/logout',{method:'POST'});await loadBillingStatus();showToast('Radar+ access was signed out on this device.');}catch{showToast('Could not sign out right now.');}});
   $('radar-plus-preview')?.addEventListener('submit',async event=>{
     event.preventDefault();
@@ -6123,7 +6154,9 @@
     diagnostics.startupExtrasAtMs=Math.round(performance.now());
     loadBillingStatus().then(()=>{
       const status=new URLSearchParams(location.search).get('billing');
-      const messages={success:'Radar+ is active on this device.',pending:'Payment is still processing.',failed:'Payment could not be confirmed.',unavailable:'Radar+ billing is not configured yet.','portal-return':'Subscription settings updated.'};
+      // On iPhone, Safari and the Home Screen app are separate: say how to
+      // carry Radar+ across, since alerts only work from the Home Screen.
+      const messages={success:alertsNeedHomeScreen()?'Radar+ is on. For alerts, add Radar to your Home Screen, then use Radar+ → Use on another device for a code.':'Radar+ is active on this device.',pending:'Payment is still processing.',failed:'Payment could not be confirmed.',unavailable:'Radar+ billing is not configured yet.','portal-return':'Subscription settings updated.'};
       if(status&&messages[status]){showToast(messages[status]);history.replaceState({},'',location.pathname+location.hash);}
       if(status==='success'&&billingState.plus)trackProduct('plus_subscribed',billingState.subscription_status||'active');
     });

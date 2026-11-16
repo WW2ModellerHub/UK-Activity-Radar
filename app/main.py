@@ -20,7 +20,7 @@ from urllib.parse import quote, urlsplit
 from html import escape as html_escape
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
@@ -192,6 +192,9 @@ lookup_request_budget = FixedWindowBudget(
     per_client=settings.public_lookup_requests_per_minute,
     global_limit=settings.public_lookup_global_per_minute,
 )
+
+# Typing a Radar+ device code: few tries, so codes cannot be guessed.
+device_code_budget = FixedWindowBudget(per_client=10, global_limit=120)
 
 billing_configuration = BillingConfiguration(
     enabled=settings.billing_enabled,
@@ -1625,6 +1628,40 @@ def billing_logout(request: Request):
     return response
 
 
+class DeviceLinkRequest(BaseModel):
+    code: str = Field(min_length=4, max_length=16)
+
+
+@app.post("/api/billing/device-code")
+def billing_device_code(request: Request):
+    """A one-time code to add this subscription to another device."""
+    _require_same_origin_post(request)
+    if billing_store is None or billing_service is None:
+        raise HTTPException(status_code=503, detail="Radar+ billing is not configured yet")
+    context = _billing_context(request)
+    if not (context.plus and context.customer_id and context.token_valid):
+        raise HTTPException(status_code=401, detail="Radar+ is not active on this device")
+    code = billing_store.create_device_code(context.customer_id)
+    return JSONResponse({"code": code, "expires_in": 600}, headers={"Cache-Control": "private, no-store"})
+
+
+@app.post("/api/billing/device-link")
+def billing_device_link(request: Request, payload: DeviceLinkRequest):
+    """Turn on Radar+ here with a code from a device that already has it."""
+    _require_same_origin_post(request)
+    _enforce_public_budget(request, device_code_budget)
+    if billing_store is None or billing_service is None:
+        raise HTTPException(status_code=503, detail="Radar+ billing is not configured yet")
+    customer_id = billing_store.consume_device_code(payload.code)
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="That code is not right or has run out. Get a new one on the device that has Radar+.")
+    token = billing_store.issue_access_token(customer_id, ttl_seconds=billing_configuration.access_ttl_seconds)
+    response = JSONResponse({"ok": True}, headers={"Cache-Control": "private, no-store"})
+    response.set_cookie(ACCESS_COOKIE, token, max_age=billing_configuration.access_ttl_seconds,
+                        path="/", secure=True, httponly=True, samesite="lax")
+    return response
+
+
 @app.post("/api/billing/webhook", include_in_schema=False)
 async def billing_webhook(request: Request):
     if billing_service is None:
@@ -2876,14 +2913,14 @@ async def websocket_updates(websocket: WebSocket):
                 streamed_events = [row for row in streamed_events if row.type in visible_types]
             streamed = [*streamed_vehicles, *streamed_events]
             if all_types and not websocket_access.has("cool_full"):
-                # ``types: null`` is the Discover request. Free visitors receive
-                # a useful three-item preview; the browser cannot bypass the
-                # Radar+ limit by reading the websocket directly.
+                # ``types: null`` is the Discover request. Free visitors get the
+                # same number of finds as the Discover list; the browser cannot
+                # bypass the Radar+ limit by reading the websocket directly.
                 streamed = sorted(
                     (row for row in streamed if row.cool_candidate),
                     key=lambda row: (row.cool_score or 0, row.last_updated),
                     reverse=True,
-                )[:3]
+                )[:FREE_DISCOVER_FINDS]
                 allowed_ids = {row.id for row in streamed}
                 streamed_vehicles = [row for row in streamed_vehicles if row.id in allowed_ids]
                 streamed_events = [row for row in streamed_events if row.id in allowed_ids]

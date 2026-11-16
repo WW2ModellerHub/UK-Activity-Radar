@@ -1,5 +1,22 @@
 # Codex stabilization changelog
 
+## 2026-11-16 — Radar+ ready for paying customers
+
+- Radar+ on another device: a subscriber taps "Use Radar+ on another
+  device" for a one-time 8-character code (10 minutes, once only, only while
+  the subscription is active, stored hashed). The other device types it
+  under "Already have Radar+?". This matters most on iPhone, where the Home
+  Screen app (needed for alerts) does not share Safari's sign-in. Code
+  guesses are limited to 10 a minute per visitor.
+- Paid features carry a small "Radar+" label for free visitors once Radar+
+  can be bought: Live traffic, Traffic cameras, Plan a journey, Follow on
+  map, spotter alerts. Subscribers and payment-off sites see none.
+- Discover over the live connection gave free visitors 3 finds while the
+  list gave 10; both now give 10.
+- Traffic cameras moved from the top of More to the Map tools beside Live
+  traffic, and appear as a chip when Roadworks or Incidents are on.
+- Terms say how Radar+ works across devices.
+
 ## 2026-11-16 — Google Tag Manager
 
 - New `GTM_CONTAINER_ID` setting (render.yaml: GTM-N2JVR3QZ). Like GA4 it
