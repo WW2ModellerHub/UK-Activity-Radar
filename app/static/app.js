@@ -4651,11 +4651,17 @@
     button.textContent=spotter?'Turn off':'Turn on';
     button.classList.toggle('primary-button',!spotter);button.classList.toggle('mini-button',Boolean(spotter));
     if(spotter&&radius)radius.value=String(spotter.radius_miles);
+    if(spotter){
+      const legacy={rail:['steam','test','loco'],air:['military']};
+      const kinds=new Set((spotter.kinds||[]).flatMap(kind=>legacy[kind]||[kind]));
+      document.querySelectorAll('[data-spotter-kind]').forEach(box=>{box.checked=kinds.has(box.dataset.spotterKind);});
+    }
     const unsupported=pushUnsupportedReason();
     note.textContent=!commuteAlertStatus.configured?'Alerts are not available yet.'
       : spotter?`On within ${spotter.radius_miles} miles of where you switched it on. Turn it off and on again to move it.`
-      : (alertsNeedHomeScreen()?'':unsupported)||'A phone alert for steam trains, charters and military aircraft, 7am to 10pm.';
+      : (alertsNeedHomeScreen()?'':unsupported)||'A phone alert when one of these comes near you, 7am to 10pm.';
   }
+  function spotterKinds(){ return [...document.querySelectorAll('[data-spotter-kind]:checked')].map(box=>box.dataset.spotterKind); }
   async function toggleSpotter() {
     const on=Boolean(commuteAlertStatus.subscribed&&commuteAlertStatus.preferences?.spotter);
     if(on){
@@ -4669,7 +4675,9 @@
     let fix;
     try { fix=await currentFix(); } catch(error){ showToast(error.message); return; }
     const radius=Number($('spotter-radius')?.value||10);
-    const ok=await savePushPreferences({...currentPushPreferences(),spotter:{lat:fix.lat,lon:fix.lon,radius_miles:radius}});
+    const kinds=spotterKinds();
+    if(!kinds.length){showToast('Tick at least one kind of thing to be told about.');return;}
+    const ok=await savePushPreferences({...currentPushPreferences(),spotter:{lat:fix.lat,lon:fix.lon,radius_miles:radius,kinds}});
     showToast(ok?`Spotter alerts are on within ${radius} miles of you.`:'Alerts couldn’t be turned on. Check notifications are allowed for this site.');
     if(ok)trackProduct('spotter_enabled',String(radius));
   }
@@ -5906,6 +5914,15 @@
   $('commute-alert-disable')?.addEventListener('click',disableCommuteAlerts);
   $('commute-alert-test')?.addEventListener('click',sendTestAlert);
   $('spotter-toggle')?.addEventListener('click',toggleSpotter);
+  // Changing what to be told about takes effect at once when spotting is on.
+  document.querySelectorAll('[data-spotter-kind]').forEach(box=>box.addEventListener('change',async()=>{
+    const spotter=commuteAlertStatus.subscribed?commuteAlertStatus.preferences?.spotter:null;
+    if(!spotter)return;
+    const kinds=spotterKinds();
+    if(!kinds.length){box.checked=true;showToast('Keep at least one ticked, or turn spotter alerts off.');return;}
+    const ok=await savePushPreferences({...currentPushPreferences(),spotter:{...spotter,kinds}});
+    if(!ok)showToast('That couldn’t be saved right now.');
+  }));
   $('spotter-radius')?.addEventListener('change',()=>{ if(commuteAlertStatus.subscribed&&commuteAlertStatus.preferences?.spotter)savePushPreferences({...currentPushPreferences(),spotter:{...commuteAlertStatus.preferences.spotter,radius_miles:Number($('spotter-radius').value||10)}}); });
 
   document.querySelectorAll('.workspace-tab[data-workspace]').forEach(btn=>btn.addEventListener('click',()=>{

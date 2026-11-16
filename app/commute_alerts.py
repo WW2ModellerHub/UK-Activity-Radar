@@ -55,7 +55,10 @@ def normalise_spotter(raw) -> dict | None:
         return None
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return None
-    kinds = sorted({str(k).lower() for k in (raw.get("kinds") or SPOTTER_KINDS) if str(k).lower() in SPOTTER_KINDS})
+    asked = set()
+    for kind in raw.get("kinds") or SPOTTER_KINDS:
+        asked.update(_LEGACY_SPOTTER_KINDS.get(str(kind).lower(), {str(kind).lower()}))
+    kinds = sorted(asked & SPOTTER_KINDS)
     return {"lat": round(lat, 4), "lon": round(lon, 4), "radius_miles": max(2.0, min(radius, 50.0)),
             "kinds": kinds or sorted(SPOTTER_KINDS)}
 
@@ -277,8 +280,27 @@ def road_key_prefix(now: datetime | None = None) -> str:
 # ---- Spotter alerts -----------------------------------------------------
 # "Tell me when something unusual is near me": the same finds Discover lists
 # (steam, charters, military and rescue aircraft), within a chosen distance.
-SPOTTER_KINDS = {"rail", "air"}
+# What can be ticked, and which Discover kinds each covers. Ordinary freight
+# is left out (it would alert all day), and live rescues always are.
+SPOTTER_KIND_SUBTYPES = {
+    "steam": {"steam", "railtour-special", "special-passenger"},
+    "test": {"test-measurement"},
+    "loco": {"locomotive-move", "engineering"},
+    "military": {"combat-aircraft", "military-transport", "military-tanker", "military-helicopter", "bomber",
+                 "airborne-surveillance", "intelligence-aircraft", "maritime-patrol", "display-aircraft"},
+}
+SPOTTER_KINDS = set(SPOTTER_KIND_SUBTYPES)
+_SUBTYPE_KIND = {subtype: kind for kind, subtypes in SPOTTER_KIND_SUBTYPES.items() for subtype in subtypes}
+# Saved before the tick boxes: "rail" and "air".
+_LEGACY_SPOTTER_KINDS = {"rail": {"steam", "test", "loco"}, "air": {"military"}}
 SPOTTER_HOURS = (7, 22)  # local time; nobody wants a Hercules at 3 am
+
+
+def _expand_legacy(kinds) -> set:
+    out = set()
+    for kind in kinds or ():
+        out.update(_LEGACY_SPOTTER_KINDS.get(str(kind), set()))
+    return out
 
 
 def spotter_alert(item, spotter: dict | None, now: datetime | None = None) -> dict | None:
@@ -286,7 +308,10 @@ def spotter_alert(item, spotter: dict | None, now: datetime | None = None) -> di
         return None
     category = str(getattr(item, "cool_category", "") or "").lower()
     # Live rescues are never something to travel towards.
-    if category not in spotter.get("kinds", ()) or getattr(item, "kind", "vehicle") != "vehicle":
+    if category == "rescue" or getattr(item, "kind", "vehicle") != "vehicle":
+        return None
+    kind = _SUBTYPE_KIND.get(str(getattr(item, "cool_subtype", "") or ""))
+    if kind is None or kind not in set(spotter.get("kinds") or ()) | _expand_legacy(spotter.get("kinds")):
         return None
     local = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("Europe/London"))
     if not (SPOTTER_HOURS[0] <= local.hour < SPOTTER_HOURS[1]):

@@ -73,10 +73,11 @@ def test_spotter_alerts_fire_for_unusual_things_nearby_in_the_daytime():
 
     preferences = normalise_preferences({"mode": "trains-only", "spotter": {"lat": 52.0, "lon": -1.0, "radius_miles": 10}})
     spotter = preferences["spotter"]
-    assert spotter == {"lat": 52.0, "lon": -1.0, "radius_miles": 10.0, "kinds": ["air", "rail"]}
+    assert spotter == {"lat": 52.0, "lon": -1.0, "radius_miles": 10.0, "kinds": ["loco", "military", "steam", "test"]}
     noon = datetime(2026, 11, 14, 12, 0, tzinfo=timezone.utc)
     hercules = Vehicle(id="aircraft:1", type="aircraft", name="RRR4501", lat=52.05, lon=-1.0, source="ADSB.lol",
                        aircraft_model="Lockheed Martin C-130 Hercules", cool_candidate=True, cool_category="air",
+                       cool_subtype="military-transport",
                        cool_explanation="Military transport aircraft.")
     alert = spotter_alert(hercules, spotter, noon)
     assert alert["key"] == "spot:aircraft:1" and alert["title"] == "Lockheed Martin C-130 Hercules about 3 miles away"
@@ -184,3 +185,28 @@ def test_without_radar_plus_only_one_saved_train_alerts_once_payments_are_on(mon
     monkeypatch.setattr(main, "_billing_context", lambda request: AccessContext(
         token_valid=True, customer_id="cus_1", plan="plus", subscription_status="active", features=PLUS_FEATURES))
     assert main._free_alert_allowance(wanted, request) == wanted
+
+
+def test_spotter_tick_boxes_choose_what_alerts():
+    from datetime import datetime, timezone
+
+    from app.commute_alerts import spotter_alert
+    from app.models import Vehicle
+
+    noon = datetime(2026, 11, 14, 12, 0, tzinfo=timezone.utc)
+    def thing(subtype, category="rail", kind_type="train"):
+        return Vehicle(id=f"x:{subtype}", type=kind_type, name="1Z99", lat=52.01, lon=-1.0, source="test",
+                       cool_candidate=True, cool_category=category, cool_subtype=subtype)
+    steam_only = normalise_preferences({"mode": "trains-only", "spotter": {"lat": 52.0, "lon": -1.0, "kinds": ["steam"]}})["spotter"]
+    assert steam_only["kinds"] == ["steam"]
+    assert spotter_alert(thing("steam"), steam_only, noon) is not None
+    assert spotter_alert(thing("test-measurement"), steam_only, noon) is None
+    assert spotter_alert(thing("military-helicopter", "air", "aircraft"), steam_only, noon) is None
+    everything = normalise_preferences({"mode": "trains-only", "spotter": {"lat": 52.0, "lon": -1.0}})["spotter"]
+    assert spotter_alert(thing("freight"), everything, noon) is None          # ordinary freight never alerts
+    assert spotter_alert(thing("sar-aircraft", "rescue", "aircraft"), everything, noon) is None   # nor rescues
+    # Saved before the tick boxes ("rail", "air") still works.
+    assert normalise_preferences({"mode": "trains-only", "spotter": {"lat": 52.0, "lon": -1.0, "kinds": ["rail"]}})["spotter"]["kinds"] == ["loco", "steam", "test"]
+    old = {"lat": 52.0, "lon": -1.0, "radius_miles": 10.0, "kinds": ["air", "rail"]}
+    assert spotter_alert(thing("military-transport", "air", "aircraft"), old, noon) is not None
+    assert spotter_alert(thing("locomotive-move"), old, noon) is not None

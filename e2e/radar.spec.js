@@ -1600,11 +1600,15 @@ test('spotter alerts switch on from Discover with the place and distance', async
   await page.locator('#spotter-radius').selectOption('25');
   await page.locator('#spotter-toggle').click();
   await expect(page.locator('#spotter-state')).toHaveText('ON');
-  expect(posted[0].preferences.spotter).toEqual({ lat:52.04, lon:-0.76, radius_miles:25 });
+  expect(posted[0].preferences.spotter).toEqual({ lat:52.04, lon:-0.76, radius_miles:25, kinds:['steam','test','loco','military'] });
+  // Unticking one updates what is watched straight away.
+  await page.locator('[data-spotter-kind="military"]').uncheck();
+  await expect.poll(() => posted.length).toBe(2);
+  expect(posted[1].preferences.spotter.kinds).toEqual(['steam','test','loco']);
   await expect(page.locator('#spotter-note')).toContainText('On within 25 miles');
   await page.locator('#spotter-toggle').click();
   await expect(page.locator('#spotter-state')).toHaveText('OFF');
-  expect(posted[1].preferences.spotter).toBeNull();
+  expect(posted[2].preferences.spotter).toBeNull();
 });
 
 test('a drive can be watched, so the phone warns before leaving', async ({ page }) => {
