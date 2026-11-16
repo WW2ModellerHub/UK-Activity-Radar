@@ -1130,16 +1130,32 @@ def _operator_rows() -> list[dict]:
     return rows
 
 
-def _cached_page(key: str, seconds: int, build) -> Response:
-    # Search engines fetch many pages; a short cache keeps that cheap.
+# Building a page with a live board is heavy. A search engine crawling
+# thousands at once must never starve the live map (that took the site down),
+# so only one is built at a time; meanwhile others get the last copy, or a
+# light version without the board.
+_seo_build_lock = threading.Lock()
+
+
+def _cached_page(key: str, seconds: int, build, light=None) -> Response:
     now = time.monotonic()
     hit = _seo_page_cache.get(key)
-    if not hit or now - hit[0] > seconds:
-        hit = (now, build())
-        _seo_page_cache[key] = hit
-        if len(_seo_page_cache) > 3000:
-            for old in sorted(_seo_page_cache, key=lambda k: _seo_page_cache[k][0])[:500]:
-                _seo_page_cache.pop(old, None)
+    if hit and now - hit[0] <= seconds:
+        return Response(hit[1], media_type="text/html", headers={"Cache-Control": f"public, max-age={seconds}"})
+    if not _seo_build_lock.acquire(timeout=0.5 if light is None else 0):
+        if hit:
+            return Response(hit[1], media_type="text/html", headers={"Cache-Control": "public, max-age=60"})
+        if light is not None:
+            return Response(light(), media_type="text/html", headers={"Cache-Control": "public, max-age=60"})
+        raise HTTPException(status_code=503, detail="Busy, try again shortly", headers={"Retry-After": "30"})
+    try:
+        hit = (time.monotonic(), build())
+    finally:
+        _seo_build_lock.release()
+    _seo_page_cache[key] = hit
+    if len(_seo_page_cache) > 3000:
+        for old in sorted(_seo_page_cache, key=lambda k: _seo_page_cache[k][0])[:500]:
+            _seo_page_cache.pop(old, None)
     return Response(hit[1], media_type="text/html", headers={"Cache-Control": f"public, max-age={seconds}"})
 
 
@@ -1173,7 +1189,9 @@ def station_page_route(name: str, request: Request):
             key=lambda row: _haversine_km(station["lat"], station["lon"], row["lat"], row["lon"]),
         )[:6]
         return station_page(origin, station, board, others, _operator_rows())
-    return _cached_page(f"station:{crs}", 90, build)
+    def light() -> str:
+        return station_page(origin, station, None, [], [])
+    return _cached_page(f"station:{crs}", 600, build, light)
 
 
 @app.get("/operators", include_in_schema=False)

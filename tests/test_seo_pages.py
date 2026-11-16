@@ -99,3 +99,24 @@ def test_a_bare_train_still_previews_with_something_useful(monkeypatch):
     title, description = _share_preview_text({"type": "train", "name": "1H71", "near": "Near Rugby"})
     assert title == "1H71 · Near Rugby"
     assert description == "Live train near Rugby · follow it on the live map"
+
+
+def test_a_busy_server_serves_a_light_station_page_instead_of_piling_up(monkeypatch):
+    client = _client(monkeypatch)
+    assert main._seo_build_lock.acquire()      # another page is being built
+    try:
+        page = client.get("/station/rugby-rug")
+        assert page.status_code == 200
+        assert "Rugby departures" in page.text
+        assert "are on the live map" in page.text and "Birmingham New Street" not in page.text
+        assert page.headers["cache-control"] == "public, max-age=60"
+    finally:
+        main._seo_build_lock.release()
+    full = client.get("/station/rugby-rug")
+    assert "Birmingham New Street" in full.text and full.headers["cache-control"] == "public, max-age=600"
+    # Once built, it is served from the copy even while another build runs.
+    assert main._seo_build_lock.acquire()
+    try:
+        assert "Birmingham New Street" in client.get("/station/rugby-rug").text
+    finally:
+        main._seo_build_lock.release()
