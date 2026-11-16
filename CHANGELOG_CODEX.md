@@ -1,5 +1,25 @@
 # Codex stabilization changelog
 
+## 2026-11-16 — Radar+: yearly, free trial, alerts at the centre
+
+- **Yearly price.** Optional `STRIPE_PLUS_YEARLY_PRICE_ID` adds a yearly
+  option next to monthly (`RADAR_PLUS_YEARLY_PRICE_DISPLAY`, default
+  "£24.99/year"). Checkout takes `?period=month|year`; the chosen price is
+  bound to the checkout state as before, so a session cannot be swapped
+  between them. Webhooks accept either price as Radar+.
+- **Free trial.** `RADAR_PLUS_TRIAL_DAYS` (default 7, 0 to turn off) is passed
+  to Stripe as `trial_period_days`; "trialing" subscriptions already count
+  as active. The Radar+ window says the trial and its terms up front.
+- **What Radar+ is.** New `alerts_pro` feature: alerts for every saved
+  train, when-to-leave, journey watch, spotter and nearby-place alerts. Free
+  keeps phone alerts for one saved train. Enforced on the server when
+  alerts are saved, and only once payments are switched on: while they are
+  off, nothing is limited. Plan wording in the app and `/api/product/plans`
+  rewritten around this.
+- **Tracking.** `plus_checkout_started` (with month/year), `plus_subscribed`
+  and `plus_limit_reached` (with which feature) for analytics.
+- Terms updated for yearly billing and the trial (effective 16 November).
+
 ## 2026-11-15 — link previews and pages for search
 
 - **Link previews.** A shared link (WhatsApp, iMessage, X, Facebook) now

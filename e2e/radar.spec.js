@@ -1925,3 +1925,34 @@ test('a station page link opens that station in the app', async ({ page }) => {
   await expect(page.locator('#detail-title')).toContainText('Milton Keynes Central', { timeout:8000 });
   expect(new URL(page.url()).search).toBe('');
 });
+
+test('Radar+ offers monthly or yearly with a free trial, and tracks the checkout', async ({ page }) => {
+  const checkouts = [];
+  await page.route('**/api/billing/status', route => route.fulfill({ json:{ enabled:true, plan:'free', plus:false, features:[], price_display:'£3.99/month',
+    yearly_available:true, yearly_price_display:'£24.99/year', trial_days:7 } }));
+  await page.route('**/api/billing/checkout**', route => { checkouts.push(new URL(route.request().url()).searchParams.get('period')); return route.fulfill({ status:503, json:{ detail:'Test stop' } }); });
+  await page.reload();
+  await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout:5000 });
+  await page.evaluate(() => document.getElementById('radar-plus')?.click());
+  await expect(page.locator('#plus-trial')).toHaveText('Free for 7 days, then charged unless you cancel. Cancel any time.');
+  await expect(page.locator('#radar-plus-yearly')).toHaveText('£24.99/year · best value');
+  await expect(page.locator('#radar-plus-checkout')).toHaveText('£3.99/month');
+  await page.locator('#radar-plus-yearly').click();
+  await expect.poll(() => checkouts).toEqual(['year']);
+  await page.locator('#radar-plus-checkout').click();
+  await expect.poll(() => checkouts).toEqual(['year','month']);
+});
+
+test('without Radar+, spotter alerts point to Radar+ once it can be bought', async ({ page }) => {
+  await page.route('**/api/billing/status', route => route.fulfill({ json:{ enabled:true, plan:'free', plus:false, features:[], price_display:'£3.99/month', trial_days:7 } }));
+  await page.reload();
+  await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout:5000 });
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.04,longitude:-0.76}});}}}));
+  let subscribed = 0;
+  await page.route('**/api/alerts/subscribe', route => { subscribed += 1; return route.fulfill({ json:{ ok:true } }); });
+  await page.getByRole('button', { name: /Discover/ }).click();
+  await page.locator('#spotter-toggle').click();
+  await expect(page.locator('#watch-toast')).toContainText('Spotter alerts are part of Radar+');
+  await expect(page.locator('#plus-dialog')).toHaveAttribute('open', '');
+  expect(subscribed).toBe(0);
+});

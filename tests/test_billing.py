@@ -415,3 +415,48 @@ def test_webhook_rejects_test_live_mode_mismatch(service, gateway):
     )
     with pytest.raises(BillingWebhookError):
         service.handle_webhook(b"{}", "t=1,v1=signed")
+
+
+def test_yearly_checkout_uses_the_yearly_price_and_a_trial(store, gateway):
+    yearly = StripeBillingService(store, config(stripe_plus_yearly_price_id="price_plus_year", trial_days=7), gateway=gateway)
+    started = yearly.create_checkout("plus", period="year")
+    params, _ = gateway.checkout_calls[0]
+    assert params["line_items"] == [{"price": "price_plus_year", "quantity": 1}]
+    assert params["subscription_data"]["trial_period_days"] == 7
+    assert params["subscription_data"]["metadata"]["radar_plan"] == "plus"
+    # A trialling subscription on the yearly price unlocks Radar+.
+    session_id = "cs_test_1"
+    gateway.sessions[session_id] = {
+        "id": session_id, "mode": "subscription", "status": "complete", "client_reference_id": started.client_reference,
+        "customer": "cus_1", "subscription": "sub_1", "line_items": {"data": [{"price": {"id": "price_plus_year"}}]},
+    }
+    gateway.subscriptions["sub_1"] = subscription(status="trialing", price="price_plus_year")
+    confirmation = yearly.confirm_checkout(session_id, started.state_token)
+    assert confirmation.plan == "plus" and confirmation.subscription_status == "trialing"
+    assert "alerts_pro" in store.access_context(confirmation.access_token).features
+
+
+def test_a_checkout_cannot_swap_monthly_for_yearly_after_the_fact(store, gateway):
+    both = StripeBillingService(store, config(stripe_plus_yearly_price_id="price_plus_year"), gateway=gateway)
+    started = both.create_checkout("plus", period="month")
+    session_id = "cs_test_1"
+    gateway.sessions[session_id] = {
+        "id": session_id, "mode": "subscription", "status": "complete", "client_reference_id": started.client_reference,
+        "customer": "cus_1", "subscription": "sub_1", "line_items": {"data": [{"price": {"id": "price_plus_year"}}]},
+    }
+    gateway.subscriptions["sub_1"] = subscription(price="price_plus_year")
+    with pytest.raises(BillingStateError):
+        both.confirm_checkout(session_id, started.state_token)
+
+
+def test_yearly_needs_its_own_price_and_trials_are_optional(service, gateway):
+    with pytest.raises(BillingStateError):
+        service.create_checkout("plus", period="year")          # no yearly price configured
+    with pytest.raises(BillingStateError):
+        service.create_checkout("plus", period="fortnight")
+    service.create_checkout("plus")
+    assert "trial_period_days" not in gateway.checkout_calls[0][0]["subscription_data"]
+    from app.billing import billing_configuration_errors
+    assert any("YEARLY" in e for e in billing_configuration_errors(config(stripe_plus_yearly_price_id="year")))
+    assert any("YEARLY" in e for e in billing_configuration_errors(config(stripe_plus_yearly_price_id="price_plus")))
+    assert any("TRIAL" in e for e in billing_configuration_errors(config(trial_days=90)))

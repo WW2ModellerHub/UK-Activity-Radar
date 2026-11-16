@@ -123,7 +123,10 @@ def test_leave_now_times_the_alert_to_the_train_and_moves_with_its_delay():
 
     from app.commute_alerts import leave_alert
 
-    depart = datetime(2026, 11, 16, 7, 42, tzinfo=timezone.utc)
+    # Always tomorrow at 07:42 UK time, so the plan is never already in the past.
+    from zoneinfo import ZoneInfo
+    london = ZoneInfo("Europe/London")
+    depart = (datetime.now(london) + timedelta(days=1)).replace(hour=7, minute=42, second=0, microsecond=0).astimezone(timezone.utc)
     now = depart - timedelta(minutes=60)
     plans = normalise_preferences({"mode": "trains-only", "leave_plans": [
         {"train_id": "nr:1L56", "train_name": "1L56", "station": "Rugby", "minutes": 15, "depart": depart.isoformat()},
@@ -158,3 +161,26 @@ def test_the_worker_is_served_from_the_top_of_the_site_so_it_covers_the_app_page
     script = (main.STATIC_DIR / "app.js").read_text(encoding="utf-8")
     assert "register('/service-worker.js',{scope:'/'})" in script
     assert "register('/static/service-worker.js')" not in script
+
+
+def test_without_radar_plus_only_one_saved_train_alerts_once_payments_are_on(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.billing import AccessContext, PLUS_FEATURES
+
+    wanted = {"mode": "train", "place_id": "x", "lat": 52.0, "lon": -1.0, "saved_trains": ["nr:1", "nr:2", "nr:3"],
+              "spotter": {"lat": 52.0, "lon": -1.0}, "journey": {"points": []}, "leave_plans": [{"train_id": "nr:1"}]}
+    request = SimpleNamespace(cookies={})
+    # Payments off: nobody can buy Radar+, so nothing is limited.
+    monkeypatch.setattr(main, "billing_service", None)
+    assert main._free_alert_allowance(wanted, request) == wanted
+    # Payments on, free: one saved train, nothing else.
+    monkeypatch.setattr(main, "billing_service", object())
+    monkeypatch.setattr(main, "_billing_context", lambda request: AccessContext())
+    free = main._free_alert_allowance(wanted, request)
+    assert free["saved_trains"] == ["nr:1"] and free["mode"] == "trains-only"
+    assert free["spotter"] is None and free["journey"] is None and free["leave_plans"] == []
+    # Radar+: everything.
+    monkeypatch.setattr(main, "_billing_context", lambda request: AccessContext(
+        token_valid=True, customer_id="cus_1", plan="plus", subscription_status="active", features=PLUS_FEATURES))
+    assert main._free_alert_allowance(wanted, request) == wanted

@@ -43,8 +43,12 @@ PLUS_FEATURES = frozenset(
         "traffic_pro",
         "fast_updates",
         "live_tracking",
+        # Alerts beyond one saved train: more trains, leave-now, journey
+        # watch, spotter and nearby-place alerts.
+        "alerts_pro",
     }
 )
+BILLING_PERIODS = ("month", "year")
 
 MAX_WEBHOOK_BYTES = 256 * 1024
 
@@ -84,6 +88,9 @@ class BillingConfiguration:
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
     stripe_plus_price_id: str = ""
+    # Optional: a yearly price for the same plan, and a free trial.
+    stripe_plus_yearly_price_id: str = ""
+    trial_days: int = 0
     token_pepper: str = ""
     cookie_secure: bool = True
     checkout_ttl_seconds: int = 20 * 60
@@ -130,6 +137,12 @@ def billing_configuration_errors(config: BillingConfiguration) -> tuple[str, ...
         errors.append("STRIPE_WEBHOOK_SECRET is not a Stripe webhook secret")
     if config.stripe_plus_price_id and not config.stripe_plus_price_id.startswith("price_"):
         errors.append("STRIPE_PLUS_PRICE_ID is not a Stripe Price ID")
+    if config.stripe_plus_yearly_price_id and not config.stripe_plus_yearly_price_id.startswith("price_"):
+        errors.append("STRIPE_PLUS_YEARLY_PRICE_ID is not a Stripe Price ID")
+    if config.stripe_plus_yearly_price_id and config.stripe_plus_yearly_price_id == config.stripe_plus_price_id:
+        errors.append("STRIPE_PLUS_YEARLY_PRICE_ID must differ from STRIPE_PLUS_PRICE_ID")
+    if not 0 <= int(config.trial_days) <= 30:
+        errors.append("RADAR_PLUS_TRIAL_DAYS must be between 0 and 30")
     if config.token_pepper and len(config.token_pepper.encode("utf-8")) < 32:
         errors.append("BILLING_TOKEN_PEPPER must contain at least 32 bytes")
     if not config.cookie_secure:
@@ -955,7 +968,18 @@ class StripeBillingService:
         return self.config.public_base_url.rstrip("/")
 
     def _plan_for_price(self, price_id: str) -> str:
-        return PLAN_PLUS if hmac.compare_digest(price_id, self.config.stripe_plus_price_id) else "unknown"
+        prices = [self.config.stripe_plus_price_id, self.config.stripe_plus_yearly_price_id]
+        return PLAN_PLUS if any(p and hmac.compare_digest(price_id, p) for p in prices) else "unknown"
+
+    def price_for(self, period: str) -> str:
+        """The Stripe Price for a billing period; yearly only when configured."""
+        if period == "year":
+            if not self.config.stripe_plus_yearly_price_id:
+                raise BillingStateError("Yearly Radar+ is not available")
+            return self.config.stripe_plus_yearly_price_id
+        if period != "month":
+            raise BillingStateError("Unknown billing period")
+        return self.config.stripe_plus_price_id
 
     @staticmethod
     def _hosted_url(value: object, *, expected_host: str | None = None) -> str:
@@ -969,25 +993,29 @@ class StripeBillingService:
             raise BillingStateError("Stripe returned an unexpected hosted URL")
         return url
 
-    def create_checkout(self, plan: str = PLAN_PLUS) -> CheckoutStart:
+    def create_checkout(self, plan: str = PLAN_PLUS, period: str = "month") -> CheckoutStart:
         gateway = self._require_enabled()
         if plan != PLAN_PLUS:
             raise BillingStateError("Unknown paid plan")
+        price_id = self.price_for(period)
         grant = self.store.create_checkout_state(
             plan=PLAN_PLUS,
-            price_id=self.config.stripe_plus_price_id,
+            price_id=price_id,
             ttl_seconds=self.config.checkout_ttl_seconds,
         )
+        subscription_data: dict[str, Any] = {
+            "metadata": {"radar_plan": PLAN_PLUS, "radar_checkout_ref": grant.client_reference}
+        }
+        if self.config.trial_days:
+            subscription_data["trial_period_days"] = int(self.config.trial_days)
         params = {
             "mode": "subscription",
-            "line_items": [{"price": self.config.stripe_plus_price_id, "quantity": 1}],
+            "line_items": [{"price": price_id, "quantity": 1}],
             "success_url": self.base_url + "/billing/success?session_id={CHECKOUT_SESSION_ID}",
             "cancel_url": self.base_url + "/?billing=cancelled",
             "client_reference_id": grant.client_reference,
             "metadata": {"radar_plan": PLAN_PLUS, "radar_checkout_ref": grant.client_reference},
-            "subscription_data": {
-                "metadata": {"radar_plan": PLAN_PLUS, "radar_checkout_ref": grant.client_reference}
-            },
+            "subscription_data": subscription_data,
         }
         session = _plain(
             gateway.create_checkout_session(

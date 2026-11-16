@@ -1266,3 +1266,7 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
 .radar-key small { color: var(--muted); }
 .radar-key a { color: var(--muted); font-size: 11px; }
 @media (max-width: 760px) { .radar-key { bottom: calc(var(--nav-h) + 34px); left: 12px; max-width: calc(100% - 92px); } }
+
+/* Radar+: monthly and yearly side by side, and the trial said up front. */
+.plus-buttons { display: grid; gap: 8px; }
+.plus-trial { margin: 4px 0 8px; font-size: 14px; color: #1e7a54; font-weight: 600; }
