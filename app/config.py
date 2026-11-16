@@ -58,6 +58,10 @@ class Settings:
     google_site_verification: str = os.getenv("GOOGLE_SITE_VERIFICATION", "").strip()
     ga4_enabled: bool = _bool("GA4_ENABLED", False)
     ga4_measurement_id: str = os.getenv("GA4_MEASUREMENT_ID", "").strip().upper()
+    # Google Tag Manager instead of (or as well as) a bare GA4 id. Public, not
+    # a secret; it too loads only after the visitor allows analytics, and only
+    # while GA4_ENABLED is on.
+    gtm_container_id: str = os.getenv("GTM_CONTAINER_ID", "").strip().upper()
     websocket_refresh_seconds: float = max(0.5, float(os.getenv("WEBSOCKET_REFRESH_SECONDS", "1.0")))
 
     # Radar+ is fail-closed. Enabling it without every required Stripe secret,

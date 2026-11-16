@@ -391,7 +391,9 @@
   };
   const analyticsConsentKey='ukRadarAnalyticsConsentV1';
   const ga4MeasurementId=String(document.body?.dataset.ga4MeasurementId||'').trim().toUpperCase();
-  const ga4Configured=/^G-[A-Z0-9]{6,20}$/.test(ga4MeasurementId);
+  const gtmContainerId=String(document.body?.dataset.gtmContainerId||'').trim().toUpperCase();
+  const gtmConfigured=/^GTM-[A-Z0-9]{4,12}$/.test(gtmContainerId);
+  const ga4Configured=/^G-[A-Z0-9]{6,20}$/.test(ga4MeasurementId)||gtmConfigured;
   let ga4Loaded=false;
 
   function loadGoogleAnalytics() {
@@ -399,6 +401,17 @@
     ga4Loaded=true;
     window.dataLayer=window.dataLayer||[];
     window.gtag=window.gtag||function(){window.dataLayer.push(arguments);};
+    // Measurement only: never advertising, whatever the container holds.
+    window.gtag('consent','default',{analytics_storage:'granted',ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied'});
+    if(gtmConfigured){
+      // Tag Manager holds the GA4 tag itself, so GA4 is not set up twice.
+      window.dataLayer.push({'gtm.start':Date.now(),event:'gtm.js'});
+      const script=document.createElement('script');
+      script.async=true;
+      script.src=`https://www.googletagmanager.com/gtm.js?id=${encodeURIComponent(gtmContainerId)}`;
+      document.head.appendChild(script);
+      return;
+    }
     window.gtag('js',new Date());
     window.gtag('config',ga4MeasurementId,{
       anonymize_ip:true,
@@ -437,7 +450,10 @@
   }
 
   async function trackProduct(eventName, feature='') {
-    if(analyticsChoice()==='granted'&&typeof window.gtag==='function'){
+    if(analyticsChoice()==='granted'&&gtmConfigured&&Array.isArray(window.dataLayer)){
+      // A Tag Manager "Custom Event" trigger picks these up by name.
+      window.dataLayer.push({event:eventName,feature_label:String(feature||'').slice(0,64),event_category:'product'});
+    }else if(analyticsChoice()==='granted'&&typeof window.gtag==='function'){
       window.gtag('event',eventName,{feature_label:String(feature||'').slice(0,64),event_category:'product'});
     }
     try {
