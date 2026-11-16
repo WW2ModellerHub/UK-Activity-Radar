@@ -100,3 +100,24 @@ def test_a_shared_link_previews_with_its_own_title_and_picture(monkeypatch):
     gone = client.get("/live/nr%3Agone")
     assert 'content="UK Activity Radar"' in gone.text and "/card.png" in gone.text
     assert client.get("/card.png").content.startswith(b"\x89PNG")
+
+
+def test_tag_manager_is_given_to_the_page_and_allowed_only_when_analytics_are_on(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(main, "settings", _settings(ga4_measurement_id="", gtm_container_id="GTM-N2JVR3QZ"))
+    assert 'data-gtm-container-id="GTM-N2JVR3QZ"' in main.home(_request()).body.decode()
+    monkeypatch.setattr(main, "settings", _settings(ga4_enabled=False, gtm_container_id="GTM-N2JVR3QZ"))
+    assert 'data-gtm-container-id=""' in main.home(_request()).body.decode()
+    monkeypatch.setattr(main, "settings", _settings(gtm_container_id="<script>"))
+    assert 'data-gtm-container-id=""' in main.home(_request()).body.decode()
+
+    from dataclasses import replace
+
+    from app.config import settings as base
+    for enabled, expected in ((True, True), (False, False)):
+        live = replace(base, public_deployment=True, ga4_enabled=enabled, ga4_measurement_id="", gtm_container_id="GTM-N2JVR3QZ")
+        monkeypatch.setattr(main, "settings", live)
+        policy = TestClient(main.app).get("/robots.txt").headers["content-security-policy"]
+        assert ("https://www.googletagmanager.com" in policy) is expected
+        assert "'unsafe-inline'" not in policy.split("script-src", 1)[1].split(";", 1)[0]

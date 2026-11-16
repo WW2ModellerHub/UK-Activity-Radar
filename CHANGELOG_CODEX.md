@@ -1,5 +1,19 @@
 # Codex stabilization changelog
 
+## 2026-11-16 — Google Tag Manager
+
+- New `GTM_CONTAINER_ID` setting (render.yaml: GTM-N2JVR3QZ). Like GA4 it
+  does nothing until `GA4_ENABLED` is true, and the container loads only
+  after the visitor taps "Allow analytics".
+- Consent defaults deny advertising storage, ad user data and
+  personalisation; the app's own events (Radar+ checkout and the like) are
+  pushed to the data layer for Custom Event triggers.
+- With a container set, GA4 is not also loaded directly, so visits are not
+  counted twice: put the GA4 tag inside Tag Manager.
+- The security policy allows Google's tag hosts only while analytics are on,
+  and still blocks inline scripts (so Tag Manager "Custom HTML" tags will not
+  run).
+
 ## 2026-11-16 — faster plane photos
 
 - Everyday planes are not kept on the server, so a tapped plane asked for

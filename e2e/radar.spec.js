@@ -1987,3 +1987,22 @@ test('on a computer or Android, no Home Screen message is shown', async ({ page 
   await page.locator('[data-workspace="live"]').click();
   await expect(page.locator('.commute-alert-card [data-install-hint]')).toBeHidden();
 });
+
+test('Google Tag Manager loads only after analytics are allowed, and never for advertising', async ({ page }) => {
+  const fs = require('fs');
+  const html = fs.readFileSync(require('path').join(__dirname, '..', 'app/static/index.html'), 'utf8')
+    .replace('{{GTM_CONTAINER_ID}}', 'GTM-N2JVR3QZ').replace('{{GA4_MEASUREMENT_ID}}', '');
+  await page.route('https://radar.test/', route => route.fulfill({ contentType:'text/html', body:html }));
+  const loaded = [];
+  await page.route('https://www.googletagmanager.com/**', route => { loaded.push(route.request().url()); return route.fulfill({ contentType:'text/javascript', body:'' }); });
+  await page.evaluate(()=>{ try{ localStorage.removeItem('ukRadarAnalyticsConsentV1'); }catch{} });
+  await page.goto('https://radar.test/');
+  await expect(page.locator('#analytics-consent')).toBeVisible();
+  expect(loaded).toEqual([]);
+  await page.locator('#analytics-accept').click();
+  await expect.poll(()=>loaded.length).toBe(1);
+  expect(loaded[0]).toContain('gtm.js?id=GTM-N2JVR3QZ');
+  const layer = await page.evaluate(()=>window.dataLayer.map(row=>row.event || (row[0]==='consent' ? row[2] : null)).filter(Boolean));
+  expect(layer).toContainEqual(expect.objectContaining({ ad_storage:'denied', ad_personalization:'denied' }));
+  expect(layer).toContain('gtm.js');
+});

@@ -969,6 +969,19 @@ def _valid_ga4_measurement_id(value: str) -> bool:
     return bool(re.fullmatch(r"G-[A-Z0-9]{6,20}", value or ""))
 
 
+def _valid_gtm_container_id(value: str) -> bool:
+    return bool(re.fullmatch(r"GTM-[A-Z0-9]{4,12}", value or ""))
+
+
+def _analytics_ids() -> tuple[str, str]:
+    """(GA4 id, Tag Manager id) to give the page; empty when analytics are off."""
+    if not getattr(settings, "ga4_enabled", False):
+        return "", ""
+    ga4 = str(getattr(settings, "ga4_measurement_id", "") or "").strip().upper()
+    gtm = str(getattr(settings, "gtm_container_id", "") or "").strip().upper()
+    return (ga4 if _valid_ga4_measurement_id(ga4) else ""), (gtm if _valid_gtm_container_id(gtm) else "")
+
+
 def _site_origin(request: Request | None = None) -> str:
     configured = getattr(settings, "public_base_url", "").strip().rstrip("/")
     parsed = urlsplit(configured)
@@ -983,15 +996,15 @@ def _render_public_html(filename: str, request: Request) -> Response:
     page = (STATIC_DIR / filename).read_text(encoding="utf-8")
     origin = _site_origin(request)
     verification = getattr(settings, "google_site_verification", "").strip()
-    measurement_id = getattr(settings, "ga4_measurement_id", "").strip().upper()
-    ga4_active = bool(getattr(settings, "ga4_enabled", False) and _valid_ga4_measurement_id(measurement_id))
+    measurement_id, container_id = _analytics_ids()
     verification_meta = (
         f'<meta name="google-site-verification" content="{html_escape(verification, quote=True)}">'
         if verification else ""
     )
     page = page.replace("{{PUBLIC_BASE_URL}}", html_escape(origin, quote=True))
     page = page.replace("{{GOOGLE_SITE_VERIFICATION_META}}", verification_meta)
-    page = page.replace("{{GA4_MEASUREMENT_ID}}", html_escape(measurement_id, quote=True) if ga4_active else "")
+    page = page.replace("{{GA4_MEASUREMENT_ID}}", html_escape(measurement_id, quote=True))
+    page = page.replace("{{GTM_CONTAINER_ID}}", html_escape(container_id, quote=True))
     return Response(page, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
@@ -1006,12 +1019,14 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
     if settings.public_deployment:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-        ga4_active = bool(
-            getattr(settings, "ga4_enabled", False)
-            and _valid_ga4_measurement_id(getattr(settings, "ga4_measurement_id", ""))
-        )
-        script_sources = "'self' https://www.googletagmanager.com" if ga4_active else "'self'"
-        connect_sources = "'self' wss: https://www.google-analytics.com https://region1.google-analytics.com" if ga4_active else "'self' wss:"
+        analytics_active = any(_analytics_ids())
+        # Google's tag hosts are allowed only while analytics are switched on.
+        # Tag Manager "Custom HTML" tags stay blocked: no inline scripts.
+        script_sources = "'self' https://www.googletagmanager.com" if analytics_active else "'self'"
+        connect_sources = (
+            "'self' wss: https://www.googletagmanager.com https://www.google-analytics.com "
+            "https://region1.google-analytics.com https://analytics.google.com"
+        ) if analytics_active else "'self' wss:"
         response.headers.setdefault(
             "Content-Security-Policy",
             f"default-src 'self'; script-src {script_sources}; style-src 'self' 'unsafe-inline'; "
