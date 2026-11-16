@@ -3782,7 +3782,10 @@
     const flightRoute=['sar','aircraft'].includes(a.type) ? flightRouteById.get(a.id) : null;
     // Aircraft: the route, or nothing. Registration, type and operator are
     // already on the operator line below; repeating them here was noise.
-    $('detail-subtitle').textContent = roadImpact ? humanTransitLabel(roadImpact.where||'') : flightRoute ? flightRouteText(flightRoute) : ['aircraft','sar'].includes(a.type) ? '' : humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
+    // Aircraft: the route; and when no airline line will show (military,
+    // private), the type and registration, so a Hawk says it is a Hawk.
+    const aircraftIdentity=['aircraft','sar'].includes(a.type)&&!operatorTheme(a)?[a.aircraft_model||a.aircraft_type_code,a.vehicle_ref].filter(Boolean).join(' • '):'';
+    $('detail-subtitle').textContent = roadImpact ? humanTransitLabel(roadImpact.where||'') : ['aircraft','sar'].includes(a.type) ? [flightRoute?flightRouteText(flightRoute):'',aircraftIdentity].filter(Boolean).join(' · ') : humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
     renderOperatorIdentity(a);
     renderInsight(a);
     renderDiscoveryDetail(a);

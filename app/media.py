@@ -99,6 +99,9 @@ class WikimediaLookup:
         self._lock = threading.RLock()
         self._disk: Path | None = None
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="media")
+        # Looking ahead runs on its own single worker, so it can never queue
+        # in front of a photo someone has just tapped for.
+        self._background = ThreadPoolExecutor(max_workers=1, thread_name_prefix="media-ahead")
         # Searches under way, so a second asker waits for the first answer
         # instead of searching again.
         self._inflight: dict[str, threading.Event] = {}
@@ -179,7 +182,7 @@ class WikimediaLookup:
                     with self._lock:
                         self._queued.discard(plan)
                     self._save_soon()
-            self._pool.submit(run)
+            self._background.submit(run)
         return started
 
     @staticmethod
@@ -387,7 +390,7 @@ class WikimediaLookup:
                 if waiting is None:
                     self._inflight[key] = threading.Event()
                     return None
-            if not waiting.wait(timeout=6.0):
+            if not waiting.wait(timeout=3.0):
                 return {"ok": False, "reason": "lookup_slow"}
             with self._lock:
                 hit = self._cache.get(key)

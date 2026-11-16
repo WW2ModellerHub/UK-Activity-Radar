@@ -279,3 +279,16 @@ def test_commons_is_asked_only_for_the_picture_details_used():
     lookup._session = Recording({})
     lookup.lookup(Vehicle(id="bus:SCMN:11", type="bus", name="Bus 50", vehicle_ref="15724", lat=53.4, lon=-2.2, source="BODS", operator="SCMN"))
     assert seen and set(seen) == {META_FIELDS} and "LicenseShortName" in META_FIELDS
+
+
+def test_a_hawk_gets_an_example_photo_even_without_a_number_in_its_name():
+    from app.media_reference import _model_keys
+    assert _model_keys("BAE Systems Hawk") == ("hawk",)
+    assert _model_keys("Westland Puma") == ("puma",)
+    assert _model_keys("Bell 429") == ("429",)          # a number is enough; "bell" alone is too loose
+    lookup = _lookup({"BAE Systems Hawk aircraft": [
+        _page(1, "BAE Systems logo.png", "Company logo"),
+        _page(2, "RAF Hawk T2 ZK010 at RAF Valley.jpg", "BAE Systems Hawk T2 of the Royal Air Force"),
+    ]})
+    result = lookup.reference("aircraft", None, "BAE Systems Hawk", "JAVLN14")
+    assert result["ok"] and result["title"] == "RAF Hawk T2 ZK010 at RAF Valley"

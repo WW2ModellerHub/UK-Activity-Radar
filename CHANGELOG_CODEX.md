@@ -1,5 +1,20 @@
 # Codex stabilization changelog
 
+## 2026-11-16 — military aircraft say what they are; server health detail
+
+- An aircraft with no airline (military, private) lost its type and
+  registration, which only appear on the airline line: a Hawk showed as
+  "JAVLN14" alone. They now sit under the callsign ("BAE Systems Hawk •
+  ZB136").
+- Photo searches need a word for the type; names with no number (Hawk, Puma,
+  Lynx) used to give none, so no photo. Short names now count when there is
+  no number.
+- The live site gave 502s for about five minutes. /api/health now reports
+  uptime, memory, busy worker threads and event-loop delay, and the new
+  /api/health/runtime answers even when every worker thread is busy.
+- Photo look-ahead runs on its own single worker, never in front of a photo
+  someone has tapped for, and a second asker waits at most 3 seconds.
+
 ## 2026-11-16 — Radar+ ready for paying customers
 
 - Radar+ on another device: a subscriber taps "Use Radar+ on another
