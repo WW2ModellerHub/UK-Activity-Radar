@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## 2026-11-16 — Hawks in Discover; each unusual train once
+
+- Military trainers were all left out of Discover as routine. The Hawk is a
+  fast jet (and the Red Arrows' aircraft), so it now has its own "Jet
+  trainer" type: in Discover, the Field Guide and military spotter alerts,
+  ranked below combat jets. Propeller trainers (Tutor, Prefect, Juno) stay
+  out.
+- One train reported by the main feed and by several signalling areas
+  filled Discover three times over (3Q56 x3, 1Q15 x3, six of the ten free
+  finds). Discover now keeps one per unusual headcode, the main feed's
+  record first, then the freshest.
+
 ## 2026-11-16 — military aircraft say what they are; server health detail
 
 - An aircraft with no airline (military, private) lost its type and

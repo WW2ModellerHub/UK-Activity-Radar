@@ -73,6 +73,7 @@ COLLECTIBLES: tuple[Collectible, ...] = (
     _collectible("air", "maritime-patrol", "Maritime Patrol Aircraft", "An identified maritime-patrol aircraft.", "▲", "MARITIME PATROL", _MAP_ONLY),
     _collectible("air", "intelligence-aircraft", "Intelligence Aircraft", "An identified intelligence or electronic-surveillance aircraft.", "▲", "INTELLIGENCE", _MAP_ONLY),
     _collectible("air", "military-helicopter", "Military Helicopter", "An identified operational military helicopter.", "▲", "MIL HELI", _MAP_ONLY),
+    _collectible("air", "jet-trainer", "Jet Trainer", "An identified fast-jet trainer, such as the RAF Hawk.", "▲", "JET TRAINER", _MAP_ONLY),
     _collectible("air", "military-transport", "Military Airlifter", "An identified military heavy-lift or transport aircraft.", "▲", "AIRLIFT", _MAP_ONLY),
     _collectible("rail", "steam", "Steam Train", "A steam-hauled railway movement.", "♨", "STEAM", _RAIL_SAFETY),
     _collectible("rail", "railtour-special", "Railtour", "A charter or special passenger movement.", "◆", "RAILTOUR", _RAIL_SAFETY),

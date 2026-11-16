@@ -332,6 +332,7 @@
     ['intelligence-aircraft','air','Intelligence aircraft','Identified electronic-surveillance aircraft.','▲'],
     ['military-helicopter','air','Military helicopter','Identified operational military helicopter.','▲'],
     ['military-transport','air','Military airlifter','Identified military transport aircraft.','▲'],
+    ['jet-trainer','air','Jet trainer','Identified fast-jet trainer, such as the RAF Hawk.','▲'],
     ['steam','rail','Steam movement','A live steam-hauled railway movement.','♨'],
     ['railtour-special','rail','Railtour','A charter or special passenger movement.','◆'],
     ['test-measurement','rail','Measurement train','A railway test or measurement movement.','◇'],

@@ -99,7 +99,7 @@ from .street_manager_open_data import (
     StreetManagerSnapshotStore,
     verify_and_parse_sns_envelope,
 )
-from .state import _estimated_train_position, state
+from .state import _estimated_train_position, one_per_train, state
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "app" / "static"
@@ -2974,11 +2974,11 @@ async def websocket_updates(websocket: WebSocket):
                 # ``types: null`` is the Discover request. Free visitors get the
                 # same number of finds as the Discover list; the browser cannot
                 # bypass the Radar+ limit by reading the websocket directly.
-                streamed = sorted(
+                streamed = one_per_train(sorted(
                     (row for row in streamed if row.cool_candidate),
                     key=lambda row: (row.cool_score or 0, row.last_updated),
                     reverse=True,
-                )[:FREE_DISCOVER_FINDS]
+                ))[:FREE_DISCOVER_FINDS]
                 allowed_ids = {row.id for row in streamed}
                 streamed_vehicles = [row for row in streamed_vehicles if row.id in allowed_ids]
                 streamed_events = [row for row in streamed_events if row.id in allowed_ids]

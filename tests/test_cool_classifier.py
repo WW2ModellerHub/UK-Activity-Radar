@@ -24,7 +24,8 @@ def _aircraft(name: str, **extra) -> Vehicle:
 
 def test_combat_aircraft_outranks_trainer_and_unresolved_military():
     typhoon = classify_activity(_aircraft("RAF Eurofighter Typhoon RAZOR11"), now=NOW)
-    trainer = classify_activity(_aircraft("RAF Hawk trainer VYT51"), now=NOW)
+    trainer = classify_activity(_aircraft("RAF Tutor trainer VYT51"), now=NOW)
+    hawk = classify_activity(_aircraft("JAVLN14 ZB136 BAE Systems Hawk"), now=NOW)
     unresolved = classify_activity(_aircraft("VYT51", interesting=True), now=NOW)
 
     assert typhoon.subtype == "combat-aircraft"
@@ -33,6 +34,9 @@ def test_combat_aircraft_outranks_trainer_and_unresolved_military():
     assert trainer.subtype == "military-trainer"
     assert trainer.interest_score == 18
     assert trainer.candidate is False
+    # A Hawk is a fast jet (and the Red Arrows' aircraft): in Discover, below combat jets.
+    assert hawk.subtype == "jet-trainer" and hawk.candidate is True
+    assert trainer.interest_score < hawk.interest_score < typhoon.interest_score
     assert unresolved.interest_score < 45
     assert unresolved.candidate is False
 
@@ -151,3 +155,18 @@ def test_an_extra_train_from_an_everyday_operator_is_not_a_discover_find():
     assert classify_activity(extra, now=now).candidate is False and classify_activity(extra, now=now).badge == "EXTRA"
     assert classify_activity(charter, now=now).candidate is True and classify_activity(charter, now=now).badge == "SPECIAL"
     assert classify_activity(unknown, now=now).candidate is True
+
+
+def test_discover_shows_each_unusual_train_once_even_when_several_feeds_report_it():
+    from datetime import timedelta
+
+    from app.models import Vehicle
+    from app.state import one_per_train
+
+    def train(id_, minutes_ago, code="3Q56"):
+        return Vehicle(id=id_, type="train", name=code, headcode=code, lat=52.9, lon=-0.9, source="Network Rail",
+                       last_updated=NOW - timedelta(minutes=minutes_ago), cool_subtype="test-measurement")
+    plane = _aircraft("RAF Eurofighter Typhoon RAZOR11")
+    rows = [train("td:NE:3Q56", 12), plane, train("td:NM:3Q56", 3), train("nr:573Q56CZ16", 1), train("td:MZ:1Q15", 2, "1Q15")]
+    # The main feed's record is kept, in its place in the order; other trains and planes untouched.
+    assert [row.id for row in one_per_train(rows)] == [plane.id, "nr:573Q56CZ16", "td:MZ:1Q15"]
