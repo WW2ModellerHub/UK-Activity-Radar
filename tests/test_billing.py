@@ -521,3 +521,12 @@ def test_device_code_routes_give_the_second_device_its_own_access(monkeypatch, t
     assert other.get("/api/billing/status").json()["plus"] is True
     assert other.cookies.get(main.ACCESS_COOKIE) != first_token   # its own sign-in, revocable alone
     assert other.post("/api/billing/device-link", json={"code": code}, headers=headers).status_code == 400
+
+
+def test_only_a_real_stripe_portal_sign_in_link_is_offered(monkeypatch):
+    import app.main as main
+    for url, offered in (("https://billing.stripe.com/p/login/aEU5kD3xQ9", True),
+                         ("https://evil.example/p/login/aEU5kD3xQ9", False),
+                         ("http://billing.stripe.com/p/login/aEU5kD3xQ9", False), ("", False)):
+        monkeypatch.setattr(main, "settings", replace(main.settings, stripe_portal_login_url=url))
+        assert main._portal_login_url() == (url if offered else "")

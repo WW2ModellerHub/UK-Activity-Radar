@@ -466,12 +466,18 @@
     return Boolean(billingState.plus && billingState.features.includes(feature));
   }
 
+  let billingRetry=null;
   async function loadBillingStatus() {
     try {
       const response=await fetch('/api/billing/status',{cache:'no-store'});
       if(!response.ok)throw new Error('access status unavailable');
       billingState=await response.json();
-    } catch { billingState={enabled:false,plus:false,features:[],price_display:''}; }
+    } catch {
+      // A failed check (the server busy for a moment) must not take Radar+
+      // away or hide the buttons: keep what we knew, say so, try again.
+      billingState={enabled:false,plus:false,features:[],price_display:'',...billingState,unavailable:true};
+      if(!billingRetry)billingRetry=setTimeout(()=>{billingRetry=null;loadBillingStatus();},15000);
+    }
     renderBillingStatus();
     return billingState;
   }
@@ -480,7 +486,10 @@
     const plus=Boolean(billingState.plus);
     const price=$('plus-price'); if(price)price.textContent=billingState.price_display||'';
     const note=$('plus-note');
-    if(note)note.textContent=plus?'Radar+ is active on this device.':'The public live map stays free. Payment is handled securely by Stripe.';
+    if(note)note.textContent=billingState.unavailable?'Couldn’t check Radar+ just now. Trying again…':plus?'Radar+ is active on this device.':'The public live map stays free. Payment is handled securely by Stripe.';
+    // Cancelling must work from any device, not only the one Radar+ is on.
+    const login=$('radar-plus-portal-login');
+    if(login){const url=String(billingState.portal_login_url||'');login.classList.toggle('hidden',plus||!url);if(url)login.href=url;}
     const summary=$('product-summary');
     if(summary)summary.textContent=plus?'Active on this device.':(billingState.enabled?`Not active. Radar+ is ${billingState.price_display||'available'}.`:'Not available yet.');
     $('radar-plus-checkout')?.classList.toggle('hidden',plus||!billingState.enabled);
@@ -4823,8 +4832,11 @@
   function renderCommuteAlertPlaces() {
     const select=$('commute-alert-place');if(!select)return;
     const current=select.value||commuteAlertStatus.preferences?.place_id||'';
-    const rows=[...savedPlaces.values()];
-    select.innerHTML=rows.length?rows.map(place=>`<option value="${esc(place.id)}">${esc(humanTransitLabel(place.name))}</option>`).join(''):'<option value="">Save a place first</option>';
+    // Train delays make sense near a station or a general place (home,
+    // work), never near a bus stop.
+    const trains=$('commute-alert-mode')?.value==='train';
+    const rows=[...savedPlaces.values()].filter(place=>!(trains&&place.place_type==='bus_stop'));
+    select.innerHTML=rows.length?rows.map(place=>`<option value="${esc(place.id)}">${esc(humanTransitLabel(place.name))}</option>`).join(''):`<option value="">${trains?'Save a station first':'Save a place first'}</option>`;
     if(rows.some(place=>place.id===chosenSavedPlace))select.value=chosenSavedPlace;
     else if(rows.some(place=>place.id===current))select.value=current;
     renderPassingNextPlaces();
@@ -5948,6 +5960,7 @@
   $('passing-next-refresh')?.addEventListener('click',loadPassingNext);
   $('passing-next-place')?.addEventListener('change',event=>chooseSavedPlace(event.target.value));
   $('commute-alert-place')?.addEventListener('change',event=>chooseSavedPlace(event.target.value));
+  $('commute-alert-mode')?.addEventListener('change',()=>renderCommuteAlertPlaces());
   $('commute-alert-enable')?.addEventListener('click',enableCommuteAlerts);
   $('commute-alert-disable')?.addEventListener('click',disableCommuteAlerts);
   $('commute-alert-test')?.addEventListener('click',sendTestAlert);

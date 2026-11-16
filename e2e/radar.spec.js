@@ -2058,3 +2058,34 @@ test('a military jet with no airline still says what it is under its callsign', 
   await page.locator('.aerial-map-marker.aerial-aircraft').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-subtitle')).toHaveText(/(Eurofighter Typhoon • ZK001|Boeing CH-47 Chinook • ZH900)/);
 });
+
+test('train alerts offer stations, not bus stops', async ({ page }) => {
+  await page.locator('#station-boards').click();
+  await page.locator('#save-place').click();
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
+  await page.locator('[data-job="bus"]').click();
+  await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');
+  await page.locator('#save-place').click();
+  await page.locator('#detail-close').click();
+  await page.locator('[data-workspace="live"]').click();
+  const places = page.locator('#commute-alert-place option');
+  await page.locator('#commute-alert-mode').selectOption('driving');
+  await expect(places).toHaveText(['Milton Keynes Central', 'Central Station Stop A']);
+  await page.locator('#commute-alert-mode').selectOption('train');
+  await expect(places).toHaveText(['Milton Keynes Central']);
+});
+
+test('if Radar+ cannot be checked for a moment, it says so and keeps trying instead of going blank', async ({ page }) => {
+  let fail = true;
+  await page.route('**/api/billing/status', route => fail
+    ? route.fulfill({ status:502, body:'Bad gateway' })
+    : route.fulfill({ json:{ enabled:true, plan:'free', plus:false, features:[], price_display:'£3.99/month', portal_login_url:'https://billing.stripe.com/p/login/test123' } }));
+  await page.evaluate(() => document.getElementById('radar-plus')?.click());
+  await expect(page.locator('#plus-note')).toHaveText('Couldn’t check Radar+ just now. Trying again…');
+  fail = false;
+  await page.evaluate(() => document.getElementById('plus-close')?.click());
+  await page.evaluate(() => document.getElementById('radar-plus')?.click());
+  // Back: and a subscriber on this device without Radar+ can still cancel, by email.
+  await expect(page.locator('#radar-plus-portal-login')).toBeVisible();
+  await expect(page.locator('#radar-plus-portal-login')).toHaveAttribute('href', 'https://billing.stripe.com/p/login/test123');
+});
