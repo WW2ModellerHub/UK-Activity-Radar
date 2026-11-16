@@ -551,6 +551,30 @@ from .rain_radar import POLL_SECONDS as RAIN_RADAR_POLL_SECONDS, RainRadar
 rain_radar = RainRadar()
 
 
+def _common_photo_plans() -> list[tuple[str, str | None, str | None]]:
+    from .media_reference import BUS_BRANDS, TRAIN_FLEETS
+    plans: list[tuple[str, str | None, str | None]] = [("train", name, None) for name in sorted(TRAIN_FLEETS)]
+    plans += [("bus", code, None) for code in sorted(BUS_BRANDS)]
+    plans += [("bus", code, None) for code in ("SCMN", "FBRI", "GNEL", "BHBC", "OXBC", "LOTH", "TNXB")]
+    plans += [("aircraft", airline, model) for airline, model in (
+        ("Ryanair", "Boeing 737-800"), ("easyJet", "Airbus A320"), ("easyJet", "Airbus A319"),
+        ("easyJet", "Airbus A320neo"), ("British Airways", "Airbus A320"), ("British Airways", "Airbus A320neo"),
+        ("Jet2", "Boeing 737-800"), ("TUI Airways", "Boeing 737-800"), ("Wizz Air", "Airbus A321neo"),
+        ("Loganair", "ATR 72-600"), ("Aer Lingus", "Airbus A320"),
+    )]
+    return plans
+
+
+async def _photo_warm_loop() -> None:
+    await asyncio.sleep(60)  # let the live feeds settle first
+    while True:
+        try:
+            await asyncio.to_thread(media_lookup.warm, _common_photo_plans())
+        except Exception:
+            pass
+        await asyncio.sleep(12 * 3600)
+
+
 async def _rain_radar_loop() -> None:
     """Keep the last two hours of rain radar frames."""
     await asyncio.sleep(5)
@@ -688,6 +712,12 @@ async def lifespan(app: FastAPI):
 
     if settings.rain_radar_enabled and not settings.demo_mode:
         tasks.append(asyncio.create_task(_rain_radar_loop()))
+
+    # Example photos survive restarts, and the common ones are looked up
+    # before anyone asks, so photos appear straight away.
+    media_lookup.use_disk_cache(DATA_DIR / "media_examples.json")
+    if settings.wikimedia_enabled and not settings.demo_mode:
+        tasks.append(asyncio.create_task(_photo_warm_loop()))
 
     if settings.push_alerts_ready:
         commute_alert_store = CommuteAlertStore(ALERTS_DB)

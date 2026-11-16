@@ -1,5 +1,21 @@
 # Codex stabilization changelog
 
+## 2026-11-16 — faster photos
+
+- Photos came from Wikimedia at 960 px: it rounds non-standard widths (we
+  asked for 520 and 640) up to its next standard size. They now use the
+  standard 500 px, about a quarter of the data for a phone panel.
+- Example photos for every train operator, the bus groups and common
+  airline types are looked up in the background after start-up, and found
+  examples are kept on disk, so deploys and restarts no longer wipe them.
+  First lookups took 1.4 to 3.4 seconds; these are now ready before anyone
+  asks.
+- The exact-vehicle search and the example search run side by side instead
+  of one after the other.
+- The page opens a connection to Wikimedia's image servers as it loads;
+  photos already fetched this visit are reused when a vehicle is reopened;
+  panel images load at full priority instead of lazily.
+
 ## 2026-11-16 — choose what spotter alerts are about
 
 - Tick boxes on the spotter card: steam and railtours, test and measurement

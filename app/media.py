@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import html
+import json
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 import re
 import threading
 import time
@@ -67,6 +70,12 @@ def _commercial_commons_licence(meta: dict[str, Any]) -> tuple[str, str | None] 
     return raw, WikimediaLookup._plain(meta.get("LicenseUrl"))
 
 
+# Wikimedia serves thumbnails in standard widths and rounds any other request
+# up to the next one: 520 or 640 came back as 960 px, four times the pixels a
+# phone panel needs. 500 is a standard width.
+THUMB_WIDTH = 500
+
+
 class WikimediaLookup:
     """Conservative free/no-key Wikimedia Commons image lookup.
 
@@ -83,6 +92,50 @@ class WikimediaLookup:
         self._session.headers.update({"User-Agent": "UKActivityRadar/1.4.0 (Wikimedia Commons consumer)"})
         self._cache: dict[str, _CacheItem] = {}
         self._lock = threading.RLock()
+        self._disk: Path | None = None
+        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="media")
+
+    # ---- Keeping example photos across restarts --------------------------
+    # Example photos (an operator's train, an airline's type) are the same for
+    # everyone and change rarely. Every deploy restarts the server, so they
+    # are kept on disk and looked up ahead of time for the common operators.
+    def use_disk_cache(self, path: Path) -> None:
+        self._disk = Path(path)
+        try:
+            stored = json.loads(self._disk.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        now = time.time()
+        with self._lock:
+            for key, row in (stored or {}).items():
+                if isinstance(row, dict) and row.get("expires", 0) > now and isinstance(row.get("value"), dict):
+                    self._cache.setdefault(key, _CacheItem(row["expires"], row["value"]))
+
+    def _save_disk_cache(self) -> None:
+        if self._disk is None:
+            return
+        with self._lock:
+            rows = {k: {"expires": v.expires, "value": v.value} for k, v in self._cache.items()
+                    if k.startswith("reference|") and v.value.get("ok")}
+        try:
+            self._disk.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self._disk.with_suffix(".tmp")
+            temporary.write_text(json.dumps(rows), encoding="utf-8")
+            temporary.replace(self._disk)
+        except OSError:
+            pass
+
+    def warm(self, plans: list[tuple[str, str | None, str | None]]) -> int:
+        """Look up example photos ahead of time; returns how many are ready."""
+        ready = 0
+        for kind, operator, model in plans:
+            try:
+                ready += bool(self.reference(kind, operator, model).get("ok"))
+            except Exception:
+                continue
+            time.sleep(1.0)  # gentle on Wikimedia
+        self._save_disk_cache()
+        return ready
 
     @staticmethod
     def query_for(activity: Vehicle | Event) -> str:
@@ -206,17 +259,38 @@ class WikimediaLookup:
         return score
 
     def lookup(self, activity: Vehicle | Event) -> dict[str, Any]:
-        exact = self._lookup_exact(activity)
-        if exact.get("ok") or not isinstance(activity, Vehicle) or not self.enabled:
+        wants_example = (
+            isinstance(activity, Vehicle) and self.enabled
+            and not (activity.type == "train" and str(activity.cool_subtype or "") in _NO_REFERENCE_TRAIN_SUBTYPES)
+        )
+        if not wants_example:
+            return self._lookup_exact(activity)
+
+        def example() -> dict[str, Any]:
+            try:
+                return self.reference(activity.type, activity.operator, activity.aircraft_model, activity.name,
+                                      route=activity.route if activity.type == "bus" else None)
+            except Exception:
+                return {"ok": False}
+        # The exact vehicle and the example are looked up side by side, not
+        # one after the other: a miss on the first no longer doubles the wait.
+        exact_future = self._pool.submit(self._lookup_exact, activity)
+        found = example()
+        exact = exact_future.result()
+        if exact.get("ok"):
             return exact
-        if activity.type == "train" and str(activity.cool_subtype or "") in _NO_REFERENCE_TRAIN_SUBTYPES:
-            return exact
-        try:
-            example = self.reference(activity.type, activity.operator, activity.aircraft_model, activity.name,
-                                     route=activity.route if activity.type == "bus" else None)
-        except Exception:
-            return exact
-        return example if example.get("ok") else exact
+        if found.get("ok"):
+            self._save_soon()
+            return found
+        return exact
+
+    def _save_soon(self) -> None:
+        # Writing the file for every new example is cheap but needless; once a
+        # minute is plenty.
+        now = time.time()
+        if now - getattr(self, "_saved_at", 0) > 60:
+            self._saved_at = now
+            self._pool.submit(self._save_disk_cache)
 
     def reference(self, kind: str, operator: str | None = None, model: str | None = None,
                   callsign: str | None = None, route: str | None = None) -> dict[str, Any]:
@@ -272,7 +346,7 @@ class WikimediaLookup:
         params = {
             "action": "query", "generator": "search", "gsrsearch": f"{query} filetype:bitmap",
             "gsrnamespace": 6, "gsrlimit": limit, "prop": "imageinfo",
-            "iiprop": "url|extmetadata|size", "iiurlwidth": 640, "format": "json", "formatversion": 2,
+            "iiprop": "url|extmetadata|size", "iiurlwidth": THUMB_WIDTH, "format": "json", "formatversion": 2,
         }
         response = self._session.get(self.api_url, params=params, timeout=(1.25, 3.0))
         if getattr(response, "status_code", 200) == 429:
@@ -357,7 +431,7 @@ class WikimediaLookup:
             "gsrlimit": 8,
             "prop": "imageinfo",
             "iiprop": "url|extmetadata",
-            "iiurlwidth": 520,
+            "iiurlwidth": THUMB_WIDTH,
             "format": "json",
             "formatversion": 2,
         }
