@@ -1,5 +1,15 @@
 # Codex stabilization changelog
 
+## 2026-11-16 — alerts on iPhone need the Home Screen app, said up front
+
+- iPhones and iPads only deliver web alerts to a site added to the Home
+  Screen and opened from there. That was only said after tapping "turn on".
+  Now, on an iPhone or iPad in Safari, every place that offers alerts says
+  so first with the steps (Share, Add to Home Screen, open from the icon):
+  the Saved tab's alerts card, the spotter card in Discover, "When should I
+  leave?", journey watch, and the Radar+ window. Android and computers,
+  where browser alerts work, see nothing extra.
+
 ## 2026-11-16 — Radar+: yearly, free trial, alerts at the centre
 
 - **Yearly price.** Optional `STRIPE_PLUS_YEARLY_PRICE_ID` adds a yearly
