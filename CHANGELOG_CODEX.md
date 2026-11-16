@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## 2026-11-16 — Discover shows everything until Radar+ is on sale
+
+- Discover showed 3 finds to everyone (the free preview) while 50 were live,
+  though Radar+ cannot be bought yet. While payments are off it now shows
+  them all. Once they are on, free shows 10 (one of each kind first) with a
+  "+N more finds right now with Radar+" button; Radar+ shows them all.
+
 ## 2026-11-16 — station pages can't overload the server
 
 - The live site started failing (Render 502s, restarting) the day after

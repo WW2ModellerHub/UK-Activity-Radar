@@ -1118,6 +1118,7 @@
   for(const type of ['gesturestart','gesturechange','gestureend'])document.addEventListener(type,event=>event.preventDefault(),{passive:false});
   document.addEventListener('touchmove',event=>{ if(event.touches.length>1&&!event.target.closest?.('#map'))event.preventDefault(); },{passive:false});
 
+  document.addEventListener('click',event=>{ if(event.target.closest?.('[data-cool-more]')){trackProduct('plus_limit_reached','discover');openPlusDialog();} });
   $('ar-labels')?.addEventListener('click',event=>{
     const label=event.target.closest?.('[data-ar-id]');if(!label)return;
     const id=label.dataset.arId,type=label.classList.contains('ar-train')?'train':label.classList.contains('ar-bus')?'bus':'aircraft';
@@ -5071,7 +5072,8 @@
       return `<button type="button" ${attr}><span class="discover-icon cool-${esc(x.c.theme||'air')}">${iconSvg(coolIconFor(x.a,x.c))}</span><span class="discover-text"><strong>${esc(x.a.name)}</strong><small>${esc(x.c.reasons[0]||x.a.subtitle||'')}</small><i>${meta}</i></span><b aria-hidden="true">›</b></button>`;
     };
     const moreHtml=more.length?`<div class="cool-find-list">${more.map(x=>findRow(x,false)).join('')}</div>`:'';
-    const previewNote=!globalCoolAvailability.fullAccess&&globalCoolAvailability.total>candidates.length?`<p class="cool-preview-note">Showing ${candidates.length} of ${globalCoolAvailability.total}. Radar+ shows them all.</p>`:'';
+    const hiddenFinds=globalCoolAvailability.total-candidates.length;
+    const previewNote=!globalCoolAvailability.fullAccess&&hiddenFinds>0?`<button type="button" class="cool-preview-note" data-cool-more>+${hiddenFinds} more find${hiddenFinds===1?'':'s'} right now with Radar+</button>`:'';
     box.innerHTML=`${previewNote}${top?`<div class="discover-list">${findRow(top,true)}${moreHtml}</div>`:`<div class="cool-empty">Nothing unusual spotted ${emptyScope} right now.</div>`}`;
     box.querySelector('[data-cool-top]')?.addEventListener('click',e=>selectActivity(e.currentTarget.dataset.coolTop,true,11));
     box.querySelectorAll('[data-cool-find]').forEach(button=>button.addEventListener('click',()=>selectActivity(button.dataset.coolFind,true,11)));

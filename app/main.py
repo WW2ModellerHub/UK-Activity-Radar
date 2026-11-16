@@ -2489,6 +2489,9 @@ def summary():
     return state.summary()
 
 
+FREE_DISCOVER_FINDS = 10
+
+
 @app.get("/api/cool")
 def cool_activities(request: Request, limit: int = 20, category: str | None = None):
     """Small national Cool priority feed, independent of the current map viewport."""
@@ -2497,10 +2500,13 @@ def cool_activities(request: Request, limit: int = 20, category: str | None = No
     if wanted and wanted not in allowed_categories:
         raise HTTPException(status_code=400, detail="Unknown Cool category")
     context = _billing_context(request)
-    maximum = 50 if context.has("cool_full") else 3
+    # Everything while Radar+ cannot be bought; once it can, free gets a
+    # good taste (10) and Radar+ the full list.
+    full = billing_service is None or context.has("cool_full")
+    maximum = 50 if full else FREE_DISCOVER_FINDS
     available = state.cool_candidates(limit=50, category=wanted)
     requested = max(1, min(limit, maximum))
-    if context.has("cool_full") or wanted:
+    if full or wanted:
         rows = available[:requested]
     else:
         # A straight score sort made the free preview look aircraft-only.
@@ -2527,7 +2533,7 @@ def cool_activities(request: Request, limit: int = 20, category: str | None = No
         "count": len(rows),
         "available_count": len(available),
         "available_counts": available_counts,
-        "full_access": context.has("cool_full"),
+        "full_access": full,
         "limit": maximum,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
