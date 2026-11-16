@@ -1,5 +1,18 @@
 # Codex stabilization changelog
 
+## 2026-11-16 — cancelling Radar+ always possible; train alerts near stations
+
+- A failed Radar+ check (the server busy for a moment) reset the visit to
+  "no Radar+, payments off": every button vanished, Manage included, with no
+  explanation. It now keeps what it knew, says "Couldn't check Radar+ just
+  now. Trying again…" and retries every 15 seconds.
+- New STRIPE_PORTAL_LOGIN_URL (Stripe's customer-portal sign-in link): when
+  set, anyone without Radar+ on this device sees "Manage or cancel a
+  subscription (sign in with your email)", so a subscriber can always
+  cancel, from any device. Only a billing.stripe.com/p/login/ link is used.
+- Train delay alerts listed bus stops as places ("Train near Atkins
+  Building"); with Train chosen, only stations and general places show.
+
 ## 2026-11-16 — Hawks in Discover; each unusual train once
 
 - Military trainers were all left out of Discover as routine. The Hawk is a

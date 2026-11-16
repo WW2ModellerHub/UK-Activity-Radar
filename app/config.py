@@ -73,6 +73,10 @@ class Settings:
     stripe_webhook_secret: str = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
     stripe_plus_price_id: str = os.getenv("STRIPE_PLUS_PRICE_ID", "").strip()
     stripe_plus_yearly_price_id: str = os.getenv("STRIPE_PLUS_YEARLY_PRICE_ID", "").strip()
+    # Stripe's customer-portal sign-in page (Settings > Billing > Customer
+    # portal > Login link). Public; lets a subscriber cancel from any device
+    # by email, even one Radar+ was never turned on.
+    stripe_portal_login_url: str = os.getenv("STRIPE_PORTAL_LOGIN_URL", "").strip()
     radar_plus_trial_days: int = max(0, min(30, int(os.getenv("RADAR_PLUS_TRIAL_DAYS", "7") or 0)))
     radar_plus_yearly_price_display: str = os.getenv("RADAR_PLUS_YEARLY_PRICE_DISPLAY", "£24.99/year").strip()
     billing_token_pepper: str = os.getenv("BILLING_TOKEN_PEPPER", "").strip()

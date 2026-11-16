@@ -1462,6 +1462,11 @@ def service_worker():
     )
 
 
+def _portal_login_url() -> str:
+    url = str(getattr(settings, "stripe_portal_login_url", "") or "").strip()
+    return url if re.fullmatch(r"https://billing\.stripe\.com/p/login/[A-Za-z0-9_-]{6,80}", url) else ""
+
+
 @app.get("/api/billing/status")
 def billing_status(request: Request, response: Response):
     context = _billing_context(request)
@@ -1477,6 +1482,7 @@ def billing_status(request: Request, response: Response):
         "yearly_available": bool(billing_service and settings.stripe_plus_yearly_price_id),
         "yearly_price_display": settings.radar_plus_yearly_price_display,
         "trial_days": settings.radar_plus_trial_days if billing_service else 0,
+        "portal_login_url": _portal_login_url() if billing_service else "",
         "preview_available": len(settings.radar_plus_preview_key) >= 24,
         "free_features": ["live_map", "core_layers", "basic_cool", "field_guide", "basic_my_radar"],
         "plus_features": sorted(PLUS_FEATURES),
