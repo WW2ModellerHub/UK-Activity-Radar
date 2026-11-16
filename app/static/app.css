@@ -1280,3 +1280,8 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
 .leave-plan .install-hint { margin: 10px 0 0; }
 
 .cool-preview-note { display: block; width: 100%; margin: 12px 0 4px; padding: 12px; border: 1px dashed var(--line); border-radius: 10px; background: none; color: var(--accent, #0b63ce); font: inherit; font-weight: 600; text-align: center; cursor: pointer; }
+
+.spotter-kinds { display: grid; gap: 6px; margin: 2px 0 4px; padding: 0; border: 0; }
+.spotter-kinds legend { padding: 0; margin-bottom: 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.spotter-kinds label { display: flex; align-items: center; gap: 10px; min-height: 36px; font-size: 15px; }
+.spotter-kinds input { width: 20px; height: 20px; accent-color: var(--accent, #0b63ce); flex: none; }

@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## 2026-11-16 — choose what spotter alerts are about
+
+- Tick boxes on the spotter card: steam and railtours, test and measurement
+  trains, locos on their own and engineering trains, military aircraft. All
+  ticked by default; changes take effect at once. Ordinary freight never
+  alerts, nor do live rescues. Alerts saved before ("rail", "air") still work.
+
 ## 2026-11-16 — Discover shows everything until Radar+ is on sale
 
 - Discover showed 3 finds to everyone (the free preview) while 50 were live,
