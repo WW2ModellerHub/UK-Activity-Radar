@@ -49,7 +49,7 @@ def test_render_blueprint_prompts_for_secrets_instead_of_storing_values():
 def test_render_blueprint_arms_radar_plus_with_public_price():
     blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
 
-    assert 'key: BILLING_ENABLED\n        value: "false"' in blueprint
+    assert 'key: BILLING_ENABLED\n        value: "true"' in blueprint
     assert 'key: PUBLIC_BASE_URL\n        value: "https://uk-activity-radar.onrender.com"' in blueprint
     assert 'key: RADAR_PLUS_PRICE_DISPLAY\n        value: "£3.99/month"' in blueprint
 
