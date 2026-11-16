@@ -140,7 +140,11 @@ def station_page(origin: str, station: dict, board: dict | None, nearby: list[di
             f"<td><strong>{escape(tidy_name(row.get('destination') or ''))}</strong><small>{escape(operator)}</small></td>"
             f"<td>{escape(str(platform))}</td><td class=\"status {tone}\">{escape(status)}</td></tr>"
         )
-    if not departures:
+    if board is None:
+        # The light version, served while the server is busy: no board, and
+        # no claim that nothing is due.
+        summary = f"Live departures, platforms and delays for {escape(name)} are on the live map."
+    elif not departures:
         summary = f"No departures are due from {escape(name)} in the next few hours."
     else:
         parts = [f"{known - late - cancelled} of the next {len(departures)} trains are on time or within 5 minutes"] if known else []

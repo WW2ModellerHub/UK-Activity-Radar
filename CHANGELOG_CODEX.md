@@ -1,5 +1,15 @@
 # Codex stabilization changelog
 
+## 2026-11-16 — station pages can't overload the server
+
+- The live site started failing (Render 502s, restarting) the day after
+  2,677 station and operator pages went into the sitemap. Each station page
+  builds a live board (a few seconds of work); crawlers fetching many at once
+  can starve the single server. Now only one page is built at a time; others
+  get the last copy or, if there is none, a light page without the board
+  (it says departures are on the live map). Station pages are kept for 10
+  minutes instead of 90 seconds.
+
 ## 2026-11-16 — alerts on iPhone need the Home Screen app, said up front
 
 - iPhones and iPads only deliver web alerts to a site added to the Home
