@@ -16,6 +16,7 @@ application instances.
 
 import hashlib
 import hmac
+import re
 import secrets
 import sqlite3
 import threading
@@ -308,6 +309,15 @@ class BillingStore:
 
                 CREATE TABLE IF NOT EXISTS billing_email_login_tokens (
                     token_hash TEXT PRIMARY KEY,
+                    customer_id TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    consumed_at INTEGER,
+                    FOREIGN KEY(customer_id) REFERENCES billing_customers(customer_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS billing_device_codes (
+                    code_hash TEXT PRIMARY KEY,
                     customer_id TEXT NOT NULL,
                     created_at INTEGER NOT NULL,
                     expires_at INTEGER NOT NULL,
@@ -829,6 +839,57 @@ class BillingStore:
                 "UPDATE billing_email_login_tokens SET consumed_at=? WHERE token_hash=?",
                 (now, digest),
             )
+            conn.commit()
+            return str(row["customer_id"])
+
+
+    # ---- Radar+ on another device ------------------------------------------
+    # Access is a cookie on one device. A subscriber's other phone, or the
+    # iPhone Home Screen app (which keeps its own cookies apart from Safari),
+    # joins with a short one-time code shown on a device that already has it.
+    DEVICE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O or 1/I
+
+    @classmethod
+    def normalise_device_code(cls, code: str | None) -> str:
+        text = re.sub(r"[\s-]", "", str(code or "")).upper()
+        return text if len(text) == 8 and all(ch in cls.DEVICE_CODE_ALPHABET for ch in text) else ""
+
+    def create_device_code(self, customer_id: str, *, ttl_seconds: int = 10 * 60) -> str:
+        customer_id = self._identifier(customer_id, "customer_id")
+        code = "".join(secrets.choice(self.DEVICE_CODE_ALPHABET) for _ in range(8))
+        now = self._now()
+        with self._lock, self._connect() as conn:
+            conn.execute("DELETE FROM billing_device_codes WHERE expires_at<?", (now - 86400,))
+            conn.execute(
+                "INSERT INTO billing_device_codes(code_hash,customer_id,created_at,expires_at,consumed_at) VALUES(?,?,?,?,NULL)",
+                (self._hash_token("device-code", code), customer_id, now, now + int(ttl_seconds)),
+            )
+            conn.commit()
+        return f"{code[:4]}-{code[4:]}"
+
+    def consume_device_code(self, code: str | None) -> str | None:
+        """The customer for an unused, unexpired code with Radar+ still active; once only."""
+        clean = self.normalise_device_code(code)
+        if not clean:
+            return None
+        digest = self._hash_token("device-code", clean)
+        now = self._now()
+        with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                """
+                SELECT d.customer_id FROM billing_device_codes d
+                JOIN billing_subscriptions s ON s.customer_id=d.customer_id
+                WHERE d.code_hash=? AND d.consumed_at IS NULL AND d.expires_at>?
+                  AND s.plan=? AND s.status IN ('active','trialing')
+                LIMIT 1
+                """,
+                (digest, now, PLAN_PLUS),
+            ).fetchone()
+            if row is None:
+                conn.rollback()
+                return None
+            conn.execute("UPDATE billing_device_codes SET consumed_at=? WHERE code_hash=?", (now, digest))
             conn.commit()
             return str(row["customer_id"])
 

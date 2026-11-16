@@ -1285,3 +1285,21 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
 .spotter-kinds legend { padding: 0; margin-bottom: 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .spotter-kinds label { display: flex; align-items: center; gap: 10px; min-height: 36px; font-size: 15px; }
 .spotter-kinds input { width: 20px; height: 20px; accent-color: var(--accent, #0b63ce); flex: none; }
+
+/* Radar+ labels on paid features, shown only to visitors without Radar+
+   once it can be bought. */
+[data-plus].needs-plus strong::after,
+strong[data-plus].needs-plus::after,
+.layer-chip[data-plus].needs-plus::after,
+.track-button[data-plus].needs-plus::after {
+  content: "Radar+"; display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+  font-size: 10px; font-weight: 700; letter-spacing: .02em; line-height: 16px; vertical-align: middle;
+  color: #fff; background: linear-gradient(135deg, #1a73e8, #7b3fe4);
+}
+.plus-code-box { display: grid; gap: 4px; margin-top: 10px; padding: 12px; border-radius: 12px; background: var(--surface-2, #f3f5f8); text-align: center; }
+.plus-code-box strong { font-size: 28px; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
+.plus-code-box small, .plus-have small, .plus-have p { color: var(--muted, #5f6b7a); font-size: 13px; line-height: 1.4; }
+.plus-have { margin-top: 12px; }
+.plus-have summary { cursor: pointer; font-weight: 600; }
+.plus-have p { margin: 8px 0; }
+#radar-plus-link button { white-space: nowrap; }
