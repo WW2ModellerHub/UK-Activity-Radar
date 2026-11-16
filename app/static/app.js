@@ -467,12 +467,29 @@
     const summary=$('product-summary');
     if(summary)summary.textContent=plus?'Active on this device.':(billingState.enabled?`Not active. Radar+ is ${billingState.price_display||'available'}.`:'Not available yet.');
     $('radar-plus-checkout')?.classList.toggle('hidden',plus||!billingState.enabled);
+    // Monthly and, when offered, yearly; a free trial is said up front.
+    const yearlyOn=Boolean(billingState.yearly_available)&&!plus&&billingState.enabled;
+    const yearly=$('radar-plus-yearly');
+    if(yearly){yearly.classList.toggle('hidden',!yearlyOn);yearly.textContent=`${billingState.yearly_price_display||'Yearly'} · best value`;}
+    if(yearlyOn&&price)price.textContent='';  // both prices are on the buttons
+    const monthly=$('radar-plus-checkout');
+    if(monthly){monthly.textContent=yearlyOn?(billingState.price_display||'Monthly'):'Get Radar+';monthly.classList.toggle('ghost-button',yearlyOn);monthly.classList.toggle('primary-button',!yearlyOn);}
+    const trial=$('plus-trial');
+    if(trial){const days=Number(billingState.trial_days)||0;trial.classList.toggle('hidden',plus||!billingState.enabled||!days);trial.textContent=days?`Free for ${days} days, then charged unless you cancel. Cancel any time.`:'';}
     $('radar-plus-portal')?.classList.toggle('hidden',!plus);
     $('radar-plus-logout')?.classList.toggle('hidden',!plus);
     $('radar-plus-preview')?.classList.toggle('hidden',plus||!billingState.preview_available);
     const top=$('radar-plus'); if(top)top.textContent=plus?'Radar+ ✓':'Radar+';
   }
 
+  // Alerts beyond one saved train are Radar+, but only once Radar+ can be
+  // bought: while payments are off, everything stays open.
+  function alertsLimited(){ return Boolean(billingState.enabled)&&!hasPlusFeature('alerts_pro'); }
+  function requireAlertsPlus(what,label){
+    if(!alertsLimited())return true;
+    trackProduct('plus_limit_reached',label);
+    openPlusDialog();showToast(`${what} are part of Radar+.`);return false;
+  }
   function requirePlus(feature,message='This advanced tool is included with Radar+.') {
     if(hasPlusFeature(feature))return true;
     openPlusDialog(); showToast(message); return false;
@@ -3421,6 +3438,7 @@
       showToast(ok?'You won’t be told when to leave for this train.':'That couldn’t be changed right now.');
     } else {
       if(pushUnsupportedReason()){showToast(pushUnsupportedReason());return;}
+      if(!requireAlertsPlus('When-to-leave alerts','leave-now'))return;
       const form=set.closest('.leave-plan-form');
       const stop=leaveStops[Number(form.querySelector('[data-leave-stop]').value)];
       const minutes=Math.max(1,Math.min(180,Number(form.querySelector('[data-leave-minutes]').value)||15));
@@ -4638,6 +4656,7 @@
     }
     if(pushUnsupportedReason()){showToast(pushUnsupportedReason());return;}
     if(!commuteAlertStatus.configured){showToast('Alerts are not available yet.');return;}
+    if(!requireAlertsPlus('Spotter alerts','spotter'))return;
     let fix;
     try { fix=await currentFix(); } catch(error){ showToast(error.message); return; }
     const radius=Number($('spotter-radius')?.value||10);
@@ -4842,6 +4861,7 @@
   async function enableCommuteAlerts() {
     const place=savedPlaces.get($('commute-alert-place')?.value||'');
     let preferences;
+    if(place&&!requireAlertsPlus('Alerts near your places','place-alerts'))return;
     if(place){
       const [startHour,endHour]=String($('commute-alert-hours')?.value||'5:11').split(':').map(Number);
       preferences={...currentPushPreferences(),mode:$('commute-alert-mode')?.value||'driving',place_id:place.id,place_name:humanTransitLabel(place.name),lat:Number(place.lat),lon:Number(place.lon),radius_miles:Number($('commute-alert-radius')?.value||12),start_hour:startHour,end_hour:endHour,activity_types:[...myRadarInterests].filter(type=>['train','bus','vessel','aircraft'].includes(type)),saved_trains:savedTrainIds()};
@@ -5464,6 +5484,7 @@
       }
       if(pushUnsupportedReason()){showToast(pushUnsupportedReason());return;}
       if(!commuteAlertStatus.configured){showToast('Alerts are not available yet.');return;}
+      if(!requireAlertsPlus('Journey watch alerts','journey-watch'))return;
       const [hours,minutes]=String($('journey-watch-time')?.value||'07:30').split(':').map(Number);
       const step=Math.max(1,Math.ceil(route.length/80));
       const points=route.filter((_,index)=>index%step===0||index===route.length-1).map(point=>[Number(point.lat),Number(point.lon)]);
@@ -5831,7 +5852,10 @@
         const already=commuteAlertStatus.subscribed;
         const enabled=already||await enableSavedTrainAlerts();
         const unsupported=pushUnsupportedReason();
-        showToast(enabled?'Saved. Your phone will tell you if this train is late, cancelled or changes platform.'
+        const beyondFree=alertsLimited()&&savedTrainIds().indexOf(selectedId)>0;
+        if(beyondFree)trackProduct('plus_limit_reached','saved-train-alerts');
+        showToast(beyondFree?'Saved. On the free plan, phone alerts cover your first saved train. Radar+ covers them all.'
+          : enabled?'Saved. Your phone will tell you if this train is late, cancelled or changes platform.'
           : unsupported&&commuteAlertStatus.configured?`Saved. ${unsupported}`
           : 'Saved. You will be told here if this train is late, cancelled or changes platform.');
       }
@@ -5951,7 +5975,16 @@
   $('radar-plus')?.addEventListener('click',openPlusDialog);
   $('network-upgrade')?.addEventListener('click',openPlusDialog);
   $('plus-close')?.addEventListener('click',()=>{const dialog=$('plus-dialog');if(typeof dialog?.close==='function')dialog.close();else dialog?.removeAttribute('open');});
-  $('radar-plus-checkout')?.addEventListener('click',async()=>{const button=$('radar-plus-checkout');try{button.disabled=true;button.textContent='Opening secure checkout…';const payload=await postBilling('/api/billing/checkout');location.assign(payload.checkout_url);}catch(error){showToast(error.message);}finally{button.disabled=false;button.textContent='Get Radar+';}});
+  for(const id of ['radar-plus-checkout','radar-plus-yearly'])$(id)?.addEventListener('click',async event=>{
+    const button=event.currentTarget,period=button.dataset.period==='year'?'year':'month',label=button.textContent;
+    try{
+      button.disabled=true;button.textContent='Opening secure checkout…';
+      trackProduct('plus_checkout_started',period);
+      const payload=await postBilling(`/api/billing/checkout?period=${period}`);
+      location.assign(payload.checkout_url);
+    }catch(error){showToast(error.message);}
+    finally{button.disabled=false;button.textContent=label;}
+  });
   $('radar-plus-portal')?.addEventListener('click',async()=>{try{const payload=await postBilling('/api/billing/portal');location.assign(payload.portal_url);}catch(error){showToast(error.message);}});
   $('radar-plus-logout')?.addEventListener('click',async()=>{try{await fetch('/api/billing/logout',{method:'POST'});await loadBillingStatus();showToast('Radar+ access was signed out on this device.');}catch{showToast('Could not sign out right now.');}});
   $('radar-plus-preview')?.addEventListener('submit',async event=>{
@@ -6036,6 +6069,7 @@
       const status=new URLSearchParams(location.search).get('billing');
       const messages={success:'Radar+ is active on this device.',pending:'Payment is still processing.',failed:'Payment could not be confirmed.',unavailable:'Radar+ billing is not configured yet.','portal-return':'Subscription settings updated.'};
       if(status&&messages[status]){showToast(messages[status]);history.replaceState({},'',location.pathname+location.hash);}
+      if(status==='success'&&billingState.plus)trackProduct('plus_subscribed',billingState.subscription_status||'active');
     });
     loadCommuteAlertStatus();
     checkSavedTrains();

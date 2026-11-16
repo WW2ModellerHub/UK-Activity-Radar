@@ -181,7 +181,7 @@ async function installAppFixture(page) {
       ], specialist_count:1 } });
       if (pathname === '/api/weather/radar') return route.fulfill({ json: { tile_template:'https://radar.invalid/{z}/{x}/{y}.png', frame_time:1791194400, max_native_zoom:7, attribution:'Fixture radar' } });
       if (pathname === '/api/traffic/status') return route.fulfill({ json: { configured:true } });
-      if (pathname === '/api/billing/status') return route.fulfill({ json: { enabled:true, plan:'plus', plus:true, subscription_status:'active', price_display:'£3.99/month', features:['cool_full','advanced_identity','advanced_transport','journey_planner','live_cameras','traffic_pro','fast_updates','live_tracking'] } });
+      if (pathname === '/api/billing/status') return route.fulfill({ json: { enabled:true, plan:'plus', plus:true, subscription_status:'active', price_display:'£3.99/month', features:['alerts_pro','cool_full','advanced_identity','advanced_transport','journey_planner','live_cameras','traffic_pro','fast_updates','live_tracking'] } });
       if (pathname === '/api/alerts/status') return route.fulfill({ json:{configured:true,public_key:'B'.repeat(87),subscribed:false,preferences:null,requires_https:true} });
       if (pathname === '/api/alerts/subscribe' && route.request().method() === 'POST') return route.fulfill({ json:{ok:true,message:'Commute alerts are active on this device'} });
       if (pathname === '/api/alerts/unsubscribe' && route.request().method() === 'POST') return route.fulfill({ json:{ok:true} });

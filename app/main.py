@@ -199,6 +199,8 @@ billing_configuration = BillingConfiguration(
     stripe_secret_key=settings.stripe_secret_key,
     stripe_webhook_secret=settings.stripe_webhook_secret,
     stripe_plus_price_id=settings.stripe_plus_price_id,
+    stripe_plus_yearly_price_id=settings.stripe_plus_yearly_price_id,
+    trial_days=settings.radar_plus_trial_days,
     token_pepper=settings.billing_token_pepper,
     cookie_secure=settings.billing_cookie_secure,
 )
@@ -1350,6 +1352,9 @@ def billing_status(request: Request, response: Response):
         "subscription_status": context.subscription_status,
         "features": sorted(context.features),
         "price_display": settings.radar_plus_price_display,
+        "yearly_available": bool(billing_service and settings.stripe_plus_yearly_price_id),
+        "yearly_price_display": settings.radar_plus_yearly_price_display,
+        "trial_days": settings.radar_plus_trial_days if billing_service else 0,
         "preview_available": len(settings.radar_plus_preview_key) >= 24,
         "free_features": ["live_map", "core_layers", "basic_cool", "field_guide", "basic_my_radar"],
         "plus_features": sorted(PLUS_FEATURES),
@@ -1410,14 +1415,34 @@ def commute_alert_status(request: Request, response: Response):
     }
 
 
+FREE_SAVED_TRAIN_ALERTS = 1
+
+
+def _free_alert_allowance(preferences: dict, request: Request) -> dict:
+    """Without Radar+ (once payments are on): alerts for one saved train only.
+
+    While payments are off nobody can buy Radar+, so nothing is limited.
+    """
+    if billing_service is None or _billing_context(request).has("alerts_pro"):
+        return preferences
+    trimmed = dict(preferences or {})
+    trimmed["saved_trains"] = list(trimmed.get("saved_trains") or [])[:FREE_SAVED_TRAIN_ALERTS]
+    for key in ("spotter", "journey"):
+        trimmed[key] = None
+    trimmed["leave_plans"] = []
+    trimmed["mode"] = "trains-only"
+    return trimmed
+
+
 @app.post("/api/alerts/subscribe")
 def subscribe_commute_alerts(payload: CommuteAlertIn, request: Request):
     _require_same_origin_post(request)
     _enforce_public_budget(request, lookup_request_budget)
     if commute_alert_store is None or not settings.push_alerts_ready:
         raise HTTPException(status_code=503, detail="Commute alerts will become available when Web Push is configured on the hosted site")
+    preferences = _free_alert_allowance(payload.preferences, request)
     try:
-        commute_alert_store.upsert(payload.device_token, payload.subscription, payload.preferences)
+        commute_alert_store.upsert(payload.device_token, payload.subscription, preferences)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, "message": "Commute alerts are active on this device"}
@@ -1455,13 +1480,15 @@ def unsubscribe_commute_alerts(payload: CommuteAlertRemoveIn, request: Request):
 
 
 @app.post("/api/billing/checkout")
-def billing_checkout(request: Request, response: Response):
+def billing_checkout(request: Request, response: Response, period: str = "month"):
     _require_same_origin_post(request)
     _enforce_public_budget(request, lookup_request_budget)
     if billing_service is None:
         raise HTTPException(status_code=503, detail="Radar+ checkout is not configured yet")
+    if period not in {"month", "year"}:
+        raise HTTPException(status_code=400, detail="Choose monthly or yearly")
     try:
-        started = billing_service.create_checkout()
+        started = billing_service.create_checkout(period=period)
     except BillingError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     response.set_cookie(
