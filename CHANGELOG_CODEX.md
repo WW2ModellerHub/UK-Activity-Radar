@@ -70,6 +70,19 @@
 - Quick 502s: the app closed idle connections after 10 s while Render's
   proxy reuses them for longer; keep-alive is now 120 s. Render's health
   check uses /api/health/runtime, which needs no worker thread.
+## 2026-11-17 — Planes overhead stays useful when the point feed is slow
+
+- Fixed the production 500 behind “Nearby aircraft could not refresh” and
+  removed a global request lock that made one slow lookup queue every visitor.
+- Nearby aircraft now appears immediately from the live map, keeps a recent
+  successful point lookup for brief outages, and falls back to retained UK
+  aircraft while the precise lookup retries. The control reports progress and
+  never wipes already-visible aircraft because one refresh failed.
+- Added five crawlable, evidence-led aircraft pages (military, helicopters,
+  police helicopters, air ambulances and “what plane is above me?”), connected
+  them to real filtered map views and published them in the sitemap.
+- Versioned static assets now receive an immutable one-year browser/CDN cache;
+  unversioned live application assets keep their short refresh policy.
 
 ## 2026-11-16 — Radar+ box fits on computers
 

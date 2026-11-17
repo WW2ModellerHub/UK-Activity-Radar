@@ -1,11 +1,14 @@
 from datetime import datetime, timedelta, timezone
 
-from app.collectors.adsb_lol import parse_adsb_response, parse_nearby_aircraft_response
+import requests
+
+from app.collectors.adsb_lol import ADSBLolSARCollector, parse_adsb_response, parse_nearby_aircraft_response
 from app.collectors.london_fire import _parse_dt, parse_lfb_incidents
 from app.collectors.met_office import parse_warning_geojson, parse_warning_rss
 from app.collectors.rnli import parse_rnli_page
 from app.config import Settings
 from app.search import ActivitySearch
+from app.state import LiveState
 
 
 def test_old_bods_datafeed_url_is_repaired():
@@ -65,6 +68,36 @@ def test_nearby_ryanair_b38m_is_named_immediately_without_route_guessing():
     assert aircraft.aircraft_model == "Boeing 737 MAX 8"
     assert aircraft.operator == "Ryanair"
     assert aircraft.origin is None and aircraft.destination is None
+
+
+def test_nearby_aircraft_uses_recent_point_cache_when_refresh_fails(monkeypatch):
+    collector = ADSBLolSARCollector(Settings(), LiveState())
+
+    class GoodResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"ac": [{
+                "hex": "400001", "flight": "BAW123", "lat": 52.54,
+                "lon": -1.37, "t": "A320", "gs": 410, "track": 90,
+            }]}
+
+    monkeypatch.setattr(collector._session, "get", lambda *args, **kwargs: GoodResponse())
+    first, checked = collector.fetch_nearby(52.54, -1.37, 43)
+    assert checked == 1 and [row.id for row in first] == ["aircraft:400001"]
+
+    key = (52.54, -1.37, 43)
+    fetched_at, rows, checked = collector._nearby_cache[key]
+    collector._nearby_cache[key] = (fetched_at - timedelta(seconds=30), rows, checked)
+
+    def timeout(*args, **kwargs):
+        raise requests.Timeout("temporary point-feed timeout")
+
+    monkeypatch.setattr(collector._session, "get", timeout)
+    retained, retained_checked = collector.fetch_nearby(52.54, -1.37, 43)
+    assert retained_checked == 1
+    assert [row.id for row in retained] == ["aircraft:400001"]
 
 
 def test_common_military_training_and_tanker_types_are_named():

@@ -385,12 +385,25 @@ class ADSBLolSARCollector:
             # low-rate national collector.  A short shared cache keeps public
             # API traffic bounded while allowing aircraft to reconcile often
             # enough for the browser's between-report motion to stay honest.
-            if cached and (now - cached[0]).total_seconds() < 7:
+            if cached and (now - cached[0]).total_seconds() < 15:
                 return cached[1], cached[2]
+        # Never hold the cache lock across an internet request. One slow point
+        # lookup previously queued every other visitor behind it, which made
+        # "Planes overhead" appear frozen under even modest use.
+        try:
             url = f"{self.settings.adsb_lol_base_url}/v2/point/{lat}/{lon}/{radius_nm}"
-            response = self._session.get(url, timeout=(4, 10))
+            response = self._session.get(url, timeout=(3, 6))
             response.raise_for_status()
             rows, checked = parse_nearby_aircraft_response(response.json(), now=now)
+        except Exception:
+            # A recent successful answer is more useful than an empty map
+            # during a brief rate limit or timeout. The API route separately
+            # falls back to the broad retained UK aircraft feed when this is a
+            # visitor's first lookup and no point cache exists yet.
+            if cached and (now - cached[0]).total_seconds() < 180:
+                return cached[1], cached[2]
+            raise
+        with self._nearby_lock:
             # Only military, rescue and notable aircraft join the shared map.
             # Everyday light aircraft and airliners found for one visitor's
             # "planes above me" are returned to that visitor only; storing
@@ -403,7 +416,7 @@ class ADSBLolSARCollector:
             if len(self._nearby_cache) > 40:
                 oldest = min(self._nearby_cache, key=lambda item: self._nearby_cache[item][0])
                 self._nearby_cache.pop(oldest, None)
-            return rows, checked
+        return rows, checked
 
     def _cached_snapshot(self, *, max_age_minutes: int = 10) -> tuple[list[Vehicle], list[Vehicle], int]:
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)

@@ -75,6 +75,14 @@ def test_shared_live_pages_are_explicitly_noindex():
     assert '<meta name="robots" content="noindex,nofollow">' in share
 
 
+def test_versioned_static_assets_are_immutable_in_browser_and_cdn_caches():
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).get("/static/app.js?v=16343")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
 def test_a_shared_link_previews_with_its_own_title_and_picture(monkeypatch):
     from datetime import datetime, timezone
 

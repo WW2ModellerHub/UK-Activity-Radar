@@ -130,9 +130,9 @@ def _shell(*, title: str, description: str, canonical: str, body: str, json_ld: 
 <meta property="og:url" content="{escape(canonical, quote=True)}"><meta property="og:image" content="{escape(site, quote=True)}/card.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#ffffff">
 <link rel="icon" href="/static/icon-192.png"><link rel="stylesheet" href="/static/seo.css">{ld}</head>
-<body><header class="top"><a class="brand" href="/"><span>R</span>UK Activity Radar</a><nav><a href="/">Live map</a><a href="/stations">Stations</a><a href="/operators">Operators</a><a href="/guides">Guides</a></nav></header>
+<body><header class="top"><a class="brand" href="/"><span>R</span>UK Activity Radar</a><nav><a href="/">Live map</a><a href="/stations">Stations</a><a href="/operators">Operators</a><a href="/military-aircraft-tracker">Aircraft</a><a href="/guides">Guides</a></nav></header>
 <main>{body}</main>
-<footer><a href="/">Live map</a> · <a href="/stations">All stations</a> · <a href="/operators">Train operators</a> · <a href="/guides">Tracking guides</a> · <a href="/about">About</a> · <a href="/data-licences">Data licences</a><p>Times and delays from Network Rail open data. Contains information of Network Rail Infrastructure Limited.</p></footer>
+<footer><a href="/">Live map</a> · <a href="/stations">All stations</a> · <a href="/operators">Train operators</a> · <a href="/military-aircraft-tracker">Aircraft trackers</a> · <a href="/guides">Tracking guides</a> · <a href="/about">About</a> · <a href="/data-licences">Data licences</a><p>Times and delays from Network Rail open data. Contains information of Network Rail Infrastructure Limited.</p></footer>
 </body></html>"""
 
 
@@ -197,7 +197,7 @@ def station_page(origin: str, station: dict, board: dict | None, nearby: list[di
 <p><a class="button" href="/?place=rail-station:{escape(crs)}">See them moving on the live map</a></p>
 {table}
 {f'<h2>Operators at {escape(name)}</h2><ul class="links">{operator_links}</ul>' if operator_links else ''}
-<h2>About this page</h2><p>Departures from {escape(name)} ({escape(crs)}) for the next few hours, from the published timetable with live running from Network Rail where the train can be matched. Delays update every minute on the <a href="/?place=rail-station:{escape(crs)}">live map</a>, where you can also save the station, follow a train and get alerts when it is late, cancelled or changes platform.</p>
+<h2>About this page</h2><p>Departures from {escape(name)} ({escape(crs)}) for the next few hours, from the published timetable with live running from Network Rail where the train can be matched. Delays update every minute on the <a href="/?place=rail-station:{escape(crs)}">live map</a>, where you can also save the station, follow a train and get alerts when it is late, cancelled or changes platform. Read <a href="/guides/how-live-train-positions-work">how UK live train positions are estimated between railway reports</a>.</p>
 {f'<h2>Stations near {escape(name)}</h2><ul class="links">{nearby_links}</ul>' if nearby_links else ''}"""
     canonical = origin + station["path"]
     return _shell(
@@ -292,7 +292,7 @@ def operator_page(origin: str, row: dict) -> str:
 <p class="lede">{escape(_operator_summary(row))}</p>
 <p><a class="button" href="/">See {escape(name)} trains on the live map</a></p>
 {f'<h2>Most delayed right now</h2><table class="board"><tbody>{worst}</tbody></table>' if worst else ''}
-<h2>About this page</h2><p>How {escape(name)} trains are running now, worked out from every {escape(name)} train reporting to Network Rail: the share running five or more minutes late, how late, and cancellations. It updates through the day. See <a href="/operators">all train operators</a>.</p>"""
+<h2>About this page</h2><p>How {escape(name)} trains are running now, worked out from every {escape(name)} train reporting to Network Rail: the share running five or more minutes late, how late, and cancellations. It updates through the day. See <a href="/operators">all train operators</a> or learn <a href="/guides/how-live-train-positions-work">how live train positions work between railway reports</a>.</p>"""
     canonical = origin + operator_path(name)
     return _shell(title=f"{name} delays and service status today | UK Activity Radar",
                   description=f"Is {name} running on time? Live status for {name} trains right now: delays, cancellations and the most delayed services.",
@@ -385,9 +385,19 @@ def guides_index(origin: str) -> str:
         for slug, guide in _GUIDES.items()
     )
     canonical = origin + "/guides"
+    trackers = "".join(
+        f'<li><a href="{path}"><strong>{title}</strong><span>{description}</span></a></li>'
+        for path, title, description in (
+            ("/military-aircraft-tracker", "UK military aircraft tracker", "See military and special aircraft broadcasting a public position."),
+            ("/helicopter-tracker", "UK helicopter tracker", "Find helicopters visible in the live aircraft feed."),
+            ("/police-helicopter-tracker", "Police helicopter tracker", "Understand circling flights and public tracking limits."),
+            ("/air-ambulance-tracker", "Air ambulance tracker", "Follow identified emergency medical helicopters."),
+            ("/what-plane-is-above-me", "What plane is above me?", "Use your location to identify nearby aircraft."),
+        )
+    )
     body = f"""<p class="eyebrow">How the radar works</p><h1>Live tracking guides</h1>
 <p class="lede">Plain-English guides to the data behind live trains and aircraft, including what is confirmed, what is estimated and why coverage can change.</p>
-<ul class="guide-list">{items}</ul>"""
+<ul class="guide-list">{items}</ul><h2>Live aircraft trackers</h2><ul class="guide-list">{trackers}</ul>"""
     return _shell(title="Live train and aircraft tracking guides | UK Activity Radar",
                   description="Understand how live UK train positions and ADS-B aircraft tracking work, including estimates, delays and coverage gaps.",
                   canonical=canonical, body=body,
@@ -402,9 +412,16 @@ def guide_page(origin: str, slug: str) -> str:
         f'<section><h2>{escape(heading)}</h2>{"".join(f"<p>{escape(paragraph)}</p>" for paragraph in paragraphs)}</section>'
         for heading, paragraphs in guide["sections"]
     )
+    related = (
+        '<aside class="related"><h2>Try the live aircraft tools</h2><p><a href="/what-plane-is-above-me">Identify a plane above you</a>, '
+        '<a href="/helicopter-tracker">track UK helicopters</a> or open the '
+        '<a href="/military-aircraft-tracker">military aircraft tracker</a>.</p></aside>'
+        if slug == "how-ads-b-aircraft-tracking-works"
+        else '<aside class="related"><h2>See the data on the map</h2><p>Browse <a href="/stations">live station departures</a> or open the <a href="/">live UK train map</a>.</p></aside>'
+    )
     body = f"""<article class="guide"><p class="eyebrow">{escape(guide['eyebrow'])}</p>
 <h1>{escape(guide['heading'])}</h1><p class="lede">{escape(guide['lede'])}</p>{sections}
-<p class="guide-cta"><a class="button" href="/">Open the live UK map</a></p></article>"""
+{related}<p class="guide-cta"><a class="button" href="/">Open the live UK map</a></p></article>"""
     return _shell(title=guide["title"], description=guide["description"], canonical=canonical, body=body,
                   json_ld={"@context": "https://schema.org", "@graph": [
                       {"@type": "Article", "headline": guide["heading"], "description": guide["description"],

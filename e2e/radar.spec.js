@@ -769,9 +769,64 @@ test('What’s above me loads nearby aircraft and can be turned off', async ({ p
   await expect(page.locator('#detail-title')).toHaveText(/Planes above you|Nearest planes/);
   await expect(page.locator('[data-job-plane]').first()).toBeVisible();
   await expect(page.locator('.aerial-map-marker').first()).toBeVisible();
-  await expect.poll(()=>nearbyRequests,{timeout:10000}).toBeGreaterThan(1);
+  await expect.poll(()=>nearbyRequests,{timeout:15000}).toBeGreaterThan(1);
   await page.locator('#nearby-note .nearby-note-close').click();
   await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','false');
+});
+
+test('What’s above me keeps retained aircraft visible when its point lookup fails', async ({ page }) => {
+  await page.setViewportSize({width:375,height:812});
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.route('**/api/aircraft/nearby**', route => route.fulfill({
+    contentType:'application/json',
+    body:JSON.stringify({
+      checked:1,
+      radius_miles:50,
+      degraded:true,
+      source:'Retained UK aircraft feed',
+      warning:'The live point lookup is retrying; showing the latest retained aircraft positions.',
+      activities:[{
+        kind:'vehicle',id:'aircraft:retained',type:'aircraft',name:'TEST01',
+        lat:54.11,lon:-2.45,altitude_ft:12000,aircraft_model:'Airbus A320',
+        source:'Retained UK aircraft feed',last_updated:'2026-10-05T10:00:58Z',
+      }],
+    }),
+  }));
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
+  await page.locator('[data-job="planes"]').click();
+  await expect(page.locator('#overhead-now small')).toContainText('retained aircraft');
+  await expect(page.locator('#overhead-now small')).toContainText('retrying');
+  await expect(page.locator('.aerial-map-marker').first()).toBeVisible();
+  await expect(page.locator('#detail-title')).toHaveText(/Planes above you|Nearest planes/);
+  await expect(page.locator('[data-job="planes"]')).not.toHaveAttribute('aria-busy','true');
+  await page.setViewportSize({width:812,height:375});
+  await expect(page.locator('.aerial-map-marker').first()).toBeVisible();
+});
+
+test('aircraft search landing links open their promised live map views', async ({ page }) => {
+  await page.goto('/?view=helicopters');
+  await expect(page).toHaveURL('http://radar.test/');
+  await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('.aircraft-shape-chinook').first()).toBeVisible();
+  await expect(page.locator('.aircraft-shape-fastjet')).toHaveCount(0);
+
+  await page.goto('/?view=military-aircraft');
+  await expect(page).toHaveURL('http://radar.test/');
+  await expect(page.locator('body')).toHaveAttribute('data-experience','cool');
+  await expect(page.locator('.filter[data-type="cool-air"]')).toHaveClass(/active/);
+  await expect(page.locator('.aerial-map-marker').first()).toBeVisible();
+});
+
+test('what-plane-is-above-me landing link starts the nearby-aircraft lookup', async ({ page }) => {
+  await page.addInitScript(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{
+    getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});},
+    watchPosition(){return 1;},clearWatch(){},
+  }}));
+  await page.goto('/?view=aircraft-near-me');
+  await expect(page).toHaveURL('http://radar.test/');
+  await expect(page.locator('#overhead-now')).toHaveClass(/active/);
+  await expect(page.locator('#map')).toHaveAttribute('data-map-center','54.11,-2.45');
+  await expect(page.locator('[data-job-plane]').first()).toBeVisible();
 });
 
 test('Discover clears above-me radius and returns to the full UK feed', async ({ page }) => {

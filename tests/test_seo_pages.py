@@ -115,6 +115,8 @@ def test_the_sitemap_lists_every_station_and_operator(monkeypatch):
     sitemap = client.get("/sitemap.xml").text
     for path in ("/stations", "/stations/l", "/operators", "/guides", "/guides/how-live-train-positions-work",
                  "/guides/how-ads-b-aircraft-tracking-works",
+                 "/military-aircraft-tracker", "/helicopter-tracker", "/police-helicopter-tracker",
+                 "/air-ambulance-tracker", "/what-plane-is-above-me",
                  "/station/rugby-rug", "/station/london-euston-eus", "/operator/lner"):
         assert f"http://testserver{path}</loc>" in sitemap
         assert sitemap.count(f"http://testserver{path}</loc>") == 1
@@ -141,6 +143,23 @@ def test_guides_are_crawlable_useful_pages(monkeypatch):
     assert client.get("/guides/not-real").status_code == 404
 
 
+def test_aircraft_search_pages_are_live_routes_with_working_map_links(monkeypatch):
+    client = _client(monkeypatch)
+    expected = {
+        "/military-aircraft-tracker": "military-aircraft",
+        "/helicopter-tracker": "helicopters",
+        "/police-helicopter-tracker": "police-helicopters",
+        "/air-ambulance-tracker": "air-ambulances",
+        "/what-plane-is-above-me": "aircraft-near-me",
+    }
+    for path, view in expected.items():
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "public, max-age=3600"
+        assert f'rel="canonical" href="http://testserver{path}"' in response.text
+        assert f'href="/?view={view}"' in response.text
+
+
 def test_json_ld_preserves_real_text_and_cannot_end_the_script():
     value = {"name": "A & B </script> \u2028 railway"}
     html = _shell(title="Test", description="Test", canonical="https://example.test/test", body="<h1>Test</h1>", json_ld=value)
@@ -156,26 +175,61 @@ def test_a_bare_train_still_previews_with_something_useful(monkeypatch):
     assert description == "Live train near Rugby · follow it on the live map"
 
 
-def test_a_busy_server_serves_a_light_station_page_instead_of_piling_up(monkeypatch):
+def test_a_busy_uncached_station_page_is_retryable_not_indexable(monkeypatch):
     client = _client(monkeypatch)
     station_lock = main._seo_lock_for("station:RUG")
     assert station_lock.acquire()      # the same page is already being built
     try:
         page = client.get("/station/rugby-rug")
-        assert page.status_code == 200
-        assert "Rugby departures" in page.text
-        assert "are on the live map" in page.text and "Birmingham New Street" not in page.text
-        assert page.headers["cache-control"] == "public, max-age=60"
+        assert page.status_code == 503
+        assert page.headers["retry-after"] == "30"
+        assert page.headers["cache-control"] == "no-store"
+        assert "Rugby departures" not in page.text
     finally:
         station_lock.release()
     full = client.get("/station/rugby-rug")
     assert "Birmingham New Street" in full.text and full.headers["cache-control"] == "public, max-age=600"
-    # Once built, it is served from the copy even while another build runs.
+
+    # Once a complete page exists, even an expired copy is safer than a thin
+    # crawlable fallback while its replacement is being built.
+    cached_at, cached_html = main._seo_page_cache["station:RUG"]
+    main._seo_page_cache["station:RUG"] = (cached_at - 601, cached_html)
     assert station_lock.acquire()
     try:
-        assert "Birmingham New Street" in client.get("/station/rugby-rug").text
+        stale = client.get("/station/rugby-rug")
+        assert stale.status_code == 200
+        assert "Birmingham New Street" in stale.text
+        assert stale.headers["cache-control"] == "public, max-age=60"
     finally:
         station_lock.release()
+
+
+def test_a_station_page_returns_503_when_the_heavy_builder_is_busy(monkeypatch):
+    client = _client(monkeypatch)
+    assert main._seo_heavy_build_slots.acquire()
+    try:
+        page = client.get("/station/rugby-rug")
+        assert page.status_code == 503
+        assert page.headers["retry-after"] == "30"
+        assert page.headers["cache-control"] == "no-store"
+        assert "Rugby departures" not in page.text
+    finally:
+        main._seo_heavy_build_slots.release()
+
+    full = client.get("/station/rugby-rug")
+    assert full.status_code == 200
+    assert "Birmingham New Street" in full.text
+
+    cached_at, cached_html = main._seo_page_cache["station:RUG"]
+    main._seo_page_cache["station:RUG"] = (cached_at - 601, cached_html)
+    assert main._seo_heavy_build_slots.acquire()
+    try:
+        stale = client.get("/station/rugby-rug")
+        assert stale.status_code == 200
+        assert "Birmingham New Street" in stale.text
+        assert stale.headers["cache-control"] == "public, max-age=60"
+    finally:
+        main._seo_heavy_build_slots.release()
 
 
 def test_one_slow_seo_page_does_not_block_an_unrelated_page(monkeypatch):

@@ -48,7 +48,7 @@ from .collectors.live_world import (
     PowerOutageCollector, GritterCollector,
 )
 from .config import settings
-from .error_safety import same_origin_websocket
+from .error_safety import public_error, same_origin_websocket
 from .network_environment import blocked_proxy_variables
 from .models import SourceStatus
 from .engagement import build_today_payload, safe_share_payload
@@ -1094,7 +1094,12 @@ async def security_headers(request: Request, call_next):
     elif path.startswith("/live/") or path.startswith("/billing/"):
         response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
     elif path.startswith("/static/"):
-        if path.endswith((".png", ".ico", ".webp", ".woff2")) or "/vendor/" in path:
+        if request.query_params.get("v"):
+            # Every first-party CSS/JS URL carries a release version. These
+            # names are immutable, so browsers and the CDN can keep them for a
+            # year without making a returning visitor re-download the app.
+            response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
+        elif path.endswith((".png", ".ico", ".webp", ".woff2")) or "/vendor/" in path:
             response.headers.setdefault("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
         else:
             response.headers.setdefault("Cache-Control", "public, max-age=300, stale-while-revalidate=86400")
@@ -1254,6 +1259,15 @@ def _seo_lock_for(key: str) -> threading.Lock:
         return _seo_build_locks.setdefault(key, threading.Lock())
 
 
+def _seo_busy() -> HTTPException:
+    """Tell crawlers to retry instead of indexing an incomplete fallback page."""
+    return HTTPException(
+        status_code=503,
+        detail="Busy, try again shortly",
+        headers={"Retry-After": "30", "Cache-Control": "no-store"},
+    )
+
+
 def _cached_page(key: str, seconds: int, build, light=None, *, heavy: bool = False) -> Response:
     now = time.monotonic()
     with _seo_cache_lock:
@@ -1266,7 +1280,7 @@ def _cached_page(key: str, seconds: int, build, light=None, *, heavy: bool = Fal
             return Response(hit[1], media_type="text/html", headers={"Cache-Control": "public, max-age=60"})
         if light is not None:
             return Response(light(), media_type="text/html", headers={"Cache-Control": "public, max-age=60"})
-        raise HTTPException(status_code=503, detail="Busy, try again shortly", headers={"Retry-After": "30"})
+        raise _seo_busy()
     try:
         # Another request may have filled the cache while this one waited for
         # the same key. Recheck inside the lock to avoid duplicate live-board
@@ -1285,7 +1299,7 @@ def _cached_page(key: str, seconds: int, build, light=None, *, heavy: bool = Fal
                     return Response(hit[1], media_type="text/html", headers={"Cache-Control": "public, max-age=60"})
                 if light is not None:
                     return Response(light(), media_type="text/html", headers={"Cache-Control": "public, max-age=60"})
-                raise HTTPException(status_code=503, detail="Busy, try again shortly", headers={"Retry-After": "30"})
+                raise _seo_busy()
         try:
             hit = (time.monotonic(), build())
             with _seo_cache_lock:
@@ -1346,9 +1360,11 @@ def station_page_route(name: str, request: Request):
             key=lambda row: _haversine_km(station["lat"], station["lon"], row["lat"], row["lon"]),
         )[:6]
         return station_page(origin, station, board, others, _operator_rows())
-    def light() -> str:
-        return station_page(origin, station, None, [], [])
-    return _cached_page(f"station:{crs}", 600, build, light, heavy=True)
+    # A reduced station shell is not a safe crawl fallback: at scale it makes
+    # thousands of distinct URLs look like thin duplicates. The cache helper
+    # will serve an expired complete copy while this page is rebuilding, or a
+    # non-cacheable 503 when no complete copy exists yet.
+    return _cached_page(f"station:{crs}", 600, build, heavy=True)
 
 
 @app.get("/operators", include_in_schema=False)
@@ -1391,8 +1407,23 @@ def guide_page_route(name: str, request: Request):
                     headers={"Cache-Control": "public, max-age=3600"})
 
 
+@app.get("/military-aircraft-tracker", include_in_schema=False)
+@app.get("/helicopter-tracker", include_in_schema=False)
+@app.get("/police-helicopter-tracker", include_in_schema=False)
+@app.get("/air-ambulance-tracker", include_in_schema=False)
+@app.get("/what-plane-is-above-me", include_in_schema=False)
+def aircraft_landing_page_route(request: Request):
+    from .aircraft_seo_pages import aircraft_landing_page
+    return Response(
+        aircraft_landing_page(_site_origin(request), request.url.path),
+        media_type="text/html",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap(request: Request):
+    from .aircraft_seo_pages import aircraft_landing_paths
     from .line_status import PASSENGER_OPERATORS
     from .seo_pages import guide_slugs, operator_path, station_letter_path
     origin = html_escape(_site_origin(request), quote=True)
@@ -1405,6 +1436,7 @@ def sitemap(request: Request):
                             headers={"Retry-After": "60", "Cache-Control": "no-store"})
     letters = sorted({row["name"][:1].upper() for row in stations if re.fullmatch(r"[A-Z]", row["name"][:1].upper())})
     urls = ("/", "/about", "/privacy", "/terms", "/data-licences", "/stations", "/operators", "/guides",
+            *aircraft_landing_paths(),
             *(f"/guides/{slug}" for slug in guide_slugs()),
             *(station_letter_path(letter) for letter in letters),
             *(operator_path(op) for op in sorted(set(PASSENGER_OPERATORS.values()))),
@@ -1944,10 +1976,43 @@ def nearby_aircraft(request: Request, lat: float, lon: float, radius_miles: floa
         raise HTTPException(status_code=400, detail="Location is outside UK aircraft coverage")
     miles = max(5.0, min(50.0, float(radius_miles)))
     radius_nm = max(5, round(miles / 1.15078))
+    degraded = False
+    warning = None
     try:
         rows, checked = adsb_sar_collector.fetch_nearby(lat, lon, radius_nm)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Nearby aircraft lookup failed: {public_error(exc)}") from exc
+        # The point feed is a useful enhancement, but the broad live collector
+        # already holds verified aircraft positions.  Do not turn a temporary
+        # upstream timeout/rate limit into an empty map (or, historically, a
+        # 500 caused while formatting this error).  Return nearby retained
+        # positions immediately and let the browser retry its point lookup.
+        retained = state.all(
+            max_age_minutes=10,
+            include_trains=False,
+            include_buses=False,
+            include_vessels=False,
+        )
+        rows = [
+            row for row in retained
+            if row.type in {"aircraft", "sar"}
+            and _haversine_km(lat, lon, float(row.lat), float(row.lon)) <= miles * 1.609344
+        ]
+        rows.sort(key=lambda row: _haversine_km(lat, lon, float(row.lat), float(row.lon)))
+        checked = len(rows)
+        degraded = True
+        warning = (
+            "The live point lookup is retrying; showing the latest retained "
+            "aircraft positions."
+        )
+        # Keep a safe diagnostic in server logs/source status without exposing
+        # upstream internals to the visitor.
+        try:
+            state.set_source(SourceStatus(
+                name="adsb_nearby", enabled=True, connected=False, mode="waiting",
+                message=f"Nearby ADS-B lookup degraded • {public_error(exc)}",
+            ))
+        except Exception:
+            pass
     # Start finding their photos now, so a tapped plane shows one at once.
     try:
         media_lookup.prefetch([
@@ -1961,7 +2026,9 @@ def nearby_aircraft(request: Request, lat: float, lon: float, radius_miles: floa
         "activities": [row.model_dump(mode="json") for row in rows],
         "checked": checked,
         "radius_miles": miles,
-        "source": "ADSB.lol point feed",
+        "source": "Retained UK aircraft feed" if degraded else "ADSB.lol point feed",
+        "degraded": degraded,
+        "warning": warning,
     }
 
 

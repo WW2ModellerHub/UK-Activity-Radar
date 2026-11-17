@@ -253,6 +253,7 @@
   let selectedType = 'useful';
   let selectedRailSubtype = 'all';
   let selectedOperator = 'all';
+  let aircraftLandingView = '';
   let operatorOptionsSignature = '';
   let trackedActivityId = null;
   const usefulActivityTypeOrder = ['train','bus','aircraft','road','roadfeature','incident','weather','flood'];
@@ -2386,10 +2387,30 @@
       || /(?:rescue|lifeboat|coastguard|ambulance|hems)/i.test(`${subtype} ${badge}`);
   }
 
+  function matchesAircraftLandingView(a) {
+    if(!aircraftLandingView)return true;
+    if(!['aircraft','sar'].includes(a?.type))return false;
+    const text=searchable(a).toUpperCase();
+    const shape=aircraftMapShape(a).kind;
+    const helicopter=['helicopter','chinook','apache'].includes(shape);
+    if(aircraftLandingView==='helicopters')return helicopter;
+    if(aircraftLandingView==='police-helicopters')return helicopter&&/(?:\bNPAS\b|POLICE|POLICE AIR|UKP\d|G-POL)/.test(text);
+    if(aircraftLandingView==='air-ambulances')return helicopter&&/(?:HELIMED|AIR ?AMB|AMBULANCE|\bHEMS\b|MEDIC)/.test(text);
+    if(aircraftLandingView==='military-aircraft'){
+      const classified=coolInfo(a);
+      return a.type==='aircraft'&&classified.candidate&&classified.theme==='air';
+    }
+    return true;
+  }
+
   function layerTypeMatch(a, type) {
     if (type === 'cool-off') return false;
     if (type === 'all') return true;
-    if (type === 'useful') return enabledActivityTypes.has(a.type);
+    if (type === 'useful') {
+      const enabled=enabledActivityTypes.has(a.type)
+        || (aircraftLandingView&&['aircraft','sar'].includes(a.type));
+      return enabled&&matchesAircraftLandingView(a);
+    }
     if (type === 'transport') return ['train','bus'].includes(a.type);
     if (type === 'cool') return a.type !== 'vessel' && coolInfo(a).score >= 45;
     if (type === 'cool-air') return a.type === 'aircraft' && !isRescueContextActivity(a) && (overheadActive || coolInfo(a).score >= 45);
@@ -2474,6 +2495,7 @@
       searchText,
       nearbyKey,
       selectedOperator,
+      aircraftLandingView,
       [...enabledActivityTypes].sort().join(','),
       lateTrainsOnly,
     ].join('|');
@@ -4094,31 +4116,60 @@
     overheadRefreshRequest+=1;
   }
 
+  function seedNearbyAircraftFromLiveMap() {
+    if(nearbyState.lat==null||nearbyState.lon==null)return;
+    const radiusKm=50*1.609344;
+    const retained=activities.filter(row=>['aircraft','sar'].includes(row.type)
+      &&Number.isFinite(Number(row.lat))&&Number.isFinite(Number(row.lon))
+      &&distanceKm(nearbyState.lat,nearbyState.lon,Number(row.lat),Number(row.lon))<=radiusKm);
+    if(!retained.length)return;
+    nearbyAircraftRows=retained;
+    nearbyAircraftIds=new Set(retained.map(row=>row.id));
+    renderMap();renderStats();renderRanking();
+  }
+
   async function refreshOverheadAircraft({announce=false}={}) {
     if(!overheadActive||nearbyState.lat==null||nearbyState.lon==null)return;
     const requestId=++overheadRefreshRequest;
+    const controller=new AbortController();
+    const requestTimeout=setTimeout(()=>controller.abort(),7000);
     try{
-      const response=await fetch(`/api/aircraft/nearby?lat=${encodeURIComponent(nearbyState.lat)}&lon=${encodeURIComponent(nearbyState.lon)}&radius_miles=50`,{cache:'no-store'});
+      const response=await fetch(`/api/aircraft/nearby?lat=${encodeURIComponent(nearbyState.lat)}&lon=${encodeURIComponent(nearbyState.lon)}&radius_miles=50`,{cache:'no-store',signal:controller.signal});
       const payload=await response.json().catch(()=>({}));
       if(!response.ok)throw new Error(payload.detail||'aircraft lookup unavailable');
       if(requestId!==overheadRefreshRequest||!overheadActive)return;
-      nearbyAircraftRows=Array.isArray(payload.activities)?payload.activities:[];
+      const received=Array.isArray(payload.activities)?payload.activities:[];
+      // If the precise point feed is temporarily unavailable, keep anything
+      // already received by the broad live map instead of making every icon
+      // disappear while the automatic retry runs.
+      if(received.length||!payload.degraded)nearbyAircraftRows=received;
       nearbyAircraftIds=new Set(nearbyAircraftRows.map(row=>row.id));
       replaceActivities([...new Map([...activities,...nearbyAircraftRows].map(row=>[row.id,row])).values()]);
       renderMap();renderStats();renderRanking();renderCoolSummary();
-      const checked=Number(payload.checked||0);
       const note=$('overhead-now')?.querySelector('small');
-      if(note)note.textContent=`${nearbyAircraftRows.length} live aircraft • refreshing automatically`;
+      if(note)note.textContent=payload.degraded
+        ? `${nearbyAircraftRows.length} retained aircraft • live lookup retrying`
+        : `${nearbyAircraftRows.length} live aircraft • refreshing automatically`;
       if(skyPointer.active)renderSkyPointer();
       if(cameraView.active&&!cameraView.frame)cameraView.frame=requestAnimationFrame(drawCameraView);
       if(pendingPlanesList){pendingPlanesList=false;showPlanesList();}
-      else if(announce)showToast(nearbyAircraftRows.length?`${nearbyAircraftRows.length} aircraft near you.`:'No aircraft near you right now.');
+      else if(announce)showToast(payload.degraded
+        ? (nearbyAircraftRows.length?`Showing ${nearbyAircraftRows.length} retained aircraft while the live lookup retries.`:'The live aircraft lookup is retrying; nothing retained nearby yet.')
+        : (nearbyAircraftRows.length?`${nearbyAircraftRows.length} aircraft near you.`:'No aircraft near you right now.'));
     }catch(error){
-      if(announce)showToast('Nearby aircraft could not refresh; showing the latest retained positions.');
+      const note=$('overhead-now')?.querySelector('small');
+      if(note)note.textContent=nearbyAircraftRows.length
+        ? `${nearbyAircraftRows.length} retained aircraft • live lookup retrying`
+        : 'Live lookup is retrying automatically';
+      if(pendingPlanesList){pendingPlanesList=false;showPlanesList();}
+      if(announce)showToast(nearbyAircraftRows.length
+        ? `Showing ${nearbyAircraftRows.length} retained aircraft while the live lookup retries.`
+        : 'The live aircraft lookup is retrying automatically.');
     }finally{
+      clearTimeout(requestTimeout);
       if(requestId===overheadRefreshRequest&&overheadActive){
         clearTimeout(overheadRefreshTimer);
-        overheadRefreshTimer=setTimeout(()=>refreshOverheadAircraft(),8000);
+        overheadRefreshTimer=setTimeout(()=>refreshOverheadAircraft(),12000);
       }
     }
   }
@@ -5704,6 +5755,8 @@
     },80);
   });
   document.querySelectorAll('.filter').forEach(button => button.addEventListener('click', () => {
+    aircraftLandingView='';
+    enabledActivityTypes.delete('sar');
     const originalType=button.dataset.type;
     const turningBackOn=originalType==='cool-off'&&selectedType==='cool-off';
     const togglingActiveCool=currentWorkspace==='cool'&&originalType!=='cool-off'&&originalType===selectedType&&originalType.startsWith('cool');
@@ -5746,6 +5799,8 @@
   document.querySelectorAll('[data-layer-toggle]').forEach(button => button.addEventListener('click', async () => {
     const type = button.dataset.layerToggle;
     if (!toggleableActivityTypes.has(type)) return;
+    aircraftLandingView='';
+    if(type==='aircraft')enabledActivityTypes.delete('sar');
     if (enabledActivityTypes.has(type)) enabledActivityTypes.delete(type); else { enabledActivityTypes.add(type); lastEnabledLayer = type; }
     // Live incidents (crashes, breakdowns, queues) are fetched by the server
     // for the area on screen, so they need a regional view, not all of Britain.
@@ -5901,7 +5956,7 @@
       renderNearbyOverlay();sendViewport();renderMap();renderStats();renderRanking();showToast('Showing everything again.');return;
     }
     if(!navigator.geolocation){showToast('Location is not available in this browser.');return;}
-    if(button){button.disabled=true;button.querySelector('small').textContent='Finding your location…';}
+    if(button){button.disabled=true;button.setAttribute('aria-busy','true');button.querySelector('small').textContent='Finding your location…';}
     navigator.geolocation.getCurrentPosition(async pos=>{
       clearTransientLocationModes();
       if($('near-radius'))$('near-radius').value='25';
@@ -5910,14 +5965,19 @@
       if(currentWorkspace==='useful'&&!enabledActivityTypes.has('aircraft')){enabledActivityTypes.add('aircraft');overheadAutoEnabledAircraft=true;updateLayerToggleUi();}
       document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x.dataset.type==='cool-air'));
       setNearby(pos.coords.latitude,pos.coords.longitude,'device');
+      seedNearbyAircraftFromLiveMap();
+      const retainedCount=nearbyAircraftRows.length;
+      if(button?.querySelector('small'))button.querySelector('small').textContent=retainedCount
+        ? `${retainedCount} aircraft already on map • checking live feed…`
+        : 'Checking the live aircraft feed…';
       map.setView([pos.coords.latitude,pos.coords.longitude],9,{animate:true});
       collapseWorkspaceOnPhone();
       await refreshOverheadAircraft({announce:true});
       sendViewport();
-      if(button){button.disabled=false;}
+      if(button){button.disabled=false;button.removeAttribute('aria-busy');}
     },()=>{
       showToast('Location is off.');
-      if(button){button.disabled=false;button.querySelector('small').textContent='Aircraft received within 50 miles';}
+      if(button){button.disabled=false;button.removeAttribute('aria-busy');button.querySelector('small').textContent='Aircraft received within 50 miles';}
     },{enableHighAccuracy:false,timeout:7000,maximumAge:120000});
   });
   $('near-centre').addEventListener('click',()=>{ const c=map.getCenter(); setNearby(c.lat,c.lng,'centre'); trackProduct('nearby_used','map-centre'); });
@@ -6147,6 +6207,37 @@
   }
   initAnalyticsConsent();
   trackProduct('app_open','web');
+
+  // Search landing pages open the promised live aircraft view instead of
+  // dropping the visitor onto an empty default map. Specialist filters are
+  // evidence-led: unidentified aircraft stay hidden rather than being guessed.
+  (()=>{
+    const view=new URLSearchParams(location.search).get('view');
+    const supported=new Set(['military-aircraft','helicopters','police-helicopters','air-ambulances','aircraft-near-me']);
+    if(!supported.has(view))return;
+    const clean=new URL(location.href);
+    clean.searchParams.delete('view');
+    history.replaceState(null,'',clean.pathname+(clean.search||'')+clean.hash);
+    if(view==='aircraft-near-me'){
+      setTimeout(()=>document.querySelector('[data-job="planes"]')?.click(),0);
+      return;
+    }
+    if(view==='military-aircraft'){
+      activateWorkspace('cool',false);
+      document.querySelector('.filter[data-type="cool-air"]')?.click();
+      showToast('Showing identified military and special aircraft.');
+      return;
+    }
+    aircraftLandingView=view;
+    enabledActivityTypes.add('aircraft');
+    enabledActivityTypes.add('sar');
+    selectedType='useful';
+    updateLayerToggleUi();
+    sendViewport();
+    renderMap();renderStats();renderRanking();renderLiveTicker();
+    const labels={helicopters:'helicopters','police-helicopters':'identified police helicopters','air-ambulances':'identified air ambulances'};
+    showToast(`Showing ${labels[view]}.`);
+  })();
 
   // A link (a shared page, a phone alert) can open the app on one thing:
   // /?open=<id>. Wait for the live connection, then show it and tidy the URL.
