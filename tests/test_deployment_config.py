@@ -53,7 +53,7 @@ def test_render_blueprint_prompts_for_secrets_instead_of_storing_values():
 def test_render_blueprint_arms_radar_plus_with_public_price():
     blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
 
-    assert 'key: BILLING_ENABLED\n        value: "false"' in blueprint
+    assert 'key: BILLING_ENABLED\n        value: "true"' in blueprint
     assert 'key: PUBLIC_BASE_URL\n        value: "https://uk-activity-radar.onrender.com"' in blueprint
     assert 'key: RADAR_PLUS_PRICE_DISPLAY\n        value: "£3.99/month"' in blueprint
 
@@ -110,6 +110,13 @@ def test_google_analytics_is_consent_gated_and_opt_in_by_default(monkeypatch):
     assert "loadGoogleAnalytics" in source
     assert "analyticsChoice()==='granted'" in source
     assert "googletagmanager.com/gtag/js" in source
+
+
+def test_render_enables_consent_gated_google_analytics():
+    blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
+
+    assert 'key: GA4_ENABLED\n        value: "true"' in blueprint
+    assert 'key: GTM_CONTAINER_ID\n        value: "GTM-N2JVR3QZ"' in blueprint
 
 
 def test_public_deployment_mode_is_opt_in_for_local_installs(monkeypatch):

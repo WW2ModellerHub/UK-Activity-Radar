@@ -1206,6 +1206,7 @@ def robots(request: Request):
 # ---- Pages for search: stations and operators -----------------------------
 _station_directory: tuple[float, list[dict]] = (-1e9, [])
 _seo_page_cache: dict[str, tuple[float, str]] = {}
+_MIN_PUBLIC_STATION_DIRECTORY = 2500
 
 
 def _stations() -> list[dict]:
@@ -1218,10 +1219,16 @@ def _stations() -> list[dict]:
     places = []
     if smart_places is not None:
         places = list(getattr(smart_places, "_rail", []) or []) + smart_places.rail_places((-9.9, 49.0, 3.5, 61.8), 6000)
-    rows = directory(places)
-    if rows:
-        _station_directory = (time.monotonic(), rows)
-    return rows
+    candidate = directory(places)
+    if len(candidate) >= _MIN_PUBLIC_STATION_DIRECTORY:
+        _station_directory = (time.monotonic(), candidate)
+        return candidate
+    # A provider can briefly expose only a fraction of the station catalogue
+    # while its reference data warms. Never replace a known-complete snapshot
+    # with that truncated result.
+    if len(rows) >= _MIN_PUBLIC_STATION_DIRECTORY:
+        return rows
+    return candidate
 
 
 def _operator_rows() -> list[dict]:
@@ -1235,31 +1242,64 @@ def _operator_rows() -> list[dict]:
 
 
 # Building a page with a live board is heavy. A search engine crawling
-# thousands at once must never starve the live map (that took the site down),
-# so only one is built at a time; meanwhile others get the last copy, or a
-# light version without the board.
-_seo_build_lock = threading.Lock()
+# thousands at once must never start duplicate builds for the same page, but
+# one slow station must not make unrelated station, operator or index pages
+# return 503. Locks are therefore scoped to a cache key.
+_seo_build_locks: dict[str, threading.Lock] = {}
+_seo_build_locks_guard = threading.Lock()
+_seo_heavy_build_slots = threading.BoundedSemaphore(1)
+_seo_cache_lock = threading.Lock()
 
 
-def _cached_page(key: str, seconds: int, build, light=None) -> Response:
+def _seo_lock_for(key: str) -> threading.Lock:
+    with _seo_build_locks_guard:
+        return _seo_build_locks.setdefault(key, threading.Lock())
+
+
+def _cached_page(key: str, seconds: int, build, light=None, *, heavy: bool = False) -> Response:
     now = time.monotonic()
-    hit = _seo_page_cache.get(key)
+    with _seo_cache_lock:
+        hit = _seo_page_cache.get(key)
     if hit and now - hit[0] <= seconds:
         return Response(hit[1], media_type="text/html", headers={"Cache-Control": f"public, max-age={seconds}"})
-    if not _seo_build_lock.acquire(timeout=0.5 if light is None else 0):
+    build_lock = _seo_lock_for(key)
+    if not build_lock.acquire(timeout=0.5 if light is None else 0):
         if hit:
             return Response(hit[1], media_type="text/html", headers={"Cache-Control": "public, max-age=60"})
         if light is not None:
             return Response(light(), media_type="text/html", headers={"Cache-Control": "public, max-age=60"})
         raise HTTPException(status_code=503, detail="Busy, try again shortly", headers={"Retry-After": "30"})
     try:
-        hit = (time.monotonic(), build())
+        # Another request may have filled the cache while this one waited for
+        # the same key. Recheck inside the lock to avoid duplicate live-board
+        # calls and duplicate rendering work.
+        now = time.monotonic()
+        with _seo_cache_lock:
+            hit = _seo_page_cache.get(key)
+        if hit and now - hit[0] <= seconds:
+            return Response(hit[1], media_type="text/html", headers={"Cache-Control": f"public, max-age={seconds}"})
+
+        heavy_slot = False
+        if heavy:
+            heavy_slot = _seo_heavy_build_slots.acquire(blocking=False)
+            if not heavy_slot:
+                if hit:
+                    return Response(hit[1], media_type="text/html", headers={"Cache-Control": "public, max-age=60"})
+                if light is not None:
+                    return Response(light(), media_type="text/html", headers={"Cache-Control": "public, max-age=60"})
+                raise HTTPException(status_code=503, detail="Busy, try again shortly", headers={"Retry-After": "30"})
+        try:
+            hit = (time.monotonic(), build())
+            with _seo_cache_lock:
+                _seo_page_cache[key] = hit
+                if len(_seo_page_cache) > 3000:
+                    for old in sorted(_seo_page_cache, key=lambda k: _seo_page_cache[k][0])[:500]:
+                        _seo_page_cache.pop(old, None)
+        finally:
+            if heavy_slot:
+                _seo_heavy_build_slots.release()
     finally:
-        _seo_build_lock.release()
-    _seo_page_cache[key] = hit
-    if len(_seo_page_cache) > 3000:
-        for old in sorted(_seo_page_cache, key=lambda k: _seo_page_cache[k][0])[:500]:
-            _seo_page_cache.pop(old, None)
+        build_lock.release()
     return Response(hit[1], media_type="text/html", headers={"Cache-Control": f"public, max-age={seconds}"})
 
 
@@ -1268,6 +1308,21 @@ def stations_page(request: Request):
     from .seo_pages import stations_index
     origin = _site_origin(request)
     return _cached_page("stations", 3600, lambda: stations_index(origin, _stations()))
+
+
+@app.get("/stations/{letter}", include_in_schema=False)
+def stations_letter_page_route(letter: str, request: Request):
+    from .seo_pages import stations_letter_page
+    wanted = str(letter).strip().upper()
+    if not re.fullmatch(r"[A-Z]", wanted):
+        raise HTTPException(status_code=404, detail="Station directory page not found")
+    if letter != letter.lower():
+        return RedirectResponse(f"/stations/{wanted.lower()}", status_code=301)
+    stations = _stations()
+    if not any(row["name"][:1].upper() == wanted for row in stations):
+        raise HTTPException(status_code=404, detail="Station directory page not found")
+    origin = _site_origin(request)
+    return _cached_page(f"stations:{wanted}", 3600, lambda: stations_letter_page(origin, wanted, stations))
 
 
 @app.get("/station/{name}", include_in_schema=False)
@@ -1295,7 +1350,7 @@ def station_page_route(name: str, request: Request):
         return station_page(origin, station, board, others, _operator_rows())
     def light() -> str:
         return station_page(origin, station, None, [], [])
-    return _cached_page(f"station:{crs}", 600, build, light)
+    return _cached_page(f"station:{crs}", 600, build, light, heavy=True)
 
 
 @app.get("/operators", include_in_schema=False)
@@ -1322,14 +1377,40 @@ def operator_page_route(name: str, request: Request):
     return _cached_page(f"operator:{wanted}", 90, build)
 
 
+@app.get("/guides", include_in_schema=False)
+def guides_page(request: Request):
+    from .seo_pages import guides_index
+    return Response(guides_index(_site_origin(request)), media_type="text/html",
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/guides/{name}", include_in_schema=False)
+def guide_page_route(name: str, request: Request):
+    from .seo_pages import guide_page, guide_slugs
+    if name not in guide_slugs():
+        raise HTTPException(status_code=404, detail="Guide not found")
+    return Response(guide_page(_site_origin(request), name), media_type="text/html",
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap(request: Request):
     from .line_status import PASSENGER_OPERATORS
-    from .seo_pages import operator_path
+    from .seo_pages import guide_slugs, operator_path, station_letter_path
     origin = html_escape(_site_origin(request), quote=True)
-    urls = ("/", "/about", "/privacy", "/terms", "/data-licences", "/stations", "/operators",
+    stations = _stations()
+    if settings.public_deployment and len(stations) < _MIN_PUBLIC_STATION_DIRECTORY:
+        # A partial 200 sitemap can cause Google to forget thousands of valid
+        # station URLs. Ask the crawler to retry until the stable directory is
+        # available instead.
+        raise HTTPException(status_code=503, detail="Station directory is loading",
+                            headers={"Retry-After": "60", "Cache-Control": "no-store"})
+    letters = sorted({row["name"][:1].upper() for row in stations if re.fullmatch(r"[A-Z]", row["name"][:1].upper())})
+    urls = ("/", "/about", "/privacy", "/terms", "/data-licences", "/stations", "/operators", "/guides",
+            *(f"/guides/{slug}" for slug in guide_slugs()),
+            *(station_letter_path(letter) for letter in letters),
             *(operator_path(op) for op in sorted(set(PASSENGER_OPERATORS.values()))),
-            *(row["path"] for row in _stations()))
+            *(row["path"] for row in stations))
     entries = "".join(f"<url><loc>{origin}{path}</loc></url>" for path in urls)
     body = f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{entries}</urlset>'
     return Response(body, media_type="application/xml", headers={"Cache-Control": "public, max-age=3600"})

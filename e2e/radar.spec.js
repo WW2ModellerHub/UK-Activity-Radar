@@ -2121,8 +2121,8 @@ test('search shows results as you type, and a bus route number finds the nearest
 
 test('typing in search does not empty the map', async ({ page }) => {
   await page.locator('[data-layer-toggle="train"]').click();
+  await expect(page.locator('.marker-wrap-train').first()).toBeAttached();
   const trains = await page.locator('.marker-wrap-train').count();
-  expect(trains).toBeGreaterThan(0);
   await page.locator('#search').fill('Market Bosworth');
   await page.waitForTimeout(100);
   await expect(page.locator('.marker-wrap-train')).toHaveCount(trains);

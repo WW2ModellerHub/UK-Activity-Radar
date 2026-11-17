@@ -89,9 +89,38 @@ def _clock(value) -> str:
     return text[:5]
 
 
+def _json_for_script(value: dict) -> str:
+    """Serialize JSON-LD without turning data into HTML entities.
+
+    Script contents are raw text in HTML, so ``html.escape`` corrupts names
+    such as "A & B" into the literal value "A &amp; B". Escaping the handful
+    of characters that can end or confuse a script element keeps the JSON
+    valid and preserves the original value after parsing.
+    """
+    return (
+        json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
+def _breadcrumbs(origin: str, canonical: str, items: list[tuple[str, str]]) -> dict:
+    return {
+        "@type": "BreadcrumbList",
+        "@id": f"{canonical}#breadcrumb",
+        "itemListElement": [
+            {"@type": "ListItem", "position": index, "name": name, "item": origin + path}
+            for index, (name, path) in enumerate(items, start=1)
+        ],
+    }
+
+
 def _shell(*, title: str, description: str, canonical: str, body: str, json_ld: dict | None = None) -> str:
     site = re.match(r"https?://[^/]+", canonical).group(0) if re.match(r"https?://[^/]+", canonical) else ""
-    ld = f'<script type="application/ld+json">{escape(json.dumps(json_ld), quote=False)}</script>' if json_ld else ""
+    ld = f'<script type="application/ld+json">{_json_for_script(json_ld)}</script>' if json_ld else ""
     return f"""<!doctype html>
 <html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{escape(title)}</title><meta name="description" content="{escape(description, quote=True)}">
@@ -101,9 +130,9 @@ def _shell(*, title: str, description: str, canonical: str, body: str, json_ld: 
 <meta property="og:url" content="{escape(canonical, quote=True)}"><meta property="og:image" content="{escape(site, quote=True)}/card.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#ffffff">
 <link rel="icon" href="/static/icon-192.png"><link rel="stylesheet" href="/static/seo.css">{ld}</head>
-<body><header class="top"><a class="brand" href="/"><span>R</span>UK Activity Radar</a><nav><a href="/">Live map</a><a href="/stations">Stations</a><a href="/operators">Operators</a></nav></header>
+<body><header class="top"><a class="brand" href="/"><span>R</span>UK Activity Radar</a><nav><a href="/">Live map</a><a href="/stations">Stations</a><a href="/operators">Operators</a><a href="/guides">Guides</a></nav></header>
 <main>{body}</main>
-<footer><a href="/">Live map</a> · <a href="/stations">All stations</a> · <a href="/operators">Train operators</a> · <a href="/about">About</a> · <a href="/data-licences">Data licences</a><p>Times and delays from Network Rail open data. Contains information of Network Rail Infrastructure Limited.</p></footer>
+<footer><a href="/">Live map</a> · <a href="/stations">All stations</a> · <a href="/operators">Train operators</a> · <a href="/guides">Tracking guides</a> · <a href="/about">About</a> · <a href="/data-licences">Data licences</a><p>Times and delays from Network Rail open data. Contains information of Network Rail Infrastructure Limited.</p></footer>
 </body></html>"""
 
 
@@ -175,28 +204,64 @@ def station_page(origin: str, station: dict, board: dict | None, nearby: list[di
         title=f"{name} live departures and delays | UK Activity Radar",
         description=f"Live departures from {name} ({crs}): the next trains, platforms and delays right now, and every train near {name} on a live map.",
         canonical=canonical, body=body,
-        json_ld={"@context": "https://schema.org", "@type": "TrainStation", "name": f"{name} station",
-                 "identifier": crs, "url": canonical,
-                 "geo": {"@type": "GeoCoordinates", "latitude": round(station["lat"], 4), "longitude": round(station["lon"], 4)}},
+        json_ld={"@context": "https://schema.org", "@graph": [
+            {"@type": "TrainStation", "@id": f"{canonical}#station", "name": f"{name} station",
+             "identifier": crs, "url": canonical,
+             "geo": {"@type": "GeoCoordinates", "latitude": round(station["lat"], 4), "longitude": round(station["lon"], 4)}},
+            _breadcrumbs(origin, canonical, [("Home", "/"), ("Stations", "/stations"), (name, station["path"])]),
+        ]},
     )
+
+
+def station_letter_path(letter: str) -> str:
+    return f"/stations/{str(letter).strip().lower()}"
 
 
 def stations_index(origin: str, stations: list[dict]) -> str:
     groups: dict[str, list[dict]] = {}
     for station in stations:
-        groups.setdefault(station["name"][:1].upper(), []).append(station)
-    letters = "".join(f'<a href="#{escape(letter)}">{escape(letter)}</a>' for letter in sorted(groups))
-    sections = "".join(
-        f'<h2 id="{escape(letter)}">{escape(letter)}</h2><ul class="columns">'
-        + "".join(f'<li><a href="{escape(s["path"])}">{escape(s["name"])}</a></li>' for s in rows) + "</ul>"
+        letter = station["name"][:1].upper()
+        if re.fullmatch(r"[A-Z]", letter):
+            groups.setdefault(letter, []).append(station)
+    letters = "".join(
+        f'<a href="{station_letter_path(letter)}" aria-label="Stations beginning with {escape(letter)}">{escape(letter)}</a>'
+        for letter in sorted(groups)
+    )
+    cards = "".join(
+        f'<li><a href="{station_letter_path(letter)}"><strong>{escape(letter)}</strong><span>{len(rows):,} stations</span></a></li>'
         for letter, rows in sorted(groups.items())
     )
     body = f"""<p class="eyebrow">Live train times</p><h1>UK railway stations</h1>
 <p class="lede">Live departures, platforms and delays for {len(stations):,} stations in Great Britain.</p>
-<nav class="letters">{letters}</nav>{sections}"""
+<p>Choose a letter to find a station. Each station page shows its live departure board, current delays, operators and nearby stations.</p>
+<nav class="letters" aria-label="Stations A to Z">{letters}</nav><ul class="hub-grid">{cards}</ul>"""
+    canonical = origin + "/stations"
     return _shell(title="Live departures for every UK railway station | UK Activity Radar",
                   description="Live departures, platforms and delays for every railway station in Great Britain, with the trains on a live map.",
-                  canonical=origin + "/stations", body=body)
+                  canonical=canonical, body=body,
+                  json_ld={"@context": "https://schema.org", "@type": "CollectionPage", "name": "UK railway stations",
+                           "url": canonical, "description": f"Live departure pages for {len(stations):,} railway stations in Great Britain."})
+
+
+def stations_letter_page(origin: str, letter: str, stations: list[dict]) -> str:
+    wanted = str(letter).upper()
+    rows = [station for station in stations if station["name"][:1].upper() == wanted]
+    links = "".join(f'<li><a href="{escape(row["path"])}">{escape(row["name"])}</a> <span>{escape(row["crs"])}</span></li>' for row in rows)
+    all_letters = sorted({station["name"][:1].upper() for station in stations
+                          if re.fullmatch(r"[A-Z]", station["name"][:1].upper())})
+    letters = "".join(f'<a href="{station_letter_path(item)}">{escape(item)}</a>' for item in all_letters)
+    canonical = origin + station_letter_path(wanted)
+    body = f"""<p class="eyebrow">Station directory</p><h1>UK railway stations beginning with {escape(wanted)}</h1>
+<p class="lede">Live departures, platforms and delays for {len(rows):,} stations beginning with {escape(wanted)}.</p>
+<nav class="letters" aria-label="Stations A to Z">{letters}</nav><ul class="station-directory">{links}</ul>
+<p><a href="/stations">Return to all UK railway stations</a>.</p>"""
+    return _shell(title=f"UK railway stations beginning with {wanted} | Live departures",
+                  description=f"Find live departures, platforms and delays for UK railway stations beginning with {wanted}.",
+                  canonical=canonical, body=body,
+                  json_ld={"@context": "https://schema.org", "@graph": [
+                      {"@type": "CollectionPage", "name": f"UK railway stations beginning with {wanted}", "url": canonical},
+                      _breadcrumbs(origin, canonical, [("Home", "/"), ("Stations", "/stations"), (wanted, station_letter_path(wanted))]),
+                  ]})
 
 
 def _operator_summary(row: dict) -> str:
@@ -228,9 +293,16 @@ def operator_page(origin: str, row: dict) -> str:
 <p><a class="button" href="/">See {escape(name)} trains on the live map</a></p>
 {f'<h2>Most delayed right now</h2><table class="board"><tbody>{worst}</tbody></table>' if worst else ''}
 <h2>About this page</h2><p>How {escape(name)} trains are running now, worked out from every {escape(name)} train reporting to Network Rail: the share running five or more minutes late, how late, and cancellations. It updates through the day. See <a href="/operators">all train operators</a>.</p>"""
+    canonical = origin + operator_path(name)
     return _shell(title=f"{name} delays and service status today | UK Activity Radar",
                   description=f"Is {name} running on time? Live status for {name} trains right now: delays, cancellations and the most delayed services.",
-                  canonical=origin + operator_path(name), body=body)
+                  canonical=canonical, body=body,
+                  json_ld={"@context": "https://schema.org", "@graph": [
+                      {"@type": "WebPage", "name": f"{name} delays and service status today", "url": canonical,
+                       "description": f"Live status for {name} trains, including delays and cancellations."},
+                      _breadcrumbs(origin, canonical, [("Home", "/"), ("Train operators", "/operators"),
+                                                       (name, operator_path(name))]),
+                  ]})
 
 
 def operators_index(origin: str, rows: list[dict]) -> str:
@@ -240,6 +312,104 @@ def operators_index(origin: str, rows: list[dict]) -> str:
     )
     body = f"""<p class="eyebrow">Live service status</p><h1>UK train operators today</h1>
 <p class="lede">How every passenger train operator is running right now (at {_now_clock()}).</p><ul class="links">{items}</ul>"""
+    canonical = origin + "/operators"
     return _shell(title="UK train operators: live delays and status today | UK Activity Radar",
                   description="Live service status for every UK train operator: which are running well and which have delays or cancellations right now.",
-                  canonical=origin + "/operators", body=body)
+                  canonical=canonical, body=body,
+                  json_ld={"@context": "https://schema.org", "@type": "CollectionPage",
+                           "name": "UK train operators: live service status", "url": canonical})
+
+
+_GUIDES = {
+    "how-live-train-positions-work": {
+        "title": "How live UK train positions work | UK Activity Radar",
+        "description": "How live train maps estimate a train between railway reports, why markers can pause or jump, and how to judge position freshness.",
+        "eyebrow": "Train tracking explained",
+        "heading": "How live UK train positions work",
+        "lede": "A railway map can look like GPS, but most UK passenger-train positions are reconstructed from railway movement reports and the timetable. Understanding that difference makes the map much more useful.",
+        "sections": [
+            ("A report, not a continuous GPS dot", [
+                "The railway records events when a train reaches or passes recognised locations. Those events can include a station arrival or departure, a timing point or a signalling location. A feed publishes the latest report with the train identity and its planned journey.",
+                "That means the newest confirmed fact is usually that the train passed a known railway point at a particular time. It is not normally a fresh latitude and longitude every second.",
+            ]),
+            ("What happens between reports", [
+                "UK Activity Radar matches the service to its published calling and timing points, then follows mapped railway geometry between them. The marker can move smoothly along that route while waiting for the next confirmed railway report. This is an estimate of progress, not a claim that the train transmitted that exact position.",
+                "When a new report arrives, the estimate is corrected against the confirmed location. A good live map makes that correction gently where possible and labels the age of the underlying report.",
+            ]),
+            ("Why a train may pause, jump or disappear", [
+                "Reports can arrive late, out of order or with a gap of several minutes. A service may be activated in the timetable before its first movement, change identity, be diverted, divide into two portions or finish without a final report. The route may also be unavailable for a service that cannot be matched confidently.",
+                "When the evidence is weak, the honest behaviour is to show a stale or estimated state instead of inventing precision. A sudden correction often means a delayed railway report has arrived, not that the physical train jumped.",
+            ]),
+            ("How to read the map", [
+                "Check the last railway report time, the next reporting point and whether the position is labelled confirmed or estimated. Open the route to see the published stops and the railway path used by the estimate. Station departure boards are useful for the latest expected time, platform and cancellation information.",
+                "For a journey decision, always allow for feed delay and confirm important changes with the train operator or station information. The radar is an independent view of open data and is not a safety-critical railway system.",
+            ]),
+        ],
+    },
+    "how-ads-b-aircraft-tracking-works": {
+        "title": "How ADS-B aircraft tracking works in the UK | UK Activity Radar",
+        "description": "Learn how ADS-B aircraft trackers receive positions, why coverage varies, and why military or rescue aircraft may be missing or delayed.",
+        "eyebrow": "Aircraft tracking explained",
+        "heading": "How ADS-B aircraft tracking works in the UK",
+        "lede": "Many aircraft broadcast useful flight data by radio. A live tracker turns those broadcasts into map positions, but coverage and identification are never complete.",
+        "sections": [
+            ("What ADS-B broadcasts", [
+                "An equipped aircraft can broadcast its identity, position, altitude, speed and direction. Ground receivers hear those radio messages and a data network combines them into a live feed. The map can update whenever a newer message for that aircraft arrives.",
+                "The callsign is an operational label and may not be the registration or public flight number. Aircraft type information is matched from published identifiers where available.",
+            ]),
+            ("Why coverage changes", [
+                "Reception depends on line of sight between the aircraft and a receiver. Low-flying helicopters can drop behind terrain or buildings, while high-altitude aircraft are usually heard over a much wider area. Receiver outages, network delay and incomplete aircraft metadata can also create gaps.",
+                "Not every aircraft transmits a usable public position. Some messages are filtered by a provider, some aircraft use other surveillance methods, and military activity may be absent, anonymous or deliberately limited. No marker should be taken as proof that the sky is otherwise empty.",
+            ]),
+            ("Smooth movement versus fresh evidence", [
+                "A renderer can interpolate between two received positions so an icon moves smoothly rather than stepping across the map. That visual movement does not create new flight data. The last-update age still tells you how fresh the real observation is.",
+                "When a new report differs from the estimate, the marker must converge on the received position. Good tracking balances smooth animation with a clear indication of stale or uncertain data.",
+            ]),
+            ("Aircraft icons and identification", [
+                "UK Activity Radar uses the available type code and aircraft metadata to choose different symbols for helicopters, airliners, propeller aircraft, fast jets and large transports. If the metadata is missing or ambiguous, a generic symbol is safer than guessing a specific aircraft.",
+                "Use the detail panel to check the callsign, registration, type, altitude, speed, heading and report age. For emergency or safety decisions, rely on official sources rather than a public tracking website.",
+            ]),
+        ],
+    },
+}
+
+
+def guide_slugs() -> tuple[str, ...]:
+    return tuple(_GUIDES)
+
+
+def guides_index(origin: str) -> str:
+    items = "".join(
+        f'<li><a href="/guides/{escape(slug)}"><strong>{escape(guide["heading"])}</strong>'
+        f'<span>{escape(guide["description"])}</span></a></li>'
+        for slug, guide in _GUIDES.items()
+    )
+    canonical = origin + "/guides"
+    body = f"""<p class="eyebrow">How the radar works</p><h1>Live tracking guides</h1>
+<p class="lede">Plain-English guides to the data behind live trains and aircraft, including what is confirmed, what is estimated and why coverage can change.</p>
+<ul class="guide-list">{items}</ul>"""
+    return _shell(title="Live train and aircraft tracking guides | UK Activity Radar",
+                  description="Understand how live UK train positions and ADS-B aircraft tracking work, including estimates, delays and coverage gaps.",
+                  canonical=canonical, body=body,
+                  json_ld={"@context": "https://schema.org", "@type": "CollectionPage",
+                           "name": "Live tracking guides", "url": canonical})
+
+
+def guide_page(origin: str, slug: str) -> str:
+    guide = _GUIDES[slug]
+    canonical = f"{origin}/guides/{slug}"
+    sections = "".join(
+        f'<section><h2>{escape(heading)}</h2>{"".join(f"<p>{escape(paragraph)}</p>" for paragraph in paragraphs)}</section>'
+        for heading, paragraphs in guide["sections"]
+    )
+    body = f"""<article class="guide"><p class="eyebrow">{escape(guide['eyebrow'])}</p>
+<h1>{escape(guide['heading'])}</h1><p class="lede">{escape(guide['lede'])}</p>{sections}
+<p class="guide-cta"><a class="button" href="/">Open the live UK map</a></p></article>"""
+    return _shell(title=guide["title"], description=guide["description"], canonical=canonical, body=body,
+                  json_ld={"@context": "https://schema.org", "@graph": [
+                      {"@type": "Article", "headline": guide["heading"], "description": guide["description"],
+                       "mainEntityOfPage": canonical, "author": {"@type": "Organization", "name": "UK Activity Radar"},
+                       "publisher": {"@type": "Organization", "name": "UK Activity Radar", "url": origin}},
+                      _breadcrumbs(origin, canonical, [("Home", "/"), ("Guides", "/guides"),
+                                                       (guide["heading"], f"/guides/{slug}")]),
+                  ]})

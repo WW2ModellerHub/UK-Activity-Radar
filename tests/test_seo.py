@@ -21,6 +21,7 @@ def _request(path: str = "/") -> Request:
 def _settings(**overrides):
     values = {
         "public_base_url": "https://example.test",
+        "public_deployment": False,
         "google_site_verification": "search-console-token",
         "ga4_enabled": True,
         "ga4_measurement_id": "G-ABC12345",
@@ -39,7 +40,9 @@ def test_home_has_search_social_and_structured_metadata(monkeypatch):
     assert 'property="og:title"' in html
     assert 'type="application/ld+json"' in html
     assert '"@type":"WebApplication"' in html
+    assert '"@type":"Organization"' in html
     assert 'data-ga4-measurement-id="G-ABC12345"' in html
+    assert 'href="/stations"' in html and 'href="/operators"' in html and 'href="/guides"' in html
     assert "{{PUBLIC_BASE_URL}}" not in html
 
 
@@ -52,6 +55,7 @@ def test_invalid_or_disabled_ga4_id_is_not_exposed(monkeypatch):
 
 def test_robots_and_sitemap_publish_only_preferred_public_pages(monkeypatch):
     monkeypatch.setattr(main, "settings", _settings())
+    monkeypatch.setattr(main, "_stations", lambda: [{"name": "Example", "crs": "EXA", "path": "/station/example-exa"}])
     robots = main.robots(_request("/robots.txt")).body.decode()
     sitemap = main.sitemap(_request("/sitemap.xml")).body.decode()
 
@@ -85,6 +89,9 @@ def test_a_shared_link_previews_with_its_own_title_and_picture(monkeypatch):
                          source="Network Rail TRUST", last_updated=datetime.now(timezone.utc)))
     monkeypatch.setattr(main, "state", state)
     monkeypatch.setattr(main, "_card_cache", {})
+    monkeypatch.setattr(main, "smart_places", None)
+    monkeypatch.setattr(main, "_station_directory", (-1e9, []))
+    monkeypatch.setattr(main, "_passenger_stations", lambda: [])
     client = TestClient(main.app)
     page = client.get("/live/nr%3A1D90").text
     assert '<meta property="og:title" content="1D90 · London Euston → Chester">' in page
