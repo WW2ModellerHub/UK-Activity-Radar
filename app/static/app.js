@@ -3809,7 +3809,8 @@
     renderDiscoveryDetail(a);
     if (selectionChanged) { clearPhoto(); clearActivityIntelligence(); }
     if (['sar','aircraft'].includes(a.type)) { loadAircraftInfo(a); if (!flightRouteById.has(a.id)) loadFlightRoute(a); }
-    else if (['train','bus','vessel'].includes(a.type)) loadPhoto(a);
+    // No bus photos: Commons rarely has the right bus, and a wrong one misleads.
+    else if (['train','vessel'].includes(a.type)) loadPhoto(a);
     else if (['road','incident'].includes(a.type)) loadNearestCamera(a);
     renderRelated(a);
     loadEnvironmentContext(a);

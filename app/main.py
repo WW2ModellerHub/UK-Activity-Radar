@@ -555,10 +555,8 @@ rain_radar = RainRadar()
 
 
 def _common_photo_plans() -> list[tuple[str, str | None, str | None]]:
-    from .media_reference import BUS_BRANDS, TRAIN_FLEETS
+    from .media_reference import TRAIN_FLEETS
     plans: list[tuple[str, str | None, str | None]] = [("train", name, None) for name in sorted(TRAIN_FLEETS)]
-    plans += [("bus", code, None) for code in sorted(BUS_BRANDS)]
-    plans += [("bus", code, None) for code in ("SCMN", "FBRI", "GNEL", "BHBC", "OXBC", "LOTH", "TNXB")]
     plans += [("aircraft", airline, model) for airline, model in (
         ("Ryanair", "Boeing 737-800"), ("easyJet", "Airbus A320"), ("easyJet", "Airbus A319"),
         ("easyJet", "Airbus A320neo"), ("British Airways", "Airbus A320"), ("British Airways", "Airbus A320neo"),
@@ -2360,6 +2358,10 @@ def activity_media(request: Request, activity_id: str, kind: str | None = None, 
     # to every visitor so the detail panel never turns into a paywall-shaped
     # blank space.
     item = state.get(activity_id)
+    if item is not None and item.type == "bus":
+        # Bus photos are off: Commons rarely has the right bus, and a wrong
+        # one (once a 15th-century atlas page) misleads more than none.
+        return {"ok": False, "reason": "no_bus_photos"}
     if not item:
         # Everyday planes are not kept here. With what the phone already
         # knows, answer with an example of the type in one trip, not two.
@@ -2388,7 +2390,7 @@ def media_reference(request: Request, kind: str, operator: str | None = None, mo
     me"); the caller passes what it already knows.
     """
     _enforce_public_budget(request, lookup_request_budget)
-    if kind not in {"train", "bus", "aircraft", "sar"} or any(len(v or "") > 80 for v in (operator, model, callsign)):
+    if kind not in {"train", "aircraft", "sar"} or any(len(v or "") > 80 for v in (operator, model, callsign)):
         raise HTTPException(status_code=400, detail="Unsupported reference request")
     try:
         return media_lookup.reference(kind, operator, model, callsign)
