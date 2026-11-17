@@ -1907,7 +1907,7 @@
     const icon = placeIcons[p.place_type] || iconSvg('pin');
     const isBusStop=p.place_type==='bus_stop';
     const markerContent=isBusStop
-      ? '<span class="bus-stop-sign" aria-hidden="true"><i>STOP</i><b></b></span>'
+      ? `<span class="bus-stop-dot" aria-hidden="true">${icons.bus}</span>`
       : icon;
     if(p.place_type==='rail_station'){
       return L.divIcon({
@@ -1919,7 +1919,8 @@
     return L.divIcon({
       className: 'place-marker-wrap',
       html: `<div class="place-marker place-${esc(p.place_type || 'other')}" title="${esc(p.name)}">${markerContent}</div>`,
-      iconSize:isBusStop?[27,32]:[27,27], iconAnchor:isBusStop?[13,31]:[13,13]
+      // A stop is a small dot on the spot itself, not a big sign on a pin.
+      iconSize:isBusStop?[28,28]:[27,27], iconAnchor:isBusStop?[14,14]:[13,13]
     });
   }
 

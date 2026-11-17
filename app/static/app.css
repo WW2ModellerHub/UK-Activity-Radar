@@ -641,7 +641,6 @@ body:has(.detail-sidebar:not(.is-empty):not(.route-view)) #recenter { right: cal
 .board-live-link { font-style: normal; color: var(--accent); font-weight: 600; margin-left: 6px; }
 .board-status { font-size: 13px; color: var(--muted); text-align: right; }
 .board-secondary { font-size: 13px; color: var(--muted); }
-.bus-stop-sign { display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 6px; border-radius: 6px; background: var(--bus); color: #fff; font-weight: 700; font-size: 13px; }
 
 /* Journey intelligence inside the detail panel */
 .detail-intelligence { display: grid; gap: 10px; }
