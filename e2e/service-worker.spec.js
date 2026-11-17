@@ -32,3 +32,39 @@ test('the worker registered from the top of the site covers the app page', async
     expect(await ready('/service-worker.js', { scope:'/' })).toBe('/');
   } finally { server.close(); }
 });
+
+// While Render restarts the server, the new stylesheet returns 502. The map
+// must keep its styles from the last saved version, not lose them all.
+test('a stylesheet that fails during a restart falls back to the last saved version', async ({ page }) => {
+  let restarting = false;
+  const server = http.createServer((request, response) => {
+    const url = new URL(request.url, 'http://localhost');
+    if (url.pathname === '/service-worker.js') { response.writeHead(200, { 'Content-Type':'text/javascript' }); return response.end(worker); }
+    if (url.pathname === '/') { response.writeHead(restarting ? 502 : 200, { 'Content-Type':'text/html' }); return response.end(restarting ? 'Bad gateway' : '<!doctype html><title>app</title>'); }
+    if (url.pathname === '/static/map-markers.css') {
+      if (url.searchParams.get('v') === 'old') { response.writeHead(200, { 'Content-Type':'text/css' }); return response.end('/* old */'); }
+      response.writeHead(502); return response.end('Bad gateway');
+    }
+    response.writeHead(404); response.end();
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const base = `http://localhost:${server.address().port}`;
+    await page.goto(`${base}/`);
+    await page.evaluate(async () => { await navigator.serviceWorker.register('/service-worker.js', { scope:'/' }); await navigator.serviceWorker.ready; });
+    await page.reload();
+    await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+    // Earlier visit: the old version was fetched and saved.
+    expect(await page.evaluate(() => fetch('/static/map-markers.css?v=old').then(r => r.text()))).toBe('/* old */');
+    await expect.poll(() => page.evaluate(async () => Boolean(await caches.match('/static/map-markers.css?v=old')))).toBe(true);
+    // Now the new version 502s: the saved old one is used instead.
+    const text = await page.evaluate(() => fetch('/static/map-markers.css?v=new').then(r => r.text()));
+    expect(text).toBe('/* old */');
+    // And a 502 home page is never saved as the offline copy.
+    restarting = true;
+    await page.evaluate(() => fetch('/'));
+    restarting = false;
+    const saved = await page.evaluate(async () => { const hit = await caches.match('/'); return hit ? hit.text() : null; });
+    expect(saved).not.toBe('Bad gateway');
+  } finally { server.close(); }
+});

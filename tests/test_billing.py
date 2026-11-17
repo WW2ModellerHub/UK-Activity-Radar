@@ -261,6 +261,7 @@ def test_checkout_creation_uses_only_server_price_and_binds_state(service, gatew
     assert params["line_items"] == [{"price": "price_plus", "quantity": 1}]
     assert params["client_reference_id"] == started.client_reference
     assert params["success_url"].endswith("session_id={CHECKOUT_SESSION_ID}")
+    assert params["allow_promotion_codes"] is True   # friends and testers can use a free code
     assert idempotency_key.endswith(started.client_reference)
     inspected = store.inspect_checkout_state(
         started.state_token,

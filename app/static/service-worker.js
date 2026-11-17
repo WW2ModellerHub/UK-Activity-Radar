@@ -1,12 +1,26 @@
-const CACHE = 'uk-activity-radar-shell-v1.5.0-r118';
-const SHELL = ['/', '/about', '/terms', '/privacy', '/data-licences', '/static/map-markers.css?v=16338', '/static/app.css?v=16338', '/static/motion-engine.js?v=15161', '/static/live-object-renderer.js?v=16130', '/static/vendor/maplibre/maplibre-gl.css?v=6.17.0', '/static/vendor/maplibre/maplibre-gl.mjs', '/static/app.js?v=16338', '/static/assets/aircraft/chinook-raf.jpg', '/static/assets/aircraft/apache-army.jpg', '/static/assets/aircraft/kc135-usaf.jpg', '/static/assets/aircraft/typhoon-raf.jpg', '/static/assets/aircraft/a400m-raf.jpg', '/static/assets/aircraft/c17-raf.jpg', '/static/assets/aircraft/s92-coastguard.jpg', '/static/share.html', '/static/share.css', '/static/share.js', '/static/legal.css', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png'];
+const CACHE = 'uk-activity-radar-shell-v1.5.0-r119';
+const SHELL = ['/', '/about', '/terms', '/privacy', '/data-licences', '/static/map-markers.css?v=16339', '/static/app.css?v=16339', '/static/motion-engine.js?v=15161', '/static/live-object-renderer.js?v=16130', '/static/vendor/maplibre/maplibre-gl.css?v=6.17.0', '/static/vendor/maplibre/maplibre-gl.mjs', '/static/app.js?v=16339', '/static/assets/aircraft/chinook-raf.jpg', '/static/assets/aircraft/apache-army.jpg', '/static/assets/aircraft/kc135-usaf.jpg', '/static/assets/aircraft/typhoon-raf.jpg', '/static/assets/aircraft/a400m-raf.jpg', '/static/assets/aircraft/c17-raf.jpg', '/static/assets/aircraft/s92-coastguard.jpg', '/static/share.html', '/static/share.css', '/static/share.js', '/static/legal.css', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png'];
 const NETWORK_FIRST_ASSETS = new Set(['/static/app.css', '/static/map-markers.css', '/static/app.js', '/static/movement-history.js', '/static/motion-engine.js', '/static/live-object-renderer.js']);
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).catch(() => null));
+  // One file failing (the server mid-restart) must not leave nothing saved.
+  event.waitUntil(caches.open(CACHE).then(cache => Promise.allSettled(SHELL.map(item => cache.add(item)))).catch(() => null));
   self.skipWaiting();
 });
 self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))));
+  // Keep an older copy of any file this version could not fetch, then drop
+  // the old caches.
+  event.waitUntil(caches.open(CACHE).then(async current => {
+    for (const key of (await caches.keys()).filter(k => k !== CACHE)) {
+      const old = await caches.open(key);
+      for (const request of await old.keys()) {
+        if (!(await current.match(request, { ignoreSearch: true }))) {
+          const response = await old.match(request);
+          if (response) await current.put(request, response);
+        }
+      }
+      await caches.delete(key);
+    }
+  }).catch(() => null));
   self.clients.claim();
 });
 self.addEventListener('fetch', event => {
@@ -15,23 +29,31 @@ self.addEventListener('fetch', event => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/static/')) {
     if (NETWORK_FIRST_ASSETS.has(url.pathname)) {
+      // While the server restarts the new version may 502: use the copy
+      // saved for this version, else the last version saved, rather than
+      // drawing the map with no styles.
+      const saved = () => caches.match(event.request).then(hit => hit || caches.match(event.request, { ignoreSearch: true }));
       event.respondWith(fetch(event.request).then(response => {
-        if (response.ok) caches.open(CACHE).then(cache => cache.put(event.request, response.clone()));
-        return response;
-      }).catch(() => caches.match(event.request)));
+        // Copy before handing it over: once the page reads the body, it cannot be copied.
+        if (response.ok) { const copy = response.clone(); caches.open(CACHE).then(cache => cache.put(event.request, copy)); return response; }
+        return saved().then(hit => hit || response);
+      }).catch(() => saved()));
       return;
     }
     event.respondWith(caches.match(event.request).then(hit => {
       const refresh = fetch(event.request).then(response => {
-        if (response.ok) caches.open(CACHE).then(cache => cache.put(event.request, response.clone()));
+        if (response.ok) { const copy = response.clone(); caches.open(CACHE).then(cache => cache.put(event.request, copy)); }
         return response;
       });
       return hit || refresh;
     }));
     return;
   }
+  // Pages: never save an error page (a 502 while the server restarts) as
+  // the copy to show offline.
   event.respondWith(fetch(event.request).then(response => {
-    const copy = response.clone(); caches.open(CACHE).then(cache => cache.put(event.request, copy)); return response;
+    if (response.ok) { const copy = response.clone(); caches.open(CACHE).then(cache => cache.put(event.request, copy)); return response; }
+    return caches.match(event.request).then(hit => hit || response);
   }).catch(() => caches.match(event.request).then(hit => hit || caches.match('/'))));
 });
 self.addEventListener('push', event => {

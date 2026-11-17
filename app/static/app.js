@@ -5692,7 +5692,7 @@
     mapSettledTimer=setTimeout(()=>{
       queueViewport();
       map.getContainer().classList.toggle('show-station-labels',map.getZoom()>=12);
-      map.getContainer().classList.toggle('show-bus-destinations',map.getZoom()>=14);
+      map.getContainer().classList.toggle('show-bus-destinations',map.getZoom()>=15);
       if(enabledActivityTypes.has('train'))updateRailLines();
       if(effectivePlaceMode()!=='off')fetchPlaces();
       if(webcamsEnabled)fetchCameras(false);

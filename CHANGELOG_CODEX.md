@@ -1,5 +1,24 @@
 # Codex stabilization changelog
 
+## 2026-11-17 — free Radar+ codes; the map keeps its styles through a restart
+
+- Stripe Checkout now offers a promotion-code box, so a 100%-off code made
+  in Stripe gives friends, testers or reviewers Radar+ free.
+- A phone that loaded the app while the server restarted drew bus labels as
+  loose overlapping text: the new map-marker stylesheet returned 502 and the
+  offline cache had nothing to fall back on. Fixed in the service worker:
+  - Copies are taken before the response is handed to the page; taken
+    after, the body was already used, so network-first files were never
+    saved at all.
+  - A failed (502) stylesheet or script falls back to this version's saved
+    copy, then the last version's.
+  - Install saves each file separately (one failure no longer saves
+    nothing), and activate keeps an older copy of anything the new version
+    could not fetch before dropping old caches.
+  - An error page is never saved as the offline home page.
+- Bus destinations show from zoom 15 (was 14) and long ones end in "…", so
+  busy town centres are not a pile of overlapping words.
+
 ## 2026-11-17 — postcodes go to the postcode
 
 - "CV11 4" went to "Vape Station CV11", a shop: the business geocoder read
