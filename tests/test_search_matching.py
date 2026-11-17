@@ -50,3 +50,32 @@ def test_a_town_comes_back_as_a_place_and_only_buses_really_going_there_match():
 def test_a_postcode_is_looked_up_as_a_place():
     spot = {"kind": "location", "name": "CV11 4", "lat": 52.52, "lon": -1.46}
     assert _searcher(place=spot).search("CV11 4")["location"] == spot
+
+
+def test_postcodes_go_to_the_postcode_area_not_a_shop_with_it_in_the_name():
+    asked = []
+
+    class Reply:
+        def __init__(self, body, status=200):
+            self.body, self.status_code = body, status
+
+        def json(self):
+            return self.body
+
+    class Postcodes:
+        def get(self, url, params=None, timeout=None):
+            asked.append(url)
+            if url.endswith("/outcodes/CV11"):
+                return Reply({"result": {"latitude": 52.52, "longitude": -1.46, "admin_district": ["Nuneaton and Bedworth"]}})
+            if url.endswith("/postcodes/CV11%206AA"):
+                return Reply({"result": {"latitude": 52.523, "longitude": -1.468, "admin_district": "Nuneaton and Bedworth"}})
+            return Reply({}, 404)
+
+    finder = ActivitySearch(LiveState(), "https://nominatim.example", enabled=False)
+    finder._session = Postcodes()
+    area = finder._geocode("CV11 4")
+    assert area["name"] == "CV11, Nuneaton and Bedworth" and area["lat"] == 52.52
+    exact = finder._geocode("cv116aa")
+    assert exact["name"] == "CV11 6AA, Nuneaton and Bedworth"
+    assert finder._geocode("Market Bosworth") is None      # not a postcode: left to the place geocoder
+    assert len(asked) == 2

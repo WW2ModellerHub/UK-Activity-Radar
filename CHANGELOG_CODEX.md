@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## 2026-11-17 — postcodes go to the postcode
+
+- "CV11 4" went to "Vape Station CV11", a shop: the business geocoder read
+  it as a name. Full postcodes and postcode districts now come from
+  postcodes.io (ONS open data, cached a week), then the usual geocoder.
+
 ## 2026-11-17 — bus numbers on the map; search that finds places and routes
 
 - Buses show their route number under the icon, and from street level

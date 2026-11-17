@@ -196,7 +196,49 @@ class ActivitySearch:
             "source": "TomTom Search", "query": normal,
         }
 
+    _FULL_POSTCODE = re.compile(r"^([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})$", re.I)
+    _OUTCODE = re.compile(r"^([A-Z]{1,2}\d[A-Z\d]?)(?:\s*\d[A-Z]{0,1})?$", re.I)
+
+    def _postcode(self, query: str) -> dict[str, Any] | None:
+        """UK postcodes from postcodes.io (open government data), not a shop
+        search: "CV11 4" is the CV11 district, not a vape shop."""
+        text = query.strip().upper()
+        full = self._FULL_POSTCODE.match(text)
+        part = None if full else self._OUTCODE.match(text)
+        if not (full or part):
+            return None
+        if full:
+            code = f"{full.group(1)} {full.group(2)}"
+            url = f"https://api.postcodes.io/postcodes/{quote(code)}"
+        else:
+            code = part.group(1)
+            url = f"https://api.postcodes.io/outcodes/{quote(code)}"
+        key = f"postcode|{code}"
+        with self._lock:
+            cached = self._cache.get(key)
+            if cached and cached.expires > time.time():
+                return cached.value
+        response = self._session.get(url, timeout=(1.5, 3.0))
+        result = None
+        if response.status_code == 200:
+            row = (response.json() or {}).get("result") or {}
+            lat, lon = row.get("latitude"), row.get("longitude")
+            if lat is not None and lon is not None:
+                town = row.get("admin_district")
+                town = town[0] if isinstance(town, list) and town else town
+                result = {"kind": "location", "name": ", ".join(x for x in (code, town) if x), "lat": float(lat),
+                          "lon": float(lon), "bbox": None, "source": "postcodes.io (ONS)", "query": code}
+        with self._lock:
+            self._cache[key] = _CachedLocation(time.time() + 7 * 24 * 3600, result)
+        return result
+
     def _geocode(self, query: str) -> dict[str, Any] | None:
+        try:
+            postcode = self._postcode(query)
+        except Exception:
+            postcode = None
+        if postcode:
+            return postcode
         normal = self._normalise_road_query(query)
         key = normal.casefold()
         with self._lock:
