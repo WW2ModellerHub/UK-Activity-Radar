@@ -45,7 +45,7 @@ services:
       - key: GOOGLE_SITE_VERIFICATION
         sync: false
       - key: GA4_ENABLED
-        value: "false"
+        value: "true"
       - key: GA4_MEASUREMENT_ID
         sync: false
       - key: GTM_CONTAINER_ID

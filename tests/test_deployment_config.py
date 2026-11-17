@@ -108,6 +108,13 @@ def test_google_analytics_is_consent_gated_and_opt_in_by_default(monkeypatch):
     assert "googletagmanager.com/gtag/js" in source
 
 
+def test_render_enables_consent_gated_google_analytics():
+    blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
+
+    assert 'key: GA4_ENABLED\n        value: "true"' in blueprint
+    assert 'key: GTM_CONTAINER_ID\n        value: "GTM-N2JVR3QZ"' in blueprint
+
+
 def test_public_deployment_mode_is_opt_in_for_local_installs(monkeypatch):
     monkeypatch.delenv("PUBLIC_DEPLOYMENT", raising=False)
     assert Settings().public_deployment is False
