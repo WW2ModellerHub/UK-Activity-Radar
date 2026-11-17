@@ -15,12 +15,16 @@ def test_render_blueprint_uses_single_worker_port_health_and_persistent_data():
     assert "--host 0.0.0.0" in blueprint
     assert "--port $PORT" in blueprint
     assert "--workers 1" in blueprint
-    assert "healthCheckPath: /api/health" in blueprint
+    # The health check needs no worker thread, so a busy moment is not
+    # mistaken for a dead server.
+    assert "healthCheckPath: /api/health/runtime" in blueprint
     assert "mountPath: /opt/render/project/src/data" in blueprint
     assert "sizeGB: 10" in blueprint
     assert 'key: RADAR_DATA_DIR\n        value: "/opt/render/project/src/data"' in blueprint
     assert "python -m compileall -q app" in blueprint
-    assert "--timeout-keep-alive 10" in blueprint
+    # Longer than Render's proxy keeps idle connections, or it reuses one the
+    # app has just closed and the visitor gets an instant 502.
+    assert "--timeout-keep-alive 120" in blueprint
     assert 'key: PUBLIC_DEPLOYMENT\n        value: "true"' in blueprint
     assert 'key: COMMERCIAL_MODE\n        value: "true"' in blueprint
 
@@ -205,9 +209,9 @@ def test_long_lived_service_rechecks_schedule_and_reference_data():
 def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
-    assert "/static/app.css?v=16337" in index
-    assert "/static/map-markers.css?v=16020" in index
-    assert "/static/app.js?v=16337" in index
+    assert "/static/app.css?v=16338" in index
+    assert "/static/map-markers.css?v=16338" in index
+    assert "/static/app.js?v=16338" in index
     assert "/static/motion-engine.js?v=15161" in index
     assert "/static/live-object-renderer.js?v=16130" in index
     # The v1.5 stylesheets were replaced by the flat redesign.
@@ -216,12 +220,12 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
         assert f"/static/{retired}" not in worker
         assert not (ROOT / "app" / "static" / retired).exists()
     assert "NETWORK_FIRST_ASSETS" in worker
-    assert "/static/app.css?v=16337" in worker
-    assert "/static/map-markers.css?v=16020" in worker
-    assert "/static/app.js?v=16337" in worker
+    assert "/static/app.css?v=16338" in worker
+    assert "/static/map-markers.css?v=16338" in worker
+    assert "/static/app.js?v=16338" in worker
     assert "/static/motion-engine.js?v=15161" in worker
     assert "/static/live-object-renderer.js?v=16130" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r117" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r118" in worker
 
 
 def test_sparse_reporting_interval_does_not_grey_live_trains():

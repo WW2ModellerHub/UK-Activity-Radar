@@ -2227,9 +2227,12 @@ def traffic_segment(request: Request, lat: float, lon: float, zoom: int = 10):
         raise HTTPException(status_code=502, detail=f"Traffic segment provider unavailable: {type(exc).__name__}") from exc
 
 @app.get("/api/search")
-def search(request: Request, q: str):
+def search(request: Request, q: str, lat: float | None = None, lon: float | None = None):
     _enforce_public_budget(request, lookup_request_budget)
-    payload = activity_search.search(q)
+    if lat is not None and lon is not None and not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        lat = lon = None
+    # Where the map is looking, so "5" finds the nearest buses on route 5.
+    payload = activity_search.search(q, lat=lat, lon=lon)
     if smart_places is not None:
         try:
             place_matches = smart_places.search_places(q, limit=8)

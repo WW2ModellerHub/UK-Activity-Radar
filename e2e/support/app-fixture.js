@@ -125,6 +125,8 @@ async function installAppFixture(page) {
   }, snapshot);
 
   let nearbyAircraftRequests=0;
+  const window_search_log=[];
+  page.searchLog=window_search_log;
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
     const pathname = url.pathname;
@@ -187,6 +189,9 @@ async function installAppFixture(page) {
       if (pathname === '/api/alerts/unsubscribe' && route.request().method() === 'POST') return route.fulfill({ json:{ok:true} });
       if (pathname === '/api/search') {
         const q=(url.searchParams.get('q') || '').toLowerCase();
+        window_search_log.push({q, lat:url.searchParams.get('lat'), lon:url.searchParams.get('lon')});
+        if(q==='5') return route.fulfill({json:{matches:[{kind:'activity',id:'bus-live-1',type:'bus',name:'Bus 5',subtitle:'To Nuneaton · Queens Road',lat:52.04,lon:-0.76,distance_km:0.4}],location:null,intent:{type:'bus',route:'5'}}});
+        if(q==='77') return route.fulfill({json:{matches:[],location:null,intent:{type:'bus',route:'77'}}});
         if(q.includes('ryanair') || q.includes('ryr1yy')) return route.fulfill({json:{matches:[snapshot.activities.find(row=>row.id==='aircraft-live-3')],location:null}});
         if(q.includes('chinook') || q.includes('shf475')) return route.fulfill({json:{matches:[snapshot.activities.find(row=>row.id==='aircraft-live-2')],location:null}});
         const match=q.includes('london')

@@ -1,5 +1,23 @@
 # Codex stabilization changelog
 
+## 2026-11-17 — bus numbers on the map; search that finds places and routes
+
+- Buses show their route number under the icon, and from street level
+  (zoom 14) where they are going ("7 · Nuneaton"), so the right bus is found
+  without tapping every icon.
+- Search runs as you type (after a half-second pause), not only on Enter.
+- A route number ("5", "X5", "bus 18A") finds buses on that route, nearest
+  to where the map is looking; one character is enough.
+- Place names: the town, street or postcode comes back first and flies the
+  map there. Live matches need every word to start a word ("Market
+  Bosworth" no longer finds buses at Beastmarket Hill), duplicates are
+  dropped, and only useful fields are searched (it used to text-dump every
+  field of up to 20,000 vehicles per search).
+- Typing in search no longer hides every map marker that lacks the letters.
+- Quick 502s: the app closed idle connections after 10 s while Render's
+  proxy reuses them for longer; keep-alive is now 120 s. Render's health
+  check uses /api/health/runtime, which needs no worker thread.
+
 ## 2026-11-16 — Radar+ box fits on computers
 
 - With "Already have Radar+?" open, the code box and Turn on button were

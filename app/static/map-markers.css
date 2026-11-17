@@ -147,3 +147,7 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 .aircraft-silhouette .ac-disc{fill:currentColor;opacity:.08;stroke:currentColor;stroke-width:.8;stroke-opacity:.5}
 .aerial-map-marker>small{position:absolute;left:50%;top:36px;transform:translateX(-50%);max-width:110px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;padding:1px 6px;border-radius:999px;background:#fff;color:#1f2937;border:1px solid #e4e7ec;box-shadow:0 1px 3px rgba(16,24,40,.18);font-size:10px;font-weight:700;letter-spacing:0;line-height:15px;white-space:nowrap}
 .aerial-map-marker>em{position:absolute;right:-6px;top:-4px;padding:1px 5px;border-radius:999px;background:#f0b45d;color:#1c1409;font-size:9px;font-style:normal;font-weight:800;white-space:nowrap}
+/* Bus route number under the icon; destination from street level (z14). */
+.bus-route-tag{position:absolute; left:50%; top:37px; transform:translateX(-50%); padding:1px 6px; border-radius:7px; background:#fff; color:#111827; border:1px solid rgba(17,24,39,.18); box-shadow:0 1px 3px rgba(0,0,0,.18); font-size:11px; font-weight:800; line-height:15px; white-space:nowrap; pointer-events:none; z-index:2;}
+.bus-route-tag .bus-destination{display:none; font-weight:600; color:#4b5563;}
+.show-bus-destinations .bus-route-tag .bus-destination{display:inline;}
