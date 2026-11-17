@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## 2026-11-17 — neater bus stops
+
+- Bus stops were big green "STOP" signs on pins that piled up over each
+  other. They are now small white dots with a green ring and a bus symbol,
+  centred on the stop (28px tap area), clearly different from live buses
+  (solid green with a route number).
+
 ## 2026-11-17 — free Radar+ codes; the map keeps its styles through a restart
 
 - Stripe Checkout now offers a promotion-code box, so a 100%-off code made

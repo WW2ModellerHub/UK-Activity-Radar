@@ -51,7 +51,7 @@ test('Buses near me enables buses and opens the nearest live stop board', async 
   await expect(page.locator('#detail-placeboard')).toContainText('City Centre');
   await expect(page.locator('#detail-placeboard')).toContainText('Arriva Midlands');
   await expect(page.locator('.place-marker')).toHaveCount(1);
-  await expect(page.locator('.place-marker.place-bus_stop .bus-stop-sign')).toHaveCount(1);
+  await expect(page.locator('.place-marker.place-bus_stop .bus-stop-dot')).toHaveCount(1);
   await expect(page.locator('#nearby-note')).toHaveClass(/hidden/);
   await page.locator('#detail-close').click();
   await expect(page.locator('.place-marker')).toHaveCount(0);

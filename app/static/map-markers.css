@@ -152,3 +152,9 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 .bus-route-tag .bus-destination{display:none; font-weight:600; color:#4b5563;}
 .bus-route-tag{max-width:132px; overflow:hidden; text-overflow:ellipsis;}
 .show-bus-destinations .bus-route-tag .bus-destination{display:inline;}
+
+/* Bus stops: a small white dot with a green ring and a bus, on the stop. */
+.place-marker.place-bus_stop{width:28px; height:28px; border:0; border-radius:50%; background:transparent; box-shadow:none;}
+.bus-stop-dot{width:20px; height:20px; display:grid; place-items:center; border-radius:50%; background:#fff; border:2px solid var(--bus,#0b7a5a); color:var(--bus,#0b7a5a); box-shadow:0 1px 4px rgba(0,0,0,.28);}
+.bus-stop-dot svg{width:12px; height:12px;}
+.place-marker.place-bus_stop:hover .bus-stop-dot,.place-marker.place-bus_stop:focus-visible .bus-stop-dot{transform:scale(1.15);}
