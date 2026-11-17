@@ -1,5 +1,16 @@
 # Codex stabilization changelog
 
+## 2026-11-17 — bus photos off; M&S at the source
+
+- Bus photos are switched off (tester: "they don't work"). Commons rarely
+  has the right bus; tapping a bus asks for no photo, the media routes
+  refuse buses, and bus photos are no longer looked up in advance.
+  Trains, planes and ships keep theirs.
+- "Clivesway → M's" was made on the server: the bus feed writes "&" as "_",
+  and the feed tidier turned M_S into "M's". One letter either side of "_"
+  now reads as "&" there too (M&S, B&Q); St_Margaret_s is still St
+  Margaret's.
+
 ## 2026-11-17 — no more atlas pages as bus photos; M&S
 
 - Bus LC14 (Arriva Midlands 3149) showed a page of a 15th-century atlas

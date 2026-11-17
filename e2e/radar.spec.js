@@ -886,8 +886,8 @@ test('clicked trains and buses load source-backed route intelligence', async ({ 
   await expect(page.locator('#detail-intelligence')).toContainText('2 min');
   await expect(page.locator('#detail-operator')).toContainText('Arriva');
   await expect(page.locator('#detail-operator')).toContainText('Route 7');
-  await expect(page.locator('#detail-photo img')).toHaveAttribute('src','https://upload.wikimedia.org/fixture-arriva-bus.jpg');
-  await expect(page.locator('#detail-photo')).toContainText('Fixture Transport Photographer');
+  // Bus photos are off: a wrong bus misleads more than no photo.
+  await expect(page.locator('#detail-photo img')).toHaveCount(0);
 });
 
 test('journey planner resolves places and renders a real multimodal itinerary', async ({ page }) => {
@@ -2144,4 +2144,15 @@ test('buses show their route number on the map, and where they are going once zo
   await page.evaluate(() => document.getElementById('map').classList.add('show-bus-destinations'));
   await expect(where).toBeVisible();
   await expect(where).toHaveText(' · Nuneaton');                  // tidied: no "Bus Station Stand 4"
+});
+
+test('tapping a bus shows no photo and does not ask for one', async ({ page }) => {
+  const asked = [];
+  page.on('request', request => { if (request.url().includes('/media')) asked.push(request.url()); });
+  await page.locator('[data-layer-chip="bus"]').click();
+  await page.locator('.marker-wrap-bus .marker-bubble').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-title')).toContainText('Bus');
+  await page.waitForTimeout(300);
+  expect(asked).toEqual([]);
+  await expect(page.locator('#detail-photo')).toBeHidden();
 });

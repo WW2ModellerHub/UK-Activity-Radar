@@ -54,7 +54,11 @@ def _display_place_name(value: str | None) -> str | None:
     text = str(value or "").strip()
     if not text:
         return None
-    text = re.sub(r"_s(?=_|$)", "'s", text, flags=re.I)
+    # "&" arrives as "_": M_S is M&S and B_Q is B&Q (one capital letter on
+    # each side). Otherwise "_s" at a word end is an apostrophe s
+    # (St_Margaret_s is St Margaret's).
+    text = re.sub(r"(?<![A-Za-z])([A-Z])_([A-Za-z])(?![A-Za-z])", lambda m: f"{m.group(1)}&{m.group(2).upper()}", text)
+    text = re.sub(r"(?<=[a-z]{2})_s(?=_|$)", "'s", text)
     text = re.sub(r"[_\s]+", " ", text).strip()
     return text or None
 
