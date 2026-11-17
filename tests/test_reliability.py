@@ -1,3 +1,5 @@
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -6,7 +8,7 @@ from app.collectors.adsb_lol import ADSBLolSARCollector, parse_adsb_response, pa
 from app.collectors.london_fire import _parse_dt, parse_lfb_incidents
 from app.collectors.met_office import parse_warning_geojson, parse_warning_rss
 from app.collectors.rnli import parse_rnli_page
-from app.config import Settings
+from app.config import Settings, _adsb_poll_seconds
 from app.search import ActivitySearch
 from app.state import LiveState
 
@@ -84,20 +86,202 @@ def test_nearby_aircraft_uses_recent_point_cache_when_refresh_fails(monkeypatch)
             }]}
 
     monkeypatch.setattr(collector._session, "get", lambda *args, **kwargs: GoodResponse())
-    first, checked = collector.fetch_nearby(52.54, -1.37, 43)
+    first, checked, source = collector.fetch_nearby(52.54, -1.37, 43)
     assert checked == 1 and [row.id for row in first] == ["aircraft:400001"]
+    assert source == "ADSB.lol"
 
     key = (52.54, -1.37, 43)
-    fetched_at, rows, checked = collector._nearby_cache[key]
-    collector._nearby_cache[key] = (fetched_at - timedelta(seconds=30), rows, checked)
+    fetched_at, rows, checked, source = collector._nearby_cache[key]
+    collector._nearby_cache[key] = (fetched_at - timedelta(seconds=30), rows, checked, source)
 
     def timeout(*args, **kwargs):
         raise requests.Timeout("temporary point-feed timeout")
 
     monkeypatch.setattr(collector._session, "get", timeout)
-    retained, retained_checked = collector.fetch_nearby(52.54, -1.37, 43)
+    retained, retained_checked, retained_source = collector.fetch_nearby(52.54, -1.37, 43)
     assert retained_checked == 1
     assert [row.id for row in retained] == ["aircraft:400001"]
+    assert retained_source == "ADSB.lol"
+
+
+def test_nearby_aircraft_prefers_keyed_commercial_provider_and_sends_key(monkeypatch):
+    settings = Settings(
+        flyitaly_adsb_api_key="server-side-test-key",
+        flyitaly_adsb_base_url="https://aircraft.example/api/aircraft/v2",
+    )
+    collector = ADSBLolSARCollector(settings, LiveState())
+    calls = []
+
+    class GoodResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"ac": [{
+                "hex": "400001", "flight": "BAW123", "lat": 52.54,
+                "lon": -1.37, "t": "A320", "gs": 410, "track": 90,
+            }]}
+
+    def get(url, **kwargs):
+        calls.append((url, kwargs))
+        return GoodResponse()
+
+    monkeypatch.setattr(collector._session, "get", get)
+    rows, checked, source = collector.fetch_nearby(52.54, -1.37, 43)
+
+    assert checked == 1 and len(rows) == 1
+    assert source == "FlyItalyADSB"
+    assert calls[0][0] == "https://aircraft.example/api/aircraft/v2/point/52.54/-1.37/43"
+    assert calls[0][1]["headers"] == {"X-Api-Key": "server-side-test-key"}
+    assert rows[0].source == "FlyItalyADSB"
+
+
+def test_identical_nearby_requests_are_coalesced(monkeypatch):
+    collector = ADSBLolSARCollector(Settings(), LiveState())
+    started = threading.Event()
+    release = threading.Event()
+    call_count = 0
+
+    class GoodResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"ac": [{"hex": "400001", "lat": 52.54, "lon": -1.37}]}
+
+    def get(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        started.set()
+        assert release.wait(timeout=2)
+        return GoodResponse()
+
+    monkeypatch.setattr(collector._session, "get", get)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(collector.fetch_nearby, 52.54, -1.37, 43)
+        assert started.wait(timeout=2)
+        second = pool.submit(collector.fetch_nearby, 52.54, -1.37, 43)
+        release.set()
+        results = [first.result(timeout=3), second.result(timeout=3)]
+
+    assert call_count == 1
+    assert all(result[1:] == (1, "ADSB.lol") for result in results)
+
+
+def test_aircraft_background_poll_defaults_are_quota_safe(monkeypatch):
+    monkeypatch.delenv("ADSB_SAR_POLL_SECONDS", raising=False)
+    monkeypatch.delenv("ADSB_LOL_API_KEY", raising=False)
+    monkeypatch.delenv("FLYITALYADSB_API_KEY", raising=False)
+    assert _adsb_poll_seconds() == 360
+
+    monkeypatch.setenv("FLYITALYADSB_API_KEY", "test-key")
+    assert _adsb_poll_seconds() == 60
+
+    monkeypatch.setenv("ADSB_SAR_POLL_SECONDS", "not-a-number")
+    assert _adsb_poll_seconds() == 60
+
+
+def test_nearby_aircraft_falls_back_to_adsb_lol_when_primary_is_limited(monkeypatch):
+    settings = Settings(
+        flyitaly_adsb_api_key="server-side-test-key",
+        flyitaly_adsb_base_url="https://aircraft.example/api/aircraft/v2",
+        adsb_lol_base_url="https://lol.example/v2",
+        adsb_lol_api_key="lol-test-key",
+    )
+    collector = ADSBLolSARCollector(settings, LiveState())
+    calls = []
+
+    class RateLimitedResponse:
+        status_code = 429
+        headers = {"Retry-After": "30"}
+
+        def raise_for_status(self):
+            raise requests.HTTPError("limited", response=self)
+
+    class GoodResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"ac": [{"hex": "400002", "lat": 52.5, "lon": -1.3}]}
+
+    def get(url, **kwargs):
+        calls.append((url, kwargs))
+        return RateLimitedResponse() if "aircraft.example" in url else GoodResponse()
+
+    monkeypatch.setattr(collector._session, "get", get)
+    rows, checked, source = collector.fetch_nearby(52.54, -1.37, 43)
+    second_rows, second_checked, second_source = collector.fetch_nearby(52.60, -1.30, 43)
+
+    assert checked == 1 and [row.id for row in rows] == ["aircraft:400002"]
+    assert source == "ADSB.lol"
+    assert second_checked == 1 and [row.id for row in second_rows] == ["aircraft:400002"]
+    assert second_source == "ADSB.lol"
+    assert len(calls) == 3
+    assert sum("aircraft.example" in url for url, _kwargs in calls) == 1
+    assert calls[1][1]["headers"] == {"x-api-key": "lol-test-key"}
+
+
+def test_interactive_nearby_timeout_returns_without_waiting_for_a_second_provider(monkeypatch):
+    settings = Settings(
+        flyitaly_adsb_api_key="server-side-test-key",
+        flyitaly_adsb_base_url="https://aircraft.example/api/aircraft/v2",
+        adsb_lol_base_url="https://lol.example/v2",
+    )
+    collector = ADSBLolSARCollector(settings, LiveState())
+    calls = []
+
+    def timeout(url, **kwargs):
+        calls.append((url, kwargs))
+        raise requests.Timeout("primary provider timed out")
+
+    monkeypatch.setattr(collector._session, "get", timeout)
+
+    try:
+        collector.fetch_nearby(52.54, -1.37, 43)
+    except requests.Timeout:
+        pass
+    else:
+        raise AssertionError("interactive timeout should reach the retained fallback")
+
+    assert len(calls) == 1
+    assert calls[0][1]["timeout"] == (2, 3.5)
+
+
+def test_rotating_region_cache_retains_ordinary_aircraft_for_nearby_fallback():
+    collector = ADSBLolSARCollector(Settings(), LiveState())
+    nearby, _ = parse_nearby_aircraft_response({"ac": [
+        {"hex": "400001", "flight": "BAW123", "lat": 52.54, "lon": -1.37},
+        {"hex": "400002", "flight": "DISTANT", "lat": 55.0, "lon": -4.0},
+    ]}, source_name="FlyItalyADSB")
+    collector._region_cache[0] = (
+        nearby, [], [], 2, datetime.now(timezone.utc), "FlyItalyADSB"
+    )
+
+    rows, source = collector.retained_nearby(52.54, -1.37, 50)
+
+    assert [row.id for row in rows] == ["aircraft:400001"]
+    assert source == "FlyItalyADSB"
+
+
+def test_rotating_region_cache_does_not_present_old_aircraft_as_overhead():
+    collector = ADSBLolSARCollector(Settings(), LiveState())
+    nearby, _ = parse_nearby_aircraft_response({"ac": [
+        {"hex": "400001", "flight": "BAW123", "lat": 52.54, "lon": -1.37},
+    ]}, source_name="FlyItalyADSB")
+    collector._region_cache[0] = (
+        nearby,
+        [],
+        [],
+        1,
+        datetime.now(timezone.utc) - timedelta(minutes=3),
+        "FlyItalyADSB",
+    )
+
+    rows, source = collector.retained_nearby(52.54, -1.37, 50)
+
+    assert rows == []
+    assert source is None
 
 
 def test_common_military_training_and_tanker_types_are_named():

@@ -47,6 +47,9 @@
       const response=await fetch('/api/map/config',{cache:'no-store'});
       if(response.ok)config=await response.json();
     } catch {}
+    if(config?.aircraft_attribution){
+      map.attributionControl?.addAttribution?.(config.aircraft_attribution);
+    }
     tileSets.standard=baseTileLayer(config);
     tileSets.rail=config?.configured&&config?.rail_tile_url
       ? baseTileLayer({...config,tile_url:config.rail_tile_url})

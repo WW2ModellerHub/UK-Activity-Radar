@@ -145,6 +145,10 @@ services:
         sync: false
       - key: BODS_API_KEY
         sync: false
+      - key: FLYITALYADSB_API_KEY
+        sync: false
+      - key: ADSB_LOL_API_KEY
+        sync: false
       - key: NATIONAL_HIGHWAYS_API_KEY
         sync: false
       - key: NATIONAL_HIGHWAYS_VMS_URL

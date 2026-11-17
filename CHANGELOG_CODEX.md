@@ -1,5 +1,20 @@
 # Codex stabilization changelog
 
+## 2026-11-17 — aircraft overhead provider and quota repair
+
+- Found the production failure behind the empty “aircraft above you” view:
+  the anonymous ADSB.lol allowance was being exhausted by a 12-second
+  background poll, after which Render received HTTP 429 for every nearby
+  lookup.
+- Added keyed FlyItalyADSB support as the primary hosted point feed, with
+  ADSB.lol (and its optional key) as a fallback. Credentials stay server-side;
+  the map and data-licence page show the required provider attribution.
+- Identical nearby lookups are now coalesced, successful results are shared for
+  30 seconds, and ordinary aircraft from the rotating UK snapshots are retained
+  for a degraded response instead of disappearing when a provider is slow.
+- Anonymous background polling now defaults to a quota-safe six minutes; keyed
+  providers get a faster cadence. Explicit configuration still overrides it.
+
 ## 2026-11-17 — bus photos off; M&S at the source
 
 - Bus photos are switched off (tester: "they don't work"). Commons rarely
@@ -78,6 +93,7 @@
   successful point lookup for brief outages, and falls back to retained UK
   aircraft while the precise lookup retries. The control reports progress and
   never wipes already-visible aircraft because one refresh failed.
+
 - Added five crawlable, evidence-led aircraft pages (military, helicopters,
   police helicopters, air ambulances and “what plane is above me?”), connected
   them to real filtered map views and published them in the sitemap.

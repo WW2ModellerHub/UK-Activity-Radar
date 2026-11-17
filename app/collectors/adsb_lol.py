@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import threading
+from math import asin, ceil, cos, radians, sin, sqrt
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -159,7 +160,9 @@ def _is_interesting_aircraft(row: dict) -> bool:
     # common military/special-flight identities without turning this into a general plane tracker.
     return bool((int(dbflags) & 1) or (call and _INTERESTING_CALLSIGN.search(call)))
 
-def parse_interesting_aircraft_response(payload: dict, *, now: datetime | None = None) -> tuple[list[Vehicle], int]:
+def parse_interesting_aircraft_response(
+    payload: dict, *, now: datetime | None = None, source_name: str = "ADSB.lol"
+) -> tuple[list[Vehicle], int]:
     now = now or datetime.now(timezone.utc)
     aircraft = payload.get("ac") or payload.get("aircraft") or []
     out: dict[str, Vehicle] = {}
@@ -190,7 +193,7 @@ def parse_interesting_aircraft_response(payload: dict, *, now: datetime | None =
             id=f"aircraft:{hex_id}", type="aircraft", name=callsign or reg or f"Special aircraft {hex_id.upper()}",
             subtitle=" • ".join(bits) or "Military / special-interest aircraft", lat=lat, lon=lon,
             operator=owner or "Military / special-interest aircraft", status="Airborne", speed=gs, speed_unit="kt" if gs is not None else None,
-            position_method="gps", position_label="ADS-B / MLAT position from ADSB.lol", source="ADSB.lol", source_id=hex_id,
+            position_method="gps", position_label=f"ADS-B / MLAT position from {source_name}", source=source_name, source_id=hex_id,
             vehicle_ref=reg, aircraft_type_code=model, aircraft_model=model_name, altitude_ft=altitude_ft,
             identity_label=model_name or model or reg,
             identity_confidence="type" if (model_name or model) else ("exact" if reg else "unresolved"),
@@ -216,7 +219,9 @@ def _num(value):
         return None
 
 
-def parse_adsb_response(payload: dict, *, now: datetime | None = None) -> tuple[list[Vehicle], int]:
+def parse_adsb_response(
+    payload: dict, *, now: datetime | None = None, source_name: str = "ADSB.lol"
+) -> tuple[list[Vehicle], int]:
     now = now or datetime.now(timezone.utc)
     aircraft = payload.get("ac") or payload.get("aircraft") or []
     out: dict[str, Vehicle] = {}
@@ -259,8 +264,8 @@ def parse_adsb_response(payload: dict, *, now: datetime | None = None) -> tuple[
             speed=gs,
             speed_unit="kt" if gs is not None else None,
             position_method="gps",
-            position_label="ADS-B / MLAT position from ADSB.lol",
-            source="ADSB.lol",
+            position_label=f"ADS-B / MLAT position from {source_name}",
+            source=source_name,
             source_id=hex_id,
             vehicle_ref=reg,
             aircraft_type_code=model,
@@ -279,7 +284,9 @@ def parse_adsb_response(payload: dict, *, now: datetime | None = None) -> tuple[
     return list(out.values()), total
 
 
-def parse_nearby_aircraft_response(payload: dict, *, now: datetime | None = None) -> tuple[list[Vehicle], int]:
+def parse_nearby_aircraft_response(
+    payload: dict, *, now: datetime | None = None, source_name: str = "ADSB.lol"
+) -> tuple[list[Vehicle], int]:
     """Parse every positioned aircraft for the explicit nearby-aircraft tool.
 
     The background collector remains deliberately limited to military, rescue
@@ -316,8 +323,8 @@ def parse_nearby_aircraft_response(payload: dict, *, now: datetime | None = None
             subtitle=" • ".join(facts) or "Nearby live aircraft",
             lat=lat, lon=lon, operator=owner, status="Airborne",
             speed=_num(row.get("gs")), speed_unit="kt",
-            position_method="gps", position_label="Nearby ADS-B / MLAT position from ADSB.lol",
-            source="ADSB.lol nearby", source_id=hex_id, vehicle_ref=reg,
+            position_method="gps", position_label=f"Nearby ADS-B / MLAT position from {source_name}",
+            source=source_name, source_id=hex_id, vehicle_ref=reg,
             aircraft_type_code=model, aircraft_model=model_name,
             identity_label=model_name or model or reg,
             identity_confidence="type" if (model_name or model) else ("exact" if reg else "unresolved"),
@@ -326,6 +333,15 @@ def parse_nearby_aircraft_response(payload: dict, *, now: datetime | None = None
             interesting=_is_interesting_aircraft(row), last_updated=updated,
         )
     return list(out.values()), total
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    radius_km = 6371.0088
+    phi1, phi2 = radians(lat1), radians(lat2)
+    dphi = radians(lat2 - lat1)
+    dlambda = radians(lon2 - lon1)
+    a = sin(dphi / 2) ** 2 + cos(phi1) * cos(phi2) * sin(dlambda / 2) ** 2
+    return 2 * radius_km * asin(sqrt(a))
 
 
 class ADSBLolSARCollector:
@@ -347,9 +363,96 @@ class ADSBLolSARCollector:
         self._session.headers.update({"User-Agent": "UKActivityRadar/1.4.0 (open ADS-B consumer)"})
         self._seen = 0
         self._point_index = 0
-        self._region_cache: dict[int, tuple[list[Vehicle], list[Vehicle], int, datetime]] = {}
+        self._region_cache: dict[
+            int,
+            tuple[list[Vehicle], list[Vehicle], list[Vehicle], int, datetime, str],
+        ] = {}
         self._nearby_lock = threading.Lock()
-        self._nearby_cache: dict[tuple[float, float, int], tuple[datetime, list[Vehicle], int]] = {}
+        self._nearby_cache: dict[
+            tuple[float, float, int], tuple[datetime, list[Vehicle], int, str]
+        ] = {}
+        self._nearby_inflight: dict[tuple[float, float, int], threading.Event] = {}
+        self._provider_lock = threading.Lock()
+        self._provider_cooldown_until: dict[str, datetime] = {}
+
+    def _point_providers(self) -> list[tuple[str, str, dict[str, str]]]:
+        """Return providers in preference order without exposing credentials.
+
+        FlyItalyADSB is enabled only when its server-side key exists. Its Free
+        plan explicitly permits commercial product use and carries enough
+        quota for a cached public lookup. ADSB.lol remains the open ODbL
+        fallback; an optional key is sent when configured.
+        """
+        providers: list[tuple[str, str, dict[str, str]]] = []
+        fly_key = str(getattr(self.settings, "flyitaly_adsb_api_key", "") or "").strip()
+        if fly_key:
+            providers.append((
+                "FlyItalyADSB",
+                str(self.settings.flyitaly_adsb_base_url).rstrip("/"),
+                {"X-Api-Key": fly_key},
+            ))
+        lol_headers: dict[str, str] = {}
+        lol_key = str(getattr(self.settings, "adsb_lol_api_key", "") or "").strip()
+        if lol_key:
+            lol_headers["x-api-key"] = lol_key
+        lol_base = str(self.settings.adsb_lol_base_url).rstrip("/")
+        if not lol_base.endswith("/v2"):
+            lol_base = f"{lol_base}/v2"
+        providers.append(("ADSB.lol", lol_base, lol_headers))
+        return providers
+
+    def _fetch_point_payload(
+        self,
+        lat: float,
+        lon: float,
+        radius_nm: int,
+        *,
+        timeout,
+        fallback_after_timeout: bool = True,
+    ) -> tuple[dict, str]:
+        last_error: Exception | None = None
+        for source_name, base_url, headers in self._point_providers():
+            now = datetime.now(timezone.utc)
+            with self._provider_lock:
+                cooldown_until = self._provider_cooldown_until.get(source_name)
+            if cooldown_until is not None and cooldown_until > now:
+                remaining = max(1, round((cooldown_until - now).total_seconds()))
+                last_error = requests.HTTPError(
+                    f"{source_name} is cooling down after a rate limit ({remaining}s remaining)"
+                )
+                continue
+            url = f"{base_url}/point/{lat}/{lon}/{radius_nm}"
+            try:
+                response = self._session.get(url, timeout=timeout, headers=headers or None)
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    raise ValueError(f"{source_name} returned an invalid payload")
+                with self._provider_lock:
+                    self._provider_cooldown_until.pop(source_name, None)
+                return payload, source_name
+            except requests.Timeout:
+                # An interactive lookup has a strict browser deadline. Trying
+                # a second provider after a full timeout would guarantee that
+                # the browser gives up before the server can return its useful
+                # retained fallback. Background refreshes may still fail over.
+                if not fallback_after_timeout:
+                    raise
+                last_error = requests.Timeout(f"{source_name} timed out")
+            except requests.HTTPError as exc:
+                response = getattr(exc, "response", None)
+                if getattr(response, "status_code", None) == 429:
+                    delay = self._retry_after_seconds(exc, 900)
+                    with self._provider_lock:
+                        self._provider_cooldown_until[source_name] = (
+                            datetime.now(timezone.utc) + timedelta(seconds=delay)
+                        )
+                last_error = exc
+            except Exception as exc:
+                last_error = exc
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("No aircraft point provider is configured")
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -362,19 +465,21 @@ class ADSBLolSARCollector:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3)
 
-    def _fetch_region(self, index: int) -> tuple[list[Vehicle], list[Vehicle], int]:
+    def _fetch_region(
+        self, index: int
+    ) -> tuple[list[Vehicle], list[Vehicle], list[Vehicle], int, str]:
         lat, lon, radius = self.settings.adsb_sar_points[index]
-        url = f"{self.settings.adsb_lol_base_url}/v2/point/{lat}/{lon}/{radius}"
-        r = self._session.get(url, timeout=20)
-        r.raise_for_status()
-        payload = r.json()
-        rows, count = parse_adsb_response(payload)
-        special, _ = parse_interesting_aircraft_response(payload)
+        payload, source_name = self._fetch_point_payload(lat, lon, radius, timeout=20)
+        nearby, count = parse_nearby_aircraft_response(payload, source_name=source_name)
+        rows, _ = parse_adsb_response(payload, source_name=source_name)
+        special, _ = parse_interesting_aircraft_response(payload, source_name=source_name)
         if not self.settings.interesting_aircraft_enabled:
             special = []
-        return rows, special, count
+        return nearby, rows, special, count, source_name
 
-    def fetch_nearby(self, lat: float, lon: float, radius_nm: int) -> tuple[list[Vehicle], int]:
+    def fetch_nearby(
+        self, lat: float, lon: float, radius_nm: int
+    ) -> tuple[list[Vehicle], int, str]:
         """Fetch one small, cached point query for an explicit user request."""
         radius_nm = max(5, min(50, int(radius_nm)))
         key = (round(float(lat), 2), round(float(lon), 2), radius_nm)
@@ -385,46 +490,131 @@ class ADSBLolSARCollector:
             # low-rate national collector.  A short shared cache keeps public
             # API traffic bounded while allowing aircraft to reconcile often
             # enough for the browser's between-report motion to stay honest.
-            if cached and (now - cached[0]).total_seconds() < 15:
-                return cached[1], cached[2]
+            if cached and (now - cached[0]).total_seconds() < 30:
+                return cached[1], cached[2], cached[3]
+            inflight = self._nearby_inflight.get(key)
+            if inflight is None:
+                inflight = threading.Event()
+                self._nearby_inflight[key] = inflight
+                owns_request = True
+            else:
+                owns_request = False
+        # Coalesce identical first-load requests without holding the cache lock
+        # over network I/O. Followers wait only as long as the provider timeout
+        # and then use the completed shared result.
+        if not owns_request:
+            inflight.wait(timeout=6.25)
+            with self._nearby_lock:
+                shared = self._nearby_cache.get(key)
+            if shared and (datetime.now(timezone.utc) - shared[0]).total_seconds() < 180:
+                return shared[1], shared[2], shared[3]
+            raise requests.Timeout("Nearby aircraft request is still refreshing")
         # Never hold the cache lock across an internet request. One slow point
         # lookup previously queued every other visitor behind it, which made
         # "Planes overhead" appear frozen under even modest use.
         try:
-            url = f"{self.settings.adsb_lol_base_url}/v2/point/{lat}/{lon}/{radius_nm}"
-            response = self._session.get(url, timeout=(3, 6))
-            response.raise_for_status()
-            rows, checked = parse_nearby_aircraft_response(response.json(), now=now)
-        except Exception:
-            # A recent successful answer is more useful than an empty map
-            # during a brief rate limit or timeout. The API route separately
-            # falls back to the broad retained UK aircraft feed when this is a
-            # visitor's first lookup and no point cache exists yet.
-            if cached and (now - cached[0]).total_seconds() < 180:
-                return cached[1], cached[2]
-            raise
-        with self._nearby_lock:
-            # Only military, rescue and notable aircraft join the shared map.
-            # Everyday light aircraft and airliners found for one visitor's
-            # "planes above me" are returned to that visitor only; storing
-            # them filled everyone's Aircraft layer with ordinary traffic that
-            # then went stale.
-            for row in rows:
-                if row.interesting or row.type == "sar":
-                    self.state.upsert(row)
-            self._nearby_cache[key] = (now, rows, checked)
-            if len(self._nearby_cache) > 40:
-                oldest = min(self._nearby_cache, key=lambda item: self._nearby_cache[item][0])
-                self._nearby_cache.pop(oldest, None)
-        return rows, checked
+            try:
+                payload, source_name = self._fetch_point_payload(
+                    lat,
+                    lon,
+                    radius_nm,
+                    timeout=(2, 3.5),
+                    fallback_after_timeout=False,
+                )
+                rows, checked = parse_nearby_aircraft_response(
+                    payload, now=now, source_name=source_name
+                )
+            except Exception:
+                # A recent successful answer is more useful than an empty map
+                # during a brief rate limit or timeout. The API route separately
+                # falls back to the broad retained UK aircraft feed when this is a
+                # visitor's first lookup and no point cache exists yet.
+                if cached and (now - cached[0]).total_seconds() < 180:
+                    return cached[1], cached[2], cached[3]
+                raise
+            with self._nearby_lock:
+                # Only military, rescue and notable aircraft join the shared map.
+                # Everyday light aircraft and airliners found for one visitor's
+                # "planes above me" are returned to that visitor only; storing
+                # them filled everyone's Aircraft layer with ordinary traffic that
+                # then went stale.
+                for row in rows:
+                    if row.interesting or row.type == "sar":
+                        self.state.upsert(row)
+                self._nearby_cache[key] = (now, rows, checked, source_name)
+                if len(self._nearby_cache) > 40:
+                    oldest = min(self._nearby_cache, key=lambda item: self._nearby_cache[item][0])
+                    self._nearby_cache.pop(oldest, None)
+            return rows, checked, source_name
+        finally:
+            with self._nearby_lock:
+                current = self._nearby_inflight.pop(key, None)
+                if current is not None:
+                    current.set()
 
-    def _cached_snapshot(self, *, max_age_minutes: int = 10) -> tuple[list[Vehicle], list[Vehicle], int]:
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+    def retained_nearby(
+        self, lat: float, lon: float, radius_miles: float, *, max_age_minutes: int | None = None
+    ) -> tuple[list[Vehicle], str | None]:
+        """Return ordinary aircraft retained by the rotating UK snapshots.
+
+        The state store intentionally receives only SAR and special aircraft,
+        otherwise the default map becomes an all-aircraft firehose. The point
+        cache kept here can still answer an above-me request during a short
+        provider outage or rate limit without exposing those rows globally.
+        """
+        # Ordinary aircraft travel too far to present a broad regional sample
+        # as an "above me" position for long. SAR/special state has its own
+        # longer continuity window; this fallback is deliberately capped at
+        # two minutes so it is better to show no plane than one many miles off.
+        ordinary_max_age = 2 if max_age_minutes is None else max(0, max_age_minutes)
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=ordinary_max_age)
+        radius_km = max(5.0, float(radius_miles)) * 1.609344
+        combined: dict[str, Vehicle] = {}
+        sources: set[str] = set()
+        # The collector thread replaces one region while API threads may read
+        # the retained fallback. Copy the tiny four-region dictionary first so
+        # a concurrent refresh cannot invalidate iteration.
+        region_snapshots = list(self._region_cache.values())
+        for nearby, _rows, _special, _total, fetched_at, source_name in region_snapshots:
+            if fetched_at < cutoff:
+                continue
+            source_used = False
+            for row in nearby:
+                if _haversine_km(lat, lon, float(row.lat), float(row.lon)) > radius_km:
+                    continue
+                source_used = True
+                old = combined.get(row.id)
+                if old is None or row.last_updated >= old.last_updated:
+                    combined[row.id] = row
+            if source_used:
+                sources.add(source_name)
+        rows = sorted(
+            combined.values(),
+            key=lambda row: _haversine_km(lat, lon, float(row.lat), float(row.lon)),
+        )
+        source = next(iter(sources)) if len(sources) == 1 else ("Retained aircraft feeds" if sources else None)
+        return rows, source
+
+    def _region_max_age_minutes(self) -> int:
+        rotation_minutes = (
+            max(1, len(self.settings.adsb_sar_points))
+            * max(10, int(self.settings.adsb_sar_poll_seconds))
+            / 60
+        )
+        return max(10, ceil(rotation_minutes * 1.5))
+
+    def _cached_snapshot(
+        self, *, max_age_minutes: int | None = None
+    ) -> tuple[list[Vehicle], list[Vehicle], int]:
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            minutes=max_age_minutes or self._region_max_age_minutes()
+        )
         combined: dict[str, Vehicle] = {}
         interesting: dict[str, Vehicle] = {}
         checked = 0
         expired: list[int] = []
-        for idx, (rows, special, total, fetched_at) in self._region_cache.items():
+        region_snapshots = list(self._region_cache.items())
+        for idx, (_nearby, rows, special, total, fetched_at, _source_name) in region_snapshots:
             if fetched_at < cutoff:
                 expired.append(idx)
                 continue
@@ -452,7 +642,7 @@ class ADSBLolSARCollector:
         interesting: dict[str, Vehicle] = {}
         total = 0
         for index in range(len(self.settings.adsb_sar_points)):
-            rows, special, count = self._fetch_region(index)
+            _nearby, rows, special, count, _source_name = self._fetch_region(index)
             total += count
             for v in rows:
                 old = combined.get(v.id)
@@ -473,22 +663,25 @@ class ADSBLolSARCollector:
         response = getattr(exc, "response", None)
         raw = response.headers.get("Retry-After") if response is not None else None
         try:
-            return max(30, min(900, int(float(raw))))
+            return max(30, min(86400, int(float(raw))))
         except (TypeError, ValueError):
-            return max(90, min(300, default * 2))
+            return max(300, min(3600, default * 4))
 
     def _run(self) -> None:
         point_count = max(1, len(self.settings.adsb_sar_points))
+        provider_names = " → ".join(name for name, _url, _headers in self._point_providers())
         self.state.set_source(SourceStatus(
             name="adsb_sar", enabled=True, connected=False, mode="connecting",
-            message=f"Connecting to ADSB.lol • rotating {point_count} UK coverage regions…",
+            message=f"Connecting to {provider_names} • rotating {point_count} UK coverage regions…",
         ))
         while not self._stop.is_set():
             index = self._point_index % point_count
             try:
-                rows, special, total = self._fetch_region(index)
+                nearby, rows, special, total, source_name = self._fetch_region(index)
                 fetched_at = datetime.now(timezone.utc)
-                self._region_cache[index] = (rows, special, total, fetched_at)
+                self._region_cache[index] = (
+                    nearby, rows, special, total, fetched_at, source_name
+                )
                 self._point_index = (index + 1) % point_count
                 vehicles, all_special, checked = self._cached_snapshot()
                 for v in [*rows, *special]:
@@ -500,7 +693,7 @@ class ADSBLolSARCollector:
                     name="adsb_sar", enabled=True, connected=True,
                     mode="ready" if not vehicles and not all_special else "live",
                     message=(
-                        f"ADSB.lol verified • region {index + 1}/{point_count} refreshed • "
+                        f"{source_name} verified • region {index + 1}/{point_count} refreshed • "
                         f"{checked:,} recent aircraft records checked • "
                         f"{len(vehicles):,} SAR/HEMS + {len(all_special):,} military/special visible • "
                         f"full UK rotation ≈ {cycle_label}"
@@ -518,7 +711,7 @@ class ADSBLolSARCollector:
                     self.state.set_source(SourceStatus(
                         name="adsb_sar", enabled=True, connected=True, mode="waiting",
                         message=(
-                            f"ADSB.lol rate limit reached • retaining {len(vehicles) + len(special)} last verified "
+                            f"Aircraft provider rate limit reached • retaining {len(vehicles) + len(special)} last verified "
                             f"SAR/special positions • retrying region {index + 1}/{point_count} in {delay}s"
                         ),
                         last_message_at=datetime.now(timezone.utc),
@@ -529,11 +722,11 @@ class ADSBLolSARCollector:
                     continue
                 self.state.set_source(SourceStatus(
                     name="adsb_sar", enabled=True, connected=False, mode="error",
-                    message=f"ADSB SAR HTTP error: {code or 'unknown'} • {public_error(exc)}",
+                    message=f"Aircraft feed HTTP error: {code or 'unknown'} • {public_error(exc)}",
                 ))
             except Exception as exc:
                 self.state.set_source(SourceStatus(
                     name="adsb_sar", enabled=True, connected=False, mode="error",
-                    message=f"ADSB SAR feed error: {public_error(exc)}",
+                    message=f"Aircraft feed error: {public_error(exc)}",
                 ))
             self._stop.wait(self.settings.adsb_sar_poll_seconds)

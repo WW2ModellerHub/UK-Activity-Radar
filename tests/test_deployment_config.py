@@ -35,6 +35,8 @@ def test_render_blueprint_prompts_for_secrets_instead_of_storing_values():
         "NETWORK_RAIL_USERNAME",
         "NETWORK_RAIL_PASSWORD",
         "BODS_API_KEY",
+        "FLYITALYADSB_API_KEY",
+        "ADSB_LOL_API_KEY",
         "NATIONAL_HIGHWAYS_API_KEY",
         "TOMTOM_TRAFFIC_API_KEY",
         "MAPBOX_PUBLIC_TOKEN",
@@ -218,7 +220,7 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
     assert "/static/app.css?v=16342" in index
     assert "/static/map-markers.css?v=16342" in index
-    assert "/static/app.js?v=16343" in index
+    assert "/static/app.js?v=16344" in index
     assert "/static/motion-engine.js?v=15161" in index
     assert "/static/live-object-renderer.js?v=16130" in index
     # The v1.5 stylesheets were replaced by the flat redesign.
@@ -229,10 +231,10 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     assert "NETWORK_FIRST_ASSETS" in worker
     assert "/static/app.css?v=16342" in worker
     assert "/static/map-markers.css?v=16342" in worker
-    assert "/static/app.js?v=16343" in worker
+    assert "/static/app.js?v=16344" in worker
     assert "/static/motion-engine.js?v=15161" in worker
     assert "/static/live-object-renderer.js?v=16130" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r123" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r124" in worker
 
 
 def test_sparse_reporting_interval_does_not_grey_live_trains():
@@ -263,6 +265,18 @@ def test_map_provider_configuration_cannot_pin_the_old_fallback_in_cache():
     assert "mapbox/light-v11" in map_route
     assert "streets-v12" not in map_route
     assert '"rail_tile_url": None' in map_route
+
+
+def test_aircraft_provider_keys_remain_server_side_and_attribution_is_visible():
+    app_js = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+    main = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
+    licences = (ROOT / "app" / "static" / "data-licences.html").read_text(encoding="utf-8")
+
+    assert "FLYITALYADSB_API_KEY" not in app_js
+    assert '"aircraft_attribution"' in main
+    assert "config.aircraft_attribution" in app_js
+    assert "FlyItalyADSB" in licences
+    assert "CC BY-SA 4.0" in licences
 
 
 def test_optional_traffic_control_does_not_mislabel_the_basemap_as_tomtom():

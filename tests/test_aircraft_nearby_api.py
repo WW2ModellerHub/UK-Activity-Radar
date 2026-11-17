@@ -12,6 +12,9 @@ def test_nearby_aircraft_returns_retained_map_positions_when_point_feed_fails(mo
         def fetch_nearby(self, lat, lon, radius_nm):
             raise TimeoutError("provider did not answer")
 
+        def retained_nearby(self, lat, lon, radius_miles):
+            raise RuntimeError("rotating cache is still starting")
+
     retained_state = LiveState()
     retained_state.upsert(Vehicle(
         id="aircraft:retained", type="aircraft", name="RRR01",
@@ -41,3 +44,30 @@ def test_nearby_aircraft_returns_retained_map_positions_when_point_feed_fails(mo
     assert payload["source"] == "Retained UK aircraft feed"
     assert "retrying" in payload["warning"]
     assert [row["id"] for row in payload["activities"]] == ["aircraft:retained"]
+
+
+def test_nearby_aircraft_reports_the_live_provider_without_exposing_its_key(monkeypatch):
+    aircraft = Vehicle(
+        id="aircraft:live", type="aircraft", name="BAW123",
+        lat=52.55, lon=-1.35, source="FlyItalyADSB",
+        position_method="gps", position_label="Live ADS-B position",
+        last_updated=datetime.now(timezone.utc),
+    )
+
+    class HealthyPointFeed:
+        def fetch_nearby(self, lat, lon, radius_nm):
+            return [aircraft], 1, "FlyItalyADSB"
+
+    monkeypatch.setattr(main, "adsb_sar_collector", HealthyPointFeed())
+    monkeypatch.setattr(main, "_enforce_public_budget", lambda request, budget: None)
+
+    response = TestClient(main.app).get(
+        "/api/aircraft/nearby",
+        params={"lat": 52.54, "lon": -1.37, "radius_miles": 50},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["degraded"] is False
+    assert payload["source"] == "FlyItalyADSB point feed"
+    assert [row["id"] for row in payload["activities"]] == ["aircraft:live"]

@@ -1978,26 +1978,45 @@ def nearby_aircraft(request: Request, lat: float, lon: float, radius_miles: floa
     radius_nm = max(5, round(miles / 1.15078))
     degraded = False
     warning = None
+    source_name = None
     try:
-        rows, checked = adsb_sar_collector.fetch_nearby(lat, lon, radius_nm)
+        result = adsb_sar_collector.fetch_nearby(lat, lon, radius_nm)
+        if len(result) == 3:
+            rows, checked, source_name = result
+        else:  # Compatibility with test/dry-run collectors from older builds.
+            rows, checked = result
+            source_name = "ADSB.lol"
     except Exception as exc:
         # The point feed is a useful enhancement, but the broad live collector
         # already holds verified aircraft positions.  Do not turn a temporary
         # upstream timeout/rate limit into an empty map (or, historically, a
         # 500 caused while formatting this error).  Return nearby retained
         # positions immediately and let the browser retry its point lookup.
-        retained = state.all(
-            max_age_minutes=10,
-            include_trains=False,
-            include_buses=False,
-            include_vessels=False,
-        )
-        rows = [
-            row for row in retained
-            if row.type in {"aircraft", "sar"}
-            and _haversine_km(lat, lon, float(row.lat), float(row.lon)) <= miles * 1.609344
-        ]
-        rows.sort(key=lambda row: _haversine_km(lat, lon, float(row.lat), float(row.lon)))
+        retained_lookup = getattr(adsb_sar_collector, "retained_nearby", None)
+        try:
+            rows, source_name = (
+                retained_lookup(lat, lon, miles) if callable(retained_lookup) else ([], None)
+            )
+        except Exception:
+            # A partially initialised rotating cache must never turn an
+            # upstream timeout into a public 500. The state-store fallback
+            # below is independent and remains safe during startup.
+            rows, source_name = [], None
+        if not rows:
+            retained = state.all(
+                max_age_minutes=10,
+                include_trains=False,
+                include_buses=False,
+                include_vessels=False,
+            )
+            rows = [
+                row for row in retained
+                if row.type in {"aircraft", "sar"}
+                and _haversine_km(lat, lon, float(row.lat), float(row.lon)) <= miles * 1.609344
+            ]
+            rows.sort(key=lambda row: _haversine_km(lat, lon, float(row.lat), float(row.lon)))
+            if rows:
+                source_name = "Retained UK aircraft feed"
         checked = len(rows)
         degraded = True
         warning = (
@@ -2022,11 +2041,19 @@ def nearby_aircraft(request: Request, lat: float, lon: float, radius_miles: floa
         ])
     except Exception:
         pass
+    if degraded:
+        response_source = (
+            source_name
+            if source_name == "Retained UK aircraft feed"
+            else (f"{source_name} retained snapshot" if source_name else "Retained UK aircraft feed")
+        )
+    else:
+        response_source = f"{source_name} point feed" if source_name else "Live aircraft point feed"
     return {
         "activities": [row.model_dump(mode="json") for row in rows],
         "checked": checked,
         "radius_miles": miles,
-        "source": "Retained UK aircraft feed" if degraded else "ADSB.lol point feed",
+        "source": response_source,
         "degraded": degraded,
         "warning": warning,
     }
@@ -2285,6 +2312,12 @@ def map_config():
         "attribution": (
             '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> '
             '&copy; <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener">Mapbox</a>'
+        ),
+        "aircraft_attribution": (
+            'Aircraft: <a href="https://flyitalyadsb.com/" target="_blank" rel="noopener">FlyItalyADSB</a> '
+            '(CC BY-SA 4.0) · <a href="https://www.adsb.lol/" target="_blank" rel="noopener">ADSB.lol</a> (ODbL)'
+            if settings.flyitaly_adsb_api_key else
+            'Aircraft: <a href="https://www.adsb.lol/" target="_blank" rel="noopener">ADSB.lol</a> (ODbL)'
         ),
         "message": None if configured else "Add MAPBOX_PUBLIC_TOKEN to enable the commercial basemap.",
     }

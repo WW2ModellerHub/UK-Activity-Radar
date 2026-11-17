@@ -27,6 +27,30 @@ def _commercial_source(name: str, default: bool = True) -> bool:
     return (not commercial) and _bool(name, default)
 
 
+def _adsb_poll_default() -> int:
+    """Choose a quota-safe default for the configured aircraft provider.
+
+    ADSB.lol's anonymous allowance is shared by every visitor behind the
+    server's egress IP, so the old 12-second national poll exhausted a full
+    day of requests in about 100 minutes. Authenticated providers have larger
+    allowances, but still benefit from a conservative background cadence; the
+    explicit nearby-aircraft lookup remains independently cached and faster.
+    """
+    if os.getenv("FLYITALYADSB_API_KEY", "").strip():
+        return 60
+    if os.getenv("ADSB_LOL_API_KEY", "").strip():
+        return 180
+    return 360
+
+
+def _adsb_poll_seconds() -> int:
+    raw = os.getenv("ADSB_SAR_POLL_SECONDS", "").strip()
+    try:
+        return max(10, int(raw)) if raw else _adsb_poll_default()
+    except ValueError:
+        return _adsb_poll_default()
+
+
 @dataclass(frozen=True)
 class Settings:
     network_rail_username: str = os.getenv("NETWORK_RAIL_USERNAME", "").strip()
@@ -246,13 +270,20 @@ class Settings:
         return self.aisstream_enabled and bool(self.aisstream_api_key)
 
 
-    # Free/open ADSB.lol API for relevant UK SAR / air-ambulance aircraft.
+    # Open ADS-B feeds for relevant UK SAR / air-ambulance aircraft and the
+    # explicit "what is above me?" lookup. FlyItalyADSB's free key permits
+    # commercial use and has enough quota for a public deployment; ADSB.lol
+    # remains the ODbL fallback and can use an optional key of its own.
     adsb_sar_enabled: bool = _bool("ADSB_SAR_ENABLED", True)
     adsb_lol_base_url: str = os.getenv("ADSB_LOL_BASE_URL", "https://api.adsb.lol").rstrip("/")
-    # One polite regional request per interval. Four default UK regions now
-    # complete in about 48 seconds instead of two minutes; HTTP 429 still
-    # triggers the collector's much longer Retry-After backoff.
-    adsb_sar_poll_seconds: int = max(10, int(os.getenv("ADSB_SAR_POLL_SECONDS", "12")))
+    adsb_lol_api_key: str = os.getenv("ADSB_LOL_API_KEY", "").strip()
+    flyitaly_adsb_base_url: str = os.getenv(
+        "FLYITALYADSB_BASE_URL", "https://api.flyitalyadsb.com/api/aircraft/v2"
+    ).rstrip("/")
+    flyitaly_adsb_api_key: str = os.getenv("FLYITALYADSB_API_KEY", "").strip()
+    # One regional request per interval. The default adapts to provider quota;
+    # operators with a contracted allowance can still override it explicitly.
+    adsb_sar_poll_seconds: int = _adsb_poll_seconds()
 
     @property
     def adsb_sar_points(self) -> list[tuple[float, float, int]]:
