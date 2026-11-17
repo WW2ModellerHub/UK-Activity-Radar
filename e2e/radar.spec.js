@@ -806,7 +806,9 @@ test('Focus map hides both panels and Escape restores them', async ({ page }) =>
 test('searching a location and clicking it moves the map there', async ({ page }) => {
   await page.locator('#search').fill('Leicester');
   await page.locator('#search-go').click();
-  await page.getByRole('button',{name:/Go to location Leicester city centre/}).click();
+  // The place itself is the first result.
+  await expect(page.locator('#search-results .search-result').first()).toContainText('Leicester city centre');
+  await page.getByRole('button',{name:/Leicester city centre/}).click();
   await expect(page.locator('#map')).toHaveAttribute('data-map-center','52.6369,-1.1398');
 });
 
@@ -2104,4 +2106,42 @@ test('the Radar+ box fits a computer screen with nothing cut off', async ({ page
     return { shell: shell.scrollWidth - shell.clientWidth, card: card.scrollWidth - card.clientWidth };
   });
   expect(overflow).toEqual({ shell:0, card:0 });
+});
+
+test('search shows results as you type, and a bus route number finds the nearest buses on it', async ({ page }) => {
+  await page.locator('#search').pressSequentially('5');      // no Enter, one character
+  await expect(page.locator('#search-results .search-result').first()).toContainText('Bus 5');
+  await expect(page.locator('#search-results')).toContainText('To Nuneaton');
+  const asked = page.searchLog.at(-1);
+  expect(asked.q).toBe('5');
+  expect(Number(asked.lat)).not.toBeNaN();                  // sent where the map is looking
+  await page.locator('#search').fill('77');
+  await expect(page.locator('#search-results')).toContainText('No buses on route 77 are reporting right now.');
+});
+
+test('typing in search does not empty the map', async ({ page }) => {
+  await page.locator('[data-layer-toggle="train"]').click();
+  await expect(page.locator('.marker-wrap-train').first()).toBeAttached();
+  const trains = await page.locator('.marker-wrap-train').count();
+  await page.locator('#search').fill('Market Bosworth');
+  await page.waitForTimeout(100);
+  await expect(page.locator('.marker-wrap-train')).toHaveCount(trains);
+});
+
+test('buses show their route number on the map, and where they are going once zoomed in', async ({ page }) => {
+  await page.locator('[data-layer-chip="bus"]').click();
+  const tag = page.locator('.marker-wrap-bus .bus-route-tag').first();
+  await expect(tag).toContainText('7');
+  await expect(tag.locator('.bus-destination')).toHaveCount(0);   // no destination known yet
+  await page.evaluate(() => {
+    const snapshot = JSON.parse(JSON.stringify(window.__fixtureSnapshot));
+    for (const row of snapshot.activities) if (row.id === 'bus-live-7') { row.destination = 'NUNEATON BUS STATION STAND 4'; row.last_updated = '2026-10-05T10:00:30Z'; }
+    window.__fixtureSocket.onmessage({ data: JSON.stringify(snapshot) });
+  });
+  const where = page.locator('.marker-wrap-bus .bus-route-tag .bus-destination').first();
+  await expect(where).toHaveCount(1);
+  await expect(where).toBeHidden();                               // zoomed out: just the number
+  await page.evaluate(() => document.getElementById('map').classList.add('show-bus-destinations'));
+  await expect(where).toBeVisible();
+  await expect(where).toHaveText(' · Nuneaton');                  // tidied: no "Bus Station Stand 4"
 });

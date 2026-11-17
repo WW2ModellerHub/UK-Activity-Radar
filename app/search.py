@@ -74,9 +74,14 @@ class ActivitySearch:
         self._last_request = 0.0
         self._cache: dict[str, _CachedLocation] = {}
 
-    @staticmethod
-    def _haystack(a: Vehicle | Event) -> str:
-        values = a.model_dump().values()
+    # What a person would search a live thing by. Dumping every field of
+    # 20,000 vehicles on each search was slow and matched noise.
+    _SEARCH_FIELDS = ("name", "route", "headcode", "destination", "origin", "operator", "vehicle_ref",
+                      "subtitle", "aircraft_model", "road", "category", "train_uid")
+
+    @classmethod
+    def _haystack(cls, a: Vehicle | Event) -> str:
+        values = (getattr(a, field, None) for field in cls._SEARCH_FIELDS)
         return " ".join(str(v) for v in values if v not in (None, "")).lower()
 
     @staticmethod
@@ -108,16 +113,18 @@ class ActivitySearch:
         tokens = [t for t in re.split(r"\s+", needle) if t]
         if not tokens:
             return []
+        # Every word must start a word in the record: "market bosworth" finds
+        # buses to Market Bosworth, not ones at Beastmarket Hill.
+        patterns = [re.compile(rf"(?<![a-z0-9]){re.escape(token)}") for token in tokens]
         rows = self.state.all_activities(include_buses=True, bus_limit=5000, include_vessels=True, vessel_limit=3000)
         ranked: list[tuple[int, Vehicle | Event]] = []
         for row in rows:
             if activity_type and row.type != activity_type:
                 continue
             hay = self._haystack(row)
-            hits = sum(1 for token in tokens if token in hay)
-            if not hits:
+            if not all(pattern.search(hay) for pattern in patterns):
                 continue
-            score = hits * 10
+            score = len(tokens) * 10
             if isinstance(row, Event) and row.road and row.road.casefold() in needle:
                 score += 12
             if row.name.casefold().startswith(needle):
@@ -126,6 +133,15 @@ class ActivitySearch:
                 score += 10
             ranked.append((score, row))
         ranked.sort(key=lambda x: (x[0], x[1].last_updated), reverse=True)
+        seen: set[tuple[str, str]] = set()
+        unique = []
+        for score, row in ranked:   # the same bus reported twice reads as one
+            label = (_display_name(row), _display_subtitle(row) or "")
+            if label in seen:
+                continue
+            seen.add(label)
+            unique.append((score, row))
+        ranked = unique
         return [
             {
                 "kind": "activity",
@@ -233,8 +249,48 @@ class ActivitySearch:
             self._cache[key] = _CachedLocation(time.time() + 24 * 3600, result)
         return result
 
-    def search(self, query: str) -> dict[str, Any]:
+    # "5", "158", "X5", "U1A", "bus 18A": a bus route. Not a train headcode
+    # (1Q15: digit, letter, two digits).
+    _ROUTE = re.compile(r"^(?:bus\s+|route\s+)?([a-z]{0,3}\d{1,4}[a-z]{0,2})$", re.I)
+    _HEADCODE = re.compile(r"^\d[a-z]\d{2}$", re.I)
+
+    def _route_matches(self, route: str, lat: float | None, lon: float | None) -> list[dict[str, Any]]:
+        wanted = route.casefold()
+        rows = [row for row in self.state.all_activities(include_buses=True, bus_limit=8000)
+                if row.type == "bus" and str(getattr(row, "route", "") or "").casefold() == wanted]
+        if lat is not None and lon is not None:
+            rows.sort(key=lambda row: _distance_km(lat, lon, row.lat, row.lon))
+        else:
+            rows.sort(key=lambda row: row.last_updated, reverse=True)
+        out = []
+        for row in rows[:12]:
+            item = {
+                "kind": "activity", "id": row.id, "type": row.type, "name": _display_name(row),
+                "subtitle": " · ".join(x for x in (f"To {row.destination}" if row.destination else None,
+                                                   _display_subtitle(row)) if x),
+                "lat": row.lat, "lon": row.lon, "source": row.source, "score": 90,
+            }
+            if lat is not None and lon is not None:
+                item["distance_km"] = round(_distance_km(lat, lon, row.lat, row.lon), 1)
+            out.append(item)
+        return out
+
+    @staticmethod
+    def _looks_like_a_place(query: str) -> bool:
+        """Words (a town, street, landmark) or a postcode, worth a map lookup."""
+        if len(query) < 3:
+            return False
+        if re.fullmatch(r"[A-Za-z]{1,2}\d[A-Za-z\d]?\s*\d?[A-Za-z]{0,2}", query.strip()):
+            return True   # postcode or the start of one: CV11 4, LE10
+        return bool(re.search(r"[A-Za-z]{3,}", query)) and not re.search(r"\d", query)
+
+    def search(self, query: str, *, lat: float | None = None, lon: float | None = None) -> dict[str, Any]:
         query = re.sub(r"\s+", " ", (query or "").strip())[:160]
+        route = self._ROUTE.match(query)
+        if route and not self._HEADCODE.match(route.group(1)):
+            matches = self._route_matches(route.group(1), lat, lon)
+            if matches or len(query) < 2:
+                return {"query": query, "matches": matches, "location": None, "intent": {"type": "bus", "route": route.group(1).upper()}}
         if len(query) < 2:
             return {"query": query, "matches": [], "location": None, "intent": None}
 
@@ -269,7 +325,8 @@ class ActivitySearch:
                     }
                     for km, row in nearby[:12]
                 ]
-        elif not matches or re.search(r"\b(?:M\d+|A\d+|junction|\bJ\s*\d+)\b", query, re.I):
+        elif not matches or self._looks_like_a_place(query) or re.search(r"\b(?:M\d+|A\d+|junction|\bJ\s*\d+)\b", query, re.I):
+            # A town or street is found as a place even when buses mention it.
             try:
                 location = self._geocode(search_text)
             except Exception:

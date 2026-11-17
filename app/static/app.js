@@ -1890,9 +1890,14 @@
     const punctuality=type==='train'&&!cancelled ? punctualityClass(v.delay_minutes) : '';
     const punctualityDot=punctuality ? `<i class="train-punctuality ${punctuality}" aria-hidden="true"></i>` : '';
     const sharedNote=coincidentCount>1 ? ` • ${coincidentCount} trains share this reported point` : '';
+    // Buses carry their route number, and once zoomed in to street level
+    // where they are going, so the right bus is found without tapping each.
+    const busRoute=type==='bus'?String(v.route||String(v.name||'').replace(/^Bus\s+/i,'')).trim().slice(0,5):'';
+    const busWhere=type==='bus'&&v.destination?humanTransitLabel(String(v.destination)).replace(/\s+(?:Stand|Stop|Bay)\s*[A-Z0-9]{0,3}$/i,'').replace(/\s+(?:Bus|Coach)\s+Station$/i,'').slice(0,22):'';
+    const busTag=busRoute?`<b class="bus-route-tag">${esc(busRoute)}${busWhere?`<small class="bus-destination"> · ${esc(busWhere)}</small>`:''}</b>`:'';
     return L.divIcon({
       className: `marker-wrap marker-wrap-${esc(type)}${coincidentCount>1?' train-coincident-wrap':''}`,
-      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}${cancelled?' is-cancelled':''}"${cancelled?'':trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}${punctualityDot}</div>${pointer}${speedTag}</div>`,
+      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}${cancelled?' is-cancelled':''}"${cancelled?'':trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}${punctualityDot}</div>${pointer}${speedTag}${busTag}</div>`,
       iconSize: [42,42], iconAnchor: [21-offsetX,21-offsetY],
       tooltipAnchor: type==='train' ? [offsetX,offsetY-17] : [0,0]
     });
@@ -2644,7 +2649,7 @@
     const speed = pointerType && zoomBand >= 2 ? compactSpeed(a) : '';
     const speedUnit = '';
     const movementPosition='';
-    return [a.type,a.position_method,a.name,a.cancelled_at?'cancelled':punctualityClass(a.delay_minutes),a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon,a._coincidentCount,a._coincidentSlot,a._coincidentX,a._coincidentY].join('|');
+    return [a.type,a.position_method,a.name,a.type==='bus'?`${a.route||''}>${a.destination||''}`:'',a.cancelled_at?'cancelled':punctualityClass(a.delay_minutes),a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon,a._coincidentCount,a._coincidentSlot,a._coincidentX,a._coincidentY].join('|');
   }
 
   function markerTooltipSignature(a) {
@@ -5354,26 +5359,39 @@
     } else map.setView([row.lat,row.lon],13);
   }
 
+  // A bus route can be one character ("5"); anything else needs two.
+  const ROUTE_QUERY=/^(?:bus\s+|route\s+)?[a-z]{0,3}\d{1,4}[a-z]{0,2}$/i;
+  let searchRequest=0, searchTimer=null;
   async function runSearch() {
     const raw = $('search').value.trim();
+    clearTimeout(searchTimer);
+    if (raw.length < 2 && !ROUTE_QUERY.test(raw)) { hideSearchResults(); return; }
     trackProduct('search_used', 'search');
-    if (raw.length < 2) { hideSearchResults(); return; }
-    const box = $('search-results'); box.classList.remove('hidden'); box.innerHTML = '<div class="search-empty">Searching live activity and UK roads/places…</div>';
+    const requestId = ++searchRequest;
+    const box = $('search-results'); box.classList.remove('hidden'); box.innerHTML = '<div class="search-empty">Searching…</div>';
     try {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(raw)}`); if (!response.ok) throw new Error('search failed');
+      // Where the map is looking: "5" finds the nearest buses on route 5.
+      const centre = map.getCenter();
+      const response = await fetch(`/api/search?q=${encodeURIComponent(raw)}&lat=${centre.lat.toFixed(4)}&lon=${centre.lng.toFixed(4)}`); if (!response.ok) throw new Error('search failed');
       const payload = await response.json(); const rows = payload.matches || [];
+      if (requestId !== searchRequest) return;   // a newer search has started
       const buttons = rows.map(row => {
         const isPlace = row.kind === 'place';
         const attr = isPlace ? `data-place="${esc(row.id)}"` : `data-activity="${esc(row.id)}"`;
         const icon = isPlace ? (placeIcons[row.place_type] || iconSvg('pin')) : (icons[row.type] || '•');
         return `<button type="button" class="search-result" ${attr}><span class="search-result-icon">${icon}</span><span><strong>${esc(row.name)}</strong><span>${esc([row.distance_km != null ? `${row.distance_km} km away` : null,row.subtitle || row.source || (isPlace?'Place':'Live activity')].filter(Boolean).join(' • '))}</span></span></button>`;
       });
-      if (payload.location) buttons.push(`<button type="button" class="search-result" data-location="1"><span class="search-result-icon">${iconSvg('pin')}</span><span><strong>Go to location</strong><span>${esc(payload.location.name)}</span></span></button>`);
-      box.innerHTML = buttons.length ? buttons.join('') : '<div class="search-empty">No matching place or live activity.</div>';
+      // The place itself first: "Market Bosworth" → the town, then anything live there.
+      if (payload.location) {
+        const [first, ...rest] = String(payload.location.name || raw).split(',').map(part => part.trim()).filter(Boolean);
+        buttons.unshift(`<button type="button" class="search-result search-place-result" data-location="1"><span class="search-result-icon">${iconSvg('pin')}</span><span><strong>${esc(first || raw)}</strong><span>${esc(rest.slice(0,2).join(', ') || 'Go to this place')}</span></span></button>`);
+      }
+      const noRoute = payload.intent?.route ? `No buses on route ${esc(payload.intent.route)} are reporting right now.` : 'No matching place or live activity.';
+      box.innerHTML = buttons.length ? buttons.join('') : `<div class="search-empty">${noRoute}</div>`;
       box.querySelectorAll('[data-activity]').forEach(btn => btn.addEventListener('click',async()=>{ const id=btn.dataset.activity; searchText=''; $('search').value=''; hideSearchResults(); await focusActivityById(id,11); }));
       box.querySelectorAll('[data-place]').forEach(btn => btn.addEventListener('click',()=>{ const id=btn.dataset.place; const row=rows.find(x=>x.id===id); if(row){ if(!places.some(p=>p.id===id)) places.push(row); renderPlaces(); searchText=''; $('search').value=''; map.setView([row.lat,row.lon],row.place_type==='bus_stop'?15:12,{animate:true}); selectPlace(id,false); } hideSearchResults(); }));
       const locationButton=box.querySelector('[data-location]'); if(locationButton && payload.location) locationButton.addEventListener('click',()=>{ addSearchLocation(payload.location); hideSearchResults(); });
-    } catch { box.innerHTML = '<div class="search-empty">Place search is temporarily unavailable.</div>'; }
+    } catch { if (requestId === searchRequest) box.innerHTML = '<div class="search-empty">Search is busy for a moment. Try again.</div>'; }
   }
 
   async function resolveJourneyPlace(query) {
@@ -5674,6 +5692,7 @@
     mapSettledTimer=setTimeout(()=>{
       queueViewport();
       map.getContainer().classList.toggle('show-station-labels',map.getZoom()>=12);
+      map.getContainer().classList.toggle('show-bus-destinations',map.getZoom()>=14);
       if(enabledActivityTypes.has('train'))updateRailLines();
       if(effectivePlaceMode()!=='off')fetchPlaces();
       if(webcamsEnabled)fetchCameras(false);
@@ -5900,7 +5919,15 @@
   $('near-centre').addEventListener('click',()=>{ const c=map.getCenter(); setNearby(c.lat,c.lng,'centre'); trackProduct('nearby_used','map-centre'); });
   $('near-clear').addEventListener('click',()=>{ clearTransientLocationModes({clearNearestStop:false}); sendViewport();renderMap();renderStats();renderRanking(); });
   $('add-watch-zone').addEventListener('click',()=>{ if(!billingState.plus&&watchZones.length>=1){openPlusDialog();showToast('Free My Radar includes one watch zone. Radar+ unlocks more.');return;} const c=map.getCenter(); const radius=Number($('near-radius').value || 10); const suggested=`Watch zone ${watchZones.length+1}`; const name=(window.prompt('Name this live watch zone', suggested) || '').trim(); if(!name)return; watchZones.push({id:`zone-${Date.now()}`,name,lat:c.lat,lon:c.lng,radiusMiles:radius}); saveWatchZones(); renderWatchZones();renderMyRadar(); trackProduct('watch_zone_added','watch-zone'); showToast(`${name} saved • ${radius} mile radius`); });
-  $('search').addEventListener('input', (e) => { searchText = e.target.value.trim().toLowerCase(); renderMap(); renderStats(); renderRanking(); if (!searchText) hideSearchResults(); });
+  $('search').addEventListener('input', (e) => {
+    // The results list answers a search; the map is no longer emptied of
+    // everything that does not contain the typed letters.
+    const typed = e.target.value.trim();
+    clearTimeout(searchTimer);
+    if (!typed) { searchRequest++; hideSearchResults(); return; }
+    // Results as you type, once you pause.
+    searchTimer = setTimeout(runSearch, 500);
+  });
   $('search').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); runSearch(); } });
   $('search-go').addEventListener('click', runSearch);
   $('journey-route-clear')?.addEventListener('click',()=>{clearJourneyRoute();showToast('Route cleared.');});
