@@ -886,8 +886,8 @@ test('clicked trains and buses load source-backed route intelligence', async ({ 
   await expect(page.locator('#detail-intelligence')).toContainText('2 min');
   await expect(page.locator('#detail-operator')).toContainText('Arriva');
   await expect(page.locator('#detail-operator')).toContainText('Route 7');
-  await expect(page.locator('#detail-photo img')).toHaveAttribute('src','https://upload.wikimedia.org/fixture-arriva-bus.jpg');
-  await expect(page.locator('#detail-photo')).toContainText('Fixture Transport Photographer');
+  // Bus photos are off: a wrong bus misleads more than no photo.
+  await expect(page.locator('#detail-photo img')).toHaveCount(0);
 });
 
 test('journey planner resolves places and renders a real multimodal itinerary', async ({ page }) => {
