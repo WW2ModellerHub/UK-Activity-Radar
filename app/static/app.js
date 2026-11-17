@@ -3344,7 +3344,9 @@
   }
 
   function humanTransitLabel(value) {
-    return tidyCapitals(String(value ?? '').replace(/_s(?=_|$)/gi,"'s").replace(/[_\s]+/g,' ').trim());
+    // Feeds write "&" as "_": M_S is M&S and B_Q is B&Q (one letter each
+    // side); St_Margaret_s is St Margaret's.
+    return tidyCapitals(String(value ?? '').replace(/(^|[^A-Za-z])([A-Z])_([A-Z])(?![A-Za-z])/g,'$1$2&$3').replace(/_s(?=_|$)/gi,"'s").replace(/[_\s]+/g,' ').trim());
   }
 
   function providerClock(value) {

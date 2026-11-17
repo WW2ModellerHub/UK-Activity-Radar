@@ -251,6 +251,10 @@ class WikimediaLookup:
         lower = title.casefold()
         if any(word in lower for word in _BAD_TITLE_WORDS):
             return -100.0
+        # Scanned books and documents are not photos (bus 3149 once got a
+        # page of a 15th-century atlas whose text contained "3149").
+        if lower.endswith((".pdf", ".djvu", ".tif", ".tiff", ".svg", ".webm", ".ogv", ".ogg")):
+            return -100.0
 
         meta = info.get("extmetadata") or {}
         description = " ".join(filter(None, [
@@ -263,6 +267,17 @@ class WikimediaLookup:
 
         if isinstance(activity, Vehicle) and activity.type == "train" and not (activity.vehicle_ref or "").strip():
             return -100.0
+
+        # A bus or train photo must say what it is and carry the fleet number
+        # as a number on its own (3149, not 31490 or a date).
+        if isinstance(activity, Vehicle) and activity.type in {"bus", "train"}:
+            ref = str(activity.vehicle_ref or "").strip().casefold()
+            words = ("bus", "coach", "double-decker", "double decker", "single-decker") if activity.type == "bus" else (
+                "train", "railway", "locomotive", "multiple unit", "class ", "unit ", "dmu", "emu")
+            if not any(word in hay for word in words):
+                return -100.0
+            if ref and not re.search(rf"(?<![0-9a-z]){re.escape(ref)}(?![0-9a-z])", hay):
+                return -100.0
 
         q_tokens = self._tokens(query)
         overlap = len(q_tokens & self._tokens(description))
@@ -514,7 +529,7 @@ class WikimediaLookup:
         params = {
             "action": "query",
             "generator": "search",
-            "gsrsearch": query,
+            "gsrsearch": f"{query} filetype:bitmap",
             "gsrnamespace": 6,
             # Eight strong candidates are enough for the conservative matcher
             # and noticeably reduce Commons response and metadata time.
