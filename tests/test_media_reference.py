@@ -292,3 +292,21 @@ def test_a_hawk_gets_an_example_photo_even_without_a_number_in_its_name():
     ]})
     result = lookup.reference("aircraft", None, "BAE Systems Hawk", "JAVLN14")
     assert result["ok"] and result["title"] == "RAF Hawk T2 ZK010 at RAF Valley"
+
+
+def test_a_scanned_book_that_mentions_the_fleet_number_is_not_a_photo_of_the_bus():
+    bus = Vehicle(id="bus:AMID:3149", type="bus", name="Bus LC14", route="LC14", vehicle_ref="3149",
+                  lat=52.54, lon=-1.37, source="BODS", operator="Arriva Midlands")
+    pages = {"Arriva Midlands 3149 bus": [
+        _page(1, "Geographia (IA A3361092).pdf", "Estrabón Guarino Veronese, 1370-1460. Leaf 3149", licence="Public domain"),
+        _page(2, "Arriva Midlands 31490 in Leicester.jpg", "Arriva Midlands bus 31490"),       # another number
+        _page(3, "Arriva Midlands 3149 at Hinckley.jpg", "Arriva Midlands Streetlite 3149"),   # no word saying bus
+    ]}
+    lookup = _lookup(pages)
+    lookup.reference = lambda *a, **k: {"ok": False}
+    assert lookup.lookup(bus)["ok"] is False
+    # A real photo that says bus and carries the number is used.
+    pages["Arriva Midlands 3149 bus"].append(_page(4, "Arriva Midlands bus 3149 Hinckley.jpg", "Arriva Midlands bus 3149 on the LC14"))
+    found = _lookup(pages)
+    found.reference = lambda *a, **k: {"ok": False}
+    assert found.lookup(bus)["title"] == "Arriva Midlands bus 3149 Hinckley.jpg"

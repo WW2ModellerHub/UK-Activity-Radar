@@ -1,5 +1,15 @@
 # Codex stabilization changelog
 
+## 2026-11-17 — no more atlas pages as bus photos; M&S
+
+- Bus LC14 (Arriva Midlands 3149) showed a page of a 15th-century atlas
+  PDF as its photo: the exact-vehicle search accepted any file whose text
+  held "3149". It now searches photos only (filetype:bitmap), rejects PDFs,
+  scans and video, and a bus or train photo must say bus/train and carry the
+  fleet number as a number on its own.
+- "Clivesway → M's": the bus feed writes "&" as "_", so M_S became "M's".
+  One letter either side of "_" now reads as "&" (M&S, B&Q).
+
 ## 2026-11-17 — neater bus stops
 
 - Bus stops were big green "STOP" signs on pins that piled up over each
