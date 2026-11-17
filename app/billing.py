@@ -1077,6 +1077,9 @@ class StripeBillingService:
             "client_reference_id": grant.client_reference,
             "metadata": {"radar_plan": PLAN_PLUS, "radar_checkout_ref": grant.client_reference},
             "subscription_data": subscription_data,
+            # A box for codes made in Stripe (Products > Coupons): a 100%-off
+            # code gives friends, testers or reviewers Radar+ free.
+            "allow_promotion_codes": True,
         }
         session = _plain(
             gateway.create_checkout_session(

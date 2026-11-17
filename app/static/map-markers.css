@@ -150,4 +150,5 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 /* Bus route number under the icon; destination from street level (z14). */
 .bus-route-tag{position:absolute; left:50%; top:37px; transform:translateX(-50%); padding:1px 6px; border-radius:7px; background:#fff; color:#111827; border:1px solid rgba(17,24,39,.18); box-shadow:0 1px 3px rgba(0,0,0,.18); font-size:11px; font-weight:800; line-height:15px; white-space:nowrap; pointer-events:none; z-index:2;}
 .bus-route-tag .bus-destination{display:none; font-weight:600; color:#4b5563;}
+.bus-route-tag{max-width:132px; overflow:hidden; text-overflow:ellipsis;}
 .show-bus-destinations .bus-route-tag .bus-destination{display:inline;}
