@@ -220,7 +220,7 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
     assert "/static/app.css?v=16346" in index
     assert "/static/map-markers.css?v=16343" in index
-    assert "/static/app.js?v=16348" in index
+    assert "/static/app.js?v=16349" in index
     assert "/static/motion-engine.js?v=15162" in index
     assert "/static/live-object-renderer.js?v=16130" in index
     # The v1.5 stylesheets were replaced by the flat redesign.
@@ -231,10 +231,10 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     assert "NETWORK_FIRST_ASSETS" in worker
     assert "/static/app.css?v=16346" in worker
     assert "/static/map-markers.css?v=16343" in worker
-    assert "/static/app.js?v=16348" in worker
+    assert "/static/app.js?v=16349" in worker
     assert "/static/motion-engine.js?v=15162" in worker
     assert "/static/live-object-renderer.js?v=16130" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r128" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r129" in worker
 
 
 def test_sparse_reporting_interval_does_not_grey_live_trains():
@@ -258,7 +258,10 @@ def test_map_provider_configuration_cannot_pin_the_old_fallback_in_cache():
     main = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
     map_route = main[main.index("def map_config("):main.index("def map_tile(")]
 
-    assert "fetch('/api/map/config',{cache:'no-store'})" in app_js
+    assert "fetch('/api/map/config',{cache:'no-store'" in app_js
+    assert "if(!configAvailable)" in app_js
+    assert "window.setTimeout(configureBaseMap,retryDelay)" in app_js
+    assert "mapNode.dataset.mapProvider='loading'" in app_js
     assert '"Cache-Control": "no-store"' in map_route
     assert '"base_map_provider": "Mapbox" if settings.mapbox_public_token' in main
     # One pale base map (Mapbox Light), the same with or without trains.

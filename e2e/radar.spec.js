@@ -718,6 +718,29 @@ test('aircraft markers distinguish airliners and propeller aircraft with the typ
   await expect(propeller.locator('.motion-speed')).toHaveCount(0);
 });
 
+test('temporary map config failure retries without installing broken fallback tiles', async ({ page }) => {
+  let configRequests=0;
+  let fallbackTileRequests=0;
+  await page.route('**/api/map/tile/**', async route => {
+    fallbackTileRequests+=1;
+    await route.fulfill({status:500,body:''});
+  });
+  await page.route('**/api/map/config', async route => {
+    configRequests+=1;
+    if(configRequests===1)return route.fulfill({status:502,contentType:'text/plain',body:'deploy restarting'});
+    return route.fulfill({json:{
+      provider:'Mapbox',configured:true,
+      tile_url:'https://fixture-map.test/{z}/{x}/{y}.png',
+      rail_tile_url:null,tile_size:512,zoom_offset:-1,max_zoom:20,
+      attribution:'Fixture map',live_object_renderer:false,
+    }});
+  });
+  await page.reload();
+  await expect(page.locator('#map')).toHaveAttribute('data-map-provider','mapbox',{timeout:5000});
+  expect(configRequests).toBeGreaterThanOrEqual(2);
+  expect(fallbackTileRequests).toBe(0);
+});
+
 test('FlyItaly telemetry adds useful aircraft facts without cluttering the closed detail view', async ({ page }) => {
   await page.locator('[data-layer-toggle="aircraft"]').click();
   await page.evaluate(() => {

@@ -14,6 +14,9 @@
   const tileSets = {standard:null,rail:null};
   let currentBase = null;
   let liveObjectRenderer = null;
+  let baseMapConfigAttempt = 0;
+  let baseMapRetryTimer = null;
+  let baseMapConfigInFlight = false;
   // Hover cards only make sense with a mouse. On touch screens a tap would open
   // the card and the detail panel together, showing the same thing twice.
   const hoverCards = !!window.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches;
@@ -40,13 +43,42 @@
   }
 
   async function configureBaseMap() {
+    if(baseMapConfigInFlight)return;
+    baseMapConfigInFlight=true;
     let config=null;
+    let configAvailable=false;
+    const controller=typeof AbortController==='function'?new AbortController():null;
+    const timeout=controller?window.setTimeout(()=>controller.abort(),6000):null;
     try {
       // Map provider credentials can be enabled after a deployment. Never keep
       // the earlier "not configured" response in a visitor's browser cache.
-      const response=await fetch('/api/map/config',{cache:'no-store'});
-      if(response.ok)config=await response.json();
+      const response=await fetch('/api/map/config',{cache:'no-store',signal:controller?.signal});
+      if(response.ok){
+        config=await response.json();
+        configAvailable=Boolean(config&&typeof config==='object');
+      }
     } catch {}
+    finally {
+      if(timeout!==null)window.clearTimeout(timeout);
+      baseMapConfigInFlight=false;
+    }
+    const mapNode=document.getElementById('map');
+    if(!configAvailable){
+      // A Render restart can briefly return 502 here. That is not evidence that
+      // Mapbox is unconfigured: installing the tile proxy fallback would leave
+      // a visitor with missing grey tile squares for the rest of the session.
+      mapNode.dataset.mapProvider='loading';
+      mapNode.setAttribute('aria-busy','true');
+      baseMapConfigAttempt+=1;
+      const retryDelay=Math.min(8000,750*(2**Math.min(baseMapConfigAttempt-1,4)));
+      window.clearTimeout(baseMapRetryTimer);
+      baseMapRetryTimer=window.setTimeout(configureBaseMap,retryDelay);
+      return;
+    }
+    window.clearTimeout(baseMapRetryTimer);
+    baseMapRetryTimer=null;
+    baseMapConfigAttempt=0;
+    mapNode.removeAttribute('aria-busy');
     if(config?.aircraft_attribution){
       map.attributionControl?.addAttribution?.(config.aircraft_attribution);
     }
@@ -54,7 +86,7 @@
     tileSets.rail=config?.configured&&config?.rail_tile_url
       ? baseTileLayer({...config,tile_url:config.rail_tile_url})
       : null;
-    document.getElementById('map').dataset.mapProvider=config?.configured?'mapbox':'tomtom-fallback';
+    mapNode.dataset.mapProvider=config?.configured?'mapbox':'tomtom-fallback';
     syncBaseMap();
     if(config?.live_object_renderer!==false&&window.UKActivityLiveRendererModule&&window.UKActivityMotionEngine){
       try{
