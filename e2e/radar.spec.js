@@ -174,6 +174,9 @@ test('identical live snapshots do not churn existing map markers', async ({ page
 test('source-health-only deltas skip the map render path', async ({ page }) => {
   await page.locator('[data-layer-toggle="train"]').click();
   await expect(page.locator('.marker-bubble')).toHaveCount(2);
+  // Marker clustering refreshes on its own animation frame after the markers
+  // appear. Let that initial render settle before measuring the no-op delta.
+  await page.waitForTimeout(250);
   const before = await page.evaluate(() => ({
     applied:window.__radarDiagnostics.appliedSnapshots,
     unchanged:window.__radarDiagnostics.unchangedSnapshots,
@@ -670,14 +673,14 @@ test('aircraft media is not restarted on every live snapshot', async ({ page }) 
   await page.getByRole('button', { name: /Discover/ }).click();
   await page.locator('.aerial-map-marker.aerial-aircraft').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-panel')).toContainText('Eurofighter Typhoon');
-  // A hand-picked photo of a known military type is kept over a search result.
-  await expect(page.locator('#detail-photo .image-truth')).toContainText('Reference photo of this aircraft type');
+  // No generic type or Wikimedia fallback appears when the exact airframe has no photo.
+  await expect(page.locator('#detail-photo img')).toHaveCount(0);
   await page.evaluate(() => window.__fixtureSocket.onmessage({ data: JSON.stringify(window.__fixtureSnapshot) }));
   await page.waitForTimeout(50);
   expect(mediaCalls).toBe(1);
 });
 
-test('known military helicopters show a bundled real photograph when live image lookup is unavailable', async ({ page }) => {
+test('known military helicopters do not show a generic photo when exact lookup is unavailable', async ({ page }) => {
   await page.route('**/api/activity/aircraft-live-2/media', route => route.fulfill({ json:{ ok:false, reason:'no_match' } }));
   await page.locator('[data-layer-toggle="aircraft"]').click();
   const marker=page.locator('.aircraft-shape-chinook').first();
@@ -686,10 +689,7 @@ test('known military helicopters show a bundled real photograph when live image 
   await expect(marker.locator('.map-chinook-svg .ac-rotor')).toHaveCount(1);
   await expect(marker.locator('.map-chinook-svg .ac-body')).toHaveCount(1);
   await marker.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
-  await expect(page.locator('#detail-photo img')).toHaveAttribute('src','/static/assets/aircraft/chinook-raf.jpg');
-  await expect(page.locator('#detail-photo')).toContainText('Reference photo of this aircraft type');
-  await expect(page.locator('#detail-photo')).toContainText('Adrian Pingstone');
-  await expect(page.locator('#detail-photo .aircraft-reference-visual')).toHaveCount(0);
+  await expect(page.locator('#detail-photo img')).toHaveCount(0);
   await expect(page.locator('#detail-insight')).toBeVisible();
   await expect(page.locator('#detail-insight')).toContainText('military heavy-lift helicopter');
 });
@@ -876,9 +876,10 @@ test('commercial aircraft use operator colours and an exact licensed photo', asy
   await expect(page.locator('#detail-operator')).toContainText('Boeing 737-8200');
   await expect(page.locator('#detail-subtitle')).toHaveText('London Stansted (STN) → Dublin (DUB)');
   await expect(page.locator('#detail-fields [data-field="Route"]')).toHaveCount(0);
-  await expect(page.locator('#detail-photo img')).toHaveAttribute('src','https://upload.wikimedia.org/fixture-ryanair.jpg');
+  await expect(page.locator('#detail-photo img')).toHaveAttribute('src','https://t.plnspttrs.net/fixture-ryanair.jpg');
   await expect(page.locator('#detail-photo .image-truth')).toContainText('this aircraft registration');
-  await expect(page.locator('#detail-photo')).toContainText('CC BY-SA 4.0');
+  await expect(page.locator('#detail-photo')).toContainText('linked thumbnail');
+  await expect(page.locator('#detail-photo')).toContainText('Fixture Aviation Photographer');
   await expect(page.locator('#detail-insight')).toBeHidden();
 });
 

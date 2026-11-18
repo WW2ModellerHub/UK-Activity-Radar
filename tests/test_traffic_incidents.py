@@ -23,12 +23,12 @@ def test_a_queue_and_a_crash_are_described_for_drivers():
         _feature(-0.8, 52.1, 6, delay=900, length=3200, incident_id="q"),
         _feature(-0.7, 52.2, 1, delay=1500, description="Accident", incident_id="c"),
     ]})
-    facts = describe(queue)
+    facts = describe(queue, NOW)
     assert queue.type == "incident" and facts["title"] == "Queueing traffic · M1"
     assert facts["where"] == "M1, J14 Milton Keynes to J15 Northampton"
     assert facts["impact"] == "Delays of about 15 min · Queue of 3.2 km"
     assert facts["when"] == "Started 30 min ago" and facts["active"] and facts["worth_showing"]
-    assert describe(crash)["what"] == "Crash" and describe(crash)["rank"] >= 3
+    assert describe(crash, NOW)["what"] == "Crash" and describe(crash, NOW)["rank"] >= 3
 
 
 def test_roadworks_go_on_the_roadworks_layer_and_future_items_are_skipped():
