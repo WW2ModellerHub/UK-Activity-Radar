@@ -741,7 +741,7 @@ test('temporary map config failure retries without installing broken fallback ti
   expect(fallbackTileRequests).toBe(0);
 });
 
-test('FlyItaly telemetry adds useful aircraft facts without cluttering the closed detail view', async ({ page }) => {
+test('FlyItaly telemetry becomes a live aircraft story on desktop and mobile', async ({ page }) => {
   await page.locator('[data-layer-toggle="aircraft"]').click();
   await page.evaluate(() => {
     const next=structuredClone(window.__fixtureSnapshot);
@@ -750,13 +750,28 @@ test('FlyItaly telemetry adds useful aircraft facts without cluttering the close
       origin:'STN',destination:'DUB',aircraft_category:'Large aircraft',squawk:'7700',
       emergency:'General emergency alert',vertical_rate_fpm:1472,indicated_airspeed_kt:238,
       true_airspeed_kt:260,mach:0.42,heading:98.2,selected_altitude_ft:18000,
-      position_source:'ADS-B',aircraft_flags:['Military','Notable'],
+      selected_heading:102,navigation_modes:['autopilot','vnav','tcas'],
+      wind_direction:230,wind_speed_kt:54,outside_air_temp_c:-12,roll_deg:-8.5,
+      aircraft_route_count:12,aircraft_route_last_day:'2026-11-17',
+      position_source:'ADS-B',aircraft_flags:['Military','Notable'],source:'FlyItalyADSB',
     });
     window.__fixtureSocket.onmessage({data:JSON.stringify(next)});
   });
   await page.locator('.aerial-map-marker.aerial-aircraft').first().evaluate(el => el.dispatchEvent(new MouseEvent('click',{bubbles:true})));
   await expect(page.locator('#detail-fields [data-field="Alert"]')).toContainText('General emergency alert');
   await expect(page.locator('#detail-fields [data-field="Vertical rate"]')).toContainText('Climbing 1,472 ft/min');
+  await expect(page.locator('.aircraft-live-card')).toContainText('LIVE AIRCRAFT STORY');
+  await expect(page.locator('.aircraft-live-card')).toContainText('This Eurofighter Typhoon is climbing at 1,472 feet per minute');
+  await expect(page.locator('.aircraft-live-card')).toContainText('Receivers most often saw this callsign flying STN to DUB — 12 times recently');
+  await expect(page.locator('.aircraft-live-card')).toContainText('Autopilot, VNAV, TCAS are active');
+  await expect(page.locator('.aircraft-live-card')).toContainText('wind from south-west at 54 knots');
+  await expect(page.locator('.aircraft-live-card')).toContainText('banking left by 8°');
+  await expect(page.locator('.aircraft-live-card')).toContainText('General emergency alert');
+  await page.setViewportSize({width:375,height:812});
+  await expect(page.locator('.aircraft-live-card')).toBeVisible();
+  const storyBounds=await page.locator('.aircraft-live-card').boundingBox();
+  expect(storyBounds.x).toBeGreaterThanOrEqual(0);
+  expect(storyBounds.x+storyBounds.width).toBeLessThanOrEqual(375);
   await expect(page.locator('#detail-fields [data-field="Squawk"]')).toBeHidden();
   await page.locator('#detail-tech-toggle').click();
   await expect(page.locator('#detail-fields [data-field="Squawk"]')).toContainText('7700');

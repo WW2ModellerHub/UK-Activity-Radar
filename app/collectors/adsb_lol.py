@@ -187,6 +187,8 @@ def _aircraft_details(row: dict) -> dict:
     route = row.get("route") if isinstance(row.get("route"), dict) else {}
     origin = route.get("from_iata") or route.get("from")
     destination = route.get("to_iata") or route.get("to")
+    route_count = _num(route.get("count"))
+    nav_modes = row.get("nav_modes") if isinstance(row.get("nav_modes"), list) else None
     return {
         "origin": str(origin).strip().upper() if origin else None,
         "destination": str(destination).strip().upper() if destination else None,
@@ -199,6 +201,14 @@ def _aircraft_details(row: dict) -> dict:
         "mach": _num(row.get("mach")),
         "heading": _num(row.get("true_heading") if row.get("true_heading") is not None else row.get("mag_heading")),
         "selected_altitude_ft": _num(row.get("nav_altitude_mcp") if row.get("nav_altitude_mcp") is not None else row.get("nav_altitude_fms")),
+        "selected_heading": _num(row.get("nav_heading")),
+        "navigation_modes": ([str(mode).strip().lower() for mode in nav_modes if str(mode).strip()] or None) if nav_modes is not None else None,
+        "wind_direction": _num(row.get("wd")),
+        "wind_speed_kt": _num(row.get("ws")),
+        "outside_air_temp_c": _num(row.get("oat")),
+        "roll_deg": _num(row.get("roll")),
+        "aircraft_route_count": int(route_count) if route_count is not None else None,
+        "aircraft_route_last_day": str(route.get("last_day") or "").strip() or None,
         "position_source": position_source,
         "aircraft_flags": flags or None,
     }

@@ -2627,7 +2627,7 @@
 
   function markerTooltipSignature(a) {
     const appearance = currentWorkspace === 'cool' ? 'cool' : 'standard';
-    return [appearance,a.name,a.type,a.kind,a.origin,a.destination,a.route,a.subtitle,a.position_label,a.speed,a.speed_unit,a.bearing,a.delay_minutes,a.next_location,a.status,a.severity,a.vehicle_ref,a.aircraft_model,a.aircraft_category,a.squawk,a.emergency,a.vertical_rate_fpm,a.indicated_airspeed_kt,a.true_airspeed_kt,a.mach,a.heading,a.selected_altitude_ft,a.position_source,(a.aircraft_flags||[]).join(','),a.last_updated,a.cool_score,a.cool_badge].join('|');
+    return [appearance,a.name,a.type,a.kind,a.origin,a.destination,a.route,a.subtitle,a.position_label,a.speed,a.speed_unit,a.bearing,a.delay_minutes,a.next_location,a.status,a.severity,a.vehicle_ref,a.aircraft_model,a.aircraft_category,a.squawk,a.emergency,a.vertical_rate_fpm,a.indicated_airspeed_kt,a.true_airspeed_kt,a.mach,a.heading,a.selected_altitude_ft,a.selected_heading,(a.navigation_modes||[]).join(','),a.wind_direction,a.wind_speed_kt,a.outside_air_temp_c,a.roll_deg,a.aircraft_route_count,a.aircraft_route_last_day,a.position_source,(a.aircraft_flags||[]).join(','),a.last_updated,a.cool_score,a.cool_badge].join('|');
   }
 
   function trainMarkerDomMatches(marker,activity) {
@@ -3023,9 +3023,46 @@
     let info;
     if(a.type==='aircraft'){
       const classified=coolInfo(a);
-      if(!classified.candidate || classified.score<45 || !classified.reasons.length){box.classList.add('hidden');box.innerHTML='';return;}
-      info=classified;
+      const number=value=>value==null||!Number.isFinite(Number(value))?null:Number(value);
+      const compass=value=>{
+        const degrees=number(value);if(degrees==null)return null;
+        const names=['N','NE','E','SE','S','SW','W','NW'];
+        return `${Math.round((degrees+360)%360).toString().padStart(3,'0')}° ${names[Math.round(((degrees+360)%360)/45)%8]}`;
+      };
+      const directionWord=value=>{
+        const degrees=number(value);if(degrees==null)return null;
+        return ['north','north-east','east','south-east','south','south-west','west','north-west'][Math.round(((degrees+360)%360)/45)%8];
+      };
+      const rate=number(a.vertical_rate_fpm);
+      const track=compass(a.bearing),heading=compass(a.heading),targetHeading=compass(a.selected_heading);
+      const modes=(Array.isArray(a.navigation_modes)?a.navigation_modes:[]).map(mode=>({autopilot:'Autopilot',vnav:'VNAV',althold:'Altitude hold',approach:'Approach',lnav:'LNAV',tcas:'TCAS'}[String(mode).toLowerCase()]||String(mode).toUpperCase()));
+      const routeCount=number(a.aircraft_route_count);
+      const identity=a.aircraft_model||a.aircraft_type_code||'aircraft';
+      const movement=rate==null?'is airborne':rate>100?`is climbing at ${Math.round(rate).toLocaleString('en-GB')} feet per minute`:rate<-100?`is descending at ${Math.abs(Math.round(rate)).toLocaleString('en-GB')} feet per minute`:'is holding level';
+      const liveContext=[a.bearing!=null?`tracking ${directionWord(a.bearing)}`:null,a.speed!=null?`at ${Math.round(Number(a.speed)).toLocaleString('en-GB')} knots`:null,a.altitude_ft!=null?`at ${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} feet`:null].filter(Boolean).join(' ');
+      const story=`This ${identity} ${movement}${liveContext?`, ${liveContext}`:''}.`;
+      const stories=[];
+      if(a.origin&&a.destination)stories.push(['Where it usually flies',`Receivers most often saw this callsign flying ${a.origin} to ${a.destination}${routeCount?` — ${Math.round(routeCount)} time${Math.round(routeCount)===1?'':'s'} recently`:''}. Today’s route may be different.`]);
+      if(a.selected_altitude_ft!=null||targetHeading)stories.push(['What it is set to do',`The selected controls point toward ${[a.selected_altitude_ft!=null?`${Math.round(Number(a.selected_altitude_ft)).toLocaleString('en-GB')} feet`:null,targetHeading?`a ${targetHeading} heading`:null].filter(Boolean).join(' and ')}.`]);
+      if(modes.length)stories.push(['Systems reporting now',`${modes.join(', ')} ${modes.length===1?'is':'are'} active in the transmitted data.`]);
+      const airData=[a.mach!=null?`Mach ${Number(a.mach).toFixed(2)}`:null,a.indicated_airspeed_kt!=null?`${Math.round(Number(a.indicated_airspeed_kt))} kt indicated`:null,a.true_airspeed_kt!=null?`${Math.round(Number(a.true_airspeed_kt))} kt true airspeed`:null].filter(Boolean);
+      if(airData.length)stories.push(['How fast it feels to the aircraft',`${airData.join(', ')}.`]);
+      const atmosphere=[a.wind_direction!=null&&a.wind_speed_kt!=null?`wind from ${directionWord(a.wind_direction)} at ${Math.round(Number(a.wind_speed_kt))} knots`:null,a.outside_air_temp_c!=null?`outside air ${Math.round(Number(a.outside_air_temp_c))}°C`:null,a.roll_deg!=null&&Math.abs(Number(a.roll_deg))>=1?`banking ${Number(a.roll_deg)<0?'left':'right'} by ${Math.abs(Math.round(Number(a.roll_deg)))}°`:null].filter(Boolean);
+      if(atmosphere.length)stories.push(['The air around it',`${atmosphere.join(', ')}.`]);
+      if(a.position_source)stories.push(['How we can see it',`${a.position_source==='MLAT'?'Ground receivers calculated this position by multilateration.':`The aircraft is broadcasting an ${a.position_source} position.`}`]);
+      const flags=Array.isArray(a.aircraft_flags)?a.aircraft_flags:[];
+      const flagCopy={Military:'Military','Notable':'Notable aircraft',PIA:'Privacy ICAO address',LADD:'Limited display'};
+      const tags=[...flags.map(flag=>flagCopy[flag]||flag),a.emergency||null].filter(Boolean);
+      const source=/flyitaly/i.test(String(a.source||''))?'FlyItalyADSB':'Live ADS-B';
+      const why=classified.candidate&&classified.score>=45&&classified.reasons.length?`<div class="aircraft-why"><strong>Why this is interesting</strong><span>${esc(classified.reasons.join(' • '))}</span></div>`:'';
+      if(!stories.length&&!tags.length&&!why){box.classList.add('hidden');box.classList.remove('aircraft-live-card');box.innerHTML='';return;}
+      box.classList.add('aircraft-live-card');
+      box.classList.remove('hidden');
+      const pointer=number(a.bearing)??number(a.heading)??0;
+      box.innerHTML=`<div class="aircraft-live-head"><small>LIVE AIRCRAFT STORY</small><span>${esc(source)}</span></div><div class="aircraft-live-now"><div class="aircraft-direction" aria-hidden="true"><span>N</span><svg viewBox="0 0 24 24" style="transform:rotate(${pointer}deg)"><path d="M12 2l5 18-5-3-5 3z"/></svg></div><div><small>RIGHT NOW${track?` · ${esc(track)}`:''}</small><strong>${esc(story)}</strong></div></div>${tags.length?`<div class="aircraft-live-tags">${tags.map(tag=>`<b${tag===a.emergency?' data-alert="true"':''}>${esc(tag)}</b>`).join('')}</div>`:''}${stories.length?`<div class="aircraft-story-list">${stories.map(([label,value])=>`<div><strong>${esc(label)}</strong><span>${esc(value)}</span></div>`).join('')}</div>`:''}${why}`;
+      return;
     }else{
+      box.classList.remove('aircraft-live-card');
       info=currentWorkspace==='cool' ? coolInfo(a) : interestInfo(a);
     }
     if (info.score < (currentWorkspace==='cool'?45:10)) { box.classList.add('hidden'); box.innerHTML=''; return; }

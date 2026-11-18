@@ -79,9 +79,11 @@ def test_flyitaly_aircraft_details_are_preserved_for_the_detail_panel():
         "gs": 257.5, "ias": 238, "tas": 260, "mach": 0.42,
         "track": 100.7, "true_heading": 98.2, "baro_rate": 1472,
         "alt_baro": 11875, "nav_altitude_mcp": 18000,
+        "nav_heading": 102, "nav_modes": ["autopilot", "vnav", "tcas"],
+        "wd": 230, "ws": 54, "oat": -12, "roll": -8.5,
         "squawk": "7700", "category": "A3", "type": "adsb_icao",
         "dbFlags": 3,
-        "route": {"from": "EGSS", "from_iata": "STN", "to": "EIDW", "to_iata": "DUB"},
+        "route": {"from": "EGSS", "from_iata": "STN", "to": "EIDW", "to_iata": "DUB", "count": 12, "last_day": "2026-11-17"},
     }]}, source_name="FlyItalyADSB")
 
     aircraft = rows[0]
@@ -97,6 +99,14 @@ def test_flyitaly_aircraft_details_are_preserved_for_the_detail_panel():
     assert aircraft.mach == 0.42
     assert aircraft.heading == 98.2
     assert aircraft.selected_altitude_ft == 18000
+    assert aircraft.selected_heading == 102
+    assert aircraft.navigation_modes == ["autopilot", "vnav", "tcas"]
+    assert aircraft.wind_direction == 230
+    assert aircraft.wind_speed_kt == 54
+    assert aircraft.outside_air_temp_c == -12
+    assert aircraft.roll_deg == -8.5
+    assert aircraft.aircraft_route_count == 12
+    assert aircraft.aircraft_route_last_day == "2026-11-17"
     assert aircraft.position_source == "ADS-B"
     assert aircraft.aircraft_flags == ["Military", "Notable"]
 

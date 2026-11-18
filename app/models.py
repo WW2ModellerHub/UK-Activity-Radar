@@ -48,6 +48,14 @@ class Vehicle(BaseModel):
     mach: float | None = None
     heading: float | None = None
     selected_altitude_ft: float | None = None
+    selected_heading: float | None = None
+    navigation_modes: list[str] | None = None
+    wind_direction: float | None = None
+    wind_speed_kt: float | None = None
+    outside_air_temp_c: float | None = None
+    roll_deg: float | None = None
+    aircraft_route_count: int | None = None
+    aircraft_route_last_day: str | None = None
     position_source: str | None = None
     aircraft_flags: list[str] | None = None
     identity_label: str | None = None

@@ -583,6 +583,29 @@ body:has(.detail-sidebar:not(.is-empty):not(.route-view)) #recenter { right: cal
 }
 .detail-insight strong, .detail-discovery strong, .detail-trail strong { font-size: 14px; font-weight: 600; }
 .detail-insight span, .detail-trail span, .detail-trail small { color: var(--muted); font-size: 13px; }
+.detail-insight.aircraft-live-card { padding: 14px; gap: 12px; background: var(--surface); border: 1px solid var(--line); }
+.aircraft-live-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.aircraft-live-head small { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+.aircraft-live-head span { padding: 3px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700; }
+.aircraft-live-now { display: grid; grid-template-columns: 52px minmax(0,1fr); align-items: center; gap: 12px; }
+.aircraft-live-now > div:last-child { display: grid; gap: 3px; }
+.aircraft-live-now small { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .05em; }
+.aircraft-live-now strong { font-size: 15px; line-height: 1.42; }
+.aircraft-direction { width: 52px; height: 52px; position: relative; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: var(--subtle); }
+.aircraft-direction span { position: absolute; top: 3px; color: var(--muted); font-size: 9px; font-weight: 700; }
+.aircraft-direction svg { width: 27px; height: 27px; color: var(--accent); transform-origin: center; }
+.aircraft-direction path { fill: currentColor; }
+.aircraft-live-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.aircraft-live-tags b { padding: 4px 8px; border-radius: 999px; background: var(--subtle); color: var(--text); font-size: 12px; font-weight: 650; }
+.aircraft-live-tags b[data-alert="true"] { background: var(--bad-soft); color: var(--bad); }
+.aircraft-story-list { display: grid; border-top: 1px solid var(--line); }
+.aircraft-story-list > div { padding: 9px 0; display: grid; gap: 2px; border-bottom: 1px solid var(--line); }
+.aircraft-story-list > div:last-child { border-bottom: 0; padding-bottom: 0; }
+.aircraft-story-list strong { font-size: 12px; }
+.aircraft-story-list span { color: var(--muted); font-size: 13px; line-height: 1.42; }
+.aircraft-why { padding-top: 10px; display: grid; gap: 3px; border-top: 1px solid var(--line); }
+.aircraft-why strong { font-size: 13px; }
+.aircraft-why span { color: var(--muted); font-size: 13px; }
 .detail-discovery button { margin-top: 6px; }
 .detail-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .detail-field { padding: 10px 12px; display: grid; gap: 2px; border-bottom: 1px solid var(--line); min-width: 0; }
