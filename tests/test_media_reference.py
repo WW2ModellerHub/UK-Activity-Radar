@@ -104,13 +104,18 @@ def test_an_airliner_shows_the_type_in_the_airlines_colours_then_falls_back_to_t
     assert other["reference_label"] == "Airbus A320 — example of this type, not this exact aircraft"
 
 
-def test_planes_the_server_does_not_keep_can_still_get_a_photo(monkeypatch):
+def test_aircraft_uses_only_an_exact_planespotters_airframe_photo(monkeypatch):
     calls = []
-    monkeypatch.setattr(main.media_lookup, "reference", lambda kind, operator, model, callsign: calls.append((kind, model, callsign)) or {"ok": False})
+    monkeypatch.setattr(main.planespotters_photos, "lookup", lambda icao: calls.append(icao) or {
+        "ok": True, "thumbnail_url": "https://t.plnspttrs.net/example.jpg",
+        "page_url": "https://www.planespotters.net/photo/example", "source": "Planespotters.net",
+    })
     monkeypatch.setattr(main, "state", LiveState())
     client = TestClient(main.app)
-    assert client.get("/api/media/reference", params={"kind": "aircraft", "model": "Airbus A320", "callsign": "EZY12"}).status_code == 200
-    assert calls == [("aircraft", "Airbus A320", "EZY12")]
+    response = client.get("/api/activity/aircraft:40621d/media", params={"kind": "aircraft", "model": "Airbus A320"})
+    assert response.status_code == 200 and response.json()["source"] == "Planespotters.net"
+    assert calls == ["40621d"]
+    assert client.get("/api/media/reference", params={"kind": "aircraft", "model": "Airbus A320"}).status_code == 400
     assert client.get("/api/media/reference", params={"kind": "ship"}).status_code == 400
 
 
@@ -216,14 +221,15 @@ def test_the_exact_vehicle_and_the_example_are_looked_up_side_by_side():
 
 def test_a_plane_photo_comes_back_in_one_request_with_what_the_phone_knows(monkeypatch):
     calls = []
-    monkeypatch.setattr(main.media_lookup, "reference", lambda kind, operator, model, callsign: calls.append((kind, operator, model, callsign)) or {"ok": True})
+    monkeypatch.setattr(main.planespotters_photos, "lookup", lambda icao: calls.append(icao) or {"ok": True, "source": "Planespotters.net"})
     monkeypatch.setattr(main, "state", LiveState())
     client = TestClient(main.app)
     answer = client.get("/api/activity/aircraft:40837b/media", params={"kind": "aircraft", "model": "Airbus A321neo", "callsign": "EXS95CX", "operator": "Jet2"})
     assert answer.status_code == 200 and answer.json()["ok"]
-    assert calls == [("aircraft", "Jet2", "Airbus A321neo", "EXS95CX")]
-    # Without the details, an unknown id is still "not found".
-    assert client.get("/api/activity/aircraft:40837b/media").status_code == 404
+    assert calls == ["40837b"]
+    # The ICAO identity in the activity id is sufficient; model/callsign are
+    # deliberately ignored so a generic reference photo can never replace it.
+    assert client.get("/api/activity/aircraft:40837b/media").status_code == 200
 
 
 def test_photos_for_a_list_of_planes_are_found_ahead_and_only_once():

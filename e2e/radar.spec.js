@@ -1551,14 +1551,18 @@ test('an everyday train shows an example photo in its operator colours, clearly 
   await expect(photo.locator('.image-truth')).toHaveText('Great Western Railway — example of their trains, not this exact one');
 });
 
-test('a plane the server does not keep gets an example photo of its type in one request', async ({ page }) => {
+test('an aircraft gets one stable exact Planespotters photo in one request', async ({ page }) => {
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
   const asked = [];
-  await page.route('**/api/media/reference**', route => route.fulfill({ status:500, json:{} }));
-  await page.route('**/api/activity/**/media**', route => { asked.push(route.request().url()); return route.fulfill({ json:{ ok:true, title:'Ryanair 737.jpg', thumbnail_url:'https://upload.wikimedia.org/fixture-ryanair-type.jpg', page_url:'https://commons.wikimedia.org/?curid=7', artist:'A Photographer', license:'CC BY-SA 4.0', source:'Wikimedia Commons', match_kind:'type_reference', reference_label:'Example of this type — not this exact aircraft' } }); });
+  await page.route('**/api/activity/**/media**', route => { asked.push(route.request().url()); return route.fulfill({ json:{ ok:true, title:'Aircraft photo', thumbnail_url:'https://t.plnspttrs.net/fixture-exact.jpg', thumbnail_width:420, thumbnail_height:280, page_url:'https://www.planespotters.net/photo/123/example?utm_source=api', artist:'© A Spotter', license:'linked thumbnail', source:'Planespotters.net', match_kind:'exact_airframe' } }); });
   await page.locator('[data-job="planes"]').click();
   await page.locator('[data-job-plane]').first().click();
-  await expect(page.locator('#detail-photo img')).toBeVisible();
+  const photo=page.locator('#detail-photo img');
+  await expect(photo).toBeVisible();
+  await expect(photo).toHaveAttribute('src','https://t.plnspttrs.net/fixture-exact.jpg');
+  await page.waitForTimeout(1200);
+  await expect(photo).toHaveAttribute('src','https://t.plnspttrs.net/fixture-exact.jpg');
+  await expect(page.locator('#detail-photo')).toContainText('© A Spotter');
   expect(asked.length).toBe(1);
   expect(asked[0]).toContain('kind=aircraft');
 });

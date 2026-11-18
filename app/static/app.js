@@ -1578,92 +1578,15 @@
     mediaLoadedFor = null;
   }
 
-  const AIRCRAFT_TYPE_PHOTOS = {
-    chinook: {
-      src: '/static/assets/aircraft/chinook-raf.jpg',
-      title: 'RAF Boeing CH-47 Chinook',
-      page: 'https://commons.wikimedia.org/wiki/File:Raf_ch-47_chinook_hc2_za707_arp.jpg',
-      licence: 'https://commons.wikimedia.org/wiki/File:Raf_ch-47_chinook_hc2_za707_arp.jpg#Licensing',
-      credit: 'Adrian Pingstone • Public domain • Wikimedia Commons',
-    },
-    apache: {
-      src: '/static/assets/aircraft/apache-army.jpg',
-      title: 'British Army Apache helicopters',
-      page: 'https://commons.wikimedia.org/wiki/File:Army_Air_Corps_Apache_Helicopters_MOD_45153319.jpg',
-      licence: 'https://www.nationalarchives.gov.uk/doc/open-government-licence/version/1/',
-      credit: 'Ministry of Defence / Crown copyright • OGL v1.0',
-    },
-    kc135: {
-      src: '/static/assets/aircraft/kc135-usaf.jpg',
-      title: 'USAF Boeing KC-135 Stratotanker',
-      page: 'https://commons.wikimedia.org/wiki/File:2022_Milwaukee_Air_%26_Water_Show_085_(Wisconsin_Air_National_Guard_Boeing_KC-135_Stratotanker).jpg',
-      licence: 'https://creativecommons.org/licenses/by-sa/4.0/',
-      credit: 'Michael Barera • CC BY-SA 4.0 • Wikimedia Commons',
-    },
-    typhoon: {
-      src: '/static/assets/aircraft/typhoon-raf.jpg',
-      title: 'Royal Air Force Eurofighter Typhoon',
-      page: 'https://commons.wikimedia.org/wiki/File:Typhoon.f2.zj922.ff2006.arp.jpg',
-      licence: 'https://commons.wikimedia.org/wiki/File:Typhoon.f2.zj922.ff2006.arp.jpg#Licensing',
-      credit: 'Adrian Pingstone • Public domain • Wikimedia Commons',
-    },
-    a400m: {
-      src: '/static/assets/aircraft/a400m-raf.jpg',
-      title: 'Royal Air Force Airbus A400M Atlas',
-      page: 'https://commons.wikimedia.org/wiki/File:RAF_A400M_Atlas_Aircraft_MOD_45158356.jpg',
-      licence: 'https://www.nationalarchives.gov.uk/doc/open-government-licence/version/1/',
-      credit: 'Andrew Linnett / Ministry of Defence • OGL v1.0',
-    },
-    c17: {
-      src: '/static/assets/aircraft/c17-raf.jpg',
-      title: 'Royal Air Force Boeing C-17 Globemaster III',
-      page: 'https://commons.wikimedia.org/wiki/File:RAF_C17_Aircraft_in_Afghanistan_MOD_45157241.jpg',
-      licence: 'https://www.nationalarchives.gov.uk/doc/open-government-licence/version/1/',
-      credit: 'Ministry of Defence • OGL v1.0',
-    },
-    coastguard: {
-      src: '/static/assets/aircraft/s92-coastguard.jpg',
-      title: 'UK Coastguard Sikorsky S-92',
-      page: 'https://commons.wikimedia.org/wiki/File:Stornoway_Coastguard_S92_Helicopter.jpg',
-      licence: 'https://creativecommons.org/publicdomain/zero/1.0/',
-      credit: 'Edinburgh838 • CC0 • Wikimedia Commons',
-    },
-  };
-
-  function aircraftTypePhoto(a) {
-    const text=[a.aircraft_model,a.aircraft_type_code,a.subtitle,a.name].filter(Boolean).join(' ').toUpperCase();
-    const kind=/KC-?135|K35R|STRATOTANKER/.test(text)?'kc135'
-      : /CHINOOK|CH-?47|\bH47\b/.test(text)?'chinook'
-      : /APACHE|AH-?64/.test(text)?'apache'
-      : /EUROFIGHTER|TYPHOON|\bEF2000\b/.test(text)?'typhoon'
-      : /A400M|ATLAS C?\.?1|\bA4M\b/.test(text)?'a400m'
-      : /\bC-?17\b|GLOBEMASTER/.test(text)?'c17'
-      : /COASTGUARD|SIKORSKY S-?92|\bS92\b/.test(text)?'coastguard'
-      : aircraftMapShape(a).kind;
-    const media=AIRCRAFT_TYPE_PHOTOS[kind];
-    if(!media)return null;
-    return {
-      ...media,
-      image:`<a target="_blank" rel="noopener" href="${esc(media.page)}"><img class="aircraft-type-photo" src="${esc(media.src)}" alt="${esc(media.title)}" loading="eager" fetchpriority="high"></a>`,
-      truth:'Reference photo of this aircraft type — not necessarily this exact airframe',
-    };
-  }
-
   // Photos already found this visit are not asked for again: reopening a
   // train or plane shows its picture at once.
   const mediaCache=new Map();
   async function mediaFor(a, signal) {
     const hit=mediaCache.get(a.id);
     if(hit&&Date.now()-hit.at<10*60000)return hit.payload;
-    // Everyday planes are not kept on the server, so say what this page knows
-    // (type, callsign, airline): the server answers with an example of the
-    // type in the same trip instead of "not found" and a second request.
     const q=new URLSearchParams();
     if(['aircraft','sar'].includes(a.type)){
       q.set('kind',a.type==='sar'?'sar':'aircraft');
-      if(a.aircraft_model||a.aircraft_type_code)q.set('model',a.aircraft_model||a.aircraft_type_code);
-      if(a.name)q.set('callsign',a.name);
-      if(a.operator)q.set('operator',a.operator);
     }
     const response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/media${String(q)?`?${q}`:''}`,{signal});
     if(!response.ok)throw new Error('Image lookup unavailable');
@@ -1725,45 +1648,35 @@
     if (mediaLoadedFor === a.id) return;
     mediaLoadedFor = a.id;
     const requestId = ++mediaRequest;
-    const knownIdentity = [a.vehicle_ref, a.aircraft_model || a.aircraft_type_code].filter(Boolean).join(' • ');
-    const fallback=aircraftTypePhoto(a);
-    const fallbackVisual=fallback?.image || '';
     box.classList.remove('hidden');
-    box.innerHTML = fallback
-      ? `${fallbackVisual}<div class="detail-photo-copy aircraft-known"><strong>${esc(fallback.title)}</strong><span>${esc(knownIdentity || 'Live aircraft')}</span><b class="image-truth">${esc(fallback.truth)}</b><span>${esc(fallback.credit)} • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a></span></div>`
-      : '<div class="photo-loading">Looking for a licensed aircraft photo…</div>';
+    // Do not flash a generic type photo and replace it a second later. Hold a
+    // stable, sized placeholder until the one final image choice is ready.
+    box.innerHTML = '<div class="photo-loading aircraft-photo-loading"><i aria-hidden="true"></i><span>Finding this aircraft…</span></div>';
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
-      let reference=await mediaFor(a, controller.signal);
-      // A hand-picked photo of a military type beats a search result.
-      if(fallback&&reference.match_kind==='type_reference')reference={ok:false};
+      const reference=await mediaFor(a, controller.signal);
       if (requestId !== mediaRequest || selectedId !== a.id) return;
+      if(!reference.ok || !reference.thumbnail_url){box.classList.add('hidden');box.innerHTML='';return;}
       const reg = a.vehicle_ref || null;
       const model = a.aircraft_model || a.aircraft_type_code || null;
       const identity = [reg, model].filter(Boolean).join(' • ');
-      const referenceImage=reference.ok && reference.thumbnail_url;
-      const imageUrl=referenceImage ? reference.thumbnail_url : null;
+      const imageUrl=reference.thumbnail_url;
       const imagePage=reference.page_url || reference.search_url;
-      const image = imageUrl ? `<a target="_blank" rel="noopener" href="${esc(safeUrl(imagePage))}"><img src="${esc(safeUrl(imageUrl))}" alt="${esc(identity || a.name)}" loading="eager" fetchpriority="high" decoding="async"></a>` : '';
-      const imageTruth=referenceImage ? (reference.match_kind==='exact_airframe' ? 'Archive photo of this aircraft registration — not live' : (reference.reference_label || 'Example of this aircraft type — not necessarily this exact airframe')) : null;
-      const imageCredit=referenceImage ? [reference.artist,reference.license,'Wikimedia Commons'].filter(Boolean).join(' • ') : fallback?.credit;
+      const width=Number(reference.thumbnail_width)||420, height=Number(reference.thumbnail_height)||280;
+      const image = `<a target="_blank" rel="noopener" href="${esc(safeUrl(imagePage))}"><img src="${esc(safeUrl(imageUrl))}" alt="${esc(identity || a.name)}" width="${width}" height="${height}" loading="eager" fetchpriority="high" decoding="async"></a>`;
+      const imageTruth='Archive photo of this aircraft registration — not live';
+      const imageCredit=[reference.artist,reference.license,reference.source].filter(Boolean).join(' • ');
       const links = a.source_id ? `<a target="_blank" rel="noopener" href="https://www.planespotters.net/hex/${esc(String(a.source_id).toUpperCase())}">Planespotters ↗</a>` : '';
-      const visibleTruth=imageTruth || fallback?.truth;
-      if(!image && !fallbackVisual){box.classList.add('hidden');box.innerHTML='';return;}
-      box.innerHTML = `${image || fallbackVisual}<div class="detail-photo-copy">${referenceImage ? '' : `<strong>${esc(fallback.title)}</strong><span>${esc(identity || a.name)}</span>`}${visibleTruth?`<b class="image-truth">${esc(visibleTruth)}</b>`:''}<span>${esc(imageCredit || 'Licensed aircraft reference')}${!referenceImage && fallback ? ` • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a>` : ''}${links ? ` • ${links}` : ''}</span></div>`;
-      const remoteImage=referenceImage ? box.querySelector('img') : null;
+      box.innerHTML = `${image}<div class="detail-photo-copy"><b class="image-truth">${esc(imageTruth)}</b><span>${esc(imageCredit || 'Planespotters.net')}${links ? ` • ${links}` : ''}</span></div>`;
+      const remoteImage=box.querySelector('img');
       remoteImage?.addEventListener('error',()=>{
         if(requestId!==mediaRequest || selectedId!==a.id)return;
-        if(!fallback){box.classList.add('hidden');box.innerHTML='';return;}
-        box.innerHTML=`${fallbackVisual}<div class="detail-photo-copy aircraft-known"><strong>${esc(fallback.title)}</strong><span>${esc(identity || a.name)}</span><b class="image-truth">${esc(fallback.truth)}</b><span>${esc(fallback.credit)} • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a></span></div>`;
+        box.classList.add('hidden');box.innerHTML='';
       },{once:true});
     } catch {
       if (requestId !== mediaRequest) return;
-      if (knownIdentity && fallback) {
-        box.classList.remove('hidden');
-        box.innerHTML = `${fallbackVisual}<div class="detail-photo-copy aircraft-known"><strong>${esc(fallback.title)}</strong><span>${esc(knownIdentity)}</span><b class="image-truth">${esc(fallback.truth)}</b><span>${esc(fallback.credit)} • <a target="_blank" rel="noopener" href="${esc(fallback.page)}">image source ↗</a> • <a target="_blank" rel="noopener" href="${esc(fallback.licence)}">licence ↗</a></span></div>`;
-      } else { box.classList.add('hidden'); box.innerHTML=''; }
+      box.classList.add('hidden'); box.innerHTML='';
     } finally {
       clearTimeout(timeout);
     }
@@ -5516,10 +5429,13 @@
     const geometry=Array.isArray(option?.geometry)?option.geometry:[];
     const traffic=Number.isFinite(trafficDelay)&&trafficDelay>0 ? `Traffic adds ${durationText(trafficDelay)}` : (geometry.length>1?'No reported traffic delay':null);
     const issueRows=issues.slice(0,5).map(issue=>`<li><span>${issue.type==='incident'?icons.incident:icons.road}</span><div><strong>${esc(issue.name || issue.reason || 'Road issue')}</strong><small>${esc([issue.road,issue.status,Number.isFinite(Number(issue.distance_km))?`${Number(issue.distance_km).toFixed(1)} km from route`:null].filter(Boolean).join(' • '))}</small></div></li>`).join('');
-    const mapButton=geometry.length>1?`<button type="button" class="mini-button journey-show-map" data-journey-option="${index}">Show route on map</button>`:'';
+    const mapButton=geometry.length>1?`<button type="button" class="primary-button journey-show-map" data-journey-option="${index}">Show on map</button>`:'';
     const directionRows=instructions.slice(0,30).map(step=>`<li><span>${esc(step.message)}</span>${step.road?`<small>${esc(step.road)}</small>`:''}</li>`).join('');
     const directions=directionRows?`<details class="journey-directions"><summary>Driving directions (${instructions.length})</summary><ol>${directionRows}</ol></details>`:'';
-    return `<article class="journey-option"><div class="journey-option-head"><div><small>OPTION ${index+1}</small><strong>${esc([duration,changeText].filter(Boolean).join(' • ') || 'Journey option')}</strong></div><b>${esc([depart,arrive].filter(Boolean).join(' → '))}</b></div>${traffic?`<p class="journey-traffic ${trafficDelay>0?'delayed':'clear'}">${esc(traffic)}</p>`:''}${Number.isFinite(walking)&&walking>0?`<p class="journey-walk">Includes ${esc(walking>=1000?(walking/1000).toFixed(1)+' km':Math.round(walking)+' m')} walking</p>`:''}${legs?`<ol class="journey-legs">${legs}</ol>`:'<p class="transport-empty">The router returned an option without readable leg detail.</p>'}${issueRows?`<div class="journey-issues"><strong>Issues near this route</strong><ul>${issueRows}</ul></div>`:''}${directions}${mapButton}</article>`;
+    const walkText=Number.isFinite(walking)&&walking>0?`${walking>=1000?(walking/1000).toFixed(1)+' km':Math.round(walking)+' m'} walking`:null;
+    const facts=[traffic,walkText].filter(Boolean).map(value=>`<span>${esc(value)}</span>`).join('');
+    const steps=legs?`<details class="journey-steps"><summary>View journey steps</summary><ol class="journey-legs">${legs}</ol></details>`:'<p class="transport-empty">Detailed steps are not available for this option.</p>';
+    return `<article class="journey-option"><div class="journey-option-head"><div><small>${index===0?'BEST MATCH':`OPTION ${index+1}`}</small><strong>${esc([duration,changeText].filter(Boolean).join(' • ') || 'Journey option')}</strong></div><b>${esc([depart,arrive].filter(Boolean).join(' → '))}</b></div>${facts?`<div class="journey-summary-facts">${facts}</div>`:''}${steps}${issueRows?`<details class="journey-issues journey-steps"><summary>Issues near this route</summary><ul>${issueRows}</ul></details>`:''}${directions}<div class="journey-option-actions">${mapButton}</div></article>`;
   }
 
   function showJourneyRoute(index) {
@@ -5573,7 +5489,7 @@
       const legDepart=providerClock(leg?.departs || leg?.departure), legArrive=providerClock(leg?.arrives || leg?.arrival);
       return `<li class="journey-leg"><span class="journey-leg-icon">${icons.train}</span><div><strong>${esc(route)}</strong><span>${esc([from,to].filter(Boolean).join(' → '))}</span></div><b>${esc([legDepart,legArrive].filter(Boolean).join(' – '))}</b></li>`;
     }).join('');
-    return `<article class="journey-option rail-fallback"><div class="journey-option-head"><div><small>RAIL OPTION ${index+1}</small><strong>${esc([type,duration].filter(Boolean).join(' • '))}</strong></div><b>${esc([depart,arrive].filter(Boolean).join(' → '))}</b></div>${legs?`<ol class="journey-legs">${legs}</ol>`:'<p class="transport-empty">Route steps are not available for this journey.</p>'}</article>`;
+    return `<article class="journey-option rail-fallback"><div class="journey-option-head"><div><small>${index===0?'BEST MATCH':`RAIL OPTION ${index+1}`}</small><strong>${esc([type,duration].filter(Boolean).join(' • '))}</strong></div><b>${esc([depart,arrive].filter(Boolean).join(' → '))}</b></div>${legs?`<details class="journey-steps"><summary>View journey steps</summary><ol class="journey-legs">${legs}</ol></details>`:'<p class="transport-empty">Route steps are not available for this journey.</p>'}</article>`;
   }
 
   function journeyErrorText(payload,fallback) {
@@ -5586,7 +5502,7 @@
     const box=$('journey-results'); if(!box)return;
     const itineraries=Array.isArray(payload?.itineraries)?payload.itineraries:[];
     const railJourneys=Array.isArray(payload?.journeys)?payload.journeys:[];
-    const results=itineraries.length ? itineraries.map(renderOtpItinerary).join('') : railJourneys.map(renderRailJourney).join('');
+    const results=itineraries.length ? itineraries.slice(0,3).map(renderOtpItinerary).join('') : railJourneys.slice(0,3).map(renderRailJourney).join('');
     const samePlace=(row)=>row && String(row.query||'').trim().toLocaleLowerCase('en-GB')===String(row.name||'').trim().toLocaleLowerCase('en-GB');
     const resolved=[resolvedOrigin&&!samePlace(resolvedOrigin)?`${resolvedOrigin.query} → ${resolvedOrigin.name}`:null,resolvedDestination&&!samePlace(resolvedDestination)?`${resolvedDestination.query} → ${resolvedDestination.name}`:null].filter(Boolean);
     const resolution=resolved.length?`<p class="journey-resolution">Using ${esc(resolved.join(' • '))}</p>`:'';
@@ -5650,7 +5566,8 @@
     const box=$('journey-results'), submit=$('journey-submit');
     if(originName.length<2 || destinationName.length<2)return;
     try { localStorage.setItem(JOURNEY_KEY,JSON.stringify({origin:originName,destination:destinationName,mode})); } catch {}
-    submit.disabled=true; submit.textContent='Finding…';
+    submit.disabled=true;
+    const submitLabel=submit.querySelector('span'); if(submitLabel)submitLabel.textContent='Finding…';
     box.innerHTML='<div class="journey-loading"><i></i><strong>Finding routes…</strong></div>';
     try {
       const [origin,destination]=await Promise.all([
@@ -5666,7 +5583,7 @@
     } catch(error) {
       box.innerHTML=`<div class="journey-unavailable"><strong>Could not plan this journey</strong><span>${esc(error?.message || 'Journey planning is unavailable right now.')}</span></div>`;
     } finally {
-      submit.disabled=false; submit.textContent='Find journeys';
+      submit.disabled=false; if(submitLabel)submitLabel.textContent='Find journeys';
     }
   }
 
@@ -5674,7 +5591,7 @@
     if(!requirePlus('journey_planner','Journey planning is included with Radar+.'))return;
     const dialog=$('journey-dialog'); if(!dialog)return;
     if(typeof dialog.showModal==='function')dialog.showModal(); else dialog.setAttribute('open','');
-    setTimeout(()=>$('journey-origin')?.focus(),30);
+    if(!window.matchMedia('(max-width: 760px)').matches)setTimeout(()=>$('journey-origin')?.focus(),30);
     trackProduct('journey_planner_opened','journey');
   }
 
@@ -5829,7 +5746,14 @@
   $('journey-planner')?.addEventListener('click',openJourneyPlanner);
   $('journey-close')?.addEventListener('click',closeJourneyPlanner);
   $('journey-form')?.addEventListener('submit',submitJourney);
-  $('journey-swap')?.addEventListener('click',()=>{ const origin=$('journey-origin'),destination=$('journey-destination'); if(!origin||!destination)return; const old=origin.value; origin.value=destination.value; destination.value=old; });
+  $('journey-swap')?.addEventListener('click',()=>{ const origin=$('journey-origin'),destination=$('journey-destination'); if(!origin||!destination)return; const old=origin.value; origin.value=destination.value; destination.value=old; (destination.value?origin:destination).focus(); });
+  $('journey-use-location')?.addEventListener('click',async event=>{
+    const button=event.currentTarget, origin=$('journey-origin'); if(!origin)return;
+    const old=button.textContent; button.disabled=true; button.textContent='Locating…';
+    try { await currentFix(); origin.value='My location'; $('journey-destination')?.focus(); }
+    catch { showToast('Your location could not be found. Check location access and try again.'); }
+    finally { button.disabled=false; button.textContent=old; }
+  });
   $('journey-dialog')?.addEventListener('click',event=>{ if(event.target===$('journey-dialog'))closeJourneyPlanner(); });
   $('station-boards')?.addEventListener('click',async()=>{
     placeMode='rail'; $('place-mode').value='rail'; if(map.getZoom()<9) map.setZoom(10);

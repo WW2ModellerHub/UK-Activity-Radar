@@ -59,6 +59,7 @@ from .commute_alerts import (
 )
 from .coverage import coverage_for_event
 from .media import WikimediaLookup
+from .planespotters import PlanespottersPhotoLookup
 from .search import ActivitySearch
 from .product import ProductAnalytics, product_plans
 from .traffic_flow import TrafficFlowService
@@ -179,6 +180,7 @@ rail_position_snapshot = RailPositionSnapshot(RAIL_POSITION_SNAPSHOT)
 rail_line_layer = RailLineLayer(Path(__file__).parent / "assets" / "rail_track_geometry.geojson")
 world_collectors: list = []
 media_lookup = WikimediaLookup(settings.wikimedia_api_url, enabled=settings.wikimedia_enabled)
+planespotters_photos = PlanespottersPhotoLookup()
 activity_search = ActivitySearch(state, settings.nominatim_url, enabled=settings.nominatim_enabled, tomtom_api_key=settings.tomtom_traffic_api_key, tomtom_base_url=settings.tomtom_traffic_base_url)
 product_analytics = ProductAnalytics(PRODUCT_DB, enabled=settings.product_analytics_enabled)
 traffic_cameras = TrafficCameraService(settings.tfl_api_base, settings.tfl_app_key)
@@ -2462,14 +2464,22 @@ def activity_media(request: Request, activity_id: str, kind: str | None = None, 
         # Bus photos are off: Commons rarely has the right bus, and a wrong
         # one (once a 15th-century atlas page) misleads more than none.
         return {"ok": False, "reason": "no_bus_photos"}
+    aircraft_hex = None
+    if item is not None and item.type in {"aircraft", "sar"}:
+        aircraft_hex = item.source_id
+    elif item is None:
+        match = re.fullmatch(r"(?:aircraft|sar):([0-9a-fA-F]{6})", activity_id)
+        aircraft_hex = match.group(1) if match else None
+    if aircraft_hex:
+        try:
+            exact_photo = planespotters_photos.lookup(aircraft_hex)
+            if exact_photo.get("ok"):
+                return exact_photo
+        except requests.RequestException:
+            pass
+    if aircraft_hex or (item is not None and item.type in {"aircraft", "sar"}) or kind in {"aircraft", "sar"}:
+        return {"ok": False, "reason": "no_exact_airframe_photo"}
     if not item:
-        # Everyday planes are not kept here. With what the phone already
-        # knows, answer with an example of the type in one trip, not two.
-        if kind in {"aircraft", "sar"} and model and not any(len(v or "") > 80 for v in (model, callsign, operator)):
-            try:
-                return media_lookup.reference(kind, operator, model, callsign)
-            except Exception as exc:
-                return {"ok": False, "reason": f"Wikimedia lookup unavailable: {type(exc).__name__}"}
         raise HTTPException(status_code=404, detail="Activity not found")
     try:
         return media_lookup.lookup(item)
@@ -2490,7 +2500,7 @@ def media_reference(request: Request, kind: str, operator: str | None = None, mo
     me"); the caller passes what it already knows.
     """
     _enforce_public_budget(request, lookup_request_budget)
-    if kind not in {"train", "aircraft", "sar"} or any(len(v or "") > 80 for v in (operator, model, callsign)):
+    if kind != "train" or any(len(v or "") > 80 for v in (operator, model, callsign)):
         raise HTTPException(status_code=400, detail="Unsupported reference request")
     try:
         return media_lookup.reference(kind, operator, model, callsign)
