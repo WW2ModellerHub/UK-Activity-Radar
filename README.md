@@ -40,7 +40,7 @@ not exclusive ownership of raw public data:
 - full Discover results;
 - live object tracking and faster refreshes;
 - richer transport and identity detail;
-- TomTom traffic, official cameras and multimodal journey planning;
+- TomTom traffic, official cameras and traffic-aware driving routes;
 - expanded My Radar capacity.
 
 Stripe Checkout, subscription status, the customer portal, webhook verification,

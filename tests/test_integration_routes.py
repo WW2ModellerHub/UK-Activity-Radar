@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from starlette.requests import Request
 
 import app.main as main
@@ -24,25 +26,24 @@ def _settings(**overrides):
     return SimpleNamespace(**values)
 
 
-def test_multimodal_journey_route_uses_configured_otp(monkeypatch):
+def test_journey_route_uses_configured_tomtom_for_driving(monkeypatch):
     class Planner:
         configured = True
 
         def plan(self, *args, **kwargs):
             assert args[:4] == (52.4, -1.5, 51.5, -0.1)
-            assert args[4] == "transit"
+            assert args[4] == "car"
             assert kwargs["from_name"] == "Coventry"
-            return {"status": "ok", "available": True, "itineraries": [{"duration_seconds": 3600}]}
+            return {"provider": "TomTom Routing", "status": "ok", "available": True, "itineraries": [{"duration_seconds": 3600}]}
 
-    monkeypatch.setattr(main, "settings", _settings(otp_graphql_url="http://otp.test"))
-    monkeypatch.setattr(main, "journey_planner", Planner())
+    monkeypatch.setattr(main, "road_journey_planner", Planner())
     payload = main.plan_journey(_request("POST"), main.JourneyPlanIn(
         origin_name="Coventry", destination_name="London",
         origin_lat=52.4, origin_lon=-1.5,
         destination_lat=51.5, destination_lon=-0.1,
     ))
 
-    assert payload["provider"] == "OpenTripPlanner"
+    assert payload["provider"] == "TomTom Routing"
     assert payload["itineraries"]
 
 
@@ -78,19 +79,16 @@ def test_free_discover_preview_is_balanced_and_reports_full_availability(monkeyp
     assert payload["full_access"] is False
 
 
-def test_journey_route_fails_closed_when_commercial_planner_is_absent(monkeypatch):
+def test_journey_route_rejects_public_transport_instead_of_showing_a_broken_option(monkeypatch):
     class Planner:
         configured = False
 
-    monkeypatch.setattr(main, "settings", _settings())
-    monkeypatch.setattr(main, "journey_planner", Planner())
-    payload = main.plan_journey(_request("POST"), main.JourneyPlanIn(
-        origin_name="HNK", destination_name="BHM", mode="transit",
-    ))
-
-    assert payload["provider"] == "OpenTripPlanner"
-    assert payload["available"] is False
-    assert payload["itineraries"] == []
+    monkeypatch.setattr(main, "road_journey_planner", Planner())
+    with pytest.raises(HTTPException, match="driving routes only") as exc:
+        main.plan_journey(_request("POST"), main.JourneyPlanIn(
+            origin_name="HNK", destination_name="BHM", mode="transit",
+        ))
+    assert exc.value.status_code == 400
 
 
 def test_road_route_attaches_authoritative_nearby_issues(monkeypatch):

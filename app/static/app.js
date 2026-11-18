@@ -1191,7 +1191,7 @@
     const saved=rememberedJourney();
     if($('journey-origin')&&!$('journey-origin').value)$('journey-origin').value=saved?.origin||'My location';
     if($('journey-destination')&&!$('journey-destination').value&&saved?.destination)$('journey-destination').value=saved.destination;
-    if(saved?.mode&&$('journey-mode'))$('journey-mode').value=saved.mode;
+    if($('journey-mode'))$('journey-mode').value='car';
     openJourneyPlanner();
     // A remembered journey runs straight away: one tap to see what is in the way.
     if(saved?.destination)$('journey-form')?.requestSubmit?.();
@@ -5562,7 +5562,7 @@
     event.preventDefault();
     const originName=$('journey-origin')?.value.trim() || '';
     const destinationName=$('journey-destination')?.value.trim() || '';
-    const mode=$('journey-mode')?.value || 'transit';
+    const mode='car';
     const box=$('journey-results'), submit=$('journey-submit');
     if(originName.length<2 || destinationName.length<2)return;
     try { localStorage.setItem(JOURNEY_KEY,JSON.stringify({origin:originName,destination:destinationName,mode})); } catch {}
@@ -5574,7 +5574,7 @@
         resolveJourneyPlace(originName).catch(()=>null),
         resolveJourneyPlace(destinationName).catch(()=>null),
       ]);
-      if(mode!=='transit' && (!origin || !destination)) throw new Error('Both places must resolve to map locations for walking, cycling or driving. Try a town, postcode or station name.');
+      if(!origin || !destination) throw new Error('Both places must resolve to map locations for driving. Try a town, postcode or street name.');
       const response=await fetch('/api/journeys/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({origin_name:originName,destination_name:destinationName,origin_lat:origin?.lat??null,origin_lon:origin?.lon??null,destination_lat:destination?.lat??null,destination_lon:destination?.lon??null,mode,arrive_by:false,wheelchair:false})});
       const payload=await response.json().catch(()=>({}));
       if(!response.ok)throw new Error(journeyErrorText(payload,'Journey planning is unavailable right now.'));
@@ -5583,7 +5583,7 @@
     } catch(error) {
       box.innerHTML=`<div class="journey-unavailable"><strong>Could not plan this journey</strong><span>${esc(error?.message || 'Journey planning is unavailable right now.')}</span></div>`;
     } finally {
-      submit.disabled=false; if(submitLabel)submitLabel.textContent='Find journeys';
+      submit.disabled=false; if(submitLabel)submitLabel.textContent='Find driving route';
     }
   }
 

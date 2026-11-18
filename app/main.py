@@ -80,7 +80,6 @@ from .rail_lines import RailLineLayer
 from .flight_routes import FlightRouteLookup
 from .rail_sections import delay_hotspots, line_at
 from .traffic_incidents import TrafficIncidentService
-from .open_trip_planner import OpenTripPlannerClient
 from .tomtom_routing import TomTomRoutingClient
 from .billing import (
     PLUS_FEATURES,
@@ -166,7 +165,6 @@ met_office_collector: MetOfficeWarningCollector | None = None
 traffic_flow_service: TrafficFlowService | None = None
 traffic_incident_service: TrafficIncidentService | None = None
 smart_places: SmartPlacesService | None = None
-journey_planner: OpenTripPlannerClient | None = None
 road_journey_planner = TomTomRoutingClient(
     settings.tomtom_traffic_api_key if settings.tomtom_routing_enabled else "",
     settings.tomtom_traffic_base_url,
@@ -232,7 +230,7 @@ class JourneyPlanIn(BaseModel):
     origin_lon: float | None = None
     destination_lat: float | None = None
     destination_lon: float | None = None
-    mode: str = "transit"
+    mode: str = "car"
     arrive_by: bool = False
     wheelchair: bool = False
 
@@ -750,7 +748,7 @@ async def _runtime_monitor_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global trust_collector, td_collector, vstp_collector, rail_feed_hub, bods_collector, bods_sx_collector, roads_collector, vms_collector, speed_collector, features_collector, floods_collector, ais_collector, rnli_collector, adsb_sar_collector, london_fire_collector, met_office_collector, traffic_flow_service, world_collectors, smart_places, journey_planner, street_manager_store, billing_store, billing_service, commute_alert_store
+    global trust_collector, td_collector, vstp_collector, rail_feed_hub, bods_collector, bods_sx_collector, roads_collector, vms_collector, speed_collector, features_collector, floods_collector, ais_collector, rnli_collector, adsb_sar_collector, london_fire_collector, met_office_collector, traffic_flow_service, world_collectors, smart_places, street_manager_store, billing_store, billing_service, commute_alert_store
     tasks: list[asyncio.Task] = []
     tasks.append(asyncio.create_task(_state_maintenance_loop()))
     tasks.append(asyncio.create_task(_runtime_monitor_loop()))
@@ -837,10 +835,6 @@ async def lifespan(app: FastAPI):
     else:
         state.set_source(SourceStatus(name="bods", enabled=False, mode="off", message="BODS live buses disabled in .env"))
 
-    journey_planner = OpenTripPlannerClient(
-        settings.otp_graphql_url,
-        timeout_seconds=settings.otp_timeout_seconds,
-    )
     smart_places = SmartPlacesService(
         DATA_DIR,
         schedules,
@@ -2132,39 +2126,28 @@ def place_board(place_id: str, request: Request, limit: int = 10):
 
 @app.get("/api/journeys/status")
 def journey_status():
-    planner = journey_planner or OpenTripPlannerClient(
-        settings.otp_graphql_url,
-        timeout_seconds=settings.otp_timeout_seconds,
-    )
-    payload = planner.status_payload()
     return {
-        **payload,
-        "available": bool(payload.get("available") or road_journey_planner.configured),
-        "providers": {
-            "public_transport": "OpenTripPlanner" if planner.configured else None,
-            "road_walk_cycle": "TomTom Routing" if road_journey_planner.configured else None,
-        },
+        "provider": "TomTom Routing",
+        "configured": road_journey_planner.configured,
+        "available": road_journey_planner.configured,
+        "modes": ["car"],
+        "message": "Traffic-aware driving routes are available" if road_journey_planner.configured else "Driving routes are not configured",
     }
 
 
 @app.post("/api/journeys/plan")
 def plan_journey(request: Request, plan: JourneyPlanIn):
-    """Plan a real journey without inventing routes when providers are absent."""
+    """Plan a traffic-aware driving journey without inventing transit routes."""
     _enforce_public_budget(request, lookup_request_budget)
     _require_plus(request, "journey_planner")
-    mode = str(plan.mode or "transit").strip().casefold()
-    if mode not in {"transit", "walk", "bike", "car"}:
-        raise HTTPException(status_code=400, detail="Mode must be transit, walk, bike, or car")
-
-    planner = journey_planner or OpenTripPlannerClient(
-        settings.otp_graphql_url,
-        timeout_seconds=settings.otp_timeout_seconds,
-    )
+    mode = str(plan.mode or "car").strip().casefold()
+    if mode != "car":
+        raise HTTPException(status_code=400, detail="The journey planner currently supports driving routes only")
     coordinates = (
         plan.origin_lat, plan.origin_lon,
         plan.destination_lat, plan.destination_lon,
     )
-    if mode in {"car", "walk", "bike"} and road_journey_planner.configured:
+    if road_journey_planner.configured:
         if any(value is None for value in coordinates):
             raise HTTPException(status_code=400, detail="Origin and destination coordinates are required for routing")
         try:
@@ -2179,30 +2162,10 @@ def plan_journey(request: Request, plan: JourneyPlanIn):
         except requests.RequestException as exc:
             raise HTTPException(status_code=503, detail="TomTom routing is temporarily unavailable") from exc
 
-    if planner.configured:
-        if any(value is None for value in coordinates):
-            raise HTTPException(
-                status_code=400,
-                detail="Origin and destination coordinates are required for multimodal planning",
-            )
-        try:
-            result = planner.plan(
-                float(plan.origin_lat), float(plan.origin_lon),
-                float(plan.destination_lat), float(plan.destination_lon),
-                mode,
-                from_name=plan.origin_name,
-                to_name=plan.destination_name,
-                arrive_by=plan.arrive_by,
-                wheelchair=plan.wheelchair,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {**result, "provider": "OpenTripPlanner"}
-
     return {
         "status": "unavailable", "available": False,
-        "provider": "OpenTripPlanner",
-        "message": "Public-transport planning needs a configured OpenTripPlanner service. Driving, walking and cycling use TomTom when its key is configured.",
+        "provider": "TomTom Routing",
+        "message": "Driving routes are temporarily unavailable.",
         "itineraries": [],
     }
 

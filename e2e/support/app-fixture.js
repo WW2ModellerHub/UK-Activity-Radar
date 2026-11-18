@@ -201,10 +201,9 @@ async function installAppFixture(page) {
         return route.fulfill({ json:{ matches:[match], location } });
       }
       if (pathname === '/api/journeys/plan' && route.request().method() === 'POST') return route.fulfill({ json:{
-        provider:'OpenTripPlanner', status:'ok', available:true, message:'Found 1 journey option(s).',
-        itineraries:[{ depart_at:'2026-10-05T10:15:00Z', arrive_at:'2026-10-05T10:51:00Z', duration_seconds:2160, transfers:0, walk_distance_m:420, traffic_delay_seconds:180, geometry:[{lat:52.034,lon:-0.774},{lat:51.8,lon:-0.5},{lat:51.528,lon:-0.134}], route_issues:[{id:'incident-live-1',type:'incident',name:'M1 lane closure',road:'M1',status:'Active',distance_km:0.8,lat:52.01,lon:-0.72}], legs:[
-          { mode:'WALK', duration_seconds:300, distance_m:350, from:{name:'Milton Keynes Central'}, to:{name:'Platform 4'}, depart_at:'2026-10-05T10:15:00Z', arrive_at:'2026-10-05T10:20:00Z' },
-          { mode:'RAIL', duration_seconds:1860, from:{name:'Milton Keynes Central'}, to:{name:'London Euston'}, headsign:'London Euston', route:{short_name:'West Coast'}, agency:'Fixture Rail', depart_at:'2026-10-05T10:20:00Z', arrive_at:'2026-10-05T10:51:00Z' },
+        provider:'TomTom Routing', status:'ok', available:true, message:'Found 1 traffic-aware driving route.',
+        itineraries:[{ depart_at:'2026-10-05T10:15:00Z', arrive_at:'2026-10-05T11:21:00Z', duration_seconds:3960, transfers:0, traffic_delay_seconds:180, geometry:[{lat:52.034,lon:-0.774},{lat:51.8,lon:-0.5},{lat:51.528,lon:-0.134}], route_issues:[{id:'incident-live-1',type:'incident',name:'M1 lane closure',road:'M1',status:'Active',distance_km:0.8,lat:52.01,lon:-0.72}], instructions:[{message:'Join the M1 southbound',road:'M1'}], legs:[
+          { mode:'car', duration_seconds:3960, distance_m:88300, from:'Milton Keynes', to:'London', depart_at:'2026-10-05T10:15:00Z', arrive_at:'2026-10-05T11:21:00Z' },
         ]},],
       } });
       if (pathname === '/api/cameras') return route.fulfill({ json: { ok:true, source:'Recorded camera fixture', stale:false, cameras:[{ id:'camera-live-1', type:'camera', name:'M1 Junction 14 Camera', lat:52.045, lon:-0.755, view:'Northbound', available:true, image_url:'https://jamcams.tfl.gov.uk/fixture.jpg', video_url:null, source:'Recorded official camera', source_url:'https://tfl.gov.uk/traffic/status/', refresh_seconds:180 }] } });

@@ -945,16 +945,18 @@ test('clicked trains and buses load source-backed route intelligence', async ({ 
   await expect(page.locator('#detail-photo img')).toHaveCount(0);
 });
 
-test('journey planner resolves places and renders a real multimodal itinerary', async ({ page }) => {
+test('driving planner resolves places and renders a traffic-aware car route', async ({ page }) => {
   await page.locator('#journey-planner').click();
   await expect(page.locator('#journey-dialog')).toBeVisible();
+  await expect(page.locator('#journey-dialog')).toContainText('DRIVING ROUTES');
+  await expect(page.locator('#journey-mode')).toHaveValue('car');
   await page.locator('#journey-origin').fill('Milton Keynes');
   await page.locator('#journey-destination').fill('London');
   await page.locator('#journey-submit').click();
   await expect(page.locator('#journey-results .journey-issue-summary')).toContainText('1 incident on this route');
-  await expect(page.locator('#journey-results')).toContainText('West Coast');
-  await expect(page.locator('#journey-results')).toContainText('London Euston');
-  await expect(page.locator('#journey-results')).toContainText('36 min');
+  await expect(page.locator('#journey-results')).toContainText('Drive');
+  await expect(page.locator('#journey-results')).toContainText('Milton Keynes → London');
+  await expect(page.locator('#journey-results')).toContainText('1 hr 6 min');
   await expect(page.locator('#journey-results')).toContainText('M1 lane closure');
   await expect(page.locator('#journey-results')).toContainText('Traffic adds 3 min');
   await page.locator('.journey-show-map').click();
@@ -1681,7 +1683,6 @@ test('a drive can be watched, so the phone warns before leaving', async ({ page 
   await page.locator('[data-job="journey"]').click();
   await page.locator('#journey-origin').fill('Milton Keynes');
   await page.locator('#journey-destination').fill('London');
-  await page.locator('#journey-mode').selectOption('car');
   await page.locator('#journey-submit').click();
   await expect(page.locator('.journey-watch')).toContainText('Warn me before I leave');
   await page.locator('#journey-watch-time').fill('08:15');
