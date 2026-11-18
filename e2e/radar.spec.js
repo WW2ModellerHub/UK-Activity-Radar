@@ -718,6 +718,30 @@ test('aircraft markers distinguish airliners and propeller aircraft with the typ
   await expect(propeller.locator('.motion-speed')).toHaveCount(0);
 });
 
+test('FlyItaly telemetry adds useful aircraft facts without cluttering the closed detail view', async ({ page }) => {
+  await page.locator('[data-layer-toggle="aircraft"]').click();
+  await page.evaluate(() => {
+    const next=structuredClone(window.__fixtureSnapshot);
+    const aircraft=next.activities.find(row=>row.id==='aircraft-live-1');
+    Object.assign(aircraft,{
+      origin:'STN',destination:'DUB',aircraft_category:'Large aircraft',squawk:'7700',
+      emergency:'General emergency alert',vertical_rate_fpm:1472,indicated_airspeed_kt:238,
+      true_airspeed_kt:260,mach:0.42,heading:98.2,selected_altitude_ft:18000,
+      position_source:'ADS-B',aircraft_flags:['Military','Notable'],
+    });
+    window.__fixtureSocket.onmessage({data:JSON.stringify(next)});
+  });
+  await page.locator('.aerial-map-marker.aerial-aircraft').first().evaluate(el => el.dispatchEvent(new MouseEvent('click',{bubbles:true})));
+  await expect(page.locator('#detail-fields [data-field="Alert"]')).toContainText('General emergency alert');
+  await expect(page.locator('#detail-fields [data-field="Vertical rate"]')).toContainText('Climbing 1,472 ft/min');
+  await expect(page.locator('#detail-fields [data-field="Squawk"]')).toBeHidden();
+  await page.locator('#detail-tech-toggle').click();
+  await expect(page.locator('#detail-fields [data-field="Squawk"]')).toContainText('7700');
+  await expect(page.locator('#detail-fields [data-field="Aircraft category"]')).toContainText('Large aircraft');
+  await expect(page.locator('#detail-fields [data-field="Selected altitude"]')).toContainText('18,000 ft');
+  await expect(page.locator('#detail-fields [data-field="Aircraft flags"]')).toContainText('Military • Notable');
+});
+
 test('Westland Lynx aircraft use a helicopter silhouette and identity', async ({ page }) => {
   await page.locator('[data-layer-toggle="aircraft"]').click();
   // Wait for the initial snapshot render before injecting the replacement.
@@ -1518,10 +1542,12 @@ test('a selected bus shows its route on the map and no stop codes', async ({ pag
   await page.locator('.marker-bubble.marker-bus').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-intelligence .bus-stops')).toBeVisible();
   await expect(page.locator('#map')).toHaveAttribute('data-bus-route-stops','3');
+  await expect(page.locator('#map')).toHaveAttribute('data-bus-route-geometry','gtfs-shape');
   await expect(page.locator('#detail-intelligence')).not.toContainText('leidtgwt');
   await expect(page.locator('#detail-intelligence')).toContainText('10:06');
   await page.locator('#detail-close').click();
   await expect(page.locator('#map')).not.toHaveAttribute('data-bus-route-stops', /./);
+  await expect(page.locator('#map')).not.toHaveAttribute('data-bus-route-geometry', /./);
 });
 
 test('quick-answer lists never show a previous station board underneath', async ({ page }) => {
@@ -2205,6 +2231,16 @@ test('buses show their route number on the map, and where they are going once zo
   await page.evaluate(() => document.getElementById('map').classList.add('show-bus-destinations'));
   await expect(where).toBeVisible();
   await expect(where).toHaveText(' · Nuneaton');                  // tidied: no "Bus Station Stand 4"
+});
+
+test('trains show a compact destination label at useful street zoom', async ({ page }) => {
+  await page.locator('[data-layer-toggle="train"]').click();
+  const destination = page.locator('.marker-wrap-train .train-destination-tag').first();
+  await expect(destination).toContainText('to');
+  await expect(destination).toBeHidden();
+  await page.evaluate(() => document.getElementById('map').classList.add('show-train-destinations'));
+  await expect(destination).toBeVisible();
+  await expect(destination).toContainText(/Euston|Manchester/i);
 });
 
 test('tapping a bus shows no photo and does not ask for one', async ({ page }) => {

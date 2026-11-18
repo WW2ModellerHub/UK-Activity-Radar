@@ -598,10 +598,12 @@ class BODSCollector:
             message=f"Connecting to {source_label}…",
         ))
 
+        last_mode = source_mode
         while not self._stop.is_set():
             started = time.monotonic()
             try:
                 payload, content_type, used_mode = self._fetch()
+                last_mode = used_mode
                 vehicles = parse_bods_payload(payload, content_type)
                 predictions = parse_siri_predictions_from_payload(payload, content_type)
                 # An empty successful snapshot must clear predictions removed
@@ -628,7 +630,7 @@ class BODSCollector:
                         message=(
                             f"Live GPS • {len(fresh):,} current buses • "
                             f"{'GTFS-RT API' if used_mode == 'gtfs-rt' else 'bulk SIRI-VM fallback'}"
-                            f" • {mb:.1f} MB • poll {self.settings.bods_poll_seconds}s"
+                            f" • {mb:.1f} MB • poll {self.settings.bods_poll_seconds if used_mode == 'gtfs-rt' else max(60, self.settings.bods_poll_seconds)}s"
                             + (f" • {stale:,} stale ignored" if stale else "")
                         ),
                         last_message_at=now,
@@ -646,5 +648,8 @@ class BODSCollector:
                 ))
 
             elapsed = time.monotonic() - started
-            wait = max(5.0, self.settings.bods_poll_seconds - elapsed)
+            # Avoid downloading the national bulk SIRI archive every 15s when
+            # an installation has no BODS key. GTFS-RT remains genuinely live.
+            poll_seconds = self.settings.bods_poll_seconds if last_mode == "gtfs-rt" else max(60, self.settings.bods_poll_seconds)
+            wait = max(5.0, poll_seconds - elapsed)
             self._stop.wait(wait)

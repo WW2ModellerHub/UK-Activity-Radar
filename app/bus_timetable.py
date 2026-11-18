@@ -147,6 +147,15 @@ def _read_csv(zf: zipfile.ZipFile, name: str) -> Iterable[dict[str, str]]:
             yield from csv.DictReader(text)
 
 
+def _thin_shape(points: list[list[float]], limit: int = 1200) -> list[list[float]]:
+    """Bound GTFS shape payloads while retaining endpoints and road bends."""
+    if len(points) <= limit:
+        return points
+    stride = max(1, (len(points) - 2 + limit - 3) // (limit - 2))
+    thinned = [points[0], *points[1:-1:stride], points[-1]]
+    return thinned[:limit - 1] + [points[-1]] if len(thinned) > limit else thinned
+
+
 class BusTimetableService:
     """Lazy regional BODS GTFS cache used by clicked bus stops.
 
@@ -219,8 +228,14 @@ class BusTimetableService:
         if not db.exists():
             return True
         try:
+            with sqlite3.connect(db) as con:
+                tables = {str(row[0]) for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                if "trips" in tables:
+                    trip_columns = {str(row[1]) for row in con.execute("PRAGMA table_info(trips)")}
+                    if "shape_id" not in trip_columns:
+                        return True
             return max(0.0, datetime.now().timestamp() - db.stat().st_mtime) >= BODS_CACHE_MAX_AGE_SECONDS
-        except OSError:
+        except (OSError, sqlite3.Error):
             return True
 
     def ensure_region(self, region: str) -> None:
@@ -281,10 +296,11 @@ class BusTimetableService:
                 CREATE TABLE stops(stop_id TEXT PRIMARY KEY,stop_code TEXT,name TEXT,lat REAL,lon REAL);
                 CREATE TABLE agencies(agency_id TEXT PRIMARY KEY,name TEXT);
                 CREATE TABLE routes(route_id TEXT PRIMARY KEY,agency_id TEXT,short_name TEXT,long_name TEXT);
-                CREATE TABLE trips(trip_id TEXT PRIMARY KEY,route_id TEXT,service_id TEXT,headsign TEXT,direction_id TEXT);
+                CREATE TABLE trips(trip_id TEXT PRIMARY KEY,route_id TEXT,service_id TEXT,headsign TEXT,direction_id TEXT,shape_id TEXT);
                 CREATE TABLE calendar(service_id TEXT PRIMARY KEY,monday INTEGER,tuesday INTEGER,wednesday INTEGER,thursday INTEGER,friday INTEGER,saturday INTEGER,sunday INTEGER,start_date TEXT,end_date TEXT);
                 CREATE TABLE calendar_dates(service_id TEXT,date TEXT,exception_type INTEGER);
                 CREATE TABLE stop_times(stop_id TEXT,trip_id TEXT,arrival_time TEXT,departure_time TEXT,stop_sequence INTEGER);
+                CREATE TABLE shapes(shape_id TEXT,lat REAL,lon REAL,sequence INTEGER);
                 CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT);
             """)
             with zipfile.ZipFile(zip_path) as zf:
@@ -304,10 +320,24 @@ class BusTimetableService:
                     (r.get("route_id"),r.get("agency_id"),r.get("route_short_name"),r.get("route_long_name"))
                     for r in _read_csv(zf,"routes.txt") if r.get("route_id")
                 ))
-                con.executemany("INSERT OR REPLACE INTO trips VALUES(?,?,?,?,?)", (
-                    (r.get("trip_id"),r.get("route_id"),r.get("service_id"),r.get("trip_headsign"),r.get("direction_id"))
+                con.executemany("INSERT OR REPLACE INTO trips VALUES(?,?,?,?,?,?)", (
+                    (r.get("trip_id"),r.get("route_id"),r.get("service_id"),r.get("trip_headsign"),r.get("direction_id"),r.get("shape_id"))
                     for r in _read_csv(zf,"trips.txt") if r.get("trip_id")
                 ))
+                if "shapes.txt" in names:
+                    shape_batch=[]
+                    for r in _read_csv(zf,"shapes.txt"):
+                        if not r.get("shape_id"):
+                            continue
+                        try:
+                            shape_batch.append((r.get("shape_id"),float(r.get("shape_pt_lat") or 0),float(r.get("shape_pt_lon") or 0),int(r.get("shape_pt_sequence") or 0)))
+                        except (TypeError, ValueError):
+                            continue
+                        if len(shape_batch)>=25000:
+                            con.executemany("INSERT INTO shapes VALUES(?,?,?,?)",shape_batch)
+                            shape_batch.clear()
+                    if shape_batch:
+                        con.executemany("INSERT INTO shapes VALUES(?,?,?,?)",shape_batch)
                 if "calendar.txt" in names:
                     con.executemany("INSERT OR REPLACE INTO calendar VALUES(?,?,?,?,?,?,?,?,?,?)", (
                         (r.get("service_id"),int(r.get("monday") or 0),int(r.get("tuesday") or 0),int(r.get("wednesday") or 0),int(r.get("thursday") or 0),int(r.get("friday") or 0),int(r.get("saturday") or 0),int(r.get("sunday") or 0),r.get("start_date"),r.get("end_date"))
@@ -339,6 +369,8 @@ class BusTimetableService:
                 CREATE INDEX idx_stop_times_trip ON stop_times(trip_id);
                 CREATE INDEX idx_trips_service ON trips(service_id);
                 CREATE INDEX idx_trips_route ON trips(route_id);
+                CREATE INDEX idx_trips_shape ON trips(shape_id);
+                CREATE INDEX idx_shapes_shape_sequence ON shapes(shape_id,sequence);
                 CREATE INDEX idx_routes_short_name ON routes(short_name);
                 CREATE INDEX idx_calendar_dates ON calendar_dates(date,service_id);
             """)
@@ -474,10 +506,14 @@ class BusTimetableService:
 
         now = datetime.now(tz=london_tz())
         match_method = "exact_trip"
+        route_shape: list[list[float]] = []
         with sqlite3.connect(self._db(region)) as con:
             con.row_factory = sqlite3.Row
+            trip_columns = {str(row[1]) for row in con.execute("PRAGMA table_info(trips)")}
+            tables = {str(row[0]) for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            shape_select = "t.shape_id" if "shape_id" in trip_columns else "NULL AS shape_id"
             trip = con.execute(
-                """SELECT t.trip_id,t.service_id,t.headsign,t.direction_id,t.route_id,
+                f"""SELECT t.trip_id,t.service_id,t.headsign,t.direction_id,t.route_id,{shape_select},
                           r.short_name,r.long_name,a.name AS agency_name
                    FROM trips t LEFT JOIN routes r ON r.route_id=t.route_id
                    LEFT JOIN agencies a ON a.agency_id=r.agency_id
@@ -493,7 +529,7 @@ class BusTimetableService:
                 route = str(getattr(vehicle, "route", None) or "").strip()
                 destination = str(getattr(vehicle, "destination", None) or "").strip().casefold()
                 candidates = con.execute(
-                    """SELECT t.trip_id,t.service_id,t.headsign,t.direction_id,t.route_id,
+                    f"""SELECT t.trip_id,t.service_id,t.headsign,t.direction_id,t.route_id,{shape_select},
                               r.short_name,r.long_name,a.name AS agency_name
                        FROM trips t JOIN routes r ON r.route_id=t.route_id
                        LEFT JOIN agencies a ON a.agency_id=r.agency_id
@@ -557,6 +593,16 @@ class BusTimetableService:
                    WHERE st.trip_id=? ORDER BY st.stop_sequence""",
                 (str(trip["trip_id"]),),
             ).fetchall()
+            shape_id = str(trip["shape_id"] or "").strip()
+            if shape_id and "shapes" in tables:
+                route_shape = _thin_shape([
+                    [float(row[0]), float(row[1])]
+                    for row in con.execute(
+                        "SELECT lat,lon FROM shapes WHERE shape_id=? ORDER BY sequence",
+                        (shape_id,),
+                    ).fetchall()
+                    if row[0] is not None and row[1] is not None
+                ])
 
             candidates: list[tuple[float, date, list[dict]]] = []
             for service_date in (now.date() - timedelta(days=1), now.date()):
@@ -608,6 +654,8 @@ class BusTimetableService:
             "route": trip["short_name"] or trip["route_id"], "route_long_name": trip["long_name"],
             "destination": trip["headsign"], "operator": trip["agency_name"],
             "trip_id": trip["trip_id"], "next_stop_id": timeline[next_index]["stop_id"], "stops": shown,
+            "shape": route_shape,
+            "shape_source": "BODS GTFS shapes.txt" if route_shape else None,
             "match_method": match_method,
             # True when the operator's GPS feed named the next stop, so the
             # timetable time there says how late the bus is.

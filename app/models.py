@@ -39,6 +39,17 @@ class Vehicle(BaseModel):
     journey_ref: str | None = None
     aircraft_type_code: str | None = None
     aircraft_model: str | None = None
+    aircraft_category: str | None = None
+    squawk: str | None = None
+    emergency: str | None = None
+    vertical_rate_fpm: float | None = None
+    indicated_airspeed_kt: float | None = None
+    true_airspeed_kt: float | None = None
+    mach: float | None = None
+    heading: float | None = None
+    selected_altitude_ft: float | None = None
+    position_source: str | None = None
+    aircraft_flags: list[str] | None = None
     identity_label: str | None = None
     identity_confidence: IdentityConfidence = "unresolved"
     identity_explanation: str | None = None

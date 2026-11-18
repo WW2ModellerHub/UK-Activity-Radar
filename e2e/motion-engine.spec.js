@@ -74,6 +74,25 @@ test('aircraft freeze at their safe projection instead of jumping backwards', as
   expect(result.reduced.lon).toBe(-1);
 });
 
+test('buses move between BODS reports and stop projecting after one safe interval', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const now = Date.now();
+    const bus = { id:'bus-7', type:'bus', lat:52, lon:-1, bearing:90, speed:10,
+      last_updated:new Date(now-5000).toISOString() };
+    return {
+      moving:engine.present(bus,now,false),
+      capped:engine.present(bus,now+30000,false),
+      cappedLater:engine.present(bus,now+60000,false),
+    };
+  });
+  expect(result.moving.lon).toBeGreaterThan(-1);
+  expect(result.capped.lon).toBeGreaterThan(result.moving.lon);
+  expect(result.cappedLater.lon).toBeCloseTo(result.capped.lon,6);
+});
+
 test('reduced motion keeps confirmed train coordinates', async ({ page }) => {
   await openEngine(page);
   const result = await page.evaluate(() => {

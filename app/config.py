@@ -170,7 +170,9 @@ class Settings:
     bods_cancellations_url: str = os.getenv("BODS_CANCELLATIONS_URL", "https://data.bus-data.dft.gov.uk/api/v1/siri-sx/cancellations").strip()
     bods_sx_enabled: bool = _bool("BODS_SX_ENABLED", True)
     bods_sx_poll_seconds: int = max(30, int(os.getenv("BODS_SX_POLL_SECONDS", "60")))
-    bods_poll_seconds: int = max(10, int(os.getenv("BODS_POLL_SECONDS", "30")))
+    # BODS GTFS-RT positions are light enough to refresh every 15 seconds.
+    # The collector automatically slows the much larger bulk fallback feed.
+    bods_poll_seconds: int = max(10, int(os.getenv("BODS_POLL_SECONDS", "15")))
     bods_max_age_seconds: int = max(60, int(os.getenv("BODS_MAX_AGE_SECONDS", "300")))
     train_min_map_zoom: float = float(os.getenv("TRAIN_MIN_MAP_ZOOM", "7"))
     train_max_stream: int = max(100, int(os.getenv("TRAIN_MAX_STREAM", "2000")))
@@ -278,7 +280,7 @@ class Settings:
     adsb_lol_base_url: str = os.getenv("ADSB_LOL_BASE_URL", "https://api.adsb.lol").rstrip("/")
     adsb_lol_api_key: str = os.getenv("ADSB_LOL_API_KEY", "").strip()
     flyitaly_adsb_base_url: str = os.getenv(
-        "FLYITALYADSB_BASE_URL", "https://api.flyitalyadsb.com/api/aircraft/v2"
+        "FLYITALYADSB_BASE_URL", "https://api.flyitalyadsb.com/v2"
     ).rstrip("/")
     flyitaly_adsb_api_key: str = os.getenv("FLYITALYADSB_API_KEY", "").strip()
     # One regional request per interval. The default adapts to provider quota;

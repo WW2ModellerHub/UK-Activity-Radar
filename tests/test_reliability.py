@@ -72,6 +72,35 @@ def test_nearby_ryanair_b38m_is_named_immediately_without_route_guessing():
     assert aircraft.origin is None and aircraft.destination is None
 
 
+def test_flyitaly_aircraft_details_are_preserved_for_the_detail_panel():
+    rows, _ = parse_nearby_aircraft_response({"ac": [{
+        "hex": "4cadbc", "flight": "RYR1YY", "r": "EI-IGJ",
+        "lat": 52.516, "lon": -1.547, "t": "B38M", "ownOp": "Ryanair DAC",
+        "gs": 257.5, "ias": 238, "tas": 260, "mach": 0.42,
+        "track": 100.7, "true_heading": 98.2, "baro_rate": 1472,
+        "alt_baro": 11875, "nav_altitude_mcp": 18000,
+        "squawk": "7700", "category": "A3", "type": "adsb_icao",
+        "dbFlags": 3,
+        "route": {"from": "EGSS", "from_iata": "STN", "to": "EIDW", "to_iata": "DUB"},
+    }]}, source_name="FlyItalyADSB")
+
+    aircraft = rows[0]
+    assert aircraft.origin == "STN" and aircraft.destination == "DUB"
+    assert aircraft.operator == "Ryanair DAC"
+    assert aircraft.aircraft_category == "Large aircraft"
+    assert aircraft.squawk == "7700"
+    assert aircraft.emergency == "General emergency alert"
+    assert aircraft.status == "General emergency alert"
+    assert aircraft.vertical_rate_fpm == 1472
+    assert aircraft.indicated_airspeed_kt == 238
+    assert aircraft.true_airspeed_kt == 260
+    assert aircraft.mach == 0.42
+    assert aircraft.heading == 98.2
+    assert aircraft.selected_altitude_ft == 18000
+    assert aircraft.position_source == "ADS-B"
+    assert aircraft.aircraft_flags == ["Military", "Notable"]
+
+
 def test_nearby_aircraft_uses_recent_point_cache_when_refresh_fails(monkeypatch):
     collector = ADSBLolSARCollector(Settings(), LiveState())
 
@@ -107,7 +136,7 @@ def test_nearby_aircraft_uses_recent_point_cache_when_refresh_fails(monkeypatch)
 def test_nearby_aircraft_prefers_keyed_commercial_provider_and_sends_key(monkeypatch):
     settings = Settings(
         flyitaly_adsb_api_key="server-side-test-key",
-        flyitaly_adsb_base_url="https://aircraft.example/api/aircraft/v2",
+        flyitaly_adsb_base_url="https://aircraft.example/v2",
     )
     collector = ADSBLolSARCollector(settings, LiveState())
     calls = []
@@ -131,7 +160,7 @@ def test_nearby_aircraft_prefers_keyed_commercial_provider_and_sends_key(monkeyp
 
     assert checked == 1 and len(rows) == 1
     assert source == "FlyItalyADSB"
-    assert calls[0][0] == "https://aircraft.example/api/aircraft/v2/point/52.54/-1.37/43"
+    assert calls[0][0] == "https://aircraft.example/v2/lat/52.54/lon/-1.37/dist/80?with=route"
     assert calls[0][1]["headers"] == {"X-Api-Key": "server-side-test-key"}
     assert rows[0].source == "FlyItalyADSB"
 

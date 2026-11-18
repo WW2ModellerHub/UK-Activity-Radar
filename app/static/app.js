@@ -1728,7 +1728,7 @@
   }
 
   function aircraftMapShape(v) {
-    const text=[v.aircraft_model,v.aircraft_type_code,v.subtitle].filter(Boolean).join(' ').toUpperCase();
+    const text=[v.aircraft_model,v.aircraft_type_code,v.aircraft_category,v.subtitle].filter(Boolean).join(' ').toUpperCase();
     // Flat top-down silhouettes on a 24px grid, pointing north.
     const shape=(kind,body)=>`<svg class="map-aircraft-svg map-${kind}-svg" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
     const P=AIRCRAFT_SHAPES;
@@ -1812,9 +1812,11 @@
     const busRoute=type==='bus'?String(v.route||String(v.name||'').replace(/^Bus\s+/i,'')).trim().slice(0,5):'';
     const busWhere=type==='bus'&&v.destination?humanTransitLabel(String(v.destination)).replace(/\s+(?:Stand|Stop|Bay)\s*[A-Z0-9]{0,3}$/i,'').replace(/\s+(?:Bus|Coach)\s+Station$/i,'').slice(0,22):'';
     const busTag=busRoute?`<b class="bus-route-tag">${esc(busRoute)}${busWhere?`<small class="bus-destination"> · ${esc(busWhere)}</small>`:''}</b>`:'';
+    const trainWhere=type==='train'&&v.destination?humanTransitLabel(String(v.destination)).slice(0,28):'';
+    const trainTag=trainWhere?`<b class="train-destination-tag" title="to ${esc(humanTransitLabel(String(v.destination)))}"><small>to</small> ${esc(trainWhere)}</b>`:'';
     return L.divIcon({
       className: `marker-wrap marker-wrap-${esc(type)}${coincidentCount>1?' train-coincident-wrap':''}`,
-      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}${cancelled?' is-cancelled':''}"${cancelled?'':trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}${punctualityDot}</div>${pointer}${speedTag}${busTag}</div>`,
+      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}${cancelled?' is-cancelled':''}"${cancelled?'':trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}${punctualityDot}</div>${pointer}${speedTag}${busTag}${trainTag}</div>`,
       iconSize: [42,42], iconAnchor: [21-offsetX,21-offsetY],
       tooltipAnchor: type==='train' ? [offsetX,offsetY-17] : [0,0]
     });
@@ -2588,12 +2590,12 @@
     const speed = pointerType && zoomBand >= 2 ? compactSpeed(a) : '';
     const speedUnit = '';
     const movementPosition='';
-    return [a.type,a.position_method,a.name,a.type==='bus'?`${a.route||''}>${a.destination||''}`:'',a.cancelled_at?'cancelled':punctualityClass(a.delay_minutes),a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon,a._coincidentCount,a._coincidentSlot,a._coincidentX,a._coincidentY].join('|');
+    return [a.type,a.position_method,a.name,['bus','train'].includes(a.type)?`${a.route||''}>${a.destination||''}`:'',a.cancelled_at?'cancelled':punctualityClass(a.delay_minutes),a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon,a._coincidentCount,a._coincidentSlot,a._coincidentX,a._coincidentY].join('|');
   }
 
   function markerTooltipSignature(a) {
     const appearance = currentWorkspace === 'cool' ? 'cool' : 'standard';
-    return [appearance,a.name,a.type,a.kind,a.origin,a.destination,a.route,a.subtitle,a.position_label,a.speed,a.speed_unit,a.bearing,a.delay_minutes,a.next_location,a.status,a.severity,a.vehicle_ref,a.aircraft_model,a.last_updated,a.cool_score,a.cool_badge].join('|');
+    return [appearance,a.name,a.type,a.kind,a.origin,a.destination,a.route,a.subtitle,a.position_label,a.speed,a.speed_unit,a.bearing,a.delay_minutes,a.next_location,a.status,a.severity,a.vehicle_ref,a.aircraft_model,a.aircraft_category,a.squawk,a.emergency,a.vertical_rate_fpm,a.indicated_airspeed_kt,a.true_airspeed_kt,a.mach,a.heading,a.selected_altitude_ft,a.position_source,(a.aircraft_flags||[]).join(','),a.last_updated,a.cool_score,a.cool_badge].join('|');
   }
 
   function trainMarkerDomMatches(marker,activity) {
@@ -2743,7 +2745,7 @@
     const coincidentLayouts=trainCoincidentLayouts(presentations);
     for(let index=0;index<rows.length;index+=1){
       const a=rows[index];
-      if(a.type!=='train'&&!(overheadActive&&['aircraft','sar'].includes(a.type)))continue;
+      if(!['train','bus'].includes(a.type)&&!(overheadActive&&['aircraft','sar'].includes(a.type)))continue;
       const display=withTrainCoincidentLayout(presentations[index],coincidentLayouts.get(a.id));
       if(selectedId===a.id&&a.type==='train')updateSelectedTrainRouteProgress(a,now);
       // Follow with a one-second linear pan that matches the marker's glide,
@@ -2929,7 +2931,7 @@
 
   function field(label, value) {
     if (value === undefined || value === null || value === '') return '';
-    const technical = new Set(['Source','ICAO / source ref','ICAO type code','Latitude','Longitude','Train UID','Headcode','Journey ref','Tracking','Bearing','Code','Type','Registration','MMSI','Identified as','Identity confidence','Position','Operator']);
+    const technical = new Set(['Source','ICAO / source ref','ICAO type code','Latitude','Longitude','Train UID','Headcode','Journey ref','Tracking','Bearing','Code','Type','Registration','MMSI','Identified as','Identity confidence','Position','Operator','Aircraft category','Squawk','Position source','Indicated airspeed','True airspeed','Mach','Heading','Selected altitude','Aircraft flags']);
     return `<div class="detail-field${technical.has(label) ? ' is-technical' : ''}" data-field="${esc(label)}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
   }
 
@@ -3219,24 +3221,35 @@
     if (box) { box.classList.add('hidden'); box.innerHTML=''; }
   }
 
-  // The selected bus's route: its stops joined up, the part it has done in
-  // grey and the rest in blue, with a dot at each stop.
+  // The selected bus's route follows the operator's published GTFS shape when
+  // available. Stop-to-stop lines are only a fallback for feeds without one.
   let busRouteLayer=null;
-  function clearBusRoute(){ if(busRouteLayer){map.removeLayer(busRouteLayer);busRouteLayer=null;} $('map')?.removeAttribute('data-bus-route-stops'); }
+  function clearBusRoute(){ if(busRouteLayer){map.removeLayer(busRouteLayer);busRouteLayer=null;} $('map')?.removeAttribute('data-bus-route-stops'); $('map')?.removeAttribute('data-bus-route-geometry'); }
   function drawBusRoute(id,detail){
     clearBusRoute();
     if(selectedId!==id)return;
     const stops=(Array.isArray(detail?.stops)?detail.stops:[]).filter(stop=>Number.isFinite(Number(stop?.lat))&&Number.isFinite(Number(stop?.lon)));
     if(stops.length<2)return;
     const nextIndex=Math.max(0,stops.findIndex(stop=>stop.state==='next'));
-    const done=stops.slice(0,nextIndex+1).map(stop=>[Number(stop.lat),Number(stop.lon)]);
-    const ahead=stops.slice(Math.max(0,nextIndex-0)).map(stop=>[Number(stop.lat),Number(stop.lon)]);
+    const fallback=stops.map(stop=>[Number(stop.lat),Number(stop.lon)]);
+    const shape=(Array.isArray(detail?.shape)?detail.shape:[]).map(point=>[Number(point?.[0]),Number(point?.[1])]).filter(point=>Number.isFinite(point[0])&&Number.isFinite(point[1]));
+    const path=shape.length>=2?shape:fallback;
+    const vehicle=activityById(id);
+    let splitIndex=Math.max(1,Math.round((nextIndex/Math.max(1,stops.length-1))*(path.length-1)));
+    if(vehicle&&Number.isFinite(Number(vehicle.lat))&&Number.isFinite(Number(vehicle.lon))){
+      let best=Infinity;
+      path.forEach((point,index)=>{const distance=distanceKm(Number(vehicle.lat),Number(vehicle.lon),point[0],point[1]);if(distance<best){best=distance;splitIndex=index;}});
+    }
+    splitIndex=Math.max(1,Math.min(path.length-2,splitIndex));
+    const done=path.slice(0,splitIndex+1);
+    const ahead=path.slice(splitIndex);
     const group=L.layerGroup();
     if(done.length>1)group.addLayer(L.polyline(done,{pane:'trainRoutePane',color:'#9aa8b5',weight:4,opacity:.9,interactive:false}));
     if(ahead.length>1)group.addLayer(L.polyline(ahead,{pane:'trainRoutePane',color:'#0b63ce',weight:5,opacity:.9,interactive:false}));
     for(const stop of stops)group.addLayer(L.circleMarker([Number(stop.lat),Number(stop.lon)],{pane:'trainRoutePane',radius:3.5,color:'#fff',weight:1.5,fillColor:stop.state==='passed'?'#9aa8b5':'#0b63ce',fillOpacity:1,interactive:false}));
     busRouteLayer=group.addTo(map);
     $('map')?.setAttribute('data-bus-route-stops',String(stops.length));
+    $('map')?.setAttribute('data-bus-route-geometry',shape.length>=2?'gtfs-shape':'stop-fallback');
   }
 
   function clearActivityIntelligence() {
@@ -3682,7 +3695,9 @@
     } finally {
       if(requestId===intelligenceRequest){
         intelligenceController=null;
-        if(keepRefreshing&&selectedId===a.id)intelligenceRefreshTimer=setTimeout(()=>{const current=activityById(a.id);if(current)loadActivityIntelligence(current,true);},a.type==='train'?10000:20000);
+        const requestedRetry=Number(payload?.detail?.retry_seconds ?? payload?.retry_seconds);
+        const refreshMs=a.type==='train'?10000:(Number.isFinite(requestedRetry)?Math.max(2000,Math.min(20000,requestedRetry*1000)):12000);
+        if(keepRefreshing&&selectedId===a.id)intelligenceRefreshTimer=setTimeout(()=>{const current=activityById(a.id);if(current)loadActivityIntelligence(current,true);},refreshMs);
       }
     }
   }
@@ -3736,12 +3751,13 @@
     $('detail-panel')?.classList.toggle('is-traffic',Boolean(roadImpact));
     $('detail-title').innerHTML = roadImpact ? esc(roadImpact.title||roadImpact.what||a.name) : `${currentWorkspace==='cool' && detailCool.score>=45 ? coolBadgeHtml(a,true)+' ' : ''}${esc(a.name)}`;
     const flightRoute=['sar','aircraft'].includes(a.type) ? flightRouteById.get(a.id) : null;
+    const providerFlightRoute=['sar','aircraft'].includes(a.type)&&a.origin&&a.destination ? `${a.origin} → ${a.destination}` : '';
     // Aircraft: the route, or nothing. Registration, type and operator are
     // already on the operator line below; repeating them here was noise.
     // Aircraft: the route; and when no airline line will show (military,
     // private), the type and registration, so a Hawk says it is a Hawk.
     const aircraftIdentity=['aircraft','sar'].includes(a.type)&&!operatorTheme(a)?[a.aircraft_model||a.aircraft_type_code,a.vehicle_ref].filter(Boolean).join(' • '):'';
-    $('detail-subtitle').textContent = roadImpact ? humanTransitLabel(roadImpact.where||'') : ['aircraft','sar'].includes(a.type) ? [flightRoute?flightRouteText(flightRoute):'',aircraftIdentity].filter(Boolean).join(' · ') : humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
+    $('detail-subtitle').textContent = roadImpact ? humanTransitLabel(roadImpact.where||'') : ['aircraft','sar'].includes(a.type) ? [flightRoute?flightRouteText(flightRoute):providerFlightRoute,aircraftIdentity].filter(Boolean).join(' · ') : humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
     renderOperatorIdentity(a);
     renderInsight(a);
     renderDiscoveryDetail(a);
@@ -3802,14 +3818,26 @@
         // under More details.
         const age = relativeAge(Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000));
         const typeCode = a.aircraft_type_code && a.aircraft_type_code !== a.aircraft_model ? a.aircraft_type_code : null;
+        const verticalRate=a.vertical_rate_fpm==null?null:(Number(a.vertical_rate_fpm)>100?`Climbing ${Math.round(Number(a.vertical_rate_fpm)).toLocaleString('en-GB')} ft/min`:Number(a.vertical_rate_fpm)<-100?`Descending ${Math.abs(Math.round(Number(a.vertical_rate_fpm))).toLocaleString('en-GB')} ft/min`:'Level');
+        const selectedAltitude=a.selected_altitude_ft==null?null:`${Math.round(Number(a.selected_altitude_ft)).toLocaleString('en-GB')} ft`;
+        const heading=a.heading==null?null:`${Math.round(Number(a.heading))}°`;
+        const ias=a.indicated_airspeed_kt==null?null:`${Math.round(Number(a.indicated_airspeed_kt))} kt`;
+        const tas=a.true_airspeed_kt==null?null:`${Math.round(Number(a.true_airspeed_kt))} kt`;
+        const mach=a.mach==null?null:`Mach ${Number(a.mach).toFixed(2)}`;
+        const flags=Array.isArray(a.aircraft_flags)?a.aircraft_flags.join(' • '):null;
         $('detail-fields').innerHTML = [
-          field('Altitude', altitude), field('Speed', speed), field('Updated', age),
+          field('Alert', a.emergency), field('Altitude', altitude), field('Speed', speed), field('Vertical rate', verticalRate), field('Updated', age),
           field('Registration', a.vehicle_ref), field('Identified as', a.identity_label),
-          field('ICAO type code', typeCode), field('Type', a.aircraft_model),
+          field('ICAO type code', typeCode), field('Type', a.aircraft_model), field('Aircraft category', a.aircraft_category),
+          field('Squawk', a.squawk), field('Position source', a.position_source), field('Indicated airspeed', ias),
+          field('True airspeed', tas), field('Mach', mach), field('Heading', heading),
+          field('Selected altitude', selectedAltitude), field('Aircraft flags', flags),
           field('Source', a.source), field('ICAO / source ref', a.source_id),
           field('Latitude', Number.isFinite(Number(a.lat)) ? Number(a.lat).toFixed(5) : null),
           field('Longitude', Number.isFinite(Number(a.lon)) ? Number(a.lon).toFixed(5) : null),
         ].join('');
+        const alertCell=document.querySelector('#detail-fields [data-field="Alert"]');
+        if(alertCell)alertCell.dataset.tone='bad';
       } else if (a.type === 'bus') {
         // Same compact chips as trains; the route and lateness are in the
         // journey card below, and fleet identifiers stay under More details.
@@ -5668,6 +5696,7 @@
       queueViewport();
       map.getContainer().classList.toggle('show-station-labels',map.getZoom()>=12);
       map.getContainer().classList.toggle('show-bus-destinations',map.getZoom()>=15);
+      map.getContainer().classList.toggle('show-train-destinations',map.getZoom()>=14);
       if(enabledActivityTypes.has('train'))updateRailLines();
       if(effectivePlaceMode()!=='off')fetchPlaces();
       if(webcamsEnabled)fetchCameras(false);

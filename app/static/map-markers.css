@@ -66,7 +66,7 @@
 .motion-pointer{position:absolute; inset:0; transform-origin:50% 50%; pointer-events:none;}
 .motion-pointer::before{content:''; position:absolute; left:18px; top:-4px; width:6px; height:9px; background:#f6fbff; clip-path:polygon(50% 0,100% 100%,50% 76%,0 100%); filter:drop-shadow(0 1px 2px rgba(0,0,0,.9)); opacity:.92;}
 .motion-speed{position:absolute; left:50%; top:36px; transform:translateX(-50%); min-width:25px; padding:1px 4px; border-radius:6px; border:1px solid rgba(255,255,255,.16); background:rgba(7,13,19,.9); color:#f2f7fa; font-size:7px; font-weight:800; text-align:center; white-space:nowrap; box-shadow:0 2px 4px rgba(0,0,0,.2);}
-.leaflet-marker-icon.marker-wrap-bus{transition:transform 5s linear!important}
+.leaflet-marker-icon.marker-wrap-bus{transition:transform 1.05s linear!important}
 .leaflet-marker-icon.marker-wrap-train{transition:transform 1.05s linear!important}
 .leaflet-marker-icon.aerial-marker-wrap{transition:transform 1.4s linear!important}
 .map-zooming-fast .leaflet-marker-icon{transition:transform .25s cubic-bezier(0,0,.25,1)!important}
@@ -152,6 +152,12 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 .bus-route-tag .bus-destination{display:none; font-weight:600; color:#4b5563;}
 .bus-route-tag{max-width:132px; overflow:hidden; text-overflow:ellipsis;}
 .show-bus-destinations .bus-route-tag .bus-destination{display:inline;}
+
+/* Train destination appears only once the map is close enough to remain
+   readable. The full destination remains in the title when text is clipped. */
+.train-destination-tag{display:none;position:absolute;left:50%;top:38px;transform:translateX(-50%);max-width:148px;overflow:hidden;text-overflow:ellipsis;padding:1px 7px;border:1px solid rgba(17,24,39,.18);border-radius:7px;background:#fff;color:#111827;box-shadow:0 1px 3px rgba(0,0,0,.18);font-size:10px;font-weight:750;line-height:15px;white-space:nowrap;pointer-events:none;z-index:2}
+.train-destination-tag small{color:#667085;font-size:8px;font-weight:650}
+.show-train-destinations .train-destination-tag{display:block}
 
 /* Bus stops: a small white dot with a green ring and a bus, on the stop. */
 .place-marker.place-bus_stop{width:28px; height:28px; border:0; border-radius:50%; background:transparent; box-shadow:none;}

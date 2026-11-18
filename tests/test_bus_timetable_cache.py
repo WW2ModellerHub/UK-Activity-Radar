@@ -45,16 +45,20 @@ def test_live_vehicle_trip_is_joined_to_official_stop_sequence(tmp_path):
             CREATE TABLE stops(stop_id TEXT PRIMARY KEY,stop_code TEXT,name TEXT,lat REAL,lon REAL);
             CREATE TABLE agencies(agency_id TEXT PRIMARY KEY,name TEXT);
             CREATE TABLE routes(route_id TEXT PRIMARY KEY,agency_id TEXT,short_name TEXT,long_name TEXT);
-            CREATE TABLE trips(trip_id TEXT PRIMARY KEY,route_id TEXT,service_id TEXT,headsign TEXT,direction_id TEXT);
+            CREATE TABLE trips(trip_id TEXT PRIMARY KEY,route_id TEXT,service_id TEXT,headsign TEXT,direction_id TEXT,shape_id TEXT);
             CREATE TABLE calendar(service_id TEXT PRIMARY KEY,monday INTEGER,tuesday INTEGER,wednesday INTEGER,thursday INTEGER,friday INTEGER,saturday INTEGER,sunday INTEGER,start_date TEXT,end_date TEXT);
             CREATE TABLE calendar_dates(service_id TEXT,date TEXT,exception_type INTEGER);
             CREATE TABLE stop_times(stop_id TEXT,trip_id TEXT,arrival_time TEXT,departure_time TEXT,stop_sequence INTEGER);
+            CREATE TABLE shapes(shape_id TEXT,lat REAL,lon REAL,sequence INTEGER);
             INSERT INTO agencies VALUES('agency','Example Buses');
             INSERT INTO routes VALUES('route','agency','7','Town - Centre');
-            INSERT INTO trips VALUES('trip-7','route','daily','City Centre','0');
+            INSERT INTO trips VALUES('trip-7','route','daily','City Centre','0','shape-7');
             INSERT INTO calendar VALUES('daily',1,1,1,1,1,1,1,'20200101','20991231');
             INSERT INTO stops VALUES('stop-a','A','Market Street',51.50,-0.10);
             INSERT INTO stops VALUES('stop-b','B','Central Station',51.51,-0.11);
+            INSERT INTO shapes VALUES('shape-7',51.50,-0.10,1);
+            INSERT INTO shapes VALUES('shape-7',51.505,-0.102,2);
+            INSERT INTO shapes VALUES('shape-7',51.51,-0.11,3);
         """)
         first, second = divmod(minutes, 60)
         connection.execute("INSERT INTO stop_times VALUES('stop-a','trip-7',?,?,1)", (f"{first:02d}:{second:02d}:00", f"{first:02d}:{second:02d}:00"))
@@ -69,6 +73,8 @@ def test_live_vehicle_trip_is_joined_to_official_stop_sequence(tmp_path):
     assert result["operator"] == "Example Buses"
     assert result["next_stop_id"] == "stop-a"
     assert result["stops"][0]["state"] == "next"
+    assert result["shape"] == [[51.5, -0.1], [51.505, -0.102], [51.51, -0.11]]
+    assert result["shape_source"] == "BODS GTFS shapes.txt"
 
 
 def test_live_vehicle_with_operator_journey_ref_matches_official_route_time_and_position(tmp_path):

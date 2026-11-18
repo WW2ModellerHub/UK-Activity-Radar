@@ -222,9 +222,42 @@
     return {...activity,...displayed,position_method:'estimated',position_label:`Live estimate from the latest ADS-B report • ${activity.position_label||''}`};
   }
 
+  function busPresentation(activity,now,reducedMotion){
+    if(reducedMotion)return activity;
+    const updated=Date.parse(activity.last_updated||''),speed=Number(activity.speed),bearing=Number(activity.bearing);
+    const rawAge=(now+clockOffsetMs-updated)/1000;
+    // BODS publishes metres/second. Extrapolate only one short reporting
+    // interval, then hold: this removes the stop/jump effect without allowing
+    // a stale bus to wander indefinitely away from its reported road.
+    if(!Number.isFinite(updated)||!Number.isFinite(speed)||!Number.isFinite(bearing)||rawAge<=0||speed<.7||speed>45)return activity;
+    const age=Math.min(18,rawAge);
+    const target=projectPosition(Number(activity.lat),Number(activity.lon),bearing,speed*age/1000);
+    const key=stateKey(activity);
+    const signature=`${activity.last_updated||''}|${activity.lat}|${activity.lon}|${bearing}|${speed}`;
+    let state=motionStates.get(key);
+    if(!state||state.kind!=='bus'){
+      state=remember(key,{kind:'bus',signature,displayed:target},now);
+    }else if(state.signature!==signature){
+      const from=state.displayed||target;
+      const gap=distanceKm(from.lat,from.lon,target.lat,target.lon);
+      state={kind:'bus',signature,displayed:gap>1?target:from,from:gap>1?null:from,
+        correctionStarted:gap>1?null:now,correctionMs:Math.max(300,Math.min(1400,300+gap*1200))};
+      remember(key,state,now);
+    }
+    let displayed=target;
+    if(state.from&&Number.isFinite(state.correctionStarted)){
+      const progress=clamp((now-state.correctionStarted)/state.correctionMs),amount=ease(progress);
+      displayed={lat:state.from.lat+(target.lat-state.from.lat)*amount,lon:state.from.lon+(target.lon-state.from.lon)*amount};
+      if(progress>=1){delete state.correctionStarted;delete state.correctionMs;delete state.from;}
+    }
+    state.displayed=displayed;remember(key,state,now);
+    return {...activity,...displayed,position_method:'estimated',position_label:`Live estimate from the latest BODS GPS report • ${activity.position_label||''}`};
+  }
+
   function present(activity,now=Date.now(),reducedMotion=false){
     if(!activity)return activity;
     if(activity.type==='train')return trainPresentation(activity,now,reducedMotion);
+    if(activity.type==='bus')return busPresentation(activity,now,reducedMotion);
     if(['aircraft','sar'].includes(activity.type))return aircraftPresentation(activity,now,reducedMotion);
     return activity;
   }

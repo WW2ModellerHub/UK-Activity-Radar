@@ -101,6 +101,21 @@ _AIRLINE_CALLSIGNS = {
     "DLH": "Lufthansa", "UAL": "United Airlines", "AAL": "American Airlines",
 }
 
+_AIRCRAFT_CATEGORIES = {
+    "A1": "Light aircraft", "A2": "Small aircraft", "A3": "Large aircraft",
+    "A4": "High-vortex aircraft", "A5": "Heavy aircraft", "A6": "High-performance aircraft",
+    "A7": "Helicopter / rotorcraft", "B1": "Glider", "B2": "Balloon / airship",
+    "B3": "Skydiving aircraft", "B4": "Ultralight aircraft", "B6": "Uncrewed aircraft",
+    "B7": "Space vehicle", "C1": "Emergency vehicle", "C2": "Airport service vehicle",
+    "C3": "Fixed obstruction", "C4": "Obstruction cluster", "C5": "Line obstruction",
+}
+
+_SQUAWK_EMERGENCIES = {
+    "7500": "Unlawful interference alert",
+    "7600": "Radio failure alert",
+    "7700": "General emergency alert",
+}
+
 _FRIENDLY_AIRFRAME_PATTERNS = (
     (re.compile(r"\b(?:AH-?64|H64|APACHE)\b", re.I), "Boeing AH-64 Apache"),
     (re.compile(r"\b(?:CH-?47|H47|CHINOOK)\b", re.I), "Boeing CH-47 Chinook"),
@@ -153,6 +168,49 @@ def _aircraft_operator(callsign: str | None, provider_owner: str | None) -> str 
     prefix = re.sub(r"[^A-Z0-9]", "", str(callsign or "").upper())[:3]
     return _AIRLINE_CALLSIGNS.get(prefix)
 
+
+def _aircraft_details(row: dict) -> dict:
+    """Normalise useful readsb/FlyItaly telemetry without inventing values."""
+    squawk = str(row.get("squawk") or row.get("sqk") or "").strip() or None
+    raw_emergency = str(row.get("emergency") or "").strip()
+    emergency = _SQUAWK_EMERGENCIES.get(squawk or "")
+    if not emergency and raw_emergency and raw_emergency.lower() not in {"none", "no", "0"}:
+        emergency = raw_emergency.replace("_", " ").strip().title()
+    category_code = str(row.get("category") or "").strip().upper()
+    dbflags = int(_num(row.get("dbFlags")) or 0)
+    flags = [label for bit, label in ((1, "Military"), (2, "Notable"), (4, "PIA"), (8, "LADD")) if dbflags & bit]
+    position_code = str(row.get("type") or "").strip().lower()
+    position_source = {
+        "adsb_icao": "ADS-B", "adsb_icao_nt": "ADS-B", "adsr_icao": "ADS-R",
+        "tisb_icao": "TIS-B", "mlat": "MLAT", "mode_s": "Mode S",
+    }.get(position_code, position_code.upper().replace("_", " ") if position_code else None)
+    route = row.get("route") if isinstance(row.get("route"), dict) else {}
+    origin = route.get("from_iata") or route.get("from")
+    destination = route.get("to_iata") or route.get("to")
+    return {
+        "origin": str(origin).strip().upper() if origin else None,
+        "destination": str(destination).strip().upper() if destination else None,
+        "aircraft_category": _AIRCRAFT_CATEGORIES.get(category_code, category_code or None),
+        "squawk": squawk,
+        "emergency": emergency,
+        "vertical_rate_fpm": _num(row.get("baro_rate") if row.get("baro_rate") is not None else row.get("geom_rate")),
+        "indicated_airspeed_kt": _num(row.get("ias")),
+        "true_airspeed_kt": _num(row.get("tas")),
+        "mach": _num(row.get("mach")),
+        "heading": _num(row.get("true_heading") if row.get("true_heading") is not None else row.get("mag_heading")),
+        "selected_altitude_ft": _num(row.get("nav_altitude_mcp") if row.get("nav_altitude_mcp") is not None else row.get("nav_altitude_fms")),
+        "position_source": position_source,
+        "aircraft_flags": flags or None,
+    }
+
+
+def _aircraft_status(row: dict, details: dict) -> str:
+    if details.get("emergency"):
+        return str(details["emergency"])
+    if str(row.get("alt_baro") or "").strip().lower() == "ground":
+        return "On ground"
+    return "Airborne"
+
 def _is_interesting_aircraft(row: dict) -> bool:
     call = str(row.get("flight") or row.get("callsign") or "").strip().upper().replace(" ", "")
     dbflags = _num(row.get("dbFlags")) or 0
@@ -185,6 +243,7 @@ def parse_interesting_aircraft_response(
         hex_id = str(row.get("hex") or row.get("icao") or callsign or "unknown").strip().lower()
         model, model_name = _airframe_identity(row)
         owner = _aircraft_operator(callsign, row.get("ownOp"))
+        details = _aircraft_details(row)
         gs = _num(row.get("gs")); track = _num(row.get("track"))
         altitude = row.get("alt_baro") or row.get("alt_geom")
         altitude_ft = _num(altitude)
@@ -192,13 +251,14 @@ def parse_interesting_aircraft_response(
         v = Vehicle(
             id=f"aircraft:{hex_id}", type="aircraft", name=callsign or reg or f"Special aircraft {hex_id.upper()}",
             subtitle=" • ".join(bits) or "Military / special-interest aircraft", lat=lat, lon=lon,
-            operator=owner or "Military / special-interest aircraft", status="Airborne", speed=gs, speed_unit="kt" if gs is not None else None,
+            operator=owner or "Military / special-interest aircraft", status=_aircraft_status(row, details), speed=gs, speed_unit="kt" if gs is not None else None,
             position_method="gps", position_label=f"ADS-B / MLAT position from {source_name}", source=source_name, source_id=hex_id,
             vehicle_ref=reg, aircraft_type_code=model, aircraft_model=model_name, altitude_ft=altitude_ft,
             identity_label=model_name or model or reg,
             identity_confidence="type" if (model_name or model) else ("exact" if reg else "unresolved"),
             identity_explanation=("Aircraft type published by the live ADS-B feed." if (model_name or model) else ("Registration published by the live ADS-B feed; aircraft type is unresolved." if reg else "The live feed did not publish an aircraft type or registration.")),
             bearing=track, interesting=True, last_updated=updated,
+            **details,
         )
         old = out.get(v.id)
         if old is None or v.last_updated >= old.last_updated:
@@ -244,6 +304,7 @@ def parse_adsb_response(
         hex_id = str(row.get("hex") or row.get("icao") or callsign or "unknown").strip().lower()
         model, model_name = _airframe_identity(row)
         owner = _aircraft_operator(callsign, row.get("ownOp"))
+        details = _aircraft_details(row)
         gs = _num(row.get("gs"))
         track = _num(row.get("track"))
         altitude = row.get("alt_baro") or row.get("alt_geom")
@@ -260,7 +321,7 @@ def parse_adsb_response(
             lat=lat,
             lon=lon,
             operator="HM Coastguard" if is_coastguard else (owner or ("UK HEMS / public-service aircraft" if "HELIMED" in callsign.upper() else "Public-service/SAR aircraft")),
-            status="Airborne",
+            status=_aircraft_status(row, details),
             speed=gs,
             speed_unit="kt" if gs is not None else None,
             position_method="gps",
@@ -277,6 +338,7 @@ def parse_adsb_response(
             bearing=track,
             interesting=True,
             last_updated=updated,
+            **details,
         )
         old = out.get(v.id)
         if old is None or v.last_updated >= old.last_updated:
@@ -313,6 +375,7 @@ def parse_nearby_aircraft_response(
             continue
         model, model_name = _airframe_identity(row)
         owner = _aircraft_operator(callsign, row.get("ownOp"))
+        details = _aircraft_details(row)
         seen_pos = _num(row.get("seen_pos")) or 0.0
         updated = now - timedelta(seconds=max(0.0, seen_pos))
         altitude = _num(row.get("alt_baro") or row.get("alt_geom"))
@@ -321,7 +384,7 @@ def parse_nearby_aircraft_response(
         out[f"aircraft:{hex_id}"] = Vehicle(
             id=f"aircraft:{hex_id}", type="aircraft", name=identity,
             subtitle=" • ".join(facts) or "Nearby live aircraft",
-            lat=lat, lon=lon, operator=owner, status="Airborne",
+            lat=lat, lon=lon, operator=owner, status=_aircraft_status(row, details),
             speed=_num(row.get("gs")), speed_unit="kt",
             position_method="gps", position_label=f"Nearby ADS-B / MLAT position from {source_name}",
             source=source_name, source_id=hex_id, vehicle_ref=reg,
@@ -331,6 +394,7 @@ def parse_nearby_aircraft_response(
             identity_explanation=("Aircraft type published by the live ADS-B feed." if (model_name or model) else ("Registration published by the live ADS-B feed; aircraft type is unresolved." if reg else "The live feed did not publish an aircraft type or registration.")),
             altitude_ft=altitude, bearing=_num(row.get("track")),
             interesting=_is_interesting_aircraft(row), last_updated=updated,
+            **details,
         )
     return list(out.values()), total
 
@@ -421,7 +485,14 @@ class ADSBLolSARCollector:
                     f"{source_name} is cooling down after a rate limit ({remaining}s remaining)"
                 )
                 continue
-            url = f"{base_url}/point/{lat}/{lon}/{radius_nm}"
+            # FlyItaly's native v2 response adds observed routes and uses a
+            # kilometre radius. Keep the ADSBx-compatible /point path for an
+            # explicitly configured compatibility URL and for ADSB.lol.
+            if source_name == "FlyItalyADSB" and "/api/aircraft/v2" not in base_url:
+                radius_km = max(1, ceil(radius_nm * 1.852))
+                url = f"{base_url}/lat/{lat}/lon/{lon}/dist/{radius_km}?with=route"
+            else:
+                url = f"{base_url}/point/{lat}/{lon}/{radius_nm}"
             try:
                 response = self._session.get(url, timeout=timeout, headers=headers or None)
                 response.raise_for_status()
