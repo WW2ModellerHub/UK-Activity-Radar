@@ -263,6 +263,11 @@ test('trains sharing one station coordinate remain separately rendered', async (
   });
   await expect(page.locator('.marker-wrap-train.train-coincident-wrap')).toHaveCount(2);
   await expect(page.locator('.train-coincident-index')).toHaveText(['1','2']);
+  await expect(page.locator('.train-service-tag')).toHaveText(['1A23','1C17']);
+  const markerBoxes=await page.locator('.marker-wrap-train.train-coincident-wrap').evaluateAll(nodes=>nodes.map(node=>{
+    const box=node.getBoundingClientRect();return {x:box.x+box.width/2,y:box.y+box.height/2};
+  }));
+  expect(Math.hypot(markerBoxes[0].x-markerBoxes[1].x,markerBoxes[0].y-markerBoxes[1].y)).toBeGreaterThan(35);
   await expect(page.locator('#map')).toHaveAttribute('data-coincident-train-groups','1');
   await expect(page.locator('#map')).toHaveAttribute('data-separated-train-markers','2');
 });
@@ -990,6 +995,10 @@ test('a selected train merged into another live identity is re-linked to it', as
 test('clicked trains and buses load source-backed route intelligence', async ({ page }) => {
   await page.locator('[data-layer-toggle="train"]').click();
   await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-insight')).toHaveClass(/train-live-card/);
+  await expect(page.locator('#detail-insight')).toContainText('LIVE TRAIN STORY');
+  await expect(page.locator('#detail-insight')).toContainText('How the movement works');
+  await expect(page.locator('#detail-insight')).toContainText('mapped railway');
   await expect(page.locator('#detail-intelligence .train-full-route')).toBeVisible();
   await expect(page.locator('#detail-intelligence')).toContainText('Watford Junction');
   await expect(page.locator('#detail-intelligence')).not.toContainText('Ledburn Junction');
@@ -1361,6 +1370,9 @@ test('a second row under the chips offers options for the layer switched on last
   await expect(row.locator('.sub-chip:visible')).toHaveText(['Next bus','Bus stops','Disruptions','Camera view']);
   await row.locator('[data-sub-action="bus-disruptions"]').click();
   await expect(page.locator('#detail-title')).toHaveText('Bus disruptions');
+  await expect(page.locator('#detail-subtitle')).toHaveText('1 in this area');
+  await expect(page.locator('[data-bus-disruption="bods-sx:fixture-closure"]')).toContainText('Bus stop closed');
+  await expect(page.locator('[data-bus-disruption="bods-sx:fixture-closure"]')).toContainText('Queens Road · Until 18:00');
   await page.locator('[data-layer-chip="aircraft"]').click();
   await expect(row.locator('.sub-chip:visible')).toHaveText(['Above me','Point at sky','Camera view']);
   await page.locator('[data-layer-chip="incident"]').click();
@@ -1851,7 +1863,9 @@ test('the camera view labels the aircraft, train and bus in the direction the ph
   await expect(page.locator('#ar-direction')).toHaveText('Looking E, 17° up');
   const plane = page.locator('.ar-label.ar-aircraft');
   await expect(plane).toContainText('EZY12AB');
-  await expect(plane).toContainText('Airbus A320 · 10,000 ft');
+  await expect(plane).toContainText('Airbus A320');
+  await expect(plane).toContainText('10,000 ft · Level');
+  await expect(plane.locator('b')).toContainText('away');
   const size = page.viewportSize(), box = await plane.boundingBox();
   expect(Math.abs(box.x + box.width / 2 - size.width / 2)).toBeLessThan(40);
   expect(Math.abs(box.y + box.height / 2 - size.height / 2)).toBeLessThan(40);
@@ -1861,11 +1875,15 @@ test('the camera view labels the aircraft, train and bus in the direction the ph
   await page.locator('[data-ar-kind="bus"]').click();
   // Facing north at the horizon: the train, not the plane or the bus behind you.
   await face(0, 90);
-  await expect(page.locator('.ar-label.ar-train')).toContainText('1A23 to Leeds');
+  await expect(page.locator('.ar-label.ar-train')).toContainText('1A23');
+  await expect(page.locator('.ar-label.ar-train')).toContainText('to Leeds');
   await expect(page.locator('.ar-label.ar-train')).toContainText('6 min late');
+  await expect(page.locator('.ar-label.ar-train')).toContainText('Northern');
+  await expect(page.locator('.ar-label.ar-train').locator('b')).toContainText('away');
   await expect(page.locator('.ar-label')).toHaveCount(1);
   await face(180, 90);
-  await expect(page.locator('.ar-label.ar-bus')).toContainText('Bus 7 to City Centre');
+  await expect(page.locator('.ar-label.ar-bus')).toContainText('Bus 7');
+  await expect(page.locator('.ar-label.ar-bus')).toContainText('to City Centre');
   await page.locator('#ar-close').click();
   await expect(page.locator('#ar-view')).toBeHidden();
 });
@@ -2018,7 +2036,8 @@ test('the camera view opens straight away and finds your location while it runs'
   await page.evaluate(() => window.__deliverFix());
   await page.evaluate(() => { for (let i = 0; i < 25; i += 1) { const e = new Event('deviceorientation'); e.webkitCompassHeading = 0; e.beta = 90; window.dispatchEvent(e); } });
   await expect(page.locator('#ar-direction')).toHaveText('Looking N, 0° up');
-  await expect(page.locator('.ar-label.ar-train')).toContainText('1A23 to Leeds');
+  await expect(page.locator('.ar-label.ar-train')).toContainText('1A23');
+  await expect(page.locator('.ar-label.ar-train')).toContainText('to Leeds');
 });
 
 test('the Weather layer shows the rain radar with its time, scale and credit, and can play back', async ({ page }) => {

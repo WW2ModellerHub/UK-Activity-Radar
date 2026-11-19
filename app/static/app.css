@@ -606,6 +606,26 @@ body:has(.detail-sidebar:not(.is-empty):not(.route-view)) #recenter { right: cal
 .aircraft-why { padding-top: 10px; display: grid; gap: 3px; border-top: 1px solid var(--line); }
 .aircraft-why strong { font-size: 13px; }
 .aircraft-why span { color: var(--muted); font-size: 13px; }
+.detail-insight.train-live-card { padding: 14px; gap: 12px; background: var(--surface); border: 1px solid var(--line); }
+.train-live-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.train-live-head small { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+.train-live-head span { overflow: hidden; color: var(--muted); font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.train-live-now { display: grid; grid-template-columns: 48px minmax(0,1fr); align-items: center; gap: 12px; }
+.train-live-now > div:last-child { display: grid; gap: 3px; }
+.train-live-now small { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .05em; }
+.train-live-now strong { font-size: 15px; line-height: 1.42; }
+.train-story-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; background: var(--rail); color: #fff; }
+.train-story-icon svg { width: 25px; height: 25px; }
+.train-live-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.train-live-tags b { padding: 4px 8px; border-radius: 999px; background: var(--subtle); color: var(--text); font-size: 12px; font-weight: 650; }
+.train-live-tags b[data-tone="good"] { background: var(--good-soft); color: var(--good); }
+.train-live-tags b[data-tone="warn"] { background: var(--warn-soft); color: var(--warn); }
+.train-live-tags b[data-tone="bad"] { background: var(--bad-soft); color: var(--bad); }
+.train-story-list { display: grid; border-top: 1px solid var(--line); }
+.train-story-list > div { padding: 9px 0; display: grid; gap: 2px; border-bottom: 1px solid var(--line); }
+.train-story-list > div:last-child { padding-bottom: 0; border-bottom: 0; }
+.train-story-list strong { font-size: 12px; }
+.train-story-list span { color: var(--muted); font-size: 13px; line-height: 1.42; }
 .detail-discovery button { margin-top: 6px; }
 .detail-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .detail-field { padding: 10px 12px; display: grid; gap: 2px; border-bottom: 1px solid var(--line); min-width: 0; }
@@ -1275,13 +1295,15 @@ p.leave-plan.is-set small { color: #2f5e49; }
 .ar-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px 12px; color: #fff; font-weight: 700; font-size: 17px; background: linear-gradient(rgba(0,0,0,.55), transparent); }
 #ar-close { width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-size: 26px; line-height: 1; }
 .ar-hint { position: absolute; left: 14px; right: 14px; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); margin: 0; padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,.55); color: #fff; font-size: 13px; text-align: center; }
-.ar-label { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 8px; width: max-content; max-width: 240px; padding: 6px 10px 6px 6px; border: 2px solid #fff; border-radius: 999px; background: rgba(15,20,28,.82); color: #fff; text-align: left; font: inherit; }
+.ar-label { position: absolute; transform: translate(-50%, -50%); display: grid; grid-template-columns: 30px minmax(0,1fr) auto; align-items: center; gap: 8px; width: min(300px, calc(100vw - 28px)); min-height: 50px; padding: 7px 10px 7px 7px; border: 2px solid rgba(255,255,255,.94); border-radius: 18px; background: rgba(15,20,28,.88); box-shadow: 0 6px 20px rgba(0,0,0,.32); color: #fff; text-align: left; font: inherit; backdrop-filter: blur(8px); }
 .ar-label i { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 50%; background: #0b63ce; }
 .ar-label.ar-train i { background: #7b2d70; } .ar-label.ar-bus i { background: #0f7a55; }
 .ar-label i svg { width: 18px; height: 18px; stroke: #fff; }
 .ar-label span { display: grid; min-width: 0; }
 .ar-label strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ar-label small { font-size: 12px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ar-label span em { overflow: hidden; color: rgba(255,255,255,.72); font-size: 11px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.ar-label > b { padding: 5px 7px; border-radius: 9px; background: rgba(255,255,255,.14); font-size: 12px; line-height: 1; white-space: nowrap; }
 body.ar-open { overflow: hidden; }
 
 .ar-kinds { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 92px); display: flex; justify-content: center; gap: 8px; }

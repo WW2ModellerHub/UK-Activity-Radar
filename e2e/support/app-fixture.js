@@ -173,6 +173,11 @@ async function installAppFixture(page) {
       ] } });
       if (pathname === '/api/trains/near') return route.fulfill({ json:{ radius_km:5, trains:[ { id:'train-live-1', name:'1A23', destination:'Manchester Piccadilly', operator:'Fixture Rail', delay_minutes:6, distance_km:0.4 } ] } });
       if (pathname === '/api/trains/status') return route.fulfill({ json:{ trains:[] } });
+      if (pathname === '/api/buses/disruptions') return route.fulfill({ json:{ count:1, disruptions:[{
+        id:'bods-sx:fixture-closure', kind:'event', type:'incident', name:'Queens Road stop closed',
+        lat:52.04, lon:-0.76, source:'DfT BODS Disruptions', last_updated:'2026-10-05T10:00:00Z',
+        details:{bus_disruption:true}, impact:{title:'Bus stop closed', where:'Queens Road', when:'Until 18:00'},
+      }] } });
       if (decodedPathname.startsWith('/api/rail/locate')) return route.fulfill({ json:{live:false,activity:null,message:'No matching live position is available right now.'} });
       if (decodedPathname.startsWith('/api/rail/schedule/C99999')) return route.fulfill({ json:{train_uid:'C99999',detail:{available:true,mode:'published_schedule',source:'Published railway timetable',live_marker:false,note:'Published route only. A matching live position is not available right now.',runs:[{headcode:'1Z80',origin:'Milton Keynes Central',destination:'Birmingham New Street',status:'Scheduled',calling_points:[{name:'Milton Keynes Central',scheduled:'10:32',event:'Calls'},{name:'Coventry',scheduled:'11:08',event:'Calls'},{name:'Birmingham New Street',scheduled:'11:31',event:'Calls'}]}]}} });
       if (decodedPathname.includes('/api/places/bus:490000077A/board')) return route.fulfill({ json: { board: { mode: 'live_predictions', source: 'Recorded BODS fixture', next_live_id:'bus-live-7', rows: [{ expected:'10:06', route:'7', destination:'City Centre', operator:'Arriva Midlands', status:'Live', minutes:5, live_vehicle_id:'bus-live-7' }] } } });

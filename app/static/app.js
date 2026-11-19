@@ -1039,18 +1039,37 @@
     const fix=cameraView.fix;if(!fix)return [];
     const sky=nearbyAircraftRows.filter(a=>a.altitude_ft!=null).map(a=>{
       const km=distanceKm(fix.lat,fix.lon,Number(a.lat),Number(a.lon));
-      return {id:a.id,type:'aircraft',title:a.name||'Aircraft',facts:[a.aircraft_model||a.aircraft_type_code,`${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} ft`,awayText(km)],
+      const rate=Number(a.vertical_rate_fpm);
+      const movement=Number.isFinite(rate)&&rate>150?'Climbing':Number.isFinite(rate)&&rate<-150?'Descending':'Level';
+      return {id:a.id,type:'aircraft',title:a.name||'Aircraft',journey:a.aircraft_model||a.aircraft_type_code||'Aircraft',facts:[`${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} ft`,movement],distance:awayText(km),
         km,bearing:bearingBetween(fix.lat,fix.lon,Number(a.lat),Number(a.lon)),up:Math.atan2(Number(a.altitude_ft)*0.3048,Math.max(1,km*1000))*180/Math.PI};
     }).filter(row=>Number.isFinite(row.km)&&row.km<=60);
     const ground=cameraView.ground.map(v=>{
       const km=distanceKm(fix.lat,fix.lon,Number(v.lat),Number(v.lon));
       const late=v.type==='train'&&Number(v.delay_minutes)>=1?`${Math.round(Number(v.delay_minutes))} min late`:null;
-      return {id:v.id,type:v.type,title:v.destination?`${v.name} to ${humanTransitLabel(v.destination)}`:v.name,facts:[humanTransitLabel(v.operator||''),late,awayText(km)],
+      const onTime=v.type==='train'&&v.delay_minutes!=null&&!late?'On time':null;
+      return {id:v.id,type:v.type,title:v.name,journey:v.destination?`to ${humanTransitLabel(v.destination)}`:'Live vehicle',facts:[late||onTime,humanTransitLabel(v.operator||'')],distance:awayText(km),
         km,bearing:bearingBetween(fix.lat,fix.lon,Number(v.lat),Number(v.lon)),up:0};
     }).filter(row=>Number.isFinite(row.km)&&row.km>=0.03);
     // Only what was asked for: opened from Trains, it shows trains.
     return [...sky,...ground].filter(row=>cameraView.kinds.has(row.type));
   }
+
+  function arrangeCameraLabels(rows,width,height) {
+    const placed=[];
+    const minX=Math.min(width/2,132),maxX=Math.max(width/2,width-132);
+    const minY=104,maxY=Math.max(minY,height-178);
+    for(const object of rows){
+      const x=Math.max(minX,Math.min(maxX,object.x));
+      const baseY=Math.max(minY,Math.min(maxY,object.y));
+      const candidates=[baseY];
+      for(let step=1;step<=5;step++){candidates.push(baseY+step*62,baseY-step*62);}
+      const y=candidates.map(value=>Math.max(minY,Math.min(maxY,value))).find(value=>!placed.some(prior=>Math.abs(prior.x-x)<248&&Math.abs(prior.y-value)<58)) ?? baseY;
+      const arranged={...object,x,y};placed.push(arranged);
+    }
+    return placed;
+  }
+
   function drawCameraView() {
     cameraView.frame=0;
     if(!cameraView.active)return;
@@ -1072,22 +1091,27 @@
     shown.sort((a,b)=>a.km-b.km);
     // Labels are moved, not rebuilt: rebuilding them every frame swallowed
     // taps (on the labels and on Close) on a real phone.
-    const wanted=shown.slice(0,8),keep=new Set(wanted.map(object=>object.id));
+    const wanted=arrangeCameraLabels(shown.slice(0,8),width,height),keep=new Set(wanted.map(object=>object.id));
     layer.querySelectorAll('[data-ar-id]').forEach(node=>{ if(!keep.has(node.dataset.arId))node.remove(); });
     for(const object of wanted){
       let node=layer.querySelector(`[data-ar-id="${CSS.escape(object.id)}"]`);
-      const text=`${object.title}|${object.facts.filter(Boolean).join(' · ')}`;
+      const text=`${object.title}|${object.journey}|${object.facts.filter(Boolean).join(' · ')}|${object.distance}`;
       if(!node){
         node=document.createElement('button');node.type='button';node.className=`ar-label ar-${object.type}`;node.dataset.arId=object.id;
         layer.appendChild(node);
       }
       if(node.dataset.text!==text){
         node.dataset.text=text;
-        node.innerHTML=`<i aria-hidden="true">${icons[object.type]||''}</i><span><strong>${esc(object.title)}</strong><small>${esc(object.facts.filter(Boolean).join(' · '))}</small></span>`;
+        node.setAttribute('aria-label',`${object.title}, ${object.journey}, ${object.distance}`);
+        node.innerHTML=`<i aria-hidden="true">${icons[object.type]||''}</i><span><strong>${esc(object.title)}</strong><small>${esc(object.journey)}</small>${object.facts.filter(Boolean).length?`<em>${esc(object.facts.filter(Boolean).join(' · '))}</em>`:''}</span><b>${esc(object.distance)}</b>`;
       }
       node.style.left=`${object.x.toFixed(0)}px`;node.style.top=`${object.y.toFixed(0)}px`;
     }
     layer.dataset.shown=String(wanted.length);
+    const hint=$('ar-hint');
+    if(hint)hint.textContent=wanted.length
+      ? `${wanted.length} live ${wanted.length===1?'vehicle':'vehicles'} in view · Tap a label to follow it on the map.`
+      : 'Slowly look left, right, up and down. Live labels appear when you face them.';
   }
   function onCameraOrientation(event) {
     if(!cameraView.active)return;
@@ -1369,14 +1393,29 @@
     box.querySelectorAll('[data-line-train]').forEach(button=>button.addEventListener('click',()=>focusActivityById(button.dataset.lineTrain,Math.max(11,map.getZoom()))));
   }
 
-  function showBusDisruptions(){
+  async function showBusDisruptions(){
     const bounds=map.getBounds?.();
-    const rows=activities.filter(a=>a.type==='bus'&&a.details?.bus_disruption&&(!bounds||bounds.contains?.([Number(a.lat),Number(a.lon)])!==false));
+    const box=openInfoPanel('Bus disruptions','Checking this area…','<p class="transport-empty">Loading official cancellations, diversions and stop closures…</p>');
+    let rows=[];
+    try {
+      if(!bounds)throw new Error('Map bounds unavailable');
+      const params=new URLSearchParams({west:bounds.getWest(),south:bounds.getSouth(),east:bounds.getEast(),north:bounds.getNorth(),limit:'30'});
+      const response=await fetch(`/api/buses/disruptions?${params}`,{cache:'no-store'});
+      if(!response.ok)throw new Error('Bus disruptions unavailable');
+      const payload=await response.json();
+      rows=Array.isArray(payload.disruptions)?payload.disruptions:[];
+      rows.forEach(row=>globalCoolById.set(row.id,row));
+    } catch {
+      box.innerHTML='<p class="transport-empty">Bus disruptions couldn’t refresh right now. Try again in a moment.</p>';
+      $('detail-subtitle').textContent='Official feed unavailable';
+      return;
+    }
     const list=rows.slice(0,30).map(a=>{
       const facts=[a.impact?.where,a.impact?.when].filter(Boolean).join(' · ');
       return `<button type="button" class="line-train" data-bus-disruption="${esc(a.id)}"><i class="line-dot is-bad" aria-hidden="true"></i><span><strong>${esc(a.impact?.title||a.name)}</strong>${facts?`<small>${esc(facts)}</small>`:''}</span><b>›</b></button>`;
     }).join('');
-    const box=openInfoPanel('Bus disruptions',rows.length?`${rows.length} in this area`:'None in this area right now',list?`<div class="line-trains">${list}</div>`:'<p class="transport-empty">No stop closures or diversions are reported here.</p>');
+    $('detail-subtitle').textContent=rows.length?`${rows.length} in this area`:'None in this area right now';
+    box.innerHTML=list?`<div class="line-trains">${list}</div>`:'<p class="transport-empty">No stop closures or diversions are reported here.</p>';
     box.querySelectorAll('[data-bus-disruption]').forEach(button=>button.addEventListener('click',()=>focusActivityById(button.dataset.busDisruption,Math.max(15,map.getZoom()))));
   }
 
@@ -1846,9 +1885,11 @@
     const busTag=busRoute?`<b class="bus-route-tag">${esc(busRoute)}${busWhere?`<small class="bus-destination"> · ${esc(busWhere)}</small>`:''}</b>`:'';
     const trainWhere=type==='train'&&v.destination?humanTransitLabel(String(v.destination)).slice(0,28):'';
     const trainTag=trainWhere?`<b class="train-destination-tag" title="to ${esc(humanTransitLabel(String(v.destination)))}"><small>to</small> ${esc(trainWhere)}</b>`:'';
+    const trainService=String(v.headcode||String(v.name||'').match(/\b[0-9][A-Z][0-9]{2}\b/i)?.[0]||coincidentSlot+1).toUpperCase();
+    const trainServiceTag=type==='train'&&coincidentCount>1?`<small class="train-service-tag">${esc(trainService)}</small>`:'';
     return L.divIcon({
       className: `marker-wrap marker-wrap-${esc(type)}${coincidentCount>1?' train-coincident-wrap':''}`,
-      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}${cancelled?' is-cancelled':''}"${cancelled?'':trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}${punctualityDot}</div>${pointer}${speedTag}${busTag}${trainTag}</div>`,
+      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}${cancelled?' is-cancelled':''}"${cancelled?'':trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}${punctualityDot}</div>${pointer}${speedTag}${busTag}${trainTag}${trainServiceTag}</div>`,
       iconSize: [42,42], iconAnchor: [21-offsetX,21-offsetY],
       tooltipAnchor: type==='train' ? [offsetX,offsetY-17] : [0,0]
     });
@@ -2486,8 +2527,10 @@
         groupCount+=1;separatedCount+=group.length;
         const ordered=[...group].sort((a,b)=>String(a.id).localeCompare(String(b.id)));
         const count=ordered.length;
-        // Trains at one reporting point sit just apart, side by side.
-        const radius=count===2?14:Math.min(34,Math.max(18,14/Math.sin(Math.PI/count)));
+        // Keep at least one full marker-width between neighbouring trains.
+        // The former 14px radius made platformed trains overlap precisely
+        // when the user most needed to distinguish them.
+        const radius=count===2?22:Math.min(52,Math.max(26,20/Math.sin(Math.PI/count)));
         const start=count===2?0:-Math.PI/2;
         ordered.forEach((row,index)=>{
           const angle=start+(Math.PI*2*index/count);
@@ -3004,6 +3047,7 @@
   function renderInsight(a) {
     const box = $('detail-insight');
     if(!box)return;
+    box.classList.remove('train-live-card');
     const motorwaySign=a?.kind==='event' && String(a.category||'').toLowerCase()==='live motorway sign';
     const managedSpeed=a?.kind==='event' && String(a.category||'').toLowerCase()==='live managed speed';
     if(motorwaySign){
@@ -3019,7 +3063,33 @@
       box.innerHTML=`<small>LIVE MANAGED SPEED</small><div class="uk-speed-roundel" aria-label="${esc(speed)} miles per hour">${esc(speed)}</div><strong>${esc([a.road,a.direction].filter(Boolean).join(' • ')||'National Highways')}</strong><span>${esc(a.reason||'Temporary speed restriction')}</span>`;
       return;
     }
-    if(a.type==='train'){box.classList.add('hidden');box.innerHTML='';return;}
+    if(a.type==='train'){
+      const delayRaw=railDelayById.has(a.id)?railDelayById.get(a.id):a.delay_minutes;
+      const delay=delayRaw==null?null:Number(delayRaw);
+      const cancelled=Boolean(a.cancelled_at)||/cancel/i.test(String(a.status||''));
+      const status=cancelled?'Cancelled':delay==null?'Live':delay>=1?`${Math.round(delay)} min late`:delay<=-1?`${Math.abs(Math.round(delay))} min early`:'On time';
+      const route=[humanTransitLabel(a.origin||''),humanTransitLabel(a.destination||'')].filter(Boolean);
+      const operator=humanTransitLabel(a.operator||'');
+      const ageSeconds=Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000);
+      const age=relativeAge(ageSeconds);
+      const next=humanTransitLabel(a.next_location||'');
+      const position=humanTransitLabel(a.position_label||'');
+      const reportKind=a.position_method==='estimated'
+        ? 'The marker is moving along the mapped railway between confirmed signalling reports.'
+        : 'The marker is at the latest confirmed reporting point on the mapped railway.';
+      const journey=route.length===2?` from ${route[0]} to ${route[1]}`:route.length?` towards ${route[0]}`:'';
+      const nowCopy=cancelled
+        ? `${a.name} is cancelled${journey}.`
+        : `${operator?`${operator} service `:''}${a.name} is ${status.toLowerCase()}${journey}${next?`, heading next towards ${next}`:''}.`;
+      const stories=[];
+      if(next)stories.push(['What happens next',`The next railway report is expected around ${next}.`]);
+      if(position)stories.push(['Last confirmed railway report',`${position} · updated ${age}.`]);
+      stories.push(['How the movement works',reportKind]);
+      box.classList.remove('hidden','aircraft-live-card');
+      box.classList.add('train-live-card');
+      box.innerHTML=`<div class="train-live-head"><small>LIVE TRAIN STORY</small><span>${esc(operator||'UK railway network')}</span></div><div class="train-live-now"><div class="train-story-icon" aria-hidden="true">${icons.train}</div><div><small>RIGHT NOW</small><strong>${esc(nowCopy)}</strong></div></div><div class="train-live-tags"><b data-tone="${cancelled?'bad':delay>=5?'bad':delay>=1?'warn':'good'}">${esc(status)}</b>${a.platform?`<b>Platform ${esc(a.platform)}</b>`:''}${a.position_method==='estimated'?'<b>Between reports</b>':'<b>Confirmed report</b>'}</div><div class="train-story-list">${stories.map(([label,value])=>`<div><strong>${esc(label)}</strong><span>${esc(value)}</span></div>`).join('')}</div>`;
+      return;
+    }
     let info;
     if(a.type==='aircraft'){
       const classified=coolInfo(a);
@@ -3720,10 +3790,12 @@
     if(!box)return;
     const requestId=++intelligenceRequest;
     let keepRefreshing=true;
+    let responsePayload={};
     if(!force){box.classList.remove('hidden');box.innerHTML=`<small>${a.type==='train'?'LIVE TRAIN JOURNEY':'LIVE BUS JOURNEY'}</small><p class="coverage-loading">Loading route…</p>`;}
     try {
       const response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/${a.type==='train'?'rail':'bus'}`,{cache:'no-store',signal:controller.signal});
       const payload=await response.json().catch(()=>({}));
+      responsePayload=payload;
       if(requestId!==intelligenceRequest || selectedId!==a.id)return;
       if(response.status===404&&a.type==='train'){
         // The server no longer holds this id: the service was merged into
@@ -3764,7 +3836,7 @@
     } finally {
       if(requestId===intelligenceRequest){
         intelligenceController=null;
-        const requestedRetry=Number(payload?.detail?.retry_seconds ?? payload?.retry_seconds);
+        const requestedRetry=Number(responsePayload?.detail?.retry_seconds ?? responsePayload?.retry_seconds);
         const refreshMs=a.type==='train'?10000:(Number.isFinite(requestedRetry)?Math.max(2000,Math.min(20000,requestedRetry*1000)):12000);
         if(keepRefreshing&&selectedId===a.id)intelligenceRefreshTimer=setTimeout(()=>{const current=activityById(a.id);if(current)loadActivityIntelligence(current,true);},refreshMs);
       }

@@ -2720,6 +2720,38 @@ def trains_near(request: Request, lat: float, lon: float, km: float = 5.0):
     return {"radius_km": radius, "trains": rows[:12]}
 
 
+@app.get("/api/buses/disruptions")
+def bus_disruptions(
+    request: Request,
+    west: float,
+    south: float,
+    east: float,
+    north: float,
+    limit: int = 30,
+):
+    """Return official bus cancellations, diversions and stop closures in view.
+
+    BODS SIRI-SX rows are incident events rather than moving bus vehicles, so
+    they are not part of a browser viewport that has only the Buses layer on.
+    This bounded endpoint lets Buses > Disruptions work without also enabling
+    every road incident on the map.
+    """
+    _enforce_public_budget(request, lookup_request_budget)
+    if not (-180 <= west < east <= 180 and -90 <= south < north <= 90):
+        raise HTTPException(status_code=400, detail="Invalid map bounds")
+    rows = [
+        event for event in state.all_events(bbox=(west, south, east, north))
+        if bool((event.details or {}).get("bus_disruption"))
+    ]
+    return {
+        "disruptions": [
+            event.model_dump(mode="json", exclude_none=True)
+            for event in rows[: max(1, min(int(limit), 100))]
+        ],
+        "count": len(rows),
+    }
+
+
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     p1, p2 = math.radians(lat1), math.radians(lat2)
     h = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
