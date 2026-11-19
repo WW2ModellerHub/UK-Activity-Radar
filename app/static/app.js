@@ -2248,7 +2248,8 @@
     for(const row of rows){
       const status=String(row.status||'');
       const isCancelled=Boolean(row.cancelled)||/cancel/i.test(status);
-      const delay=Number(row.delay_minutes);
+      // Some boards say "On time" without a minutes figure.
+      const delay=row.delay_minutes!=null&&row.delay_minutes!==''?Number(row.delay_minutes):(/^on time$/i.test(status)?0:NaN);
       if(isCancelled)cancelled+=1;
       else if(Number.isFinite(delay)){if(delay>5)late+=1;else onTime+=1;}
       if(row.destination)destinations.add(humanTransitLabel(row.destination));
