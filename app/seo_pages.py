@@ -129,7 +129,7 @@ def _shell(*, title: str, description: str, canonical: str, body: str, json_ld: 
 <meta property="og:title" content="{escape(title, quote=True)}"><meta property="og:description" content="{escape(description, quote=True)}">
 <meta property="og:url" content="{escape(canonical, quote=True)}"><meta property="og:image" content="{escape(site, quote=True)}/card.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#ffffff">
-<link rel="icon" href="/static/icon-192.png"><link rel="stylesheet" href="/static/seo.css">{ld}</head>
+<link rel="icon" href="/static/icon-192.png"><link rel="stylesheet" href="/static/seo.css?v=16349">{ld}</head>
 <body><header class="top"><a class="brand" href="/"><span>R</span>UK Activity Radar</a><nav><a href="/">Live map</a><a href="/stations">Stations</a><a href="/operators">Operators</a><a href="/military-aircraft-tracker">Aircraft</a><a href="/guides">Guides</a></nav></header>
 <main>{body}</main>
 <footer><a href="/">Live map</a> · <a href="/stations">All stations</a> · <a href="/operators">Train operators</a> · <a href="/military-aircraft-tracker">Aircraft trackers</a> · <a href="/guides">Tracking guides</a> · <a href="/about">About</a> · <a href="/data-licences">Data licences</a><p>Times and delays from Network Rail open data. Contains information of Network Rail Infrastructure Limited.</p></footer>
@@ -150,11 +150,20 @@ def _status(row: dict) -> tuple[str, str]:
     return "Scheduled", ""
 
 
-def station_page(origin: str, station: dict, board: dict | None, nearby: list[dict], operator_rows: list[dict]) -> str:
+def station_page(
+    origin: str,
+    station: dict,
+    board: dict | None,
+    nearby: list[dict],
+    operator_rows: list[dict],
+    trainline_affiliate_url: str = "",
+) -> str:
     name, crs = station["name"], station["crs"]
     departures = [row for row in (board or {}).get("departures") or [] if int(row.get("minutes") or 0) >= -2][:12]
     rows, late, cancelled, known = [], 0, 0, 0
     operators: list[str] = []
+    destinations: list[str] = []
+    platforms: set[str] = set()
     for row in departures:
         status, tone = _status(row)
         known += tone in {"good", "late", "bad"}
@@ -164,6 +173,11 @@ def station_page(origin: str, station: dict, board: dict | None, nearby: list[di
         if operator and operator not in operators:
             operators.append(operator)
         platform = row.get("platform") or (f"usually {row['usual_platform']['platform']}" if row.get("usual_platform") else "")
+        destination = tidy_name(row.get("destination") or "")
+        if destination and destination not in destinations:
+            destinations.append(destination)
+        if platform:
+            platforms.add(str(platform))
         rows.append(
             f"<tr><td class=time>{escape(_clock(row.get('scheduled')))}</td>"
             f"<td><strong>{escape(tidy_name(row.get('destination') or ''))}</strong><small>{escape(operator)}</small></td>"
@@ -191,10 +205,32 @@ def station_page(origin: str, station: dict, board: dict | None, nearby: list[di
     nearby_links = "".join(f'<li><a href="{escape(s["path"])}">{escape(s["name"])}</a></li>' for s in nearby)
     table = (f'<table class="board"><thead><tr><th>Due</th><th>Going to</th><th>Plat.</th><th>Status</th></tr></thead><tbody>{"".join(rows)}</tbody></table>'
              if rows else "")
+    on_time = max(0, known - late - cancelled)
+    on_time_percent = round(on_time * 100 / known) if known else None
+    snapshot = ""
+    if departures:
+        segments = ""
+        if known:
+            segment_rows = (("good", on_time, "On time or within 5 minutes"), ("late", late, "More than 5 minutes late"), ("bad", cancelled, "Cancelled"))
+            segments = "".join(
+                f'<i class="{tone}" style="width:{count * 100 / known:.2f}%" title="{escape(label)}: {count}"></i>'
+                for tone, count, label in segment_rows if count
+            )
+        status_summary = f"{on_time} on time or within 5 minutes, {late} late and {cancelled} cancelled"
+        direct = "".join(f"<span>{escape(value)}</span>" for value in destinations[:6])
+        snapshot = f'''<section class="station-snapshot" aria-labelledby="snapshot-title"><h2 id="snapshot-title">Live station snapshot</h2>
+<div class="stat-grid"><div><strong>{len(departures)}</strong><span>departures loaded</span></div><div><strong>{len(destinations)}</strong><span>destinations</span></div><div><strong>{str(on_time_percent) + '%' if on_time_percent is not None else '—'}</strong><span>on time within 5 min</span></div><div><strong>{len(platforms)}</strong><span>platforms shown</span></div></div>
+{f'<div class="status-chart" role="img" aria-label="{escape(status_summary)}">{segments}</div><p class="chart-summary">{escape(status_summary)}.</p>' if known else ''}
+{f'<p class="direct-now"><b>Direct destinations in this live snapshot</b>{direct}</p>' if direct else ''}</section>'''
+    affiliate_url = str(trainline_affiliate_url or "").strip()
+    affiliate = ""
+    if affiliate_url.startswith("https://"):
+        affiliate = f'<a class="button secondary" href="{escape(affiliate_url, quote=True)}" target="_blank" rel="sponsored nofollow noopener">Check tickets on Trainline</a><small class="affiliate-note">Affiliate link · UK Activity Radar may earn a commission if you book.</small>'
     body = f"""<p class="eyebrow">Live train times · {escape(crs)}</p>
 <h1>{escape(name)} departures</h1>
 <p class="lede">{summary}</p>
-<p><a class="button" href="/?place=rail-station:{escape(crs)}">See them moving on the live map</a></p>
+<p class="station-actions"><a class="button" href="/?place=rail-station:{escape(crs)}">See them moving on the live map</a>{affiliate}</p>
+{snapshot}
 {table}
 {f'<h2>Operators at {escape(name)}</h2><ul class="links">{operator_links}</ul>' if operator_links else ''}
 <h2>About this page</h2><p>Departures from {escape(name)} ({escape(crs)}) for the next few hours, from the published timetable with live running from Network Rail where the train can be matched. Delays update every minute on the <a href="/?place=rail-station:{escape(crs)}">live map</a>, where you can also save the station, follow a train and get alerts when it is late, cancelled or changes platform. Read <a href="/guides/how-live-train-positions-work">how UK live train positions are estimated between railway reports</a>.</p>

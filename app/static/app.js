@@ -2240,6 +2240,30 @@
     syncTechToggle();
   }
 
+  function railBoardSnapshot(board) {
+    const rows=Array.isArray(board.departures)?board.departures:[];
+    if(!rows.length)return '';
+    let onTime=0,late=0,cancelled=0;
+    const destinations=new Set(),operators=new Set();
+    for(const row of rows){
+      const status=String(row.status||'');
+      const isCancelled=Boolean(row.cancelled)||/cancel/i.test(status);
+      const delay=Number(row.delay_minutes);
+      if(isCancelled)cancelled+=1;
+      else if(Number.isFinite(delay)){if(delay>5)late+=1;else onTime+=1;}
+      if(row.destination)destinations.add(humanTransitLabel(row.destination));
+      if(row.operator_name||row.operator)operators.add(humanTransitLabel(row.operator_name||row.operator));
+    }
+    const known=onTime+late+cancelled;
+    const onTimePercent=known?Math.round(onTime*100/known):null;
+    const segments=known?[
+      ['good',onTime,'On time or within 5 minutes'],['late',late,'More than 5 minutes late'],['bad',cancelled,'Cancelled'],
+    ].filter(([,count])=>count).map(([tone,count,label])=>`<i class="${tone}" style="width:${(count*100/known).toFixed(2)}%" title="${esc(label)}: ${count}"></i>`).join(''):'';
+    const summary=known?`${onTime} on time or within 5 minutes, ${late} late, ${cancelled} cancelled`:'No live punctuality reports yet';
+    const destinationList=[...destinations].slice(0,4);
+    return `<section class="station-live-snapshot" aria-label="Live station snapshot"><div class="station-stat-grid"><div><strong>${rows.length}</strong><span>departures loaded</span></div><div><strong>${destinations.size}</strong><span>destinations</span></div><div><strong>${onTimePercent==null?'—':`${onTimePercent}%`}</strong><span>on time ≤5 min</span></div><div><strong>${late+cancelled}</strong><span>need attention</span></div></div>${known?`<div class="station-status-chart" role="img" aria-label="${esc(summary)}">${segments}</div><p class="station-status-legend">${esc(summary)}</p>`:''}${destinationList.length?`<p class="station-destinations"><b>Going direct now</b>${destinationList.map(value=>`<span>${esc(value)}</span>`).join('')}${destinations.size>destinationList.length?`<em>+${destinations.size-destinationList.length}</em>`:''}</p>`:''}${operators.size?`<small>${operators.size} operator${operators.size===1?'':'s'} in this snapshot</small>`:''}</section>`;
+  }
+
   function renderPlaceBoard(place, payload) {
     const box=$('detail-placeboard'); if(!box)return;
     box.classList.remove('rail-departure-board','bus-departure-board');
@@ -2252,7 +2276,7 @@
       const arrivalLabel=(board.arrivals&&board.arrivals.length)?'Arrivals':'Recent arrivals';
       const waiting=board.mode==='schedule_sync'?'<p class="board-empty board-waiting">Timetable loading…</p>':'';
       const tab=boardTabByPlace.get(place.id)||'departures';
-      html=`${waiting}<div class="board-switch" role="tablist" aria-label="Departures or arrivals"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button></div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>`;
+      html=`${railBoardSnapshot(board)}${waiting}<div class="board-switch" role="tablist" aria-label="Departures or arrivals"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button></div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>`;
     } else if(place.place_type==='bus_stop') {
       box.classList.add('bus-departure-board');
       const rows=(board.rows||[]).map(r=>boardRow(r,'bus')).join('');

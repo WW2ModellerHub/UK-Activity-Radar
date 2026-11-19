@@ -1355,7 +1355,7 @@ def station_page_route(name: str, request: Request):
             (row for row in _stations() if row["crs"] != crs),
             key=lambda row: _haversine_km(station["lat"], station["lon"], row["lat"], row["lon"]),
         )[:6]
-        return station_page(origin, station, board, others, _operator_rows())
+        return station_page(origin, station, board, others, _operator_rows(), settings.trainline_affiliate_url)
     # A reduced station shell is not a safe crawl fallback: at scale it makes
     # thousands of distinct URLs look like thin duplicates. The cache helper
     # will serve an expired complete copy while this page is rebuilding, or a

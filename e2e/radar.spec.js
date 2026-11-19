@@ -69,6 +69,11 @@ test('Today on the Radar shows verified live highlights', async ({ page }) => {
 test('Saved keeps a real station on this device', async ({ page }) => {
   await page.locator('#station-boards').click();
   await expect(page.locator('#detail-title')).toContainText('Milton Keynes Central');
+  await expect(page.locator('.station-live-snapshot')).toBeVisible();
+  await expect(page.locator('.station-stat-grid')).toContainText('departures loaded');
+  await expect(page.locator('.station-stat-grid')).toContainText('destinations');
+  await expect(page.locator('.station-status-chart')).toHaveAttribute('role','img');
+  await expect(page.locator('.station-destinations')).toContainText('Going direct now');
   await page.locator('#save-place').click();
   await page.locator('[data-workspace="live"]').click();
   await expect(page.locator('#saved-places-list')).toContainText('Milton Keynes Central');
@@ -1059,6 +1064,20 @@ test('Station Board opens a real fixture station and departure', async ({ page }
   await expect(page.locator('.transport-run-card')).toHaveAttribute('data-livery-theme', 'east-midlands');
   await expect(page.locator('#detail-panel')).toHaveClass(/operator-theme-train/);
   await expect(page.locator('#detail-operator')).toContainText('Fixture Rail');
+});
+
+test('station snapshot remains readable on a small phone and in landscape', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion:'reduce' });
+  await page.setViewportSize({width:375,height:667});
+  await page.locator('#station-boards').click();
+  await expect(page.locator('.station-live-snapshot')).toBeVisible();
+  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true);
+  const portrait=await page.locator('.station-live-snapshot').boundingBox();
+  expect(portrait.x).toBeGreaterThanOrEqual(0);
+  expect(portrait.x+portrait.width).toBeLessThanOrEqual(375);
+  await page.setViewportSize({width:667,height:375});
+  await expect(page.locator('.station-live-snapshot')).toBeVisible();
+  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true);
 });
 
 test('scheduled station-board train opens its published route without a live marker', async ({ page }) => {

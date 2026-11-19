@@ -86,6 +86,10 @@ class Settings:
     # a secret; it too loads only after the visitor allows analytics, and only
     # while GA4_ENABLED is on.
     gtm_container_id: str = os.getenv("GTM_CONTAINER_ID", "").strip().upper()
+    # Public Partnerize/Trainline tracking URL. The CTA is omitted unless a
+    # real HTTPS affiliate link is configured, so an ordinary link is never
+    # presented as commission earning.
+    trainline_affiliate_url: str = os.getenv("TRAINLINE_AFFILIATE_URL", "").strip()
     websocket_refresh_seconds: float = max(0.5, float(os.getenv("WEBSOCKET_REFRESH_SECONDS", "1.0")))
 
     # Radar+ is fail-closed. Enabling it without every required Stripe secret,

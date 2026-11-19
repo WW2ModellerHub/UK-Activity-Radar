@@ -49,7 +49,11 @@ def _client(monkeypatch):
     monkeypatch.setattr(main, "_seo_build_locks", {})
     monkeypatch.setattr(main, "_seo_heavy_build_slots", threading.BoundedSemaphore(1))
     monkeypatch.setattr(main, "_seo_cache_lock", threading.Lock())
-    monkeypatch.setattr(main, "settings", replace(main.settings, public_deployment=False))
+    monkeypatch.setattr(main, "settings", replace(
+        main.settings,
+        public_deployment=False,
+        trainline_affiliate_url="https://www.thetrainline.com/?aff_id=fixture",
+    ))
     return TestClient(main.app)
 
 
@@ -74,7 +78,16 @@ def test_a_station_page_reads_well_with_live_departures(monkeypatch):
     assert "1 of the next 4 trains are on time or within 5 minutes, 1 running late, 1 cancelled" in html
     assert "Birmingham New Street" in html and "Expected 17:24" in html and "Cancelled" in html
     assert "usually 6" in html
+    assert "Live station snapshot" in html
+    assert "4</strong><span>departures loaded" in html
+    assert "4</strong><span>destinations" in html
+    assert "33%</strong><span>on time within 5 min" in html
+    assert 'class="status-chart" role="img"' in html
+    assert "Direct destinations in this live snapshot" in html
     assert 'href="/?place=rail-station:RUG"' in html
+    assert 'href="https://www.thetrainline.com/?aff_id=fixture"' in html
+    assert 'rel="sponsored nofollow noopener"' in html
+    assert "may earn a commission" in html
     assert 'href="/station/nuneaton-nun"' in html and 'href="/station/coventry-cov"' in html   # nearby, crawlable
     assert 'href="/operator/avanti-west-coast"' in html and "Severe delays" in html
     structured = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', html).group(1))
@@ -84,6 +97,15 @@ def test_a_station_page_reads_well_with_live_departures(monkeypatch):
     moved = client.get("/station/rug", follow_redirects=False)
     assert moved.status_code == 301 and moved.headers["location"] == "/station/rugby-rug"
     assert client.get("/station/nowhere-zzz").status_code == 404
+
+
+def test_station_ticket_cta_rejects_non_https_affiliate_urls(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setattr(main, "settings", replace(main.settings, trainline_affiliate_url="javascript:alert(1)"))
+    main._seo_page_cache = {}
+    html = client.get("/station/rugby-rug").text
+    assert "Check tickets on Trainline" not in html
+    assert "javascript:alert" not in html
 
 
 def test_operator_pages_and_indexes(monkeypatch):
