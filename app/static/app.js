@@ -2273,7 +2273,8 @@
       if(row.operator_name||row.operator)operators.add(humanTransitLabel(row.operator_name||row.operator));
     }
     const known=onTime+late+cancelled;
-    const onTimePercent=known?Math.round(onTime*100/known):null;
+    // A percentage of one or two trains says nothing: wait for three.
+    const onTimePercent=known>=3?Math.round(onTime*100/known):null;
     const segments=known?[
       ['good',onTime,'On time or within 5 minutes'],['late',late,'More than 5 minutes late'],['bad',cancelled,'Cancelled'],
     ].filter(([,count])=>count).map(([tone,count,label])=>`<i class="${tone}" style="width:${(count*100/known).toFixed(2)}%" title="${esc(label)}: ${count}"></i>`).join(''):'';
@@ -2294,7 +2295,7 @@
       const arrivalLabel=(board.arrivals&&board.arrivals.length)?'Arrivals':'Recent arrivals';
       const waiting=board.mode==='schedule_sync'?'<p class="board-empty board-waiting">Timetable loading…</p>':'';
       const tab=boardTabByPlace.get(place.id)||'departures';
-      html=`${railBoardSnapshot(board)}${waiting}<div class="board-switch" role="tablist" aria-label="Departures or arrivals"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button></div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>`;
+      html=`${waiting}<div class="board-switch" role="tablist" aria-label="Departures or arrivals"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button></div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>${railBoardSnapshot(board)}`;
     } else if(place.place_type==='bus_stop') {
       box.classList.add('bus-departure-board');
       const rows=(board.rows||[]).map(r=>boardRow(r,'bus')).join('');
@@ -2368,7 +2369,7 @@
     returnPlaceId=null; detailBackButton.classList.add('hidden');
     $('detail-panel')?.classList.add('has-selection');
     $('detail-sidebar')?.classList.remove('is-empty');
-    $('detail-title').textContent=p.name;
+    $('detail-title').textContent=humanTransitLabel(p.name);
     $('detail-subtitle').textContent=p.subtitle || ({rail_station:'Rail station',bus_stop:'Bus stop',rain_gauge:'Rain gauge'}[p.place_type]||'Place');
     $('detail-fields').innerHTML=[field('Type',(p.place_type||'').replaceAll('_',' ')),field('Code',p.crs||p.atco_code||p.naptan_code),field('Operator',p.operator),field('Source',p.source),field('Latitude',Number(p.lat).toFixed(5)),field('Longitude',Number(p.lon).toFixed(5))].join('');
     $('follow').classList.add('hidden'); $('track-activity')?.classList.add('hidden'); $('share-activity')?.classList.add('hidden');

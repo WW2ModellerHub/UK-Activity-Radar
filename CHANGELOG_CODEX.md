@@ -1,5 +1,13 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — station board: timetable first
+
+- The departures/arrivals list is now at the top of a station panel, with
+  the live snapshot (counts, punctuality bar, destinations) below it.
+- "0% on time" from a single train: the percentage now needs at least three
+  trains with a known time; the counts stay.
+- Station titles are tidied ("HINCKLEY" → "Hinckley").
+
 ## 2026-11-21 — airports open in the app; links keep their place
 
 - Tapping an airport no longer sends you to a separate page: the map
