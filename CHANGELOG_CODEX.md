@@ -1,5 +1,14 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — official figures refresh themselves
+
+- app/orr/refresh.py: ten minutes after start and then daily, the server
+  fetches ORR punctuality and cancellations when its copy is a week old and
+  station usage when it is a month old, rebuilds the same JSON the pages
+  read, saves it in DATA_DIR and swaps it in live. Saved copies are loaded
+  at start, ahead of the bundled ones. A download with too few operators or
+  stations is refused and the figures in use are kept.
+
 ## 2026-11-21 — bus names keep "Bus Station"
 
 - Bus route pages used the railway name tidier, which strips "Station":

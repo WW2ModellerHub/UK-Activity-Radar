@@ -591,6 +591,21 @@ async def _line_track_warm() -> None:
         pass
 
 
+async def _orr_refresh_loop() -> None:
+    """Official ORR figures: punctuality weekly, station usage monthly."""
+    from .orr import refresh
+    await asyncio.sleep(600)
+    while True:
+        try:
+            if refresh.due(DATA_DIR / "operator_performance.json", 7):
+                await asyncio.to_thread(refresh.refresh_performance, DATA_DIR)
+            if refresh.due(DATA_DIR / "station_usage.json", 30):
+                await asyncio.to_thread(refresh.refresh_usage, DATA_DIR)
+        except Exception:
+            pass
+        await asyncio.sleep(24 * 3600)
+
+
 async def _history_loop() -> None:
     await asyncio.sleep(120)
     while True:
@@ -800,6 +815,13 @@ async def lifespan(app: FastAPI):
         history_store = HistoryStore(DATA_DIR / "history.sqlite")
         tasks.append(asyncio.create_task(_history_loop()))
         tasks.append(asyncio.create_task(_line_track_warm()))
+    try:
+        from .orr.refresh import load_saved
+        load_saved(DATA_DIR)
+    except Exception:
+        pass
+    if not settings.demo_mode:
+        tasks.append(asyncio.create_task(_orr_refresh_loop()))
     except Exception:
         history_store = None
 
