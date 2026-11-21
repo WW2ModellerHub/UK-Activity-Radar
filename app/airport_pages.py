@@ -106,7 +106,7 @@ def airport_page(origin: str, airport: dict, planes: list) -> str:
     body = f"""<p class="eyebrow">Airport · {escape(code)} / {escape(airport['icao'])}</p>
 <h1>{escape(name)} Airport live aircraft</h1>
 <p class="lede">{escape(summary)}</p>
-<p><a class="button" href="/?lat={airport['lat']}&amp;lon={airport['lon']}&amp;zoom=11&amp;layer=aircraft">See planes around {escape(name)} on the live map</a></p>
+<p><a class="button" href="/?airport={escape(code)}">See planes around {escape(name)} on the live map</a></p>
 {''.join(sections) if sections else '<p>No aircraft are being tracked near the airport right now.</p>'}
 {f'<p>Aircraft types seen now: {common}.</p>' if common else ''}
 <h2>About {escape(name)} Airport</h2><p>{escape(name)} Airport ({escape(code)}) is in {escape(airport['area'])}. Runway{'s' if 'and' in airport['runways'] else ''}: {escape(airport['runways'])}; aircraft normally take off and land into the wind, so the direction of arrivals changes with the weather.</p>

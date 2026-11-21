@@ -2337,16 +2337,28 @@ test('a map link with a place and a layer opens the map there with that layer on
   expect(new URL(page.url()).search).toBe('');
 });
 
-test('airports appear with the Aircraft layer and lead to their live page', async ({ page }) => {
+test('tapping an airport shows its planes in the app, grouped, each one tappable', async ({ page }) => {
   await page.route('**/api/airports', route => route.fulfill({ json:[{ name:'East Midlands', iata:'EMA', lat:52.83, lon:-1.33, path:'/airport/east-midlands-ema' }] }));
-  await expect(page.locator('.airport-marker')).toHaveCount(0);
+  await page.route('**/api/aircraft/nearby**', route => route.fulfill({ json:{ source:'test', checked:2, radius_miles:50, activities:[
+    { kind:'vehicle', id:'aircraft:aaa111', type:'aircraft', name:'RYR12', lat:52.80, lon:-1.25, altitude_ft:3000, vertical_rate_fpm:-700, origin:'DUB', destination:'EMA', aircraft_type_code:'B738', status:'Airborne', source:'test', last_updated:new Date().toISOString() },
+    { kind:'vehicle', id:'aircraft:bbb222', type:'aircraft', name:'BAW6B', lat:52.85, lon:-1.40, altitude_ft:23000, vertical_rate_fpm:0, origin:'SFO', destination:'LHR', aircraft_type_code:'B772', status:'Airborne', source:'test', last_updated:new Date().toISOString() },
+  ] } }));
   await page.locator('[data-layer-chip="aircraft"]').click();
   await expect(page.locator('.airport-marker')).toHaveText('EMA');
   await page.locator('.airport-marker').evaluate(el => el.closest('.leaflet-marker-icon, .airport-marker-wrap')?.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-title')).toHaveText('East Midlands Airport');
-  await expect(page.locator('.airport-page-link')).toHaveAttribute('href', '/airport/east-midlands-ema');
-  await page.locator('[data-layer-chip="aircraft"]').click();
-  await expect(page.locator('.airport-marker')).toHaveCount(0);
+  await expect(page.locator('#detail-subtitle')).toHaveText('1 arriving · 0 leaving · 0 on the ground · 1 overhead');
+  await expect(page.locator('#detail-insight .airport-group').first()).toContainText('Arriving');
+  await page.locator('#detail-insight [data-job-plane="aircraft:aaa111"]').click();
+  await expect(page.locator('#detail-title')).toContainText('RYR12');
+});
+
+test('an airport page link opens that airport in the app, not the default map', async ({ page }) => {
+  await page.route('**/api/airports', route => route.fulfill({ json:[{ name:'East Midlands', iata:'EMA', lat:52.83, lon:-1.33, path:'/airport/east-midlands-ema' }] }));
+  await page.goto('/?airport=EMA');
+  await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout:5000 });
+  await expect(page.locator('#detail-title')).toHaveText('East Midlands Airport');
+  await expect(page.locator('[data-layer-chip="aircraft"]')).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('a station panel links to its station page, and More lists every page type', async ({ page }) => {
