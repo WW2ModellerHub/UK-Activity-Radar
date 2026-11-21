@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — aircraft photos fall back; airports on the map; links to pages
+
+- Aircraft photos: an exact Planespotters photo first; with none, an
+  example of the type (airline colours where known, labelled as an
+  example) instead of nothing; and if the exact photo fails to load, the
+  example is fetched. The app sends type, callsign and airline again.
+- Airports: with the Aircraft layer on, the 13 airports with pages show as
+  code tags (EMA, BHX…); tapping one opens a panel linking to its live
+  page. New /api/airports.
+- Station panels link to the station page; More has a Browse section for
+  stations, railway lines, airports, operators and daily finds.
+
 ## 2026-11-21 — the radar keeps a daily record
 
 - New history store (DATA_DIR/history.sqlite, kept 400 days), sampled every
