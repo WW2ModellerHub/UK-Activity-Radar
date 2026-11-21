@@ -2273,14 +2273,24 @@
       if(row.operator_name||row.operator)operators.add(humanTransitLabel(row.operator_name||row.operator));
     }
     const known=onTime+late+cancelled;
-    // A percentage of one or two trains says nothing: wait for three.
-    const onTimePercent=known>=3?Math.round(onTime*100/known):null;
-    const segments=known?[
+    // One plain sentence, not a grid of jargon; a bar only with enough trains.
+    let headline, tone='';
+    if(known<3) headline=`Next ${rows.length} departure${rows.length===1?'':'s'}`;
+    else if(!late&&!cancelled){headline=known===rows.length?`All ${rows.length} next trains on time`:`${onTime} of ${known} trains reporting are on time`;tone='good';}
+    else {headline=[late?`${late} of ${known} running late`:null,cancelled?`${cancelled} cancelled`:null].filter(Boolean).join(' · ');tone=cancelled||late*2>known?'bad':'late';}
+    const segments=known>=3?[
       ['good',onTime,'On time or within 5 minutes'],['late',late,'More than 5 minutes late'],['bad',cancelled,'Cancelled'],
-    ].filter(([,count])=>count).map(([tone,count,label])=>`<i class="${tone}" style="width:${(count*100/known).toFixed(2)}%" title="${esc(label)}: ${count}"></i>`).join(''):'';
-    const summary=known?`${onTime} on time or within 5 minutes, ${late} late, ${cancelled} cancelled`:'No live punctuality reports yet';
-    const destinationList=[...destinations].slice(0,4);
-    return `<section class="station-live-snapshot" aria-label="Live station snapshot"><div class="station-stat-grid"><div><strong>${rows.length}</strong><span>departures loaded</span></div><div><strong>${destinations.size}</strong><span>destinations</span></div><div><strong>${onTimePercent==null?'—':`${onTimePercent}%`}</strong><span>on time ≤5 min</span></div><div><strong>${late+cancelled}</strong><span>need attention</span></div></div>${known?`<div class="station-status-chart" role="img" aria-label="${esc(summary)}">${segments}</div><p class="station-status-legend">${esc(summary)}</p>`:''}${destinationList.length?`<p class="station-destinations"><b>Going direct now</b>${destinationList.map(value=>`<span>${esc(value)}</span>`).join('')}${destinations.size>destinationList.length?`<em>+${destinations.size-destinationList.length}</em>`:''}</p>`:''}${operators.size?`<small>${operators.size} operator${operators.size===1?'':'s'} in this snapshot</small>`:''}</section>`;
+    ].filter(([,count])=>count).map(([t,count,label])=>`<i class="${t}" style="width:${(count*100/known).toFixed(2)}%" title="${esc(label)}: ${count}"></i>`).join(''):'';
+    const summary=`${onTime} on time or within 5 minutes, ${late} late, ${cancelled} cancelled`;
+    const destinationList=[...destinations].slice(0,6);
+    return `<section class="station-live-snapshot station-summary" aria-label="How trains are running"><p class="station-headline${tone?` is-${tone}`:''}">${esc(headline)}</p>${segments?`<div class="station-status-chart" role="img" aria-label="${esc(summary)}">${segments}</div>`:''}${destinationList.length?`<p class="station-destinations"><b>Direct to</b>${destinationList.map(value=>`<span>${esc(value)}</span>`).join('')}${destinations.size>destinationList.length?`<em>+${destinations.size-destinationList.length}</em>`:''}</p>`:''}</section>`;
+  }
+
+  // Save and the station page, side by side under a station board.
+  function stationActions(place){
+    if(!place||!/^[A-Z]{3}$/.test(String(place.crs||'')))return '';
+    const saved=savedPlaces.has(place.id);
+    return `<div class="station-actions"><button type="button" class="station-save${saved?' is-saved':''}" data-station-save>${saved?'Saved ✓':'Save station'}</button><a class="station-page-button" href="/station/s-${esc(String(place.crs).toLowerCase())}">Station page →</a></div>`;
   }
 
   function renderPlaceBoard(place, payload) {
@@ -2295,7 +2305,7 @@
       const arrivalLabel=(board.arrivals&&board.arrivals.length)?'Arrivals':'Recent arrivals';
       const waiting=board.mode==='schedule_sync'?'<p class="board-empty board-waiting">Timetable loading…</p>':'';
       const tab=boardTabByPlace.get(place.id)||'departures';
-      html=`${waiting}<div class="board-switch" role="tablist" aria-label="Departures or arrivals"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button></div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>${railBoardSnapshot(board)}`;
+      html=`${waiting}<div class="board-switch" role="tablist" aria-label="Departures or arrivals"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button></div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>${railBoardSnapshot(board)}${stationActions(place)}`;
     } else if(place.place_type==='bus_stop') {
       box.classList.add('bus-departure-board');
       const rows=(board.rows||[]).map(r=>boardRow(r,'bus')).join('');
@@ -2317,6 +2327,12 @@
       const focusKey=focused&&box.contains(focused)?[focused.dataset.trainUid,focused.dataset.liveId,focused.dataset.headcode,focused.dataset.serviceDate,focused.className].join('|'):null;
       const panel=$('detail-panel'),scrollTop=panel?.scrollTop || 0;
       box.innerHTML=nextHtml;bindBoardLiveLinks(box);
+      box.querySelector('[data-station-save]')?.addEventListener('click',event=>{
+        $('save-place')?.click();
+        const saved=savedPlaces.has(place.id);
+        event.currentTarget.textContent=saved?'Saved ✓':'Save station';
+        event.currentTarget.classList.toggle('is-saved',saved);
+      });
       box.querySelectorAll('[data-board-tab]').forEach(button=>button.addEventListener('click',()=>{
         const tab=button.dataset.boardTab;
         boardTabByPlace.set(place.id,tab);
@@ -2379,10 +2395,10 @@
     const box=$('detail-placeboard'); box.classList.remove('hidden');
     const cached=placeBoardCache.get(id);
     // A link to the station's page: passenger numbers, lines and history.
-    const related=$('detail-related');
-    if(related&&p.place_type==='rail_station'&&/^[A-Z]{3}$/.test(String(p.crs||''))){
-      related.classList.remove('hidden');
-      related.innerHTML=`<a class="place-page-link" href="/station/s-${esc(String(p.crs).toLowerCase())}">Station page: passenger numbers, reliability and history →</a>`;
+    if(p.place_type==='rail_station'&&/^[A-Z]{3}$/.test(String(p.crs||''))){
+      // Save and the station page sit in one row under the board instead.
+      $('detail-fields').innerHTML='';
+      $('save-place')?.classList.add('hidden');
     }
     if(cached) renderPlaceBoard(p,cached.payload);
     else box.innerHTML='<small>LIVE TIMES</small><p class="coverage-loading">Loading…</p>';

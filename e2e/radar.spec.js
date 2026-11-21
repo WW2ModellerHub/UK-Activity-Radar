@@ -70,11 +70,12 @@ test('Saved keeps a real station on this device', async ({ page }) => {
   await page.locator('#station-boards').click();
   await expect(page.locator('#detail-title')).toContainText('Milton Keynes Central');
   await expect(page.locator('.station-live-snapshot')).toBeVisible();
-  await expect(page.locator('.station-stat-grid')).toContainText('departures loaded');
-  await expect(page.locator('.station-stat-grid')).toContainText('destinations');
-  await expect(page.locator('.station-status-chart')).toHaveAttribute('role','img');
-  await expect(page.locator('.station-destinations')).toContainText('Going direct now');
-  await page.locator('#save-place').click();
+  await expect(page.locator('.station-headline')).toBeVisible();
+  await expect(page.locator('.station-destinations')).toContainText('Direct to');
+  await expect(page.locator('#detail-tech-toggle')).toBeHidden();
+  await expect(page.locator('[data-station-save]')).toHaveText('Save station');
+  await page.locator('[data-station-save]').click();
+  await expect(page.locator('[data-station-save]')).toHaveText('Saved ✓');
   await page.locator('[data-workspace="live"]').click();
   await expect(page.locator('#saved-places-list')).toContainText('Milton Keynes Central');
   // With a place saved, the Saved tab shows its next departures and nearby activity.
@@ -95,7 +96,7 @@ test('a train opened from a station board can return to that board', async ({ pa
 
 test('Passing Next uses the saved station live board', async ({ page }) => {
   await page.locator('#station-boards').click();
-  await page.locator('#save-place').click();
+  await page.locator('[data-station-save]').click();
   await page.locator('[data-workspace="live"]').click();
   await expect(page.locator('#passing-next')).toContainText('Manchester Piccadilly');
   await expect(page.locator('#passing-next')).toContainText('10:14');
@@ -103,7 +104,7 @@ test('Passing Next uses the saved station live board', async ({ page }) => {
 
 test('a saved place can enable proactive train alerts after an explicit click', async ({ page }) => {
   await page.locator('#station-boards').click();
-  await page.locator('#save-place').click();
+  await page.locator('[data-station-save]').click();
   await page.locator('[data-workspace="live"]').click();
   await page.locator('#commute-alert-mode').selectOption('train');
   await page.locator('#commute-alert-enable').click();
@@ -1714,7 +1715,7 @@ test('saved stations and trains are answered at the top of the Map panel', async
   await expect(page.locator('[data-yours-train]')).toHaveCount(1);
   // Saving a station adds its next departure.
   await page.locator('#station-boards').click();
-  await page.locator('#save-place').click();
+  await page.locator('[data-station-save]').click();
   const station = page.locator('[data-yours-place]').first();
   await expect(station.locator('strong')).toHaveText('Milton Keynes Central');
   await expect(station.locator('small')).toContainText('10:14 Manchester Piccadilly · Plat 4 · On time · then 10:32');
@@ -1940,7 +1941,7 @@ test('the camera view shows only what it was opened from, until more is switched
 
 test('the Saved tab says plainly whether alerts are on, and why they failed if they did', async ({ page }) => {
   await page.locator('#station-boards').click();
-  await page.locator('#save-place').click();
+  await page.locator('[data-station-save]').click();
   await page.locator('[data-workspace="live"]').click();
   const summary = page.locator('#commute-alert-summary');
   await expect(summary).toContainText('Alerts are off.');
@@ -1965,7 +1966,7 @@ test('the Saved tab says plainly whether alerts are on, and why they failed if t
 test('tapping a saved place chooses it for the departures and alerts below; Map opens it', async ({ page }) => {
   await page.evaluate(() => localStorage.setItem('ukRadarMyRadarV1', localStorage.getItem('ukRadarMyRadarV1') || ''));
   await page.locator('#station-boards').click();
-  await page.locator('#save-place').click();
+  await page.locator('[data-station-save]').click();
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
   await page.locator('[data-job="bus"]').click();
   await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');
@@ -2135,7 +2136,7 @@ test('on an iPhone in Safari, alerts say up front they need the Home Screen app'
   await page.reload();
   await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout:5000 });
   await page.locator('#station-boards').click();
-  await page.locator('#save-place').click();
+  await page.locator('[data-station-save]').click();
   await page.locator('[data-workspace="live"]').click();
   const savedHint = page.locator('.commute-alert-card [data-install-hint]');
   await expect(savedHint).toBeVisible();
@@ -2150,7 +2151,7 @@ test('on an iPhone in Safari, alerts say up front they need the Home Screen app'
 
 test('on a computer or Android, no Home Screen message is shown', async ({ page }) => {
   await page.locator('#station-boards').click();
-  await page.locator('#save-place').click();
+  await page.locator('[data-station-save]').click();
   await page.locator('[data-workspace="live"]').click();
   await expect(page.locator('.commute-alert-card [data-install-hint]')).toBeHidden();
 });
@@ -2226,7 +2227,7 @@ test('a military jet with no airline still says what it is under its callsign', 
 
 test('train alerts offer stations, not bus stops', async ({ page }) => {
   await page.locator('#station-boards').click();
-  await page.locator('#save-place').click();
+  await page.locator('[data-station-save]').click();
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:52.036,longitude:-0.772}});}}}));
   await page.locator('[data-job="bus"]').click();
   await expect(page.locator('#detail-title')).toContainText('Central Station Stop A');
@@ -2363,7 +2364,7 @@ test('an airport page link opens that airport in the app, not the default map', 
 
 test('a station panel links to its station page, and More lists every page type', async ({ page }) => {
   await page.locator('#station-boards').click();
-  await expect(page.locator('.place-page-link')).toHaveAttribute('href', '/station/s-mkc');
+  await expect(page.locator('.station-page-button')).toHaveAttribute('href', '/station/s-mkc');
   await page.locator('[data-workspace="settings"]').click();
   for (const path of ['/stations','/railway-lines','/airports','/operators','/discover-archive'])
     await expect(page.locator(`.browse-links a[href="${path}"]`)).toBeVisible();

@@ -1,5 +1,14 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — station panel: a cleaner footer
+
+- The grey stats box under a station board ("8 departures loaded, 2
+  destinations, — on time…") is replaced by one plain sentence ("All 8 next
+  trains on time", "2 of 8 running late"), the bar only when there are enough
+  trains to read it, and "Direct to" destination chips.
+- "Save station" and "Station page →" sit side by side at the bottom; the
+  empty "More details" button and the separate full-width save are gone.
+
 ## 2026-11-21 — hotfix: station usage refresh restarted the server
 
 - The monthly station-usage refresh read ORR's ODS spreadsheet into memory
