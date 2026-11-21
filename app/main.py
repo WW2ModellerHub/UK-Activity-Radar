@@ -599,8 +599,10 @@ async def _orr_refresh_loop() -> None:
         try:
             if refresh.due(DATA_DIR / "operator_performance.json", 7):
                 await asyncio.to_thread(refresh.refresh_performance, DATA_DIR)
-            if refresh.due(DATA_DIR / "station_usage.json", 30):
-                await asyncio.to_thread(refresh.refresh_usage, DATA_DIR)
+            # Station usage is NOT refreshed here: reading ORR's yearly ODS
+            # file whole needed more memory than the server has and restarted
+            # it ten minutes after every start. It changes once a year; it is
+            # rebuilt by hand (scripts/orr) and bundled.
         except Exception:
             pass
         await asyncio.sleep(24 * 3600)

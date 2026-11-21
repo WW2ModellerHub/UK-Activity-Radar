@@ -1,5 +1,13 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — hotfix: station usage refresh restarted the server
+
+- The monthly station-usage refresh read ORR's ODS spreadsheet into memory
+  whole, exhausting the 2 GB instance ten minutes after each start (and,
+  never finishing, retrying after every restart). It is switched off; the
+  yearly figures stay bundled and are rebuilt by hand. The weekly
+  punctuality refresh (two small CSV files) is unaffected.
+
 ## 2026-11-21 — official figures refresh themselves
 
 - app/orr/refresh.py: ten minutes after start and then daily, the server
