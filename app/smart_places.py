@@ -287,6 +287,7 @@ class SmartPlacesService:
         self._rail: list[dict] = []
         self._rail_board_cache: dict[tuple[str, int], tuple[float, dict]] = {}
         self._direct_cache: dict[tuple[str, str], dict] = {}
+        self._route_cache: dict[tuple[str, str, str], dict] = {}
         self._load_small_caches()
 
     @staticmethod
@@ -687,6 +688,54 @@ class SmartPlacesService:
             return next((p for p in self._rain if p.get("id")==place_id),None)
         return None
 
+    def _direct_runs(self, crs: str, day: date) -> list[dict] | None:
+        """Each passenger train leaving a station on a day, with its later public calls.
+
+        Not cached itself (a big station has hundreds); callers cache the small
+        summaries they build from it.
+        """
+        with sqlite3.connect(self.schedules.db_path) as con:
+            tiplocs={str(r[0]).upper() for r in con.execute("SELECT tiploc FROM tiplocs WHERE crs=?",(crs,))}
+            if not tiplocs:
+                return None
+            placeholders=','.join('?' for _ in tiplocs)
+            day_text=day.isoformat()
+            uids={str(r[0]).strip() for r in con.execute(
+                f"""SELECT DISTINCT s.train_uid FROM schedule_calls c JOIN schedules s ON s.id=c.schedule_id
+                    WHERE c.tiploc IN ({placeholders})
+                      AND (s.start_date IS NULL OR s.start_date='' OR s.start_date<=?)
+                      AND (s.end_date IS NULL OR s.end_date='' OR s.end_date>=?)""",
+                (*tiplocs,day_text,day_text)) if str(r[0] or '').strip()}
+            names={str(r[0]).upper():(r[1],r[2]) for r in con.execute("SELECT tiploc,crs,description FROM tiplocs WHERE crs IS NOT NULL AND crs<>''")}
+        def public(value) -> str | None:
+            text=str(value or '').strip().replace(':','')
+            return text[:4] if len(text)>=4 and text[:4]!='0000' else None
+        runs=[]
+        for row in self.schedules.effective_rows(day,train_uids=uids):
+            if str(row['stp_indicator'] or '').strip().upper()=='C':
+                continue
+            try:
+                locations=json.loads(row['locations_json'] or '[]')
+            except (TypeError,json.JSONDecodeError):
+                continue
+            codes=[str((loc or {}).get('tiploc_code') or '').strip().upper() for loc in locations]
+            start=next((i for i,(code,loc) in enumerate(zip(codes,locations)) if code in tiplocs and public((loc or {}).get('public_departure'))),None)
+            if start is None:
+                continue
+            calls=[]
+            seen_crs=set()
+            for code,loc in zip(codes[start+1:],locations[start+1:]):
+                target=names.get(code)
+                arrival=public((loc or {}).get('public_arrival'))
+                if not target or target[0]==crs or not arrival or target[0] in seen_crs:
+                    continue
+                seen_crs.add(target[0])
+                calls.append((target[0],target[1] or target[0],arrival))
+            if calls:
+                runs.append({"train_uid":row['train_uid'],"headcode":row['signalling_id'],"operator":operator_name(row['atoc_code']),
+                             "depart":public(locations[start].get('public_departure')),"calls":calls})
+        return runs
+
     def direct_destinations(self, crs: str, day: date | None = None) -> dict | None:
         """Today's passenger departures from a station and where they go direct.
 
@@ -703,52 +752,54 @@ class SmartPlacesService:
             cached=self._direct_cache.get(key)
         if cached is not None:
             return cached
-        with sqlite3.connect(self.schedules.db_path) as con:
-            tiplocs={str(r[0]).upper() for r in con.execute("SELECT tiploc FROM tiplocs WHERE crs=?",(crs,))}
-            if not tiplocs:
-                return None
-            placeholders=','.join('?' for _ in tiplocs)
-            day_text=day.isoformat()
-            uids={str(r[0]).strip() for r in con.execute(
-                f"""SELECT DISTINCT s.train_uid FROM schedule_calls c JOIN schedules s ON s.id=c.schedule_id
-                    WHERE c.tiploc IN ({placeholders})
-                      AND (s.start_date IS NULL OR s.start_date='' OR s.start_date<=?)
-                      AND (s.end_date IS NULL OR s.end_date='' OR s.end_date>=?)""",
-                (*tiplocs,day_text,day_text)) if str(r[0] or '').strip()}
-            names={str(r[0]).upper():(r[1],r[2]) for r in con.execute("SELECT tiploc,crs,description FROM tiplocs WHERE crs IS NOT NULL AND crs<>''")}
-        def public(value) -> bool:
-            text=str(value or '').strip()
-            return bool(text) and text not in {'0000','00:00'}
-        trains=0
+        runs=self._direct_runs(crs,day)
+        if runs is None:
+            return None
         counts: dict[str,int]={}
         labels: dict[str,str]={}
-        for row in self.schedules.effective_rows(day,train_uids=uids):
-            if str(row['stp_indicator'] or '').strip().upper()=='C':
-                continue
-            try:
-                locations=json.loads(row['locations_json'] or '[]')
-            except (TypeError,json.JSONDecodeError):
-                continue
-            codes=[str((loc or {}).get('tiploc_code') or '').strip().upper() for loc in locations]
-            start=next((i for i,(code,loc) in enumerate(zip(codes,locations)) if code in tiplocs and public((loc or {}).get('public_departure'))),None)
-            if start is None:
-                continue
-            reached=set()
-            for code,loc in zip(codes[start+1:],locations[start+1:]):
-                target=names.get(code)
-                if not target or target[0]==crs or not public((loc or {}).get('public_arrival')):
-                    continue
-                reached.add(target[0]); labels.setdefault(target[0],target[1] or target[0])
-            if reached:
-                trains+=1
-                for target in reached:
-                    counts[target]=counts.get(target,0)+1
-        result={"day":day.isoformat(),"trains":trains,"destinations":[
+        for run in runs:
+            for target,label,_ in run['calls']:
+                counts[target]=counts.get(target,0)+1
+                labels.setdefault(target,label)
+        result={"day":day.isoformat(),"trains":len(runs),"destinations":[
             {"crs":code,"name":labels[code],"trains":n} for code,n in sorted(counts.items(),key=lambda kv:(-kv[1],labels[kv[0]]))]}
         with self._lock:
             if len(self._direct_cache)>=300:
                 self._direct_cache.pop(next(iter(self._direct_cache)))
             self._direct_cache[key]=result
+        return result
+
+    def direct_trains(self, from_crs: str, to_crs: str, day: date | None = None) -> dict | None:
+        """Every direct train from one station to another on a day, in departure order."""
+        from_crs=str(from_crs or '').strip().upper(); to_crs=str(to_crs or '').strip().upper()
+        if not from_crs or not to_crs or from_crs==to_crs or not self.schedules.ready():
+            return None
+        day=day or datetime.now(london_tz()).date()
+        key=(from_crs,to_crs,day.isoformat())
+        with self._lock:
+            cached=self._route_cache.get(key)
+        if cached is not None:
+            return cached
+        runs=self._direct_runs(from_crs,day)
+        if runs is None:
+            return None
+        def minutes(clock: str) -> int:
+            return int(clock[:2])*60+int(clock[2:4])
+        trains=[]
+        for run in runs:
+            arrival=next((clock for code,_,clock in run['calls'] if code==to_crs),None)
+            if not arrival or not run['depart']:
+                continue
+            took=(minutes(arrival)-minutes(run['depart']))%(24*60)
+            stops=next(i for i,(code,_,_) in enumerate(run['calls']) if code==to_crs)
+            trains.append({"depart":f"{run['depart'][:2]}:{run['depart'][2:]}","arrive":f"{arrival[:2]}:{arrival[2:]}",
+                           "minutes":took,"stops_between":stops,"operator":run['operator'],"headcode":run['headcode'],"train_uid":run['train_uid']})
+        trains.sort(key=lambda t:t['depart'])
+        result={"day":day.isoformat(),"trains":trains}
+        with self._lock:
+            if len(self._route_cache)>=500:
+                self._route_cache.pop(next(iter(self._route_cache)))
+            self._route_cache[key]=result
         return result
 
     def bus_stops_near(self, lat: float, lon: float, metres: int = 400) -> int:
