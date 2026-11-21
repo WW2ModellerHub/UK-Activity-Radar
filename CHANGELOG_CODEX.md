@@ -1,5 +1,19 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — freight trains matched to their timetable, and what they carry
+
+- Live freight trains never matched their timetable, so they showed no route.
+  The overnight CIF names working times `arrival`, `departure` and `pass`; the
+  matcher only read `scheduled_*` keys and public times, which freight does
+  not have. Working times are now read for matching (kept apart, so station
+  boards are unchanged), and freight calling points use them.
+- Short-notice (VSTP) timetables, used heavily by freight operators, arrive
+  with a list-shaped segment, nested TIPLOCs and HHMMSS times. They are now
+  stored in the overnight shape instead of as rows with no stops.
+- The train panel shows a freight train's cargo (from its CIF category),
+  booked weight in tonnes, traction and top speed; "When should I leave?"
+  is not offered for freight.
+
 ## 2026-11-21 — station panel: a cleaner footer
 
 - The grey stats box under a station board ("8 departures loaded, 2

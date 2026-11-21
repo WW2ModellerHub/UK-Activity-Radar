@@ -89,6 +89,46 @@ POWER_TYPE_NAMES = {
 }
 
 
+# What a freight, engineering or light-engine working carries, from its CIF
+# train category. Passenger categories are left out on purpose: the panel
+# already says a passenger train is one.
+FREIGHT_CATEGORY_NAMES = {
+    "A0": "Coal", "E0": "Coal for power stations", "B0": "Coal and nuclear",
+    "B1": "Metals", "B4": "Aggregates", "B5": "Domestic and industrial waste",
+    "B6": "Building materials", "B7": "Petroleum products",
+    "H0": "Channel Tunnel mixed freight", "H1": "Channel Tunnel containers",
+    "H2": "Cars and vans", "H3": "Channel Tunnel cars and vans", "H4": "Channel Tunnel freight",
+    "H5": "Channel Tunnel freight", "H6": "Channel Tunnel freight", "H8": "European freight",
+    "H9": "Containers", "J2": "Car parts", "J3": "Food and drink", "J4": "Industrial minerals",
+    "J5": "Chemicals", "J6": "Building materials", "J8": "General merchandise", "J9": "Containers",
+    "DD": "Engineering train", "DH": "Engineering train", "DI": "Engineering train",
+    "DQ": "Engineering stores", "DT": "Test train", "DY": "Signalling engineering train",
+    "ZB": "Locomotive and brake van", "ZZ": "Light locomotive",
+    "PP": "Parcels", "PM": "Parcels", "JJ": "Post", "PV": "Empty parcels vans",
+}
+_TRACTION = {"D": "Diesel", "E": "Electric", "ED": "Electro-diesel"}
+
+
+def freight_profile(category: str | None, power_type: str | None,
+                    timing_load: str | None, booked_speed: str | None) -> dict[str, Any] | None:
+    """Cargo, booked weight, traction and top speed for a non-passenger train.
+
+    For locomotive-hauled timings (power type D, E or ED) the CIF timing load
+    is the trailing weight in tonnes; for units it is a class, so it is only
+    reported as tonnes for locomotives.
+    """
+    code = str(category or "").strip().upper()
+    cargo = FREIGHT_CATEGORY_NAMES.get(code)
+    if not cargo:
+        return None
+    power = str(power_type or "").strip().upper()
+    load = str(timing_load or "").strip()
+    tonnes = int(load) if power in _TRACTION and load.isdigit() and 100 <= int(load) <= 9999 else None
+    speed = str(booked_speed or "").strip()
+    mph = int(speed) if speed.isdigit() and 5 <= int(speed) <= 140 else None
+    return {"category": code, "cargo": cargo, "tonnes": tonnes, "traction": _TRACTION.get(power), "max_mph": mph}
+
+
 def operator_name(code: str | None, fallback: str | None = None) -> str | None:
     normalised = str(code or "").strip().upper()
     if not normalised:

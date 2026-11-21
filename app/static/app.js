@@ -3761,7 +3761,7 @@
     const specialText=subtype==='special-passenger'
       ? `${headcode.slice(0,4)}: a Z in the headcode marks a one-off working that is not in the regular timetable. On a normal operator's route like this it is usually an extra or relief train; it can also be a charter. It is not a railtour unless it says so.`
       : subtype==='locomotive-move' ? `${headcode.slice(0,4)}: a locomotive running on its own, with no passengers or wagons, usually to or from a depot or a job.` : '';
-    const leaveBox=index===0&&!run?.cancelled ? leavePlanHtml(callingPoints) : '';
+    const leaveBox=index===0&&!run?.cancelled&&!run?.freight ? leavePlanHtml(callingPoints) : '';
     const specialTitle=subtype==='special-passenger'&&coolInfo(selected).score<45?'Extra train':'Why is it special?';
     const specialBox=specialText ? `<p class="delay-why special-why"><strong>${specialTitle}</strong> <span>${esc(specialText)}</span></p>` : '';
     const cancelledBanner=run?.cancelled ? `<p class="train-cancelled-banner">${iconSvg('incident')}<span>${cancelledFrom?`Cancelled from ${esc(humanTransitLabel(cancelledFrom))}`:'This train is cancelled'}</span></p>` : '';
@@ -3849,7 +3849,16 @@
     ].filter(([,value])=>value) : [];
     const stockCard=stock?.matched ? `<article class="rolling-stock-card" data-livery-theme="${esc(livery.key)}" style="${livery.css}"><div class="rolling-stock-stripe" aria-hidden="true"><i></i><i></i><i></i></div><small>Rolling stock</small><strong>${esc(stockTitle)}</strong>${stock.livery?`<b class="rolling-stock-livery">${esc(stock.livery)}</b>`:''}${stockFacts.length?`<dl>${stockFacts.map(([label,value])=>`<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`:''}</article>` : '';
     const liveState=detail?.live_marker===false?'<p class="transport-note">Timetable only · not live on the map</p>':'';
-    return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}>${liveState}${cards || `<div class="transport-unavailable"><strong>Stops not published</strong><span>${esc(message)}</span></div>`}${stockCard}${terms?`<p class="transport-source"><a target="_blank" rel="noopener" href="${esc(terms)}">Data terms ↗</a></p>`:''}</div>`;
+    const freight=runs[0]?.freight;
+    // What a freight train carries, from its working timetable: cargo,
+    // booked weight, traction and the top speed it is timed for.
+    const freightFacts=freight?[
+      freight.tonnes?[Number(freight.tonnes).toLocaleString('en-GB'),'tonnes']:null,
+      freight.traction?[freight.traction,'power']:null,
+      freight.max_mph?[`${freight.max_mph} mph`,'top speed']:null,
+    ].filter(Boolean):[];
+    const freightCard=freight?`<section class="freight-card" aria-label="What this train is carrying"><b class="freight-cargo">${esc(freight.cargo)}</b>${freightFacts.length?`<dl>${freightFacts.map(([value,label])=>`<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`:''}</section>`:'';
+    return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}>${liveState}${freightCard}${cards || `<div class="transport-unavailable"><strong>Stops not published</strong><span>${esc(message)}</span></div>`}${stockCard}${terms?`<p class="transport-source"><a target="_blank" rel="noopener" href="${esc(terms)}">Data terms ↗</a></p>`:''}</div>`;
   }
 
   function busLatenessLabel(detail) {

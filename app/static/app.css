@@ -1438,3 +1438,10 @@ strong[data-plus].needs-plus::after,
 .station-actions .station-save { border: 1px solid var(--line); background: var(--surface, #fff); color: var(--text); }
 .station-actions .station-save.is-saved { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
 .station-actions .station-page-button { background: var(--accent, #0b6bcb); color: #fff; }
+/* Freight: what it carries and how heavy, from the working timetable. */
+.freight-card { display: grid; gap: 10px; margin: 0 0 12px; }
+.freight-cargo { justify-self: start; padding: 5px 12px; border-radius: 999px; background: var(--text); color: var(--surface, #fff); font-size: 14px; }
+.freight-card dl { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0; }
+.freight-card dl div { display: grid; }
+.freight-card dd { order: 1; margin: 0; font-weight: 700; font-size: 17px; }
+.freight-card dt { order: 2; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
