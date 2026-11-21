@@ -9,7 +9,15 @@ from __future__ import annotations
 from html import escape
 from math import cos, radians
 
-from .seo_pages import _breadcrumbs, _now_clock, _shell, slug, tidy_name
+from .seo_pages import _breadcrumbs, _now_clock, _shell, slug
+
+
+def tidy_name(value) -> str:
+    """Bus stop and destination names as written, capitals tidied; "Bus Station" kept."""
+    text = " ".join(str(value or "").split())
+    if text.isupper():
+        text = " ".join(w if len(w) <= 3 and w.isalpha() and w in {"NHS", "UK"} else w.capitalize() for w in text.split())
+    return text
 
 
 def operator_path(operator: str) -> str:
