@@ -16,6 +16,12 @@ from ..error_safety import public_error
 from ..models import SourceStatus, Vehicle
 
 
+# Long-distance coach operators publishing live positions to BODS, by NOC.
+# Megabus and FlixBus do not publish there (checked November 2026).
+COACH_OPERATORS = {
+    "NATX": {"name": "National Express", "book": "/go/national-express"},
+}
+
 def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1] if "}" in tag else tag
 
@@ -116,11 +122,13 @@ def parse_siri_vm(xml_bytes: bytes) -> list[Vehicle]:
         subtitle = " → ".join(x for x in (origin, destination) if x)
         if not subtitle:
             subtitle = f"Route {line} • {operator}"
+        coach = COACH_OPERATORS.get(operator.upper())
 
         out.append(Vehicle(
             id=f"bus:{operator}:{vehicle_ref}",
             type="bus",
-            name=f"Bus {line}",
+            # Coaches arrive in the same bus feed; name them as what they are.
+            name=f"{coach['name']} {line}" if coach else f"Bus {line}",
             subtitle=subtitle,
             lat=lat,
             lon=lon,

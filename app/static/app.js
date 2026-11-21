@@ -56,6 +56,7 @@
       if(response.ok){
         config=await response.json();
         configAvailable=Boolean(config&&typeof config==='object');
+        bookingAffiliates=(config&&config.affiliates)||{};
       }
     } catch {}
     finally {
@@ -168,6 +169,8 @@
   // One line-icon set for the whole interface (24px grid, stroked).
   const ICON_PATHS = {
     train:'<rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14M9 14h.01M15 14h.01M8 21l1.5-4M16 21l-1.5-4"/>',
+    // A coach side on: sloped windscreen, a row of windows, two wheels.
+    coach:'<path d="M3 17V7.5A1.5 1.5 0 0 1 4.5 6H17l4 4.5V17z"/><path d="M3 10.5h18M7.5 6v4.5M12 6v4.5M16.5 6v4.5"/><circle cx="7" cy="18" r="1.7"/><circle cx="17" cy="18" r="1.7"/>',
     // A container wagon side on: ribbed box on a frame with two bogies.
     freight:'<rect x="2.5" y="5" width="19" height="10" rx="1"/><path d="M7.25 5v10M12 5v10M16.75 5v10M2 17.5h20"/><circle cx="6.5" cy="19.5" r="1.6"/><circle cx="17.5" cy="19.5" r="1.6"/>',
     bus:'<rect x="4" y="3" width="16" height="14" rx="3"/><path d="M4 10h16M8 14h.01M16 14h.01M7 17v3M17 17v3"/>',
@@ -207,6 +210,18 @@
     return CATEGORY_ICON[a?.cool_category] || CATEGORY_ICON[info?.theme] || ({train:'train',aircraft:'aircraft',sar:'sar',vessel:'vessel',rescue:'rescue'})[a?.type] || 'space';
   }
   ICON_PATHS.river = ICON_PATHS.flood; ICON_PATHS.tide = ICON_PATHS.flood; ICON_PATHS.wave = ICON_PATHS.flood;
+  // Long-distance coaches come through the bus feed; these operators are
+  // shown as coaches, with a link to book. Matches COACH_OPERATORS on the server.
+  const COACH_OPERATORS={NATX:{name:'National Express',partner:'national-express'}};
+  let bookingAffiliates={};
+  function coachInfo(a){return a?.type==='bus'?COACH_OPERATORS[String(a.operator||'').toUpperCase()]||null:null;}
+  function coachBookingHtml(a){
+    const coach=coachInfo(a);
+    if(!coach)return '';
+    const affiliate=Boolean(bookingAffiliates[coach.partner]);
+    return `<p class="coach-book"><a class="primary-button" href="/go/${esc(coach.partner)}" target="_blank" rel="${affiliate?'sponsored ':''}nofollow noopener">Book on ${esc(coach.name)}</a><small>${affiliate?'Affiliate link: UK Activity Radar may earn a commission if you book.':`Tickets are sold by ${esc(coach.name)}.`}</small></p>`;
+  }
+
   function iconSvg(name, extraClass='') {
     return `<svg class="ico${extraClass?` ${extraClass}`:''}" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[name] || ICON_PATHS.other}</svg>`;
   }
@@ -1891,6 +1906,7 @@
     }
     const trainTheme=type==='train' ? trainLiveryTheme('',v.operator || v.operator_name || v.toc || v.owner) : null;
     const freight=isFreightTrain(v);
+    const coach=coachInfo(v);
     const trainStyle=!freight && trainTheme && trainTheme.key!=='reference'
       ? ` style="background:${esc(trainTheme.primary)}"`
       : '';
@@ -1919,7 +1935,7 @@
     const trainServiceTag=type==='train'&&coincidentCount>1?`<small class="train-service-tag">${esc(trainService)}</small>`:'';
     return L.divIcon({
       className: `marker-wrap marker-wrap-${esc(type)}${coincidentCount>1?' train-coincident-wrap':''}`,
-      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}${freight?' marker-freight':''}${cancelled?' is-cancelled':''}"${cancelled?'':trainStyle} title="${esc((freight?'Freight train • ':'')+(v.position_label||'')+sharedNote)}"><span>${(freight?icons.freight:icons[type]) || '•'}</span>${trainIndex}${punctualityDot}</div>${pointer}${speedTag}${busTag}${trainTag}${trainServiceTag}</div>`,
+      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}${freight?' marker-freight':''}${coach?' marker-coach':''}${cancelled?' is-cancelled':''}"${cancelled?'':trainStyle} title="${esc((freight?'Freight train • ':'')+(coach?`${coach.name} coach • `:'')+(v.position_label||'')+sharedNote)}"><span>${(freight?icons.freight:coach?icons.coach:icons[type]) || '•'}</span>${trainIndex}${punctualityDot}</div>${pointer}${speedTag}${busTag}${trainTag}${trainServiceTag}</div>`,
       iconSize: [42,42], iconAnchor: [21-offsetX,21-offsetY],
       tooltipAnchor: type==='train' ? [offsetX,offsetY-17] : [0,0]
     });
@@ -3884,7 +3900,7 @@
     return {text:'On time',tone:'good'};
   }
 
-  function renderBusIntelligence(detail) {
+  function renderBusIntelligence(detail, a=null) {
     // Same stop list as trains: opens at the stop before the bus, marks where
     // it is, and shows a later expected time beside each stop when it runs late.
     const stops=Array.isArray(detail?.stops) ? detail.stops : [];
@@ -3905,9 +3921,10 @@
     const head=heading||operator||lateness
       ? `<div class="transport-route-head"><strong>${esc(heading||'Bus journey')}</strong>${operator?`<span>${esc(operator)}</span>`:''}${lateness?`<em class="bus-lateness is-${lateness.tone}">${esc(lateness.text)}</em>`:''}</div>`
       : '';
-    const list=stopTimelineHtml(rows,{vehicle:'Bus',hasProgress:rows.some(row=>row.state),className:'bus-stops train-full-route'});
-    const empty=`<div class="transport-unavailable"><strong>${detail?.mode==='timetable_sync'?'Timetable preparing':'Stops not available'}</strong><span>This bus has not been linked to a timetabled journey yet.</span></div>`;
-    return `${head}${list||empty}`;
+    const vehicleWord=coachInfo(a)?'Coach':'Bus';
+    const list=stopTimelineHtml(rows,{vehicle:vehicleWord,hasProgress:rows.some(row=>row.state),className:'bus-stops train-full-route'});
+    const empty=`<div class="transport-unavailable"><strong>${detail?.mode==='timetable_sync'?'Timetable preparing':'Stops not available'}</strong><span>This ${vehicleWord.toLowerCase()} has not been linked to a timetabled journey yet.</span></div>`;
+    return `${head}${coachBookingHtml(a)}${list||empty}`;
   }
 
   async function loadActivityIntelligence(a, force=false) {
@@ -3960,7 +3977,7 @@
           toneStatusField(activityById(a.id)||a);
         }
       }
-      const html=a.type==='train' ? renderRailIntelligence(detail) : renderBusIntelligence(detail);
+      const html=a.type==='train' ? renderRailIntelligence(detail) : renderBusIntelligence(detail,a);
       if(a.type==='bus')drawBusRoute(a.id,detail);
       if(box.innerHTML!==html){const panel=$('detail-panel'),scrollTop=panel?.scrollTop||0;box.innerHTML=html;if(panel)panel.scrollTop=scrollTop;}
     } catch {

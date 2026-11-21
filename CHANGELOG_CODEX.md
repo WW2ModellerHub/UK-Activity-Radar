@@ -1,5 +1,16 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — National Express coaches
+
+- National Express coaches (NOC NATX) were already in the BODS bus feed but
+  shown as "Bus 460". They are now named "National Express 460", drawn with a
+  coach icon on National Express teal, and their panel offers "Book on
+  National Express". Megabus and FlixBus do not publish to BODS.
+- Booking buttons go through `/go/{partner}`, which redirects to the
+  affiliate link in `NATIONAL_EXPRESS_AFFILIATE_URL` when set (https only),
+  else the operator's site; the map config tells the page whether to show
+  an affiliate disclosure. `TRAINLINE_AFFILIATE_URL` is now in render.yaml.
+
 ## 2026-11-21 — station facts on station pages
 
 - Station pages open with quick facts as chips: direct destinations and

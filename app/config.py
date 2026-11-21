@@ -90,6 +90,7 @@ class Settings:
     # real HTTPS affiliate link is configured, so an ordinary link is never
     # presented as commission earning.
     trainline_affiliate_url: str = os.getenv("TRAINLINE_AFFILIATE_URL", "").strip()
+    national_express_affiliate_url: str = os.getenv("NATIONAL_EXPRESS_AFFILIATE_URL", "").strip()
     websocket_refresh_seconds: float = max(0.5, float(os.getenv("WEBSOCKET_REFRESH_SECONDS", "1.0")))
 
     # Radar+ is fail-closed. Enabling it without every required Stripe secret,

@@ -2416,3 +2416,31 @@ test('a freight train is drawn with a wagon icon, unlike a passenger train', asy
   await expect(freight).not.toHaveAttribute('style', /background/);
   await expect(page.locator('.marker-train:not(.marker-freight)').first()).toBeVisible();
 });
+
+test('a National Express coach is drawn as a coach and offers a way to book', async ({ page }) => {
+  await page.route('**/api/activity/bus%3ANATX%3ABV24ZFM/bus', route => route.fulfill({ json:{ activity:'bus:NATX:BV24ZFM', detail:{ mode:'matched_timetable', route:'460', destination:'Coventry Pool Meadow', operator:'National Express',
+    stops:[{name:'London Victoria Coach Station',clock:'20:30',state:'passed'},{name:'Coventry Pool Meadow',clock:'22:45',state:'upcoming'}] } } }));
+  await page.locator('[data-layer-toggle="bus"]').click();
+  await expect(page.locator('.marker-bus').first()).toBeVisible();
+  await page.evaluate(() => {
+    const bus = window.__fixtureSnapshot.activities.find(row => row.id === 'bus-live-7');
+    window.__fixtureSocket.onmessage({data:JSON.stringify({
+      activity_delta:{ upsert:[{...bus,id:'bus:NATX:BV24ZFM',name:'National Express 460',operator:'NATX',route:'460',destination:'Coventry Pool Meadow Bus Station',lat:Number(bus.lat)+0.01,last_updated:'2026-10-05T10:02:00Z'}], remove:[] },
+      stream:{transport:'delta',upserts:1,removals:0,selected_types:['bus']},
+      sources:window.__fixtureSnapshot.sources, summary:window.__fixtureSnapshot.summary,
+    })});
+  });
+  const coach = page.locator('.marker-coach');
+  await expect(coach).toHaveCount(1);
+  await expect(coach).toHaveAttribute('title', /^National Express coach/);
+  await expect(page.locator('.marker-bus:not(.marker-coach)').first()).toBeVisible();
+  // Open it as a shared link would.
+  const coachRow = await page.evaluate(() => window.__fixtureSnapshot.activities.find(row => row.id === 'bus-live-7'));
+  await page.route('**/api/activity/bus%3ANATX%3ABV24ZFM', route => route.fulfill({ json:{...coachRow,id:'bus:NATX:BV24ZFM',name:'National Express 460',operator:'NATX',route:'460',destination:'Coventry Pool Meadow Bus Station'} }));
+  await page.goto('/?open=bus:NATX:BV24ZFM');
+  await expect(page.locator('#detail-title')).toContainText('National Express 460');
+  const book = page.locator('.coach-book a');
+  await expect(book).toHaveText('Book on National Express');
+  await expect(book).toHaveAttribute('href', '/go/national-express');
+  await expect(page.locator('.coach-book small')).toContainText('Tickets are sold by National Express');
+});

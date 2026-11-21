@@ -62,6 +62,10 @@ services:
         sync: false
       - key: STRIPE_PORTAL_LOGIN_URL
         sync: false
+      - key: TRAINLINE_AFFILIATE_URL
+        sync: false
+      - key: NATIONAL_EXPRESS_AFFILIATE_URL
+        sync: false
       - key: RADAR_PLUS_PREVIEW_KEY
         sync: false
       - key: SELLER_LEGAL_NAME
