@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — airport pages
+
+- /airports and /airport/{name}-{iata} for 13 UK airports: aircraft
+  arriving, leaving, on the ground and passing within 12 nm right now, with
+  routes, types and heights, aircraft types seen, runways, and a link that
+  opens the live map there with planes on. Built from live ADS-B only: a
+  flight counts as arriving or leaving when its published route names the
+  airport, or when it is low and descending or climbing close by. The page
+  says it is not an official arrivals board. Cached 60 s per airport.
+- Map links: /?lat=..&lon=..&zoom=..&layer=aircraft opens the map there with
+  that layer on.
+
 ## 2026-11-21 — official ORR statistics
 
 - Station pages: "How busy is X?" with official yearly passenger entries and

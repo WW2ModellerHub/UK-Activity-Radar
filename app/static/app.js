@@ -6380,6 +6380,22 @@
       } catch {}
     },400);
   })();
+  // /?lat=..&lon=..&zoom=..&layer=aircraft (from an airport page): open the
+  // map there with that layer on.
+  (()=>{
+    const q=new URLSearchParams(location.search);
+    const lat=Number(q.get('lat')),lon=Number(q.get('lon'));
+    if(!q.has('lat')||!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return;
+    const zoom=Math.max(5,Math.min(16,Number(q.get('zoom'))||11));
+    const layer=q.get('layer');
+    history.replaceState(null,'',location.pathname+location.hash);
+    map.setView([lat,lon],zoom);
+    if(layer&&/^[a-z]+$/.test(layer)){
+      const chip=document.querySelector(`[data-layer-chip="${layer}"]`);
+      if(chip&&chip.getAttribute('aria-pressed')!=='true')chip.click();
+    }
+    trackProduct('deep_link_opened','map-view');
+  })();
   (()=>{
     const wanted=new URLSearchParams(location.search).get('open');
     if(!wanted||wanted.length>120)return;
