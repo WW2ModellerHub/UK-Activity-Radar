@@ -168,6 +168,8 @@
   // One line-icon set for the whole interface (24px grid, stroked).
   const ICON_PATHS = {
     train:'<rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14M9 14h.01M15 14h.01M8 21l1.5-4M16 21l-1.5-4"/>',
+    // A container wagon side on: ribbed box on a frame with two bogies.
+    freight:'<rect x="2.5" y="5" width="19" height="10" rx="1"/><path d="M7.25 5v10M12 5v10M16.75 5v10M2 17.5h20"/><circle cx="6.5" cy="19.5" r="1.6"/><circle cx="17.5" cy="19.5" r="1.6"/>',
     bus:'<rect x="4" y="3" width="16" height="14" rx="3"/><path d="M4 10h16M8 14h.01M16 14h.01M7 17v3M17 17v3"/>',
     aircraft:'<path d="M12 2.5c.8 0 1.3.9 1.3 2.1V9.2l7.2 4.2v1.9l-7.2-2.2v4.7l2.2 1.6v1.5L12 20.2l-3.5.7v-1.5l2.2-1.6v-4.7l-7.2 2.2v-1.9l7.2-4.2V4.6c0-1.2.5-2.1 1.3-2.1z"/>',
     sar:'<circle cx="12" cy="10" r="3.2"/><path d="M4.5 3.5l15 13M19.5 3.5l-15 13M12 13.2V21M9.5 21h5"/>',
@@ -1846,6 +1848,16 @@
     return Number.isFinite(supplied)?((supplied%360)+360)%360:0;
   }
 
+  // Freight (and light engines/departmental 4, 6 and 7 headcodes) gets its
+  // own wagon icon and colour, so it is told apart from passenger trains at
+  // a glance.
+  function isFreightTrain(a) {
+    if(a?.type!=='train')return false;
+    if(a.cool_subtype==='freight')return true;
+    const head=String(a.headcode||String(a.name||'').match(/\b[0-9][A-Z][0-9]{2}\b/i)?.[0]||'').trim();
+    return /^[467]/.test(head);
+  }
+
   function markerIcon(v) {
     const type = v.type || 'other';
     const method = v.position_method || 'static';
@@ -1878,7 +1890,8 @@
       });
     }
     const trainTheme=type==='train' ? trainLiveryTheme('',v.operator || v.operator_name || v.toc || v.owner) : null;
-    const trainStyle=trainTheme && trainTheme.key!=='reference'
+    const freight=isFreightTrain(v);
+    const trainStyle=!freight && trainTheme && trainTheme.key!=='reference'
       ? ` style="background:${esc(trainTheme.primary)}"`
       : '';
     const coincidentCount=type==='train' ? Math.max(1,Number(v._coincidentCount)||1) : 1;
@@ -1906,7 +1919,7 @@
     const trainServiceTag=type==='train'&&coincidentCount>1?`<small class="train-service-tag">${esc(trainService)}</small>`:'';
     return L.divIcon({
       className: `marker-wrap marker-wrap-${esc(type)}${coincidentCount>1?' train-coincident-wrap':''}`,
-      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}${cancelled?' is-cancelled':''}"${cancelled?'':trainStyle} title="${esc((v.position_label||'')+sharedNote)}"><span>${icons[type] || '•'}</span>${trainIndex}${punctualityDot}</div>${pointer}${speedTag}${busTag}${trainTag}${trainServiceTag}</div>`,
+      html: `<div class="motion-shell${type==='train'?' train-marker-shell':''}">${trainFan}<div class="marker-bubble marker-${esc(type)} marker-${esc(method)}${eventClass}${freight?' marker-freight':''}${cancelled?' is-cancelled':''}"${cancelled?'':trainStyle} title="${esc((freight?'Freight train • ':'')+(v.position_label||'')+sharedNote)}"><span>${(freight?icons.freight:icons[type]) || '•'}</span>${trainIndex}${punctualityDot}</div>${pointer}${speedTag}${busTag}${trainTag}${trainServiceTag}</div>`,
       iconSize: [42,42], iconAnchor: [21-offsetX,21-offsetY],
       tooltipAnchor: type==='train' ? [offsetX,offsetY-17] : [0,0]
     });
@@ -2730,7 +2743,7 @@
     const speed = pointerType && zoomBand >= 2 ? compactSpeed(a) : '';
     const speedUnit = '';
     const movementPosition='';
-    return [a.type,a.position_method,a.name,['bus','train'].includes(a.type)?`${a.route||''}>${a.destination||''}`:'',a.cancelled_at?'cancelled':punctualityClass(a.delay_minutes),a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon,a._coincidentCount,a._coincidentSlot,a._coincidentX,a._coincidentY].join('|');
+    return [a.type,isFreightTrain(a)?'freight':'',a.position_method,a.name,['bus','train'].includes(a.type)?`${a.route||''}>${a.destination||''}`:'',a.cancelled_at?'cancelled':punctualityClass(a.delay_minutes),a.aircraft_model,a.aircraft_type_code,bearing,movementPosition,speed,speedUnit,zoomBand,appearance,cool?.score,cool?.label,cool?.theme,cool?.icon,a._coincidentCount,a._coincidentSlot,a._coincidentX,a._coincidentY].join('|');
   }
 
   function markerTooltipSignature(a) {

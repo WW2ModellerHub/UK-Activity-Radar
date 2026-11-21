@@ -25,8 +25,14 @@ function punctuality(activity){
   return {punctuality:minutes<=1?'on-time':minutes<=5?'late':'very-late'};
 }
 
+function isFreight(activity){
+  if(activity.cool_subtype==='freight')return true;
+  const head=String(activity.headcode||String(activity.name||'').match(/\b[0-9][A-Z][0-9]{2}\b/i)?.[0]||'').trim();
+  return /^[467]/.test(head);
+}
+
 function iconKind(activity){
-  if(activity.type==='train')return 'train';
+  if(activity.type==='train')return isFreight(activity)?'freight':'train';
   const text=`${activity.aircraft_model||''} ${activity.aircraft_type_code||''} ${activity.kind||''}`.toLowerCase();
   if(activity.type==='sar'||/helicopter|lynx|chinook|apache|merlin|puma|robinson|agusta|eurocopter|dauphin|squirrel|jetranger|\b(r22|r44|r66|ec20|ec30|ec35|ec45|ec55|ec75|as50|as55|as65|as32|as3b|a109|a119|a139|a169|a189|aw09|b06|b06t|b407|b412|b429|b505|h125|h130|h135|h145|h160|h175|s76|s92|md52|md60|expl|g2ca|en28|en48|h269|s300|bk17|nh90)\b/.test(text))return 'helicopter';
   if(/typhoon|eurofighter|fighter|fast jet|\b(hawk|f-?(15|16|18|22|35)|tornado|gripen|rafale)\b/.test(text))return 'fastjet';
@@ -50,6 +56,17 @@ function drawIcon(kind,size=64){
   const canvas=document.createElement('canvas');canvas.width=size;canvas.height=size;
   const context=canvas.getContext('2d');
   context.lineJoin='round';context.lineCap='round';
+  if(kind==='freight'){
+    // A container wagon side on, on a rust-orange square badge.
+    context.translate(size/2,size/2);
+    context.fillStyle='#b4531a';context.strokeStyle='#10212d';context.lineWidth=3;
+    context.beginPath();context.roundRect(-20,-20,40,40,7);context.fill();context.stroke();
+    context.strokeStyle='#fff';context.lineWidth=2.6;
+    context.strokeRect(-14,-11,28,16);
+    context.beginPath();for(const x of [-4.7,4.7])context.moveTo(x,-11),context.lineTo(x,5);context.moveTo(-15,9);context.lineTo(15,9);context.stroke();
+    context.fillStyle='#fff';for(const x of [-9,9]){context.beginPath();context.arc(x,13,3,0,Math.PI*2);context.fill();}
+    return context.getImageData(0,0,size,size);
+  }
   if(kind==='train'){
     context.translate(size/2,size/2);
     context.fillStyle='#7b2d70';context.strokeStyle='#10212d';context.lineWidth=3;
@@ -95,9 +112,9 @@ export class LiveObjectRenderer{
     leafMap.on('resize',this.resize);
     leafMap.on('zoomanim',this.zoomAnim);
     this.map.on('load',()=>{
-      for(const kind of ['train','airliner','propeller','helicopter','fastjet','heavy'])this.map.addImage(`live-${kind}`,drawIcon(kind),{pixelRatio:2});
+      for(const kind of ['train','freight','airliner','propeller','helicopter','fastjet','heavy'])this.map.addImage(`live-${kind}`,drawIcon(kind),{pixelRatio:2});
       this.map.addSource('live-objects',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
-      this.map.addLayer({id:'live-object-halo',type:'circle',source:'live-objects',paint:{'circle-radius':['case',['get','selected'],23,['==',['get','type'],'train'],19,16],'circle-color':['case',['==',['get','type'],'train'],'rgba(77,22,69,.88)','#ffffff'],'circle-stroke-width':['case',['get','selected'],4,2],'circle-stroke-color':['case',['get','selected'],'#ffe27a',['==',['get','type'],'train'],'#effaff',['match',['get','icon'],'live-helicopter','#d64545','live-heavy','#6d4fd8','live-fastjet','#b26a00','live-propeller','#0f8a7a','#0b63ce']],'circle-blur':.12}});
+      this.map.addLayer({id:'live-object-halo',type:'circle',source:'live-objects',paint:{'circle-radius':['case',['get','selected'],23,['==',['get','type'],'train'],19,16],'circle-color':['case',['==',['get','icon'],'live-freight'],'rgba(140,60,16,.9)',['==',['get','type'],'train'],'rgba(77,22,69,.88)','#ffffff'],'circle-stroke-width':['case',['get','selected'],4,2],'circle-stroke-color':['case',['get','selected'],'#ffe27a',['==',['get','type'],'train'],'#effaff',['match',['get','icon'],'live-helicopter','#d64545','live-heavy','#6d4fd8','live-fastjet','#b26a00','live-propeller','#0f8a7a','#0b63ce']],'circle-blur':.12}});
       this.map.addLayer({id:'live-object-punctuality',type:'circle',source:'live-objects',filter:['has','punctuality'],paint:{'circle-radius':5,'circle-translate':[11,-11],'circle-color':['match',['get','punctuality'],'on-time','#1e9e6a','late','#d4a017','cancelled','#6b7280','#d64545'],'circle-stroke-width':2,'circle-stroke-color':'#ffffff'}});
       this.map.addLayer({id:'live-object-symbol',type:'symbol',source:'live-objects',layout:{'icon-image':['get','icon'],'icon-size':.52,'icon-allow-overlap':true,'icon-ignore-placement':true,'icon-rotate':['get','rotation'],'icon-rotation-alignment':'map'}});
       this.ready=true;this.container.closest('.map-panel')?.classList.add('maplibre-live-ready');this.container.dataset.renderer='ready';onReady?.();this.start();

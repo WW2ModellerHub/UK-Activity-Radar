@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — freight trains have their own map icon
+
+- Freight trains (4, 6 and 7 headcodes, or classed as freight) are drawn as a
+  wagon on a rust-orange square badge on both the Leaflet markers and the
+  live MapLibre layer, instead of the passenger train in operator livery.
+
 ## 2026-11-21 — freight trains matched to their timetable, and what they carry
 
 - Live freight trains never matched their timetable, so they showed no route.
