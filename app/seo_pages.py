@@ -130,7 +130,7 @@ def _shell(*, title: str, description: str, canonical: str, body: str, json_ld: 
 <meta property="og:url" content="{escape(canonical, quote=True)}"><meta property="og:image" content="{escape(site, quote=True)}/card.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#ffffff">
 <link rel="icon" href="/static/icon-192.png"><link rel="stylesheet" href="/static/seo.css?v=16349">{ld}</head>
-<body><header class="top"><a class="brand" href="/"><span>R</span>UK Activity Radar</a><nav><a href="/">Live map</a><a href="/stations">Stations</a><a href="/operators">Operators</a><a href="/military-aircraft-tracker">Aircraft</a><a href="/guides">Guides</a></nav></header>
+<body><header class="top"><a class="brand" href="/"><span>R</span>UK Activity Radar</a><nav><a href="/">Live map</a><a href="/stations">Stations</a><a href="/operators">Operators</a><a href="/railway-lines">Lines</a><a href="/military-aircraft-tracker">Aircraft</a><a href="/guides">Guides</a></nav></header>
 <main>{body}</main>
 <footer><a href="/">Live map</a> · <a href="/stations">All stations</a> · <a href="/operators">Train operators</a> · <a href="/military-aircraft-tracker">Aircraft trackers</a> · <a href="/guides">Tracking guides</a> · <a href="/about">About</a> · <a href="/data-licences">Data licences</a><p>Times and delays from Network Rail open data. Contains information of Network Rail Infrastructure Limited.</p></footer>
 </body></html>"""
