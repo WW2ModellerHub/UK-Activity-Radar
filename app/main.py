@@ -578,8 +578,10 @@ async def _history_loop() -> None:
     await asyncio.sleep(120)
     while True:
         try:
-            rows = state.all(include_buses=False, include_vessels=True, train_limit=None)
-            await asyncio.to_thread(history_store.record, rows)
+            # Gather and write off the event loop: thousands of rows must not
+            # hold up live requests.
+            await asyncio.to_thread(lambda: history_store.record(
+                state.all(include_buses=False, include_vessels=True, train_limit=None)))
         except Exception:
             pass
         await asyncio.sleep(300)
