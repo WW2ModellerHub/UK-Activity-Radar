@@ -1387,6 +1387,24 @@ def operator_page_route(name: str, request: Request):
     return _cached_page(f"operator:{wanted}", 90, build)
 
 
+@app.get("/railway-lines", include_in_schema=False)
+def railway_lines_page(request: Request):
+    from .named_lines import lines_index
+    return Response(lines_index(_site_origin(request)), media_type="text/html",
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/railway-line/{name}", include_in_schema=False)
+def railway_line_page(name: str, request: Request):
+    from .named_lines import LINES, line_page, resolve
+    from .seo_pages import slug
+    line = next((row for row in LINES if slug(row["name"]) == name), None)
+    if line is None:
+        raise HTTPException(status_code=404, detail="Railway line not found")
+    origin = _site_origin(request)
+    return _cached_page(f"line:{name}", 90, lambda: line_page(origin, line, resolve(line, _stations()), _live_trains()))
+
+
 @app.get("/guides", include_in_schema=False)
 def guides_page(request: Request):
     from .seo_pages import guides_index
@@ -1431,7 +1449,9 @@ def sitemap(request: Request):
         raise HTTPException(status_code=503, detail="Station directory is loading",
                             headers={"Retry-After": "60", "Cache-Control": "no-store"})
     letters = sorted({row["name"][:1].upper() for row in stations if re.fullmatch(r"[A-Z]", row["name"][:1].upper())})
+    from .named_lines import LINES, line_path
     urls = ("/", "/about", "/privacy", "/terms", "/data-licences", "/stations", "/operators", "/guides",
+            "/railway-lines", *(line_path(line["name"]) for line in LINES),
             *aircraft_landing_paths(),
             *(f"/guides/{slug}" for slug in guide_slugs()),
             *(station_letter_path(letter) for letter in letters),
