@@ -1467,6 +1467,52 @@ def airports_api():
                          for a in AIRPORTS], headers={"Cache-Control": "public, max-age=86400"})
 
 
+def _bus_routes() -> list[dict]:
+    service = getattr(smart_places, "bus_timetables", None) if smart_places is not None else None
+    if service is None:
+        return []
+    from .bus_timetable import route_index
+    try:
+        return route_index(service)
+    except Exception:
+        return []
+
+
+@app.get("/buses", include_in_schema=False)
+def buses_page(request: Request):
+    from .bus_route_pages import buses_index
+    return _cached_page("buses", 600, lambda: buses_index(_site_origin(request), _bus_routes()))
+
+
+@app.get("/bus/{operator}", include_in_schema=False)
+def bus_operator_page(operator: str, request: Request):
+    from .bus_route_pages import operator_routes_page
+    from .seo_pages import slug
+    routes = [r for r in _bus_routes() if slug(r["operator"]) == operator]
+    if not routes:
+        raise HTTPException(status_code=404, detail="Bus operator not found")
+    return _cached_page(f"bus-op:{operator}", 600, lambda: operator_routes_page(_site_origin(request), routes[0]["operator"], routes))
+
+
+@app.get("/bus/{operator}/{route}", include_in_schema=False)
+def bus_route_page(operator: str, route: str, request: Request):
+    from .bus_route_pages import live_on_route, route_page
+    from .bus_timetable import route_profile
+    from .seo_pages import slug
+    found = next((r for r in _bus_routes() if slug(r["operator"]) == operator and slug(r["route"]) == route), None)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Bus route not found")
+    origin = _site_origin(request)
+
+    def build() -> str:
+        profile = route_profile(smart_places.bus_timetables, found["region"], found["operator"], found["route"])
+        if profile is None:
+            raise HTTPException(status_code=404, detail="Bus route not found")
+        buses = [row for row in state.all(include_trains=False, include_vessels=False, bus_limit=20000) if row.type == "bus"]
+        return route_page(origin, profile, live_on_route(profile, buses))
+    return _cached_page(f"bus:{operator}/{route}", 120, build, heavy=True)
+
+
 @app.get("/towns", include_in_schema=False)
 def towns_page(request: Request):
     from .town_pages import towns_index
@@ -1605,11 +1651,14 @@ def sitemap(request: Request):
     from .airport_pages import AIRPORTS, airport_path
     from .named_lines import LINES, line_path
     from .town_pages import TOWNS, town_path
+    from .bus_route_pages import operator_path as bus_operator_path, route_path as bus_route_path
     urls = ("/", "/about", "/privacy", "/terms", "/data-licences", "/stations", "/operators", "/guides",
             "/operators/league-table",
             "/railway-lines", *(line_path(line["name"]) for line in LINES),
             "/airports", *(airport_path(a) for a in AIRPORTS),
             "/towns", *(town_path(t[0]) for t in TOWNS),
+            "/buses", *dict.fromkeys(bus_operator_path(r["operator"]) for r in _bus_routes()),
+            *(bus_route_path(r["operator"], r["route"]) for r in _bus_routes()),
             "/discover-archive", *(f"/discover/{d}" for d, n in (history_store.sighting_days(limit=400) if history_store else []) if n >= 3),
             *aircraft_landing_paths(),
             *(f"/guides/{slug}" for slug in guide_slugs()),
