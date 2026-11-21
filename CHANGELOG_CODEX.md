@@ -6,7 +6,7 @@
   (West Coast, East Coast, Midland, Great Western, Settle–Carlisle,
   Chiltern, Brighton, South Western, Birmingham–Leicester,
   Coventry–Nuneaton, Cross City, Cross Country): stations in order linked to
-  station pages, live trains within 2.5 km of the line in line order with
+  station pages, live trains within 1 km of the line in line order with
   delays, a line health label, operators seen, and a link to the live map.
   Station names are matched to the real directory (all 128 checked against
   the live site); unknown names are left out, never guessed. Added to the

@@ -14,7 +14,7 @@ from math import cos, radians, sqrt
 
 from .seo_pages import _breadcrumbs, _now_clock, _shell, slug, tidy_name
 
-NEAR_LINE_KM = 2.5
+NEAR_LINE_KM = 1.0
 
 LINES: tuple[dict, ...] = (
     {"name": "West Coast Main Line", "region": "London to Glasgow",
