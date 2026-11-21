@@ -3069,6 +3069,24 @@
     }
   }
 
+  // "Is this train usually late?" from the radar's own day-by-day record.
+  const usuallyById=new Map();
+  async function loadUsually(a){
+    const box=$('detail-usually');
+    if(!box)return;
+    box.classList.add('hidden');box.textContent='';
+    if(a?.type!=='train')return;
+    let found=usuallyById.get(a.id);
+    if(found===undefined){
+      try{const r=await fetch(`/api/activity/${encodeURIComponent(a.id)}/usually`);found=r.ok?await r.json():null;}catch{found=null;}
+      usuallyById.set(a.id,found);
+    }
+    if(selectedId!==a.id||!found||!found.days)return;
+    const onTime=found.days-found.late-found.cancelled;
+    box.textContent=`Usually: on time on ${onTime} of the last ${found.days} days we saw it`+(found.late?`, late on ${found.late}`:'')+(found.cancelled?`, cancelled on ${found.cancelled}`:'')+(found.average!=null&&found.average>=1?` (about ${Math.round(found.average)} min late on average)`:'')+'.';
+    box.classList.remove('hidden');
+  }
+
   function renderInsight(a) {
     const box = $('detail-insight');
     if(!box)return;
@@ -3926,6 +3944,7 @@
     $('detail-subtitle').textContent = roadImpact ? humanTransitLabel(roadImpact.where||'') : ['aircraft','sar'].includes(a.type) ? [flightRoute?flightRouteText(flightRoute):providerFlightRoute,aircraftIdentity].filter(Boolean).join(' · ') : humanTransitLabel(a.kind === 'event' ? (a.subtitle || a.category || a.position_label) : (a.origin && a.destination ? `${a.origin} → ${a.destination}` : (a.subtitle || a.route || a.position_label)));
     renderOperatorIdentity(a);
     renderInsight(a);
+    if (selectionChanged) loadUsually(a);
     renderDiscoveryDetail(a);
     if (selectionChanged) { clearPhoto(); clearActivityIntelligence(); }
     if (['sar','aircraft'].includes(a.type)) { loadAircraftInfo(a); if (!flightRouteById.has(a.id)) loadFlightRoute(a); }

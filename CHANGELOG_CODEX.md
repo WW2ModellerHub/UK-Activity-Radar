@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — the radar keeps a daily record
+
+- New history store (DATA_DIR/history.sqlite, kept 400 days), sampled every
+  5 minutes: one row per train per day (latest and worst lateness,
+  cancelled) and one per unusual find per day. Only what was observed.
+- Train panel: "Usually: on time on 9 of the last 12 days we saw it, late on
+  2 (about 4 min late on average)" once a service has 3+ earlier days.
+- Discover archive: /discover-archive and /discover/YYYY-MM-DD, each day's
+  steam and test trains, light engines and military and rescue aircraft,
+  grouped, with the place and times seen. Days with 3+ finds go in the
+  sitemap.
+
 ## 2026-11-21 — airport pages
 
 - /airports and /airport/{name}-{iata} for 13 UK airports: aircraft
