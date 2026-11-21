@@ -1,5 +1,19 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — official ORR statistics
+
+- Station pages: "How busy is X?" with official yearly passenger entries and
+  exits for the last ten years (ORR table 1415, to March 2026), national
+  rank, change on the year before, level against 2019-20, interchanges, and
+  a bar chart. 2,595 stations.
+- Operator pages: "Official punctuality" for the latest four-week railway
+  period (on time to the minute, within 3 minutes, cancellations), against
+  Great Britain overall, the annual average and a 13-period trend (ORR
+  tables 3138 and 3124). Thameslink, Southern, Great Northern and Gatwick
+  Express show Govia Thameslink Railway's figures and say so.
+- Bundled as JSON under app/assets; refresh scripts in scripts/orr.
+  Credited on the data licences page (Open Government Licence v3.0).
+
 ## 2026-11-21 — railway line pages
 
 - New /railway-lines and /railway-line/{name} pages for 12 named lines

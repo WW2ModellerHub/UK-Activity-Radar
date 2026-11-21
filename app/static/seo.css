@@ -37,3 +37,8 @@ h2{font-size:1.2rem;margin:2rem 0 .6rem}
 footer{max-width:960px;margin:0 auto;padding:20px 16px 40px;border-top:1px solid var(--line);color:var(--muted);font-size:.9rem}
 footer p{margin:.6rem 0 0;font-size:.8rem}
 @media(max-width:560px){.board th,.board td{padding-left:5px;padding-right:5px}.board th:nth-child(3),.board td:nth-child(3){width:3rem}.stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.usage-bars{list-style:none;padding:0;margin:12px 0;display:grid;gap:4px}
+.usage-bars li{display:grid;grid-template-columns:62px 1fr 86px;align-items:center;gap:8px;font-size:13px}
+.usage-bars i{display:block;height:10px;border-radius:5px;background:#0b6bcb}
+.usage-bars b{font-weight:600;text-align:right}
+.source{font-size:12px;color:#667}
