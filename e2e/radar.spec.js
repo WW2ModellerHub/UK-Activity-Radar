@@ -2368,3 +2368,14 @@ test('a station panel links to its station page, and More lists every page type'
   for (const path of ['/stations','/railway-lines','/airports','/operators','/discover-archive'])
     await expect(page.locator(`.browse-links a[href="${path}"]`)).toBeVisible();
 });
+
+test('a station board opens with the timetable first and the stats below it', async ({ page }) => {
+  await page.locator('#station-boards').click();
+  await expect(page.locator('#detail-placeboard .board-switch')).toBeVisible();
+  const order = await page.evaluate(() => {
+    const board = document.querySelector('#detail-placeboard');
+    const tabs = board.querySelector('.board-switch'), stats = board.querySelector('.station-live-snapshot');
+    return stats ? Boolean(tabs.compareDocumentPosition(stats) & Node.DOCUMENT_POSITION_FOLLOWING) : true;
+  });
+  expect(order).toBe(true);
+});
