@@ -1434,13 +1434,37 @@ def station_page_route(name: str, request: Request):
                 facts["bus_stops"] = smart_places.bus_stops_near(station["lat"], station["lon"])
             except Exception:
                 pass
-        paths = {row["crs"]: row["path"] for row in _stations()}
+        # Each direct destination links to its route page ("Hinckley to Leicester trains").
+        from .route_pages import route_path
+        paths = {row["crs"]: route_path(station, row) for row in _stations() if row["crs"] != crs}
         return station_page(origin, station, board, others, _operator_rows(), settings.trainline_affiliate_url, facts, paths)
     # A reduced station shell is not a safe crawl fallback: at scale it makes
     # thousands of distinct URLs look like thin duplicates. The cache helper
     # will serve an expired complete copy while this page is rebuilding, or a
     # non-cacheable 503 when no complete copy exists yet.
     return _cached_page(f"station:{crs}", 600, build, heavy=True)
+
+
+@app.get("/trains/{pair}", include_in_schema=False)
+def route_page_route(pair: str, request: Request):
+    from .route_pages import resolve, route_page, route_path
+    found = resolve(pair, _stations())
+    if found is None:
+        raise HTTPException(status_code=404, detail="Route not found")
+    frm, to = found
+    if pair != route_path(frm, to).rsplit("/", 1)[-1]:
+        return RedirectResponse(route_path(frm, to), status_code=301)
+    origin = _site_origin(request)
+
+    def build() -> str:
+        data = None
+        if smart_places is not None:
+            try:
+                data = smart_places.direct_trains(frm["crs"], to["crs"])
+            except Exception:
+                data = None
+        return route_page(origin, frm, to, data, settings.trainline_affiliate_url)
+    return _cached_page(f"route:{frm['crs']}:{to['crs']}", 600, build, heavy=True)
 
 
 @app.get("/operators", include_in_schema=False)

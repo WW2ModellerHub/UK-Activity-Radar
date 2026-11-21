@@ -1,5 +1,16 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — direct train route pages
+
+- `/trains/{from}-to-{to}` (e.g. /trains/hinckley-to-leicester): every direct
+  train today from the timetable, with leaves, arrives, journey time, operator
+  and stops between; the next train, typical and fastest times, first and last
+  train and distance; trains already gone fold into "Earlier today". A
+  Trainline button appears when TRAINLINE_AFFILIATE_URL is set.
+- Station pages' "Direct trains from …" list now links to these route pages.
+- One pass over a station's trains (`_direct_runs`) feeds both the station
+  facts and route pages; only small per-day summaries are cached.
+
 ## 2026-11-21 — freight on station boards
 
 - Station boards gain a Freight tab (shown only when some are due): freight,

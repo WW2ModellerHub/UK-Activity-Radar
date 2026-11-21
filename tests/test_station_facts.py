@@ -85,3 +85,58 @@ def test_station_facts_render_chips_and_link_direct_destinations():
 
 def test_station_facts_say_nothing_without_data():
     assert station_facts_html("ZZZ", "Nowhere", {}, {}) == ("", "")
+
+
+def test_direct_trains_between_two_stations_with_journey_times(tmp_path):
+    svc = SmartPlacesService(tmp_path, _store(tmp_path), FakeState())
+
+    route = svc.direct_trains("HNK", "LEI")
+
+    assert [(t["depart"], t["arrive"], t["minutes"], t["stops_between"]) for t in route["trains"]] == [
+        ("08:08", "08:28", 20, 0), ("09:08", "09:28", 20, 0)]
+    assert svc.direct_trains("HNK", "NUN")["trains"] == []      # only arrives from Nuneaton
+
+
+STATIONS = [
+    {"name": "Hinckley", "crs": "HNK", "lat": 52.535, "lon": -1.372, "path": "/station/hinckley-hnk"},
+    {"name": "Leicester", "crs": "LEI", "lat": 52.632, "lon": -1.125, "path": "/station/leicester-lei"},
+    {"name": "Stratford-upon-Avon", "crs": "SAV", "lat": 52.194, "lon": -1.716, "path": "/station/stratford-upon-avon-sav"},
+]
+
+
+def test_route_paths_resolve_both_ways_even_with_hyphenated_names():
+    from app.route_pages import resolve, route_path
+    assert route_path(STATIONS[0], STATIONS[1]) == "/trains/hinckley-to-leicester"
+    assert resolve("hinckley-to-leicester", STATIONS) == (STATIONS[0], STATIONS[1])
+    assert resolve("stratford-upon-avon-to-hinckley", STATIONS) == (STATIONS[2], STATIONS[0])
+    assert resolve("hinckley-to-hinckley", STATIONS) is None
+    assert resolve("hinckley-to-nowhere", STATIONS) is None
+
+
+def test_route_page_reads_well(monkeypatch):
+    from datetime import datetime
+    from app.route_pages import route_page
+    data = {"trains": [
+        {"depart": "08:08", "arrive": "08:28", "minutes": 20, "stops_between": 1, "operator": "CrossCountry"},
+        {"depart": "09:08", "arrive": "09:26", "minutes": 18, "stops_between": 0, "operator": "CrossCountry"}]}
+    html = route_page("https://x.test", STATIONS[0], STATIONS[1], data,
+                      now=datetime(2026, 11, 21, 8, 30, tzinfo=london_tz()))
+    assert "Hinckley to Leicester trains" in html
+    assert "2 direct trains today" in html and "typically 19 min, fastest 18 min" in html
+    assert "first 08:08, last 09:08" in html
+    assert "next direct train leaves Hinckley at <strong>09:08</strong>" in html
+    assert 'class="gone"' in html                        # 08:08 has gone
+    assert 'href="/trains/leicester-to-hinckley"' in html
+    assert "Trainline" not in html                       # no affiliate link set
+    empty = route_page("https://x.test", STATIONS[0], STATIONS[1], {"trains": []})
+    assert "no direct trains" in empty
+
+
+def test_route_endpoint_redirects_to_one_address_and_404s_unknown(monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as main
+    monkeypatch.setattr(main, "_stations", lambda: STATIONS * 700)
+    monkeypatch.setattr(main, "smart_places", None)
+    client = TestClient(main.app)
+    assert client.get("/trains/hinckley-to-leicester").status_code == 200
+    assert client.get("/trains/nowhere-to-leicester").status_code == 404
