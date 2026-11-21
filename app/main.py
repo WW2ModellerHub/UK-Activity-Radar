@@ -1424,7 +1424,18 @@ def station_page_route(name: str, request: Request):
             (row for row in _stations() if row["crs"] != crs),
             key=lambda row: _haversine_km(station["lat"], station["lon"], row["lat"], row["lon"]),
         )[:6]
-        return station_page(origin, station, board, others, _operator_rows(), settings.trainline_affiliate_url)
+        facts: dict = {}
+        if smart_places is not None:
+            try:
+                facts["direct"] = smart_places.direct_destinations(crs)
+            except Exception:
+                facts["direct"] = None
+            try:
+                facts["bus_stops"] = smart_places.bus_stops_near(station["lat"], station["lon"])
+            except Exception:
+                pass
+        paths = {row["crs"]: row["path"] for row in _stations()}
+        return station_page(origin, station, board, others, _operator_rows(), settings.trainline_affiliate_url, facts, paths)
     # A reduced station shell is not a safe crawl fallback: at scale it makes
     # thousands of distinct URLs look like thin duplicates. The cache helper
     # will serve an expired complete copy while this page is rebuilding, or a

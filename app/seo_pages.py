@@ -129,7 +129,7 @@ def _shell(*, title: str, description: str, canonical: str, body: str, json_ld: 
 <meta property="og:title" content="{escape(title, quote=True)}"><meta property="og:description" content="{escape(description, quote=True)}">
 <meta property="og:url" content="{escape(canonical, quote=True)}"><meta property="og:image" content="{escape(site, quote=True)}/card.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#ffffff">
-<link rel="icon" href="/static/icon-192.png"><link rel="stylesheet" href="/static/seo.css?v=16359">{ld}</head>
+<link rel="icon" href="/static/icon-192.png"><link rel="stylesheet" href="/static/seo.css?v=16365">{ld}</head>
 <body><header class="top"><a class="brand" href="/"><span>R</span>UK Activity Radar</a><nav><a href="/">Live map</a><a href="/towns">Towns</a><a href="/stations">Stations</a><a href="/operators">Operators</a><a href="/railway-lines">Lines</a><a href="/buses">Buses</a><a href="/airports">Airports</a><a href="/discover-archive">Finds</a><a href="/military-aircraft-tracker">Aircraft</a><a href="/guides">Guides</a></nav></header>
 <main>{body}</main>
 <footer><a href="/">Live map</a> · <a href="/stations">All stations</a> · <a href="/operators">Train operators</a> · <a href="/military-aircraft-tracker">Aircraft trackers</a> · <a href="/guides">Tracking guides</a> · <a href="/about">About</a> · <a href="/data-licences">Data licences</a><p>Times and delays from Network Rail open data. Contains information of Network Rail Infrastructure Limited.</p></footer>
@@ -171,6 +171,40 @@ def _people(value: int) -> str:
     return f"{value / 1_000_000:.1f} million" if value >= 1_000_000 else f"{value:,}"
 
 
+def station_facts_html(crs: str, name: str, facts: dict, paths: dict[str, str]) -> tuple[str, str]:
+    """Quick facts as chips, then where the station's trains go direct today.
+
+    Built only from data we hold: the timetable (direct destinations and
+    trains a day), ORR station usage (how busy) and NaPTAN (bus stops close
+    by). Staffing, step-free access and parking need the station
+    knowledgebase feed and are added when it is connected.
+    """
+    direct = facts.get("direct") or {}
+    destinations = direct.get("destinations") or []
+    usage = station_usage(crs) or {}
+    chips = []
+    if destinations:
+        chips.append(f"{len(destinations):,} direct destination{'s' if len(destinations) != 1 else ''}")
+    if direct.get("trains"):
+        chips.append(f"{direct['trains']:,} departure{'s' if direct['trains'] != 1 else ''} today")
+    if usage.get("rank"):
+        chips.append(f"{usage['rank']:,}{_ordinal(usage['rank'])} busiest in Britain")
+    if facts.get("bus_stops"):
+        chips.append(f"{facts['bus_stops']} bus stop{'s' if facts['bus_stops'] != 1 else ''} within 400 m")
+    if not chips:
+        return "", ""
+    chip_html = "".join(f"<li>{escape(chip)}</li>" for chip in chips)
+    rows = "".join(
+        "<li>{}<small>{} train{} today</small></li>".format(
+            f'<a href="{escape(paths[d["crs"]])}">{escape(tidy_name(d["name"]))}</a>' if d["crs"] in paths else escape(tidy_name(d["name"])),
+            d["trains"], "s" if d["trains"] != 1 else "")
+        for d in destinations[:40])
+    more = f"<p>And {len(destinations) - 40} more stations.</p>" if len(destinations) > 40 else ""
+    section = (f'<h2>Direct trains from {escape(name)}</h2><p>Stations you can reach from {escape(name)} today without changing, '
+               f'with how many trains go there.</p><ul class="links direct-list">{rows}</ul>{more}') if rows else ""
+    return f'<ul class="station-facts" aria-label="{escape(name)} at a glance">{chip_html}</ul>', section
+
+
 def station_usage_html(crs: str, name: str) -> str:
     row = station_usage(crs)
     if not row:
@@ -209,8 +243,11 @@ def station_page(
     nearby: list[dict],
     operator_rows: list[dict],
     trainline_affiliate_url: str = "",
+    facts: dict | None = None,
+    paths: dict[str, str] | None = None,
 ) -> str:
     name, crs = station["name"], station["crs"]
+    facts_chips, direct_section = station_facts_html(crs, name, facts or {}, paths or {})
     departures = [row for row in (board or {}).get("departures") or [] if int(row.get("minutes") or 0) >= -2][:12]
     rows, late, cancelled, known = [], 0, 0, 0
     operators: list[str] = []
@@ -282,9 +319,11 @@ def station_page(
 <h1>{escape(name)} departures</h1>
 <p class="lede">{summary}</p>
 <p class="station-actions"><a class="button" href="/?place=rail-station:{escape(crs)}">See them moving on the live map</a>{affiliate}</p>
+{facts_chips}
 {snapshot}
 {table}
 {f'<h2>Operators at {escape(name)}</h2><ul class="links">{operator_links}</ul>' if operator_links else ''}
+{direct_section}
 {station_usage_html(crs, name)}
 <h2>About this page</h2><p>Departures from {escape(name)} ({escape(crs)}) for the next few hours, from the published timetable with live running from Network Rail where the train can be matched. Delays update every minute on the <a href="/?place=rail-station:{escape(crs)}">live map</a>, where you can also save the station, follow a train and get alerts when it is late, cancelled or changes platform. Read <a href="/guides/how-live-train-positions-work">how UK live train positions are estimated between railway reports</a>.</p>
 {f'<h2>Stations near {escape(name)}</h2><ul class="links">{nearby_links}</ul>' if nearby_links else ''}"""
