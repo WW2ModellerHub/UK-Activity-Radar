@@ -815,6 +815,10 @@ async def lifespan(app: FastAPI):
         history_store = HistoryStore(DATA_DIR / "history.sqlite")
         tasks.append(asyncio.create_task(_history_loop()))
         tasks.append(asyncio.create_task(_line_track_warm()))
+    except Exception:
+        history_store = None
+
+    # Official ORR figures: refreshed copies saved earlier, then keep current.
     try:
         from .orr.refresh import load_saved
         load_saved(DATA_DIR)
@@ -822,8 +826,6 @@ async def lifespan(app: FastAPI):
         pass
     if not settings.demo_mode:
         tasks.append(asyncio.create_task(_orr_refresh_loop()))
-    except Exception:
-        history_store = None
 
     if billing_configuration.enabled:
         billing_store = BillingStore(
