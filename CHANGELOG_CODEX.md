@@ -1,5 +1,18 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — line pages on real track; train panels link their line; league table
+
+- Each named line is routed once over the physical railway graph between
+  its stations (straight hop only where a pair cannot be routed), warmed in
+  the background 90 s after start, with a grid index. A train counts as on
+  the line only within 300 m of that track, in order along it.
+- Train panels add "On the West Coast Main Line now." with a link, from the
+  new /api/activity/{id}/lines (only lines already routed, so a tap is
+  never slowed).
+- /operators/league-table: every operator ranked by the latest official
+  punctuality, with within-3-minutes, cancellations and the annual average;
+  linked from /operators and in the sitemap.
+
 ## 2026-11-21 — station board: timetable first
 
 - The departures/arrivals list is now at the top of a station panel, with

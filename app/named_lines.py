@@ -88,6 +88,72 @@ def resolve(line: dict, stations: list[dict]) -> list[dict]:
     return [by_name[_key(name)] for name in line["stations"] if _key(name) in by_name]
 
 
+ON_TRACK_KM = 0.3
+_CELL = 0.01
+_TRACKS: dict[str, dict] = {}
+_TRACK_LOCK = __import__("threading").Lock()
+
+
+def track_for(line: dict, points: list[dict], *, build: bool = True) -> dict | None:
+    """The line drawn along real track between its stations, with a grid index.
+
+    Routed once per line (and set of stations) over the physical railway
+    graph. A pair that cannot be routed falls back to a straight hop, so one
+    gap does not lose the whole line.
+    """
+    key = line["name"] + "|" + ",".join(p["crs"] for p in points)
+    with _TRACK_LOCK:
+        if key in _TRACKS:
+            return _TRACKS[key]
+    if len(points) < 2 or not build:
+        return None
+    try:
+        from pathlib import Path as _P
+        from .schedule_store import _shared_physical_graph
+        graph = _shared_physical_graph(_P(__file__).resolve().parent / "assets" / "rail_track_geometry.geojson")
+    except Exception:
+        graph = None
+    coords: list[tuple[float, float]] = []
+    for a, b in zip(points, points[1:]):
+        pair = []
+        if graph is not None:
+            try:
+                pair = graph.route([[a["lat"], a["lon"]], [b["lat"], b["lon"]]], max_points=800)
+            except Exception:
+                pair = []
+        hop = [(float(x[0]), float(x[1])) for x in pair] or [(a["lat"], a["lon"]), (b["lat"], b["lon"])]
+        coords.extend(hop if not coords else hop[1:])
+    cells: dict[tuple[int, int], list[int]] = {}
+    for i in range(len(coords) - 1):
+        (la1, lo1), (la2, lo2) = coords[i], coords[i + 1]
+        for cy in range(int(min(la1, la2) // _CELL) - 1, int(max(la1, la2) // _CELL) + 2):
+            for cx in range(int(min(lo1, lo2) // _CELL) - 1, int(max(lo1, lo2) // _CELL) + 2):
+                cells.setdefault((cy, cx), []).append(i)
+    lengths = [0.0]
+    for i in range(len(coords) - 1):
+        lengths.append(lengths[-1] + _segment_km(coords[i][0], coords[i][1], {"lat": coords[i + 1][0], "lon": coords[i + 1][1]}, {"lat": coords[i + 1][0], "lon": coords[i + 1][1]}))
+    track = {"coords": coords, "cells": cells, "along": lengths}
+    with _TRACK_LOCK:
+        _TRACKS[key] = track
+    return track
+
+
+def on_track(track: dict, lat: float, lon: float) -> float | None:
+    """Distance along the line (km) when the point is on its track, else None."""
+    coords, cells = track["coords"], track["cells"]
+    near = cells.get((int(lat // _CELL), int(lon // _CELL)))
+    if not near:
+        return None
+    best = None
+    for i in near:
+        a = {"lat": coords[i][0], "lon": coords[i][1]}
+        b = {"lat": coords[i + 1][0], "lon": coords[i + 1][1]}
+        d = _segment_km(lat, lon, a, b)
+        if d <= ON_TRACK_KM and (best is None or d < best[0]):
+            best = (d, track["along"][i] + _segment_fraction(lat, lon, a, b) * _segment_km(a["lat"], a["lon"], b, b))
+    return best[1] if best else None
+
+
 def _segment_km(lat: float, lon: float, a: dict, b: dict) -> float:
     """Distance from a point to the straight segment a-b (flat-earth, fine at these scales)."""
     kx = 111.32 * cos(radians(lat))
@@ -99,10 +165,27 @@ def _segment_km(lat: float, lon: float, a: dict, b: dict) -> float:
     return sqrt((px - ax - t * dx) ** 2 + (py - ay - t * dy) ** 2)
 
 
-def trains_on(points: list[dict], trains: list) -> list[dict]:
-    """Live trains near the line, in line order, each with the nearest station."""
+def trains_on(points: list[dict], trains: list, track: dict | None = None) -> list[dict]:
+    """Live trains on the line, in line order, each with the nearest station.
+
+    With the line's real track, a train counts only when it is on that track
+    (within 300 m); without it, within NEAR_LINE_KM of the straight hops.
+    """
     if len(points) < 2:
         return []
+    if track is not None:
+        found = []
+        for train in trains:
+            lat, lon = getattr(train, "lat", None), getattr(train, "lon", None)
+            if lat is None or lon is None or getattr(train, "restored_snapshot", False):
+                continue
+            along = on_track(track, lat, lon)
+            if along is None:
+                continue
+            nearest = min(points, key=lambda p: (p["lat"] - lat) ** 2 + ((p["lon"] - lon) * cos(radians(lat))) ** 2)
+            found.append({"train": train, "order": along, "near": nearest["name"]})
+        found.sort(key=lambda row: row["order"])
+        return found
     out = []
     for train in trains:
         lat, lon = getattr(train, "lat", None), getattr(train, "lon", None)
@@ -138,7 +221,7 @@ def _delay_text(train) -> tuple[str, str]:
 
 
 def line_page(origin: str, line: dict, points: list[dict], trains: list) -> str:
-    on_line = trains_on(points, trains)
+    on_line = trains_on(points, trains, track_for(line, points))
     running = len(on_line)
     late = [row for row in on_line if (getattr(row["train"], "delay_minutes", None) or 0) >= 5]
     cancelled = sum(1 for row in on_line if getattr(row["train"], "cancelled_at", None))
@@ -174,7 +257,7 @@ def line_page(origin: str, line: dict, points: list[dict], trains: list) -> str:
 {f'<p>Operators seen on the line now: {escape(", ".join(operators))}.</p>' if operators else ''}
 <h2>Stations on the {escape(name)}</h2><ol class="links">{station_items}</ol>
 <h2>About the {escape(name)}</h2><p>{escape(line['about'])}</p>
-<p>Trains are counted when their live reported position is within {NEAR_LINE_KM:g} km of the line between these stations, so a train on a nearby parallel route can occasionally appear. Positions and delays come from Network Rail open data and update through the day. See <a href="/railway-lines">all railway lines</a> or <a href="/operators">train operators today</a>.</p>"""
+<p>Trains are counted when their live position is on this line's track (within {ON_TRACK_KM * 1000:.0f} m), so trains on routes that share the same tracks for a stretch appear too. Positions and delays come from Network Rail open data and update through the day. See <a href="/railway-lines">all railway lines</a> or <a href="/operators">train operators today</a>.</p>"""
     canonical = origin + line_path(name)
     return _shell(
         title=f"{name} live trains, map and delays today | UK Activity Radar",
@@ -202,3 +285,17 @@ def lines_index(origin: str) -> str:
                   canonical=canonical, body=body,
                   json_ld={"@context": "https://schema.org", "@type": "CollectionPage",
                            "name": "UK railway lines: live trains", "url": canonical})
+
+
+def lines_for(train, stations: list[dict]) -> list[dict]:
+    """The named lines a live train is on now, for a link from its panel."""
+    lat, lon = getattr(train, "lat", None), getattr(train, "lon", None)
+    if lat is None or lon is None:
+        return []
+    out = []
+    for line in LINES:
+        points = resolve(line, stations)
+        track = track_for(line, points, build=False)   # only lines already routed: never slow a tap
+        if track is not None and on_track(track, lat, lon) is not None:
+            out.append({"name": line["name"], "path": line_path(line["name"])})
+    return out

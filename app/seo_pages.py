@@ -129,7 +129,7 @@ def _shell(*, title: str, description: str, canonical: str, body: str, json_ld: 
 <meta property="og:title" content="{escape(title, quote=True)}"><meta property="og:description" content="{escape(description, quote=True)}">
 <meta property="og:url" content="{escape(canonical, quote=True)}"><meta property="og:image" content="{escape(site, quote=True)}/card.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#ffffff">
-<link rel="icon" href="/static/icon-192.png"><link rel="stylesheet" href="/static/seo.css?v=16354">{ld}</head>
+<link rel="icon" href="/static/icon-192.png"><link rel="stylesheet" href="/static/seo.css?v=16359">{ld}</head>
 <body><header class="top"><a class="brand" href="/"><span>R</span>UK Activity Radar</a><nav><a href="/">Live map</a><a href="/stations">Stations</a><a href="/operators">Operators</a><a href="/railway-lines">Lines</a><a href="/airports">Airports</a><a href="/discover-archive">Finds</a><a href="/military-aircraft-tracker">Aircraft</a><a href="/guides">Guides</a></nav></header>
 <main>{body}</main>
 <footer><a href="/">Live map</a> · <a href="/stations">All stations</a> · <a href="/operators">Train operators</a> · <a href="/military-aircraft-tracker">Aircraft trackers</a> · <a href="/guides">Tracking guides</a> · <a href="/about">About</a> · <a href="/data-licences">Data licences</a><p>Times and delays from Network Rail open data. Contains information of Network Rail Infrastructure Limited.</p></footer>
@@ -451,7 +451,7 @@ def operators_index(origin: str, rows: list[dict]) -> str:
         for r in sorted(rows, key=lambda r: r["operator"].lower())
     )
     body = f"""<p class="eyebrow">Live service status</p><h1>UK train operators today</h1>
-<p class="lede">How every passenger train operator is running right now (at {_now_clock()}).</p><ul class="links">{items}</ul>"""
+<p class="lede">How every passenger train operator is running right now (at {_now_clock()}). See the <a href="/operators/league-table">official punctuality league table</a>.</p><ul class="links">{items}</ul>"""
     canonical = origin + "/operators"
     return _shell(title="UK train operators: live delays and status today | UK Activity Radar",
                   description="Live service status for every UK train operator: which are running well and which have delays or cancellations right now.",
@@ -570,3 +570,39 @@ def guide_page(origin: str, slug: str) -> str:
                       _breadcrumbs(origin, canonical, [("Home", "/"), ("Guides", "/guides"),
                                                        (guide["heading"], f"/guides/{slug}")]),
                   ]})
+
+
+def operators_league(origin: str) -> str:
+    """Every operator ranked by the latest official punctuality (ORR)."""
+    operator_performance("Great Britain")   # loads the figures
+    rows = []
+    for name, periods in ((_PERFORMANCE or {}).get("operators") or {}).items():
+        if name in {"Great Britain", "England and Wales", "Scotland"} or not periods:
+            continue
+        last = periods[-1]
+        if last.get("on_time") is None:
+            continue
+        rows.append((name, last))
+    rows.sort(key=lambda row: -row[1]["on_time"])
+    gb = ((_PERFORMANCE or {}).get("operators") or {}).get("Great Britain", [{}])[-1]
+    period = rows[0][1]["period"] if rows else ""
+    body_rows = "".join(
+        "<tr><td>{}</td><td><strong>{}</strong></td><td>{:.0f}%</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
+            i, escape(name), last["on_time"],
+            f"{last['within_3']:.0f}%" if last.get("within_3") is not None else "—",
+            f"{last['cancelled']:.1f}%" if last.get("cancelled") is not None else "—",
+            f"{last['on_time_year']:.0f}%" if last.get("on_time_year") is not None else "—")
+        for i, (name, last) in enumerate(rows, 1))
+    best, worst = (rows[0][0], rows[-1][0]) if rows else ("", "")
+    body = f"""<p class="eyebrow">Official figures · railway period {escape(period)}</p>
+<h1>UK train operators ranked by punctuality</h1>
+<p class="lede">Most punctual: <strong>{escape(best)}</strong>. Least punctual: <strong>{escape(worst)}</strong>. Great Britain overall: {gb.get('on_time', 0):.0f}% of station stops on time and {gb.get('cancelled', 0):.1f}% of trains cancelled.</p>
+<table class="board league"><thead><tr><th>#</th><th>Operator</th><th>On time</th><th>Within 3 min</th><th>Cancelled</th><th>Last year</th></tr></thead><tbody>{body_rows}</tbody></table>
+<p class="source">Source: Office of Rail and Road, tables 3138 and 3124, latest four-week railway period. "On time" means within 59 seconds of the timetable at each recorded station stop; "Last year" is the moving annual average. Open Government Licence v3.0. See <a href="/operators">how each operator is running right now</a>.</p>"""
+    canonical = origin + "/operators/league-table"
+    return _shell(title="Most and least punctual UK train operators: league table | UK Activity Radar",
+                  description=f"Every UK train operator ranked by official punctuality and cancellations for railway period {period}: most punctual {best}, least punctual {worst}.",
+                  canonical=canonical, body=body,
+                  json_ld={"@context": "https://schema.org", "@graph": [
+                      {"@type": "WebPage", "name": "UK train operators ranked by punctuality", "url": canonical},
+                      _breadcrumbs(origin, canonical, [("Home", "/"), ("Train operators", "/operators"), ("League table", "/operators/league-table")])]})

@@ -3125,9 +3125,17 @@
       try{const r=await fetch(`/api/activity/${encodeURIComponent(a.id)}/usually`);found=r.ok?await r.json():null;}catch{found=null;}
       usuallyById.set(a.id,found);
     }
-    if(selectedId!==a.id||!found||!found.days)return;
-    const onTime=found.days-found.late-found.cancelled;
-    box.textContent=`Usually: on time on ${onTime} of the last ${found.days} days we saw it`+(found.late?`, late on ${found.late}`:'')+(found.cancelled?`, cancelled on ${found.cancelled}`:'')+(found.average!=null&&found.average>=1?` (about ${Math.round(found.average)} min late on average)`:'')+'.';
+    let lines=[];
+    try{const r=await fetch(`/api/activity/${encodeURIComponent(a.id)}/lines`);lines=r.ok?((await r.json()).lines||[]):[];}catch{}
+    if(selectedId!==a.id)return;
+    const parts=[];
+    if(found&&found.days){
+      const onTime=found.days-found.late-found.cancelled;
+      parts.push(esc(`Usually: on time on ${onTime} of the last ${found.days} days we saw it`+(found.late?`, late on ${found.late}`:'')+(found.cancelled?`, cancelled on ${found.cancelled}`:'')+(found.average!=null&&found.average>=1?` (about ${Math.round(found.average)} min late on average)`:'')+'.'));
+    }
+    if(lines.length)parts.push(`On the ${lines.map(l=>`<a href="${esc(l.path)}">${esc(l.name)}</a>`).join(' and the ')} now.`);
+    if(!parts.length)return;
+    box.innerHTML=parts.join('<br>');
     box.classList.remove('hidden');
   }
 

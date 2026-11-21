@@ -574,6 +574,23 @@ def _common_photo_plans() -> list[tuple[str, str | None, str | None]]:
 history_store = None
 
 
+async def _line_track_warm() -> None:
+    """Route every named line over real track once, soon after start."""
+    await asyncio.sleep(90)
+    def warm() -> None:
+        from .named_lines import LINES, resolve, track_for
+        stations = _stations()
+        for line in LINES:
+            try:
+                track_for(line, resolve(line, stations))
+            except Exception:
+                continue
+    try:
+        await asyncio.to_thread(warm)
+    except Exception:
+        pass
+
+
 async def _history_loop() -> None:
     await asyncio.sleep(120)
     while True:
@@ -782,6 +799,7 @@ async def lifespan(app: FastAPI):
         from .history import HistoryStore
         history_store = HistoryStore(DATA_DIR / "history.sqlite")
         tasks.append(asyncio.create_task(_history_loop()))
+        tasks.append(asyncio.create_task(_line_track_warm()))
     except Exception:
         history_store = None
 
@@ -1395,6 +1413,13 @@ def operators_page(request: Request):
     return _cached_page("operators", 90, lambda: operators_index(origin, _operator_rows()))
 
 
+@app.get("/operators/league-table", include_in_schema=False)
+def operators_league_page(request: Request):
+    from .seo_pages import operators_league
+    return Response(operators_league(_site_origin(request)), media_type="text/html",
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
 @app.get("/operator/{name}", include_in_schema=False)
 def operator_page_route(name: str, request: Request):
     from .line_status import PASSENGER_OPERATORS
@@ -1533,6 +1558,7 @@ def sitemap(request: Request):
     from .airport_pages import AIRPORTS, airport_path
     from .named_lines import LINES, line_path
     urls = ("/", "/about", "/privacy", "/terms", "/data-licences", "/stations", "/operators", "/guides",
+            "/operators/league-table",
             "/railway-lines", *(line_path(line["name"]) for line in LINES),
             "/airports", *(airport_path(a) for a in AIRPORTS),
             "/discover-archive", *(f"/discover/{d}" for d, n in (history_store.sighting_days(limit=400) if history_store else []) if n >= 3),
@@ -2526,6 +2552,17 @@ def activity_usually(request: Request, activity_id: str):
     if item is None or item.type != "train" or history_store is None:
         return {"days": 0}
     return history_store.usually(item) or {"days": 0}
+
+
+@app.get("/api/activity/{activity_id:path}/lines")
+def activity_lines(request: Request, activity_id: str):
+    """The named railway lines a live train is on now, for a link from its panel."""
+    _enforce_public_budget(request, lookup_request_budget)
+    from .named_lines import lines_for
+    item = state.get(activity_id)
+    if item is None or item.type != "train":
+        return {"lines": []}
+    return {"lines": lines_for(item, _stations())}
 
 
 @app.get("/api/activity/{activity_id:path}/media")
