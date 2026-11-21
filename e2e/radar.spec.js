@@ -2329,3 +2329,10 @@ test('tapping a bus shows no photo and does not ask for one', async ({ page }) =
   expect(asked).toEqual([]);
   await expect(page.locator('#detail-photo')).toBeHidden();
 });
+
+test('a map link with a place and a layer opens the map there with that layer on', async ({ page }) => {
+  await page.goto('/?lat=52.831&lon=-1.328&zoom=11&layer=aircraft');
+  await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout: 5000 });
+  await expect(page.locator('[data-layer-chip="aircraft"]')).toHaveAttribute('aria-pressed', 'true');
+  expect(new URL(page.url()).search).toBe('');
+});

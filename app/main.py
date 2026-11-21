@@ -1387,6 +1387,32 @@ def operator_page_route(name: str, request: Request):
     return _cached_page(f"operator:{wanted}", 90, build)
 
 
+@app.get("/airports", include_in_schema=False)
+def airports_page(request: Request):
+    from .airport_pages import airports_index
+    return Response(airports_index(_site_origin(request)), media_type="text/html",
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/airport/{name}", include_in_schema=False)
+def airport_page_route(name: str, request: Request):
+    from .airport_pages import RADIUS_NM, airport_page, find
+    airport = find(name)
+    if airport is None:
+        raise HTTPException(status_code=404, detail="Airport not found")
+    origin = _site_origin(request)
+
+    def build() -> str:
+        planes = []
+        if adsb_sar_collector is not None:
+            try:
+                planes = adsb_sar_collector.fetch_nearby(airport["lat"], airport["lon"], RADIUS_NM)[0]
+            except Exception:
+                planes = []
+        return airport_page(origin, airport, planes)
+    return _cached_page(f"airport:{airport['iata']}", 60, build)
+
+
 @app.get("/railway-lines", include_in_schema=False)
 def railway_lines_page(request: Request):
     from .named_lines import lines_index
@@ -1449,9 +1475,11 @@ def sitemap(request: Request):
         raise HTTPException(status_code=503, detail="Station directory is loading",
                             headers={"Retry-After": "60", "Cache-Control": "no-store"})
     letters = sorted({row["name"][:1].upper() for row in stations if re.fullmatch(r"[A-Z]", row["name"][:1].upper())})
+    from .airport_pages import AIRPORTS, airport_path
     from .named_lines import LINES, line_path
     urls = ("/", "/about", "/privacy", "/terms", "/data-licences", "/stations", "/operators", "/guides",
             "/railway-lines", *(line_path(line["name"]) for line in LINES),
+            "/airports", *(airport_path(a) for a in AIRPORTS),
             *aircraft_landing_paths(),
             *(f"/guides/{slug}" for slug in guide_slugs()),
             *(station_letter_path(letter) for letter in letters),
