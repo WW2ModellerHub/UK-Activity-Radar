@@ -2515,6 +2515,24 @@ def traffic_status():
     return traffic_flow_service.status_payload()
 
 
+# Where "Book" buttons go. An affiliate link from the environment when one is
+# set (so it can change without a release), else the operator's own site.
+_BOOKING_SITES = {"national-express": "https://www.nationalexpress.com/"}
+
+
+def _affiliate_url(partner: str) -> str | None:
+    url = {"national-express": settings.national_express_affiliate_url}.get(partner, "")
+    return url if url.startswith("https://") else None
+
+
+@app.get("/go/{partner}", include_in_schema=False)
+def booking_redirect(partner: str):
+    target = _affiliate_url(partner) or _BOOKING_SITES.get(partner)
+    if not target:
+        raise HTTPException(status_code=404, detail="Unknown booking partner")
+    return RedirectResponse(target, status_code=302, headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"})
+
+
 @app.get("/api/map/config")
 def map_config():
     """Publish only the read-only browser map configuration.
@@ -2550,6 +2568,8 @@ def map_config():
             'Aircraft: <a href="https://www.adsb.lol/" target="_blank" rel="noopener">ADSB.lol</a> (ODbL)'
         ),
         "message": None if configured else "Add MAPBOX_PUBLIC_TOKEN to enable the commercial basemap.",
+        # Booking links that pay the site a commission must say so.
+        "affiliates": {"national-express": _affiliate_url("national-express") is not None},
     }
     # A visitor may have opened the site before the production token was added.
     # Prevent that old fallback configuration from pinning them to TomTom.

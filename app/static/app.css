@@ -1445,3 +1445,8 @@ strong[data-plus].needs-plus::after,
 .freight-card dl div { display: grid; }
 .freight-card dd { order: 1; margin: 0; font-weight: 700; font-size: 17px; }
 .freight-card dt { order: 2; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+
+/* Coach booking: one clear button, with who sells the ticket underneath. */
+.coach-book { display: grid; gap: 6px; margin: 4px 0 14px; }
+.coach-book .primary-button { display: grid; place-items: center; min-height: 44px; text-decoration: none; }
+.coach-book small { color: var(--muted); font-size: 12px; }

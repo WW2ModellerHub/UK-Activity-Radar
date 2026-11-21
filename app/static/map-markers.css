@@ -174,3 +174,7 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 /* Freight: a wagon on a rust-orange square badge, whatever the operator. */
 .marker-train.marker-freight{background:#b4531a;border-radius:5px;border-color:#ffe2c7}
 .marker-train.marker-freight>span .ico{stroke:#fff}
+
+/* Coaches (National Express): a coach on its teal, a little wider than a bus. */
+.marker-bus.marker-coach{background:#007e8a;border-color:#d9f4f1;width:36px;border-radius:7px}
+.marker-bus.marker-coach>span .ico{stroke:#fff}
