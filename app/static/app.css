@@ -1450,3 +1450,8 @@ strong[data-plus].needs-plus::after,
 .coach-book { display: grid; gap: 6px; margin: 4px 0 14px; }
 .coach-book .primary-button { display: grid; place-items: center; min-height: 44px; text-decoration: none; }
 .coach-book small { color: var(--muted); font-size: 12px; }
+/* Freight tab: a third board, rows marked with the freight rust. */
+.board-switch.has-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.board-switch button small { margin-left: 3px; padding: 0 6px; border-radius: 999px; background: #b4531a; color: #fff; font-size: 11px; font-weight: 700; }
+.board-note { margin: 8px 2px 4px; color: var(--muted); font-size: 12px; }
+.board-row.board-freight { box-shadow: inset 3px 0 0 #b4531a; }

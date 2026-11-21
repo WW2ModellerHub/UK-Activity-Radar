@@ -2444,3 +2444,19 @@ test('a National Express coach is drawn as a coach and offers a way to book', as
   await expect(book).toHaveAttribute('href', '/go/national-express');
   await expect(page.locator('.coach-book small')).toContainText('Tickets are sold by National Express');
 });
+
+test('a station board has a Freight tab for freight passing through', async ({ page }) => {
+  await page.route(/\/api\/places\/rail(%3A|:)MKC\/board/, route => route.fulfill({ json:{ board:{ mode:'live', departures:[{ expected:'10:14', scheduled:'10:14', destination:'Manchester Piccadilly', platform:'4', status:'On time', headcode:'1A23' }], arrivals:[],
+    freight:[{ headcode:'4M52', origin:'LONDON GATEWAY FRGHTLINER', destination:'BASFORD HALL YARD (FL)', scheduled:'10:21', expected:'10:21', minutes:20, status:'Scheduled', passes:true, cargo:'Containers', train_uid:'F11111', service_date:'2026-10-05' }] } } }));
+  await page.locator('#station-boards').click();
+  const tab = page.locator('[data-board-tab="freight"]');
+  await expect(tab).toContainText('Freight');
+  await expect(tab).toContainText('1');
+  await expect(page.locator('[data-board-list="freight"]')).toBeHidden();
+  await tab.click();
+  const row = page.locator('[data-board-list="freight"] .board-freight');
+  await expect(row).toContainText('Basford Hall Yard');
+  await expect(row).toContainText('Containers');
+  await expect(row).toContainText('passes through');
+  await expect(page.locator('[data-board-list="departures"]')).toBeHidden();
+});

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -107,6 +108,35 @@ FREIGHT_CATEGORY_NAMES = {
     "PP": "Parcels", "PM": "Parcels", "JJ": "Post", "PV": "Empty parcels vans",
 }
 _TRACTION = {"D": "Diesel", "E": "Electric", "ED": "Electro-diesel"}
+
+
+_FREIGHT_WORDS = {
+    "FRGHTLINER": "Freightliner", "FRGHTLNR": "Freightliner", "FLINER": "Freightliner", "FLT": "Freightliner Terminal",
+    "SDGS": "Sidings", "SDG": "Siding", "YD": "Yard", "JN": "Junction", "JCN": "Junction", "JN.": "Junction",
+    "TERML": "Terminal", "TML": "Terminal", "TERM": "Terminal", "RECP": "Reception", "RCPT": "Reception",
+    "PS": "Power Station", "P.S.": "Power Station", "AES": "Power Station", "QUARRY": "Quarry", "QY": "Quarry", "WKS": "Works",
+    "DEP": "Depot", "DPT": "Depot", "EMD": "Depot", "INTL": "International", "SIDINGS": "Sidings",
+}
+# Operator tags and site codes in timetable names that mean nothing to a reader.
+_FREIGHT_DROP = re.compile(r"\s*\((?:FL|FLHH|GBRF|GBR|DB|DBC|DBS|DRS|CE|COLAS|EWS|FHH|RFT|FLT)\)|\s+\b(?:FHH|FLHH|GBRF|DBC|EWS)\b", re.I)
+
+
+def tidy_freight_place(name: str | None) -> str | None:
+    """'MIDDLETON TOWERS FHH' -> 'Middleton Towers'; 'KINGSBURY OIL SDGS' -> 'Kingsbury Oil Sidings'."""
+    text = " ".join(str(name or "").split())
+    if not text:
+        return None
+    text = _FREIGHT_DROP.sub("", text).strip()
+    words = []
+    for word in text.split():
+        upper = word.upper()
+        if upper in _FREIGHT_WORDS:
+            words.append(_FREIGHT_WORDS[upper])
+        elif word.isupper() and len(word) > 1 and not any(ch.isdigit() for ch in word):
+            words.append(word.capitalize() if "." not in word else word)
+        else:
+            words.append(word)
+    return " ".join(words)
 
 
 def freight_profile(category: str | None, power_type: str | None,

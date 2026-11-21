@@ -21,7 +21,7 @@ from .rail_service_notes import call_is_cancelled
 from .bus_timetable import BusTimetableService
 from .timeutils import london_tz
 from .reference_data import NAPTAN_URL, ensure_naptan_cache
-from .train_identity import freight_profile, infer_train_family, is_charter_operator, operator_name, power_type_name
+from .train_identity import freight_profile, infer_train_family, tidy_freight_place, is_charter_operator, operator_name, power_type_name
 
 USER_AGENT = "UKActivityRadar/1.4.0 smart-places"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
@@ -789,13 +789,38 @@ class SmartPlacesService:
                                  AND locations_json LIKE ? LIMIT 5000""",
                             (day_text,day_text,f'%"tiploc_code"%"{tip}"%'),
                         ) if str(row[0] or '').strip())
-        dep=[]; arr=[]; seen=set()
+        dep=[]; arr=[]; freight=[]; seen=set()
         notes=getattr(self.state,'rail_notes',None)
         for service_date in service_dates:
             for row in self.schedules.effective_rows(service_date,train_uids=candidates[service_date]):
               row_locations=self.schedules.timed_locations(row,service_date)
               row_codes=[str(item.get('tiploc_code') or '').strip().upper() for item in row_locations]
               note=notes.get(row['train_uid'],service_date.isoformat()) if notes is not None else None
+              profile=freight_profile(row['train_category'],row['power_type'],row['timing_load'],row['booked_speed'])
+              # Freight, light engines and engineering trains: no public
+              # times, so they never reach the passenger board. Listed apart.
+              is_freight=(profile is not None or str(row['signalling_id'] or '')[:1] in {'4','6','7'}) and not any(
+                  loc.get('public_arrival') or loc.get('public_departure') for loc in row_locations)
+              if is_freight:
+                for loc_index,loc in enumerate(row_locations):
+                    if row_codes[loc_index] not in tiplocs:
+                        continue
+                    event_at=loc.get('_working_pass_at') or loc.get('_working_departure_at') or loc.get('_working_arrival_at')
+                    if event_at is None:
+                        continue
+                    delta=round((event_at-now).total_seconds()/60)
+                    key=(row['train_uid'],service_date.isoformat(),'freight')
+                    if delta < -5 or delta > 120 or key in seen:
+                        continue
+                    seen.add(key)
+                    clock=event_at.strftime('%H:%M')
+                    freight.append({
+                        "headcode":row['signalling_id'],"train_uid":row['train_uid'],"service_date":service_date.isoformat(),
+                        "schedule_id":int(row['id']),"origin":tidy_freight_place(row['origin_name']),"destination":tidy_freight_place(row['destination_name']),
+                        "scheduled":clock,"expected":clock,"minutes":delta,"status":"Scheduled","_scheduled_at":event_at,
+                        "passes":bool(loc.get('_working_pass_at')),"cargo":(profile or {}).get('cargo'),
+                    })
+                continue
               for loc_index,loc in enumerate(row_locations):
                 if row_codes[loc_index] not in tiplocs:
                     continue
@@ -832,15 +857,16 @@ class SmartPlacesService:
                     if call_is_cancelled(note,row_codes,loc_index,kind):
                         item["status"]="Cancelled"; item["cancelled"]=True
                     bucket.append(item)
-        dep.sort(key=lambda x:x['minutes']); arr.sort(key=lambda x:x['minutes'])
-        services={(str(item['train_uid']).strip(),item['service_date']) for item in [*dep,*arr]}
+        dep.sort(key=lambda x:x['minutes']); arr.sort(key=lambda x:x['minutes']); freight.sort(key=lambda x:x['minutes'])
+        dep=dep[:limit]; arr=arr[:limit]; freight=freight[:limit]
+        services={(str(item['train_uid']).strip(),item['service_date']) for item in [*dep,*arr,*freight]}
         service_dates_by_uid: dict[str,set[str]]={}
         for uid,service_day in services:
             service_dates_by_uid.setdefault(uid,set()).add(service_day)
         live_by_service=self.state.trains_by_services(services) if hasattr(self.state,'trains_by_services') else {}
         wanted_uids={uid for uid,_ in services}
         undated_live=self.state.trains_by_uids(wanted_uids) if hasattr(self.state,'trains_by_uids') else {}
-        for item in [*dep,*arr]:
+        for item in [*dep,*arr,*freight]:
             uid=str(item.get('train_uid') or '').strip()
             live=live_by_service.get((uid,item['service_date']))
             fallback=undated_live.get(uid)
@@ -865,7 +891,7 @@ class SmartPlacesService:
                     # means nothing to a traveller: the train is simply live.
                     item['status']='Live'
             item.pop('_scheduled_at',None)
-        return {"departures":dep[:limit],"arrivals":arr[:limit]}
+        return {"departures":dep,"arrivals":arr,"freight":freight}
 
     def rail_board(self, crs: str, limit: int=10) -> dict:
         crs=str(crs or '').strip().upper()
@@ -877,7 +903,7 @@ class SmartPlacesService:
         local_ready=self.schedules.ready()
         if self.schedules.ready():
             local=self._scheduled_station_calls(crs,limit)
-            payload={"mode":"network_rail","source":"Network Rail timetable and live movements","departures":local.get('departures',[]),"arrivals":local.get('arrivals',[]),"recent":[],"note":"Published calling times are combined with live delay and status only when the exact service can be matched."}
+            payload={"mode":"network_rail","source":"Network Rail timetable and live movements","departures":local.get('departures',[]),"arrivals":local.get('arrivals',[]),"freight":local.get('freight',[]),"recent":[],"note":"Published calling times are combined with live delay and status only when the exact service can be matched."}
             payload['next_live_id']=next((
                 x.get('live_train_id')
                 for x in [*payload['departures'], *payload['arrivals']]
@@ -1095,6 +1121,12 @@ class SmartPlacesService:
                             "track_locked": len(route_path) >= 2,
                         },
                     })
+                    if run.get("freight"):
+                        # Yard and terminal names as a reader would say them.
+                        run["origin"] = tidy_freight_place(run.get("origin")) or run.get("origin")
+                        run["destination"] = tidy_freight_place(run.get("destination")) or run.get("destination")
+                        for call in calls:
+                            call["name"] = tidy_freight_place(call.get("name")) or call.get("name")
                     if headcode.upper().startswith('1Z'):
                         run["service_label"] = (
                             "Railtour / charter special" if is_charter_operator(row['atoc_code'])

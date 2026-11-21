@@ -94,3 +94,56 @@ def test_freight_profile_reads_cargo_weight_traction_and_speed():
     assert freight_profile("PP", "EMU", "325", "100")["tonnes"] is None
     # Passenger trains have no freight profile.
     assert freight_profile("OO", "DMU", "170", "100") is None
+
+
+def test_station_board_lists_freight_passing_through_apart_from_passengers(tmp_path):
+    from datetime import timedelta
+    from app.smart_places import SmartPlacesService
+
+    class FakeState:
+        def all(self, **kwargs):
+            return []
+
+    store = ScheduleStore(tmp_path / "schedule.sqlite")
+    now = datetime.now(london_tz())
+    at = lambda minutes: (now + timedelta(minutes=minutes)).strftime("%H%M")
+    today = now.date().isoformat()
+    with store._connect() as conn:
+        conn.executemany("INSERT INTO tiplocs(tiploc,crs,description) VALUES(?,?,?)", [
+            ("HINCKLY", "HNK", "HINCKLEY"), ("NUNEATN", "NUN", "NUNEATON")])
+        rows = [
+            ("P00001", "1L20", None, [{"tiploc_code": "HINCKLY", "public_departure": at(15), "departure": at(15)},
+                                       {"tiploc_code": "NUNEATN", "public_arrival": at(25), "arrival": at(25)}]),
+            ("F00001", "6M87", "J4", [{"tiploc_code": "MDLTNTW", "departure": at(5)},
+                                       {"tiploc_code": "HINCKLY", "pass": at(20)},
+                                       {"tiploc_code": "BASFDHY", "arrival": at(140)}]),
+            ("F00002", "6M00", "B7", [{"tiploc_code": "HINCKLY", "pass": at(300)},
+                                       {"tiploc_code": "NUNEATN", "arrival": at(310)}]),   # too far ahead
+        ]
+        for uid, headcode, category, locations in rows:
+            conn.execute(
+                """INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,signalling_id,locations_json,
+                       train_category,power_type,timing_load,origin_name,destination_name)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (uid, today, today, "1111111", "P", headcode, json.dumps(locations), category,
+                 "D" if category else "DMU", "2400" if category else "170", "Origin", "Destination"))
+    store.ensure_call_index()
+    store.ready = lambda: True
+
+    board = SmartPlacesService(tmp_path, store, FakeState())._scheduled_station_calls("HNK", 10)
+
+    assert [row["headcode"] for row in board["departures"]] == ["1L20"]
+    assert [row["headcode"] for row in board["freight"]] == ["6M87"]
+    assert board["freight"][0]["passes"] is True
+    assert board["freight"][0]["cargo"] == "Industrial minerals"
+    assert "_scheduled_at" not in board["freight"][0]
+
+
+def test_freight_place_names_read_as_a_person_would_say_them():
+    from app.train_identity import tidy_freight_place
+    assert tidy_freight_place("MIDDLETON TOWERS FHH") == "Middleton Towers"
+    assert tidy_freight_place("BASFORD HALL YARD (FL)") == "Basford Hall Yard"
+    assert tidy_freight_place("LONDON GATEWAY FRGHTLINER") == "London Gateway Freightliner"
+    assert tidy_freight_place("KINGSBURY OIL SDGS") == "Kingsbury Oil Sidings"
+    assert tidy_freight_place("DRAX AES (GBRF)") == "Drax Power Station"
+    assert tidy_freight_place(None) is None
