@@ -1,5 +1,14 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — town pages
+
+- /towns and /town/{name} for 52 towns and cities (Hinckley, Nuneaton,
+  Coventry, Leicester … Plymouth), each anchored on its main station: next
+  trains with lateness, buses moving within 5 km and their routes,
+  roadworks and incidents within 10 km, the named railway lines through it,
+  stations within 8 km, the nearest airport, and a link that opens the map
+  there with trains on. Cached 2 minutes. Sitemap, header and Browse links.
+
 ## 2026-11-21 — line pages on real track; train panels link their line; league table
 
 - Each named line is routed once over the physical railway graph between
