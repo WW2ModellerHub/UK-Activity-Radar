@@ -1,5 +1,15 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — freight on station boards
+
+- Station boards gain a Freight tab (shown only when some are due): freight,
+  light engines and engineering trains passing or stopping in the next two
+  hours, with cargo, whether it passes through, headcode and origin, and live
+  lateness when the train is matched. They stay off the passenger board.
+- Freight yard and terminal names are tidied ("MIDDLETON TOWERS FHH" ->
+  "Middleton Towers", "KINGSBURY OIL SDGS" -> "Kingsbury Oil Sidings") on the
+  board and in the train panel.
+
 ## 2026-11-21 — National Express coaches
 
 - National Express coaches (NOC NATX) were already in the BODS bus feed but

@@ -2132,7 +2132,11 @@
     const place=kind==='arrival' ? humanTransitLabel(row.origin || '') : humanTransitLabel(row.destination || row.route || row.name || '');
     const operator=humanTransitLabel(row.operator_name || (kind==='bus'?row.operator:'') || '');
     const moved=row.platform_changed&&row.booked_platform;
-    const facts=[
+    // Freight: where from, what it carries, and whether it stops or runs through.
+    const facts=kind==='freight' ? [
+      row.cargo?`<b>${esc(row.cargo)}</b>`:null, row.passes?'passes through':'stops here',
+      row.headcode?esc(row.headcode):null, row.origin?`from ${esc(humanTransitLabel(row.origin))}`:null,
+    ].filter(Boolean).join(' · ') : [
       row.platform?(moved?`<b class="platform-changed">Platform ${esc(row.platform)} (was ${esc(row.booked_platform)})</b>`:`Platform ${esc(row.platform)}`):null,
       row.usual_platform?`<span class="usual-platform" title="From the platforms this train has used recently">${row.platform?'usually':'Usually platform'} ${esc(row.usual_platform.platform)} <small>(${esc(row.usual_platform.seen)} of last ${esc(row.usual_platform.of)})</small></span>`:null,
       kind==='bus'&&row.route?`Route ${esc(row.route)}`:null, operator?esc(operator):null,
@@ -2154,7 +2158,7 @@
       `data-activity-type="${kind==='bus'?'bus':'train'}"`,
     ].filter(Boolean).join(' ');
     const label=[kind==='arrival'?`From ${place||'unknown origin'}`:(place||'Service'),booked,status].filter(Boolean).join(', ');
-    return `<button type="button" class="board-row board-${kind}${serviceRef?' board-clickable':''}${live?' is-live':''}${status==='Cancelled'?' is-cancelled':''}" aria-label="${esc(label)}" ${attrs}><span class="board-time">${esc(booked)}</span><span class="board-main"><strong>${kind==='arrival'&&place?`<small>from</small> `:''}${esc(place || 'Service')}</strong>${facts?`<span>${facts}</span>`:''}</span><span class="board-status ${statusClass}">${esc(status)}</span></button>`;
+    return `<button type="button" class="board-row board-${kind}${kind==='freight'?' board-departure':''}${serviceRef?' board-clickable':''}${live?' is-live':''}${status==='Cancelled'?' is-cancelled':''}" aria-label="${esc(label)}" ${attrs}><span class="board-time">${esc(booked)}</span><span class="board-main"><strong>${kind==='arrival'&&place?`<small>from</small> `:''}${esc(place || 'Service')}</strong>${facts?`<span>${facts}</span>`:''}</span><span class="board-status ${statusClass}">${esc(status)}</span></button>`;
   }
 
   async function openScheduledTrain(btn) {
@@ -2333,8 +2337,13 @@
       const arr=arrivalRows.map(r=>boardRow(r,'arrival')).join('');
       const arrivalLabel=(board.arrivals&&board.arrivals.length)?'Arrivals':'Recent arrivals';
       const waiting=board.mode==='schedule_sync'?'<p class="board-empty board-waiting">Timetable loading…</p>':'';
-      const tab=boardTabByPlace.get(place.id)||'departures';
-      html=`${waiting}<div class="board-switch" role="tablist" aria-label="Departures or arrivals"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button></div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>${railBoardSnapshot(board)}${stationActions(place)}`;
+      const freightRows=Array.isArray(board.freight)?board.freight:[];
+      const freight=freightRows.map(r=>boardRow(r,'freight')).join('');
+      let tab=boardTabByPlace.get(place.id)||'departures';
+      if(tab==='freight'&&!freight)tab='departures';
+      const freightTab=freight?`<button type="button" role="tab" data-board-tab="freight" aria-selected="${tab==='freight'}">Freight <small>${freightRows.length}</small></button>`:'';
+      const freightList=freight?`<div class="board-list" data-board-list="freight"${tab==='freight'?'':' hidden'}><p class="board-note">Freight and engineering trains due in the next two hours.</p>${freight}</div>`:'';
+      html=`${waiting}<div class="board-switch${freight?' has-three':''}" role="tablist" aria-label="Departures, arrivals or freight"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button>${freightTab}</div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>${freightList}${railBoardSnapshot(board)}${stationActions(place)}`;
     } else if(place.place_type==='bus_stop') {
       box.classList.add('bus-departure-board');
       const rows=(board.rows||[]).map(r=>boardRow(r,'bus')).join('');
