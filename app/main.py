@@ -571,6 +571,20 @@ def _common_photo_plans() -> list[tuple[str, str | None, str | None]]:
     return plans
 
 
+history_store = None
+
+
+async def _history_loop() -> None:
+    await asyncio.sleep(120)
+    while True:
+        try:
+            rows = state.all(include_buses=False, include_vessels=True, train_limit=None)
+            await asyncio.to_thread(history_store.record, rows)
+        except Exception:
+            pass
+        await asyncio.sleep(300)
+
+
 async def _photo_warm_loop() -> None:
     await asyncio.sleep(60)  # let the live feeds settle first
     while True:
@@ -759,6 +773,15 @@ async def lifespan(app: FastAPI):
         state.platform_history = PlatformHistory(DATA_DIR / "platform_history.sqlite")
     except Exception:
         state.platform_history = None
+
+    # What the radar has seen, day by day: train lateness and unusual finds.
+    global history_store
+    try:
+        from .history import HistoryStore
+        history_store = HistoryStore(DATA_DIR / "history.sqlite")
+        tasks.append(asyncio.create_task(_history_loop()))
+    except Exception:
+        history_store = None
 
     if billing_configuration.enabled:
         billing_store = BillingStore(
@@ -1387,6 +1410,28 @@ def operator_page_route(name: str, request: Request):
     return _cached_page(f"operator:{wanted}", 90, build)
 
 
+@app.get("/discover-archive", include_in_schema=False)
+def discover_archive_page(request: Request):
+    from .discover_archive import archive_index
+    days = history_store.sighting_days() if history_store is not None else []
+    return _cached_page("discover-archive", 300, lambda: archive_index(_site_origin(request), days))
+
+
+@app.get("/discover/{day}", include_in_schema=False)
+def discover_day_page(day: str, request: Request):
+    from .discover_archive import day_page
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) or history_store is None:
+        raise HTTPException(status_code=404, detail="No archive for that day")
+    rows = history_store.sightings_on(day)
+    if not rows:
+        raise HTTPException(status_code=404, detail="No archive for that day")
+    days = sorted(d for d, _ in history_store.sighting_days(limit=400))
+    i = days.index(day) if day in days else -1
+    previous = days[i - 1] if i > 0 else None
+    following = days[i + 1] if 0 <= i < len(days) - 1 else None
+    return _cached_page(f"discover:{day}", 300, lambda: day_page(_site_origin(request), day, rows, previous, following))
+
+
 @app.get("/airports", include_in_schema=False)
 def airports_page(request: Request):
     from .airport_pages import airports_index
@@ -1480,6 +1525,7 @@ def sitemap(request: Request):
     urls = ("/", "/about", "/privacy", "/terms", "/data-licences", "/stations", "/operators", "/guides",
             "/railway-lines", *(line_path(line["name"]) for line in LINES),
             "/airports", *(airport_path(a) for a in AIRPORTS),
+            "/discover-archive", *(f"/discover/{d}" for d, n in (history_store.sighting_days(limit=400) if history_store else []) if n >= 3),
             *aircraft_landing_paths(),
             *(f"/guides/{slug}" for slug in guide_slugs()),
             *(station_letter_path(letter) for letter in letters),
@@ -2460,6 +2506,16 @@ def nearest_camera(request: Request, lat: float, lon: float, max_km: float = 25.
         return traffic_cameras.nearest(lat=lat, lon=lon, max_km=max_km)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"TfL JamCam feed unavailable: {type(exc).__name__}") from exc
+
+
+@app.get("/api/activity/{activity_id:path}/usually")
+def activity_usually(request: Request, activity_id: str):
+    """How this train has run on earlier days, from the radar's own record."""
+    _enforce_public_budget(request, lookup_request_budget)
+    item = state.get(activity_id)
+    if item is None or item.type != "train" or history_store is None:
+        return {"days": 0}
+    return history_store.usually(item) or {"days": 0}
 
 
 @app.get("/api/activity/{activity_id:path}/media")

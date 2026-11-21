@@ -1412,3 +1412,5 @@ strong[data-plus].needs-plus::after,
 .plus-have summary { cursor: pointer; font-weight: 600; }
 .plus-have p { margin: 8px 0; }
 #radar-plus-link button { white-space: nowrap; }
+
+.detail-usually{margin:6px 0 0;font-size:13px;color:var(--muted,#5f6b7a)}
