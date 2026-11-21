@@ -170,3 +170,7 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 /* Airports (with the Aircraft layer): a small code tag, tap for the airport page. */
 .airport-marker-wrap{background:transparent;border:0;}
 .airport-marker{display:grid;place-items:center;height:22px;padding:0 6px;border-radius:6px;background:#1d2f5e;color:#fff;font:800 11px/1 system-ui,sans-serif;letter-spacing:.04em;box-shadow:0 1px 4px rgba(0,0,0,.3);border:1.5px solid #fff;}
+
+/* Freight: a wagon on a rust-orange square badge, whatever the operator. */
+.marker-train.marker-freight{background:#b4531a;border-radius:5px;border-color:#ffe2c7}
+.marker-train.marker-freight>span .ico{stroke:#fff}

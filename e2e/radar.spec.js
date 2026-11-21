@@ -2396,3 +2396,23 @@ test('a freight train says what it is carrying, how heavy it is and how fast it 
   // Nobody boards a freight train.
   await expect(page.locator('.leave-plan')).toHaveCount(0);
 });
+
+test('a freight train is drawn with a wagon icon, unlike a passenger train', async ({ page }) => {
+  await page.locator('[data-layer-toggle="train"]').click();
+  await expect(page.locator('.marker-train').first()).toBeVisible();
+  await expect(page.locator('.marker-freight')).toHaveCount(0);
+  await page.evaluate(() => {
+    const train = window.__fixtureSnapshot.activities.find(row => row.id === 'train-live-1');
+    window.__fixtureSocket.onmessage({data:JSON.stringify({
+      activity_delta:{ upsert:[{...train,id:'freight-6m87',name:'6M87',headcode:'6M87',operator:'Freightliner',lat:Number(train.lat)+0.02,last_updated:'2026-10-05T10:02:00Z'}], remove:[] },
+      stream:{transport:'delta',upserts:1,removals:0,selected_types:['train']},
+      sources:window.__fixtureSnapshot.sources, summary:window.__fixtureSnapshot.summary,
+    })});
+  });
+  const freight = page.locator('.marker-freight');
+  await expect(freight).toHaveCount(1);
+  await expect(freight).toHaveAttribute('title', /^Freight train/);
+  // Its own colour, not the operator's livery, so it stands out.
+  await expect(freight).not.toHaveAttribute('style', /background/);
+  await expect(page.locator('.marker-train:not(.marker-freight)').first()).toBeVisible();
+});
