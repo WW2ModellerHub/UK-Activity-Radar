@@ -21,7 +21,7 @@ from .rail_service_notes import call_is_cancelled
 from .bus_timetable import BusTimetableService
 from .timeutils import london_tz
 from .reference_data import NAPTAN_URL, ensure_naptan_cache
-from .train_identity import infer_train_family, is_charter_operator, operator_name, power_type_name
+from .train_identity import freight_profile, infer_train_family, is_charter_operator, operator_name, power_type_name
 
 USER_AGENT = "UKActivityRadar/1.4.0 smart-places"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
@@ -929,6 +929,14 @@ class SmartPlacesService:
                     note = notes.get(row['train_uid'], service_date.isoformat()) if notes is not None else None
                     calls = []
                     mapped_timing_points = 0
+                    # Freight and empty stock have no public times: their
+                    # stops are wherever the working timetable arrives or
+                    # departs (yards, sidings, crew changes).
+                    working_only = not any(
+                        isinstance(item, dict) and (item.get('public_arrival') or item.get('public_departure')
+                                                    or item.get('scheduled_arrival') or item.get('scheduled_departure'))
+                        for item in locations
+                    )
                     for location_index, item in enumerate(locations):
                         if not isinstance(item, dict):
                             continue
@@ -944,10 +952,12 @@ class SmartPlacesService:
                         is_stop = any(item.get(key) for key in (
                             'public_arrival', 'public_departure',
                             'scheduled_arrival', 'scheduled_departure',
-                        ))
+                        )) or (working_only and bool(item.get('arrival') or item.get('departure')))
                         if not is_stop:
                             continue
-                        clock = _clean_time(item.get('public_departure') or item.get('public_arrival') or item.get('scheduled_departure') or item.get('scheduled_arrival'))
+                        clock = _clean_time(
+                            item.get('public_departure') or item.get('public_arrival') or item.get('scheduled_departure')
+                            or item.get('scheduled_arrival') or item.get('departure') or item.get('arrival'))
                         if not code:
                             continue
                         call = {
@@ -958,6 +968,7 @@ class SmartPlacesService:
                             "_at": (
                                 item.get('_public_departure_at') or item.get('_public_arrival_at')
                                 or item.get('_departure_at') or item.get('_arrival_at')
+                                or item.get('_working_departure_at') or item.get('_working_arrival_at')
                             ),
                         }
                         platform = str(item.get('platform') or '').strip()
@@ -1000,6 +1011,7 @@ class SmartPlacesService:
                         "power_type": power_type_name(row['power_type']),
                         "timing_load": row['timing_load'],
                         "booked_speed_mph": row['booked_speed'],
+                        "freight": freight_profile(row['train_category'], row['power_type'], row['timing_load'], row['booked_speed']),
                         "operating_characteristics": row['operating_characteristics'],
                         "schedule_source": row['source'],
                         "calling_points": calls,

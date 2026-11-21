@@ -2380,3 +2380,19 @@ test('a station board opens with the timetable first and the stats below it', as
   });
   expect(order).toBe(true);
 });
+
+test('a freight train says what it is carrying, how heavy it is and how fast it may run', async ({ page }) => {
+  await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json:{ activity:'train-live-1', detail:{ available:true, source:'Live railway and timetable data',
+    runs:[{ headcode:'6M00', origin:'Humber Oil Refinery', destination:'Kingsbury Oil Sidings', status:'On time',
+      freight:{ category:'B7', cargo:'Petroleum products', tonnes:3200, traction:'Diesel', max_mph:60 },
+      calling_points:[{ name:'Humber Oil Refinery', scheduled:'14:05', event:'Stops' },{ name:'Kingsbury Oil Sidings', scheduled:'19:59', event:'Stops' }] }] } } }));
+  await page.goto('/?open=train-live-1');
+  const card = page.locator('.freight-card');
+  await expect(card.locator('.freight-cargo')).toHaveText('Petroleum products');
+  await expect(card).toContainText('3,200');
+  await expect(card).toContainText('tonnes');
+  await expect(card).toContainText('Diesel');
+  await expect(card).toContainText('60 mph');
+  // Nobody boards a freight train.
+  await expect(page.locator('.leave-plan')).toHaveCount(0);
+});

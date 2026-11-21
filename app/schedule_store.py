@@ -1005,7 +1005,30 @@ class ScheduleStore:
                 candidates = [midnight + timedelta(days=elapsed_day + offset, minutes=minutes) for offset in (-1, 0, 1)]
                 location[f"_public_{kind}_at"] = min(candidates, key=lambda value: abs((value - anchor).total_seconds()))
             result.append(location)
+        cls._attach_working_times(result, midnight)
         return result
+
+    @classmethod
+    def _attach_working_times(cls, locations: list[dict], midnight: datetime) -> None:
+        """Add ``_working_{kind}_at`` from the feed's own working-time keys.
+
+        The overnight CIF JSON names working times ``arrival``, ``departure``
+        and ``pass``. Freight and empty-stock trains have no public times, so
+        without these they carry no timed locations at all and can never be
+        matched to a live headcode. Kept apart from ``_{kind}_at`` so station
+        boards still list only the calls they always have.
+        """
+        elapsed_day = 0
+        previous_minutes = None
+        for location in locations:
+            for kind in ("arrival", "pass", "departure"):
+                minutes = cls._clock_minutes(location.get(kind) or location.get(f"scheduled_{kind}"))
+                if minutes is None:
+                    continue
+                if previous_minutes is not None and minutes < previous_minutes:
+                    elapsed_day += 1
+                previous_minutes = minutes
+                location[f"_working_{kind}_at"] = midnight + timedelta(days=elapsed_day, minutes=minutes)
 
     @staticmethod
     def _info_from_row(row: sqlite3.Row, running_date: date | None = None) -> ScheduleInfo:
@@ -1072,7 +1095,7 @@ class ScheduleStore:
                     if str(location.get("tiploc_code") or "").strip().upper() not in location_codes:
                         continue
                     for kind in ("arrival", "departure", "pass"):
-                        event_time = location.get(f"_{kind}_at")
+                        event_time = location.get(f"_{kind}_at") or location.get(f"_working_{kind}_at")
                         if event_time is not None:
                             distances.append(abs((event_time - now).total_seconds()) / 60)
                 distance = min(distances, default=float("inf"))
@@ -1093,10 +1116,15 @@ class ScheduleStore:
         uid = str(schedule.get("CIF_train_uid") or schedule.get("train_uid") or schedule.get("schedule_id") or "").strip()
         if not uid:
             return
-        segment = schedule.get("schedule_segment") if isinstance(schedule.get("schedule_segment"), dict) else schedule
+        raw_segment = schedule.get("schedule_segment")
+        if isinstance(raw_segment, list):
+            # Live VSTP messages carry the segment as a one-item list.
+            raw_segment = next((item for item in raw_segment if isinstance(item, dict)), None)
+        segment = raw_segment if isinstance(raw_segment, dict) else schedule
         locations = schedule.get("schedule_location") or segment.get("schedule_location") or schedule.get("locations") or []
         if not isinstance(locations, list):
             locations = []
+        locations = [_vstp_location(item) for item in locations if isinstance(item, dict)]
         origin = locations[0] if locations else {}
         dest = locations[-1] if locations else {}
         start = schedule.get("schedule_start_date")
@@ -1194,6 +1222,39 @@ def _open_schedule(path: Path):
     if magic == b"\x1f\x8b":
         return gzip.open(path, "rt", encoding="utf-8-sig", errors="replace")
     return path.open("rt", encoding="utf-8-sig", errors="replace")
+
+
+def _vstp_time(value: Any) -> str | None:
+    """VSTP's HHMMSS (blank when unused) as CIF's HHMM, with H for 30 seconds."""
+    raw = str(value or "").strip()
+    if len(raw) == 6 and raw.isdigit():
+        return raw[:4] + ("H" if raw[4:] == "30" else "")
+    return raw or None
+
+
+def _vstp_location(item: dict) -> dict:
+    """A VSTP schedule location in the overnight CIF JSON shape.
+
+    VSTP nests the TIPLOC under ``location.tiploc.tiploc_id`` and names times
+    ``scheduled_arrival_time`` and so on; the rest of the store reads
+    ``tiploc_code``, ``arrival``, ``departure``, ``pass`` and ``public_*``.
+    """
+    location = dict(item)
+    if not location.get("tiploc_code"):
+        tiploc = ((item.get("location") or {}).get("tiploc") or {}) if isinstance(item.get("location"), dict) else {}
+        code = tiploc.get("tiploc_id") if isinstance(tiploc, dict) else None
+        if code:
+            location["tiploc_code"] = str(code).strip().upper()
+    for kind in ("arrival", "departure", "pass"):
+        if location.get(kind) is None and f"scheduled_{kind}_time" in item:
+            location[kind] = _vstp_time(item.get(f"scheduled_{kind}_time"))
+    for kind in ("arrival", "departure"):
+        if location.get(f"public_{kind}") is None and f"public_{kind}_time" in item:
+            public = _vstp_time(item.get(f"public_{kind}_time"))
+            location[f"public_{kind}"] = None if public in {"0000", None} else public
+    if not location.get("platform") and item.get("CIF_platform"):
+        location["platform"] = str(item["CIF_platform"]).strip() or None
+    return location
 
 
 def _location_list(schedule: dict) -> list[dict]:
