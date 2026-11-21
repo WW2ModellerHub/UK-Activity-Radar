@@ -1467,6 +1467,53 @@ def airports_api():
                          for a in AIRPORTS], headers={"Cache-Control": "public, max-age=86400"})
 
 
+@app.get("/towns", include_in_schema=False)
+def towns_page(request: Request):
+    from .town_pages import towns_index
+    return Response(towns_index(_site_origin(request)), media_type="text/html",
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/town/{name}", include_in_schema=False)
+def town_page_route(name: str, request: Request):
+    from .airport_pages import AIRPORTS, airport_path
+    from .named_lines import LINES, line_path, on_track, resolve, track_for
+    from .town_pages import BUS_KM, ROAD_KM, bbox, find, km, town_page
+    town = find(name)
+    if town is None:
+        raise HTTPException(status_code=404, detail="Town not found")
+    origin = _site_origin(request)
+
+    def build() -> str:
+        stations = _stations()
+        centre = next((row for row in stations if row["crs"] == town[1]), None)
+        if centre is None:
+            raise HTTPException(status_code=503, detail="Station directory is loading", headers={"Retry-After": "60"})
+        lat, lon = centre["lat"], centre["lon"]
+        board = None
+        if smart_places is not None:
+            try:
+                board = smart_places.rail_board(town[1], 12)
+            except Exception:
+                board = None
+        buses = [row for row in state.all(bbox=bbox(lat, lon, BUS_KM), include_trains=False, include_vessels=False, bus_limit=3000)
+                 if row.type == "bus" and km(lat, lon, row.lat, row.lon) <= BUS_KM]
+        roads = sorted((e for e in state.all_events(bbox=bbox(lat, lon, ROAD_KM))
+                        if e.type in {"road", "incident"} and km(lat, lon, e.lat, e.lon) <= ROAD_KM),
+                       key=lambda e: (e.type != "incident", km(lat, lon, e.lat, e.lon)))
+        lines = []
+        for line in LINES:
+            points = resolve(line, stations)
+            track = track_for(line, points, build=False)
+            if any(p["crs"] == town[1] for p in points) or (track is not None and on_track(track, lat, lon) is not None):
+                lines.append({"name": line["name"], "path": line_path(line["name"])})
+        nearest = min(AIRPORTS, key=lambda a: km(lat, lon, a["lat"], a["lon"]))
+        distance = km(lat, lon, nearest["lat"], nearest["lon"])
+        airport = {"name": nearest["name"], "path": airport_path(nearest), "km": distance} if distance <= 90 else None
+        return town_page(origin, town, centre, stations, board, buses, roads, lines, airport)
+    return _cached_page(f"town:{town[1]}", 120, build, heavy=True)
+
+
 @app.get("/airports", include_in_schema=False)
 def airports_page(request: Request):
     from .airport_pages import airports_index
@@ -1557,10 +1604,12 @@ def sitemap(request: Request):
     letters = sorted({row["name"][:1].upper() for row in stations if re.fullmatch(r"[A-Z]", row["name"][:1].upper())})
     from .airport_pages import AIRPORTS, airport_path
     from .named_lines import LINES, line_path
+    from .town_pages import TOWNS, town_path
     urls = ("/", "/about", "/privacy", "/terms", "/data-licences", "/stations", "/operators", "/guides",
             "/operators/league-table",
             "/railway-lines", *(line_path(line["name"]) for line in LINES),
             "/airports", *(airport_path(a) for a in AIRPORTS),
+            "/towns", *(town_path(t[0]) for t in TOWNS),
             "/discover-archive", *(f"/discover/{d}" for d, n in (history_store.sighting_days(limit=400) if history_store else []) if n >= 3),
             *aircraft_landing_paths(),
             *(f"/guides/{slug}" for slug in guide_slugs()),
