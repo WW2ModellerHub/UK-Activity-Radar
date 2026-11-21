@@ -1,5 +1,16 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — station facts on station pages
+
+- Station pages open with quick facts as chips: direct destinations and
+  departures today (from the timetable, cached per station per day), how
+  busy the station is (ORR rank) and bus stops within 400 m (NaPTAN).
+- Below the live board, "Direct trains from …" lists every station reachable
+  today without changing, with how many trains go there, linked to their
+  own station pages.
+- Staffing, step-free access and parking wait on the station knowledgebase
+  feed from the Rail Data Marketplace.
+
 ## 2026-11-21 — freight trains have their own map icon
 
 - Freight trains (4, 6 and 7 headcodes, or classed as freight) are drawn as a
