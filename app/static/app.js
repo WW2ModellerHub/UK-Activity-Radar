@@ -1658,6 +1658,11 @@
     const q=new URLSearchParams();
     if(['aircraft','sar'].includes(a.type)){
       q.set('kind',a.type==='sar'?'sar':'aircraft');
+      // Planes from "above me" are not kept on the server: say what this is,
+      // so an example of the type can be found when there is no exact photo.
+      if(a.aircraft_model||a.aircraft_type_code)q.set('model',a.aircraft_model||a.aircraft_type_code);
+      if(a.name)q.set('callsign',a.name);
+      if(a.operator)q.set('operator',a.operator);
     }
     const response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/media${String(q)?`?${q}`:''}`,{signal});
     if(!response.ok)throw new Error('Image lookup unavailable');
@@ -1736,13 +1741,25 @@
       const imagePage=reference.page_url || reference.search_url;
       const width=Number(reference.thumbnail_width)||420, height=Number(reference.thumbnail_height)||280;
       const image = `<a target="_blank" rel="noopener" href="${esc(safeUrl(imagePage))}"><img src="${esc(safeUrl(imageUrl))}" alt="${esc(identity || a.name)}" width="${width}" height="${height}" loading="eager" fetchpriority="high" decoding="async"></a>`;
-      const imageTruth='Archive photo of this aircraft registration — not live';
+      const imageTruth=reference.match_kind==='type_reference'?(reference.reference_label||'Example of this aircraft type — not this exact aircraft'):'Archive photo of this aircraft registration — not live';
       const imageCredit=[reference.artist,reference.license,reference.source].filter(Boolean).join(' • ');
       const links = a.source_id ? `<a target="_blank" rel="noopener" href="https://www.planespotters.net/hex/${esc(String(a.source_id).toUpperCase())}">Planespotters ↗</a>` : '';
       box.innerHTML = `${image}<div class="detail-photo-copy"><b class="image-truth">${esc(imageTruth)}</b><span>${esc(imageCredit || 'Planespotters.net')}${links ? ` • ${links}` : ''}</span></div>`;
       const remoteImage=box.querySelector('img');
-      remoteImage?.addEventListener('error',()=>{
+      remoteImage?.addEventListener('error',async()=>{
         if(requestId!==mediaRequest || selectedId!==a.id)return;
+        // The exact photo would not load: try an example of the type instead.
+        if(reference.match_kind!=='type_reference'&&(a.aircraft_model||a.aircraft_type_code)){
+          try{
+            const q=new URLSearchParams({kind:a.type==='sar'?'sar':'aircraft',model:a.aircraft_model||a.aircraft_type_code});
+            if(a.name)q.set('callsign',a.name); if(a.operator)q.set('operator',a.operator);
+            const r=await fetch(`/api/media/reference?${q}`); const ex=r.ok?await r.json():null;
+            if(ex?.ok&&ex.thumbnail_url&&requestId===mediaRequest&&selectedId===a.id){
+              box.innerHTML=`<a target="_blank" rel="noopener" href="${esc(safeUrl(ex.page_url||ex.search_url))}"><img src="${esc(safeUrl(ex.thumbnail_url))}" alt="${esc(identity||a.name)}" loading="eager" decoding="async"></a><div class="detail-photo-copy"><b class="image-truth">${esc(ex.reference_label||'Example of this aircraft type — not this exact aircraft')}</b><span>${esc([ex.artist,ex.license,'Wikimedia Commons'].filter(Boolean).join(' • '))}</span></div>`;
+              return;
+            }
+          }catch{}
+        }
         box.classList.add('hidden');box.innerHTML='';
       },{once:true});
     } catch {
@@ -2360,6 +2377,12 @@
     for(const id2 of ['detail-insight','detail-photo','detail-related']){const el=$(id2);if(el){el.classList.add('hidden');el.innerHTML='';}}
     const box=$('detail-placeboard'); box.classList.remove('hidden');
     const cached=placeBoardCache.get(id);
+    // A link to the station's page: passenger numbers, lines and history.
+    const related=$('detail-related');
+    if(related&&p.place_type==='rail_station'&&/^[A-Z]{3}$/.test(String(p.crs||''))){
+      related.classList.remove('hidden');
+      related.innerHTML=`<a class="place-page-link" href="/station/s-${esc(String(p.crs).toLowerCase())}">Station page: passenger numbers, reliability and history →</a>`;
+    }
     if(cached) renderPlaceBoard(p,cached.payload);
     else box.innerHTML='<small>LIVE TIMES</small><p class="coverage-loading">Loading…</p>';
     if(pan) map.panTo([p.lat,p.lon],{animate:true});
@@ -2755,7 +2778,31 @@
     }
   }
 
+  // Airports with live pages, shown while the Aircraft layer is on.
+  const airportLayer={markers:null,loading:false};
+  async function syncAirports(){
+    const wanted=enabledActivityTypes.has('aircraft');
+    if(!wanted){if(airportLayer.markers)map.removeLayer(airportLayer.markers);return;}
+    if(airportLayer.markers){if(!map.hasLayer(airportLayer.markers))airportLayer.markers.addTo(map);return;}
+    if(airportLayer.loading)return;
+    airportLayer.loading=true;
+    try{
+      const rows=await fetch('/api/airports').then(r=>r.ok?r.json():[]);
+      airportLayer.markers=L.layerGroup(rows.map(a=>{
+        const marker=L.marker([a.lat,a.lon],{icon:L.divIcon({className:'airport-marker-wrap',html:`<div class="airport-marker" title="${esc(a.name)} Airport"><b>${esc(a.iata)}</b></div>`,iconSize:[38,22],iconAnchor:[19,11]}),zIndexOffset:-200});
+        marker.on('click',()=>{
+          openInfoPanel(`${a.name} Airport`,`${a.iata} · live arrivals, departures and planes overhead`,
+            `<p class="airport-panel-copy">See what is arriving, leaving and flying over ${esc(a.name)} right now, with routes and aircraft types.</p><p><a class="primary-button airport-page-link" href="${esc(a.path)}">Open ${esc(a.name)} airport page</a></p>`);
+          trackProduct('airport_marker',a.iata);
+        });
+        return marker;
+      }));
+      if(enabledActivityTypes.has('aircraft'))airportLayer.markers.addTo(map);
+    }catch{}finally{airportLayer.loading=false;}
+  }
+
   function renderMap() {
+    syncAirports();
     const startedAt = performance.now();
     let rows = filteredActivities();
     const routeTrain=$('detail-sidebar')?.classList.contains('route-view')?selectedTrainActivity():null;

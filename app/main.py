@@ -1434,6 +1434,14 @@ def discover_day_page(day: str, request: Request):
     return _cached_page(f"discover:{day}", 300, lambda: day_page(_site_origin(request), day, rows, previous, following))
 
 
+@app.get("/api/airports")
+def airports_api():
+    """The airports with pages, for markers on the map."""
+    from .airport_pages import AIRPORTS, airport_path
+    return JSONResponse([{"name": a["name"], "iata": a["iata"], "lat": a["lat"], "lon": a["lon"], "path": airport_path(a)}
+                         for a in AIRPORTS], headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/airports", include_in_schema=False)
 def airports_page(request: Request):
     from .airport_pages import airports_index
@@ -2547,6 +2555,18 @@ def activity_media(request: Request, activity_id: str, kind: str | None = None, 
         except requests.RequestException:
             pass
     if aircraft_hex or (item is not None and item.type in {"aircraft", "sar"}) or kind in {"aircraft", "sar"}:
+        # No photo of this exact aircraft: an example of its type, in the
+        # airline's colours where known, clearly labelled as an example.
+        plane_kind = (item.type if item is not None else None) or (kind if kind in {"aircraft", "sar"} else "aircraft")
+        plane_model = (getattr(item, "aircraft_model", None) or getattr(item, "aircraft_type_code", None)) if item is not None else None
+        plane_model = plane_model or model
+        try:
+            example = media_lookup.reference(plane_kind, (getattr(item, "operator", None) if item is not None else None) or operator,
+                                             plane_model, (getattr(item, "name", None) if item is not None else None) or callsign)
+            if example.get("ok"):
+                return example
+        except Exception:
+            pass
         return {"ok": False, "reason": "no_exact_airframe_photo"}
     if not item:
         raise HTTPException(status_code=404, detail="Activity not found")

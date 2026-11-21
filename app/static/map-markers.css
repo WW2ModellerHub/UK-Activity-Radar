@@ -166,3 +166,7 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 .bus-stop-dot{width:20px; height:20px; display:grid; place-items:center; border-radius:50%; background:#fff; border:2px solid var(--bus,#0b7a5a); color:var(--bus,#0b7a5a); box-shadow:0 1px 4px rgba(0,0,0,.28);}
 .bus-stop-dot svg{width:12px; height:12px;}
 .place-marker.place-bus_stop:hover .bus-stop-dot,.place-marker.place-bus_stop:focus-visible .bus-stop-dot{transform:scale(1.15);}
+
+/* Airports (with the Aircraft layer): a small code tag, tap for the airport page. */
+.airport-marker-wrap{background:transparent;border:0;}
+.airport-marker{display:grid;place-items:center;height:22px;padding:0 6px;border-radius:6px;background:#1d2f5e;color:#fff;font:800 11px/1 system-ui,sans-serif;letter-spacing:.04em;box-shadow:0 1px 4px rgba(0,0,0,.3);border:1.5px solid #fff;}

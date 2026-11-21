@@ -2336,3 +2336,23 @@ test('a map link with a place and a layer opens the map there with that layer on
   await expect(page.locator('[data-layer-chip="aircraft"]')).toHaveAttribute('aria-pressed', 'true');
   expect(new URL(page.url()).search).toBe('');
 });
+
+test('airports appear with the Aircraft layer and lead to their live page', async ({ page }) => {
+  await page.route('**/api/airports', route => route.fulfill({ json:[{ name:'East Midlands', iata:'EMA', lat:52.83, lon:-1.33, path:'/airport/east-midlands-ema' }] }));
+  await expect(page.locator('.airport-marker')).toHaveCount(0);
+  await page.locator('[data-layer-chip="aircraft"]').click();
+  await expect(page.locator('.airport-marker')).toHaveText('EMA');
+  await page.locator('.airport-marker').evaluate(el => el.closest('.leaflet-marker-icon, .airport-marker-wrap')?.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-title')).toHaveText('East Midlands Airport');
+  await expect(page.locator('.airport-page-link')).toHaveAttribute('href', '/airport/east-midlands-ema');
+  await page.locator('[data-layer-chip="aircraft"]').click();
+  await expect(page.locator('.airport-marker')).toHaveCount(0);
+});
+
+test('a station panel links to its station page, and More lists every page type', async ({ page }) => {
+  await page.locator('#station-boards').click();
+  await expect(page.locator('.place-page-link')).toHaveAttribute('href', '/station/s-mkc');
+  await page.locator('[data-workspace="settings"]').click();
+  for (const path of ['/stations','/railway-lines','/airports','/operators','/discover-archive'])
+    await expect(page.locator(`.browse-links a[href="${path}"]`)).toBeVisible();
+});

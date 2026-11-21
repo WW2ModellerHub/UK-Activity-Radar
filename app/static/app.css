@@ -1414,3 +1414,11 @@ strong[data-plus].needs-plus::after,
 #radar-plus-link button { white-space: nowrap; }
 
 .detail-usually{margin:6px 0 0;font-size:13px;color:var(--muted,#5f6b7a)}
+
+.place-page-link{display:block;margin:8px 0;font-weight:600;color:var(--accent,#0b6bcb);text-decoration:none;}
+.airport-page-link{display:inline-block;text-decoration:none;padding:10px 14px;}
+
+.browse-links{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.browse-links li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:10px 0;border-bottom:1px solid var(--line,#e5e7eb)}
+.browse-links a{font-weight:600;color:var(--text,#111);text-decoration:none}
+.browse-links small{color:var(--muted,#5f6b7a);text-align:right}
