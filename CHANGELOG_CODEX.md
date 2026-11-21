@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — bus names keep "Bus Station"
+
+- Bus route pages used the railway name tidier, which strips "Station":
+  "St Margaret's Bus Station" read "St Margaret's Bus" and a headsign of
+  "Bus Station" read "Bus". Bus pages now only tidy capitals.
+
 ## 2026-11-21 — bus route pages
 
 - /buses → /bus/{operator} → /bus/{operator}/{route} from the official BODS

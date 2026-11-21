@@ -72,7 +72,7 @@ def test_route_pages_are_served_with_live_buses(tmp_path, monkeypatch):
     page = client.get("/bus/arriva-midlands/158")
     assert page.status_code == 200
     assert "Bus 158: Hinckley – Nuneaton" in page.text and "1 bus on route 158" in page.text
-    assert "near Attleborough" in page.text and "5 buses today" in page.text
+    assert "near Attleborough" in page.text and "5 buses today" in page.text and "Nuneaton Bus Station" in page.text
     assert "/bus/arriva-midlands/158" in client.get("/bus/arriva-midlands").text
     assert "/bus/arriva-midlands" in client.get("/buses").text
     assert client.get("/bus/arriva-midlands/999").status_code == 404
