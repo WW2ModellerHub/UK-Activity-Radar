@@ -1,7 +1,7 @@
 # Office of Rail and Road statistics
 
 Bundled as `app/assets/station_usage.json` and `app/assets/operator_performance.json`.
-Open Government Licence v3.0. Refresh when ORR publishes (station usage yearly
+Open Government Licence v3.0. The server now refreshes these itself (app/orr/refresh.py: punctuality weekly, usage monthly, saved in DATA_DIR). To rebuild the bundled copies by hand, refresh when ORR publishes (station usage yearly
 in December; performance every four weeks):
 
     # Station usage, table 1415 (ODS) from
