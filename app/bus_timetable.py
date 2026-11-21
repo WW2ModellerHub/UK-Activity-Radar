@@ -667,3 +667,113 @@ class BusTimetableService:
         with self._lock:
             self._journey_cache[cache_key] = (datetime.now().timestamp(), payload)
         return payload
+
+
+# ---- Route pages ---------------------------------------------------------
+# Built only from regions already downloaded for live use: a route page never
+# triggers a regional download.
+_ROUTE_INDEX: dict[str, tuple[float, list[dict]]] = {}
+
+
+def route_index(service: "BusTimetableService") -> list[dict]:
+    """Every (operator, route number) in the ready regions, with destinations."""
+    out: list[dict] = []
+    now = datetime.now().timestamp()
+    for region in REGION_URLS:
+        if not service._db(region).exists() or not service.ready(region):
+            continue
+        cached = _ROUTE_INDEX.get(region)
+        if cached and now - cached[0] < 6 * 3600:
+            out.extend(cached[1])
+            continue
+        rows: dict[tuple[str, str], dict] = {}
+        try:
+            with sqlite3.connect(service._db(region), timeout=30) as con:
+                for agency, short, headsign in con.execute(
+                        """SELECT COALESCE(a.name, r.agency_id), r.short_name, t.headsign
+                           FROM routes r LEFT JOIN agencies a ON a.agency_id=r.agency_id
+                           JOIN trips t ON t.route_id=r.route_id
+                           WHERE r.short_name IS NOT NULL AND r.short_name<>''
+                           GROUP BY a.name, r.short_name, t.headsign"""):
+                    key = (str(agency or "").strip(), str(short).strip())
+                    if not key[0] or not key[1]:
+                        continue
+                    row = rows.setdefault(key, {"region": region, "operator": key[0], "route": key[1], "destinations": []})
+                    if headsign and headsign not in row["destinations"]:
+                        row["destinations"].append(headsign)
+        except sqlite3.Error:
+            continue
+        built = sorted(rows.values(), key=lambda r: (r["operator"].lower(), _route_sort(r["route"])))
+        _ROUTE_INDEX[region] = (now, built)
+        out.extend(built)
+    return out
+
+
+def _route_sort(value: str) -> tuple:
+    import re
+    m = re.match(r"([A-Za-z]*)(\d*)(.*)", value)
+    return (m.group(1).upper(), int(m.group(2)) if m.group(2) else 0, m.group(3)) if m else (value, 0, "")
+
+
+def route_profile(service: "BusTimetableService", region: str, operator: str, route: str) -> dict | None:
+    """Stops in order each way, today's buses, first and last, journey time."""
+    if not service.ready(region):
+        return None
+    today = datetime.now(tz=london_tz()).date()
+    with sqlite3.connect(service._db(region), timeout=30) as con:
+        con.row_factory = sqlite3.Row
+        route_ids = [r[0] for r in con.execute(
+            """SELECT r.route_id FROM routes r LEFT JOIN agencies a ON a.agency_id=r.agency_id
+               WHERE r.short_name=? AND COALESCE(a.name, r.agency_id)=?""", (route, operator))]
+        if not route_ids:
+            return None
+        marks = ",".join("?" for _ in route_ids)
+        trips = con.execute(f"SELECT trip_id, service_id, headsign, direction_id FROM trips WHERE route_id IN ({marks})",
+                            route_ids).fetchall()
+        active = _service_ids_subset(con, today, {t["service_id"] for t in trips})
+        directions: dict[str, dict] = {}
+        for trip in trips:
+            key = str(trip["direction_id"] or "0")
+            d = directions.setdefault(key, {"trips": [], "today": []})
+            d["trips"].append(trip)
+            if trip["service_id"] in active:
+                d["today"].append(trip)
+        result = []
+        for key, d in sorted(directions.items()):
+            sample = d["today"] or d["trips"]
+            # The longest pattern is the full route; shorter ones are part-routes.
+            best, best_stops = None, []
+            for trip in sample[:60]:
+                stops = con.execute(
+                    """SELECT s.name, s.lat, s.lon, st.departure_time, st.arrival_time FROM stop_times st
+                       JOIN stops s ON s.stop_id=st.stop_id WHERE st.trip_id=? ORDER BY st.stop_sequence""",
+                    (trip["trip_id"],)).fetchall()
+                if len(stops) > len(best_stops):
+                    best, best_stops = trip, stops
+            if not best_stops:
+                continue
+            starts = []
+            for trip in d["today"]:
+                first = con.execute(
+                    "SELECT departure_time FROM stop_times WHERE trip_id=? ORDER BY stop_sequence LIMIT 1",
+                    (trip["trip_id"],)).fetchone()
+                minutes = _gtfs_minutes(first[0]) if first else None
+                if minutes is not None:
+                    starts.append(minutes)
+            starts.sort()
+            begin, end = _gtfs_minutes(best_stops[0]["departure_time"]), _gtfs_minutes(best_stops[-1]["arrival_time"] or best_stops[-1]["departure_time"])
+            midday = [b - a for a, b in zip(starts, starts[1:]) if 10 * 60 <= a <= 15 * 60]
+            result.append({
+                "towards": best["headsign"] or best_stops[-1]["name"],
+                "stops": [{"name": s["name"], "lat": s["lat"], "lon": s["lon"]} for s in best_stops],
+                "today": len(d["today"]),
+                "first": _clock(starts[0]) if starts else None,
+                "last": _clock(starts[-1]) if starts else None,
+                "every": round(sorted(midday)[len(midday) // 2]) if midday else None,
+                "journey_minutes": (end - begin) if begin is not None and end is not None and end >= begin else None,
+            })
+    return {"region": region, "operator": operator, "route": route, "directions": result} if result else None
+
+
+def _clock(minutes: int) -> str:
+    return f"{(minutes // 60) % 24:02d}:{minutes % 60:02d}"

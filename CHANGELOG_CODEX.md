@@ -1,5 +1,15 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — bus route pages
+
+- /buses → /bus/{operator} → /bus/{operator}/{route} from the official BODS
+  regional timetables already downloaded for live use (a page never starts
+  a regional download): stops in order each way, buses today, first and
+  last, typical gap around midday, end-to-end time, and the live buses on
+  the route now (route number and within 1 km of its stops, so another
+  operator's "158" elsewhere is not counted). Route index cached 6 hours per
+  region; route pages 2 minutes. Sitemap, header and Browse.
+
 ## 2026-11-21 — town pages
 
 - /towns and /town/{name} for 52 towns and cities (Hinckley, Nuneaton,
