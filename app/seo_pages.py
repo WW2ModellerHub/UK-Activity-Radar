@@ -129,7 +129,7 @@ def _shell(*, title: str, description: str, canonical: str, body: str, json_ld: 
 <meta property="og:title" content="{escape(title, quote=True)}"><meta property="og:description" content="{escape(description, quote=True)}">
 <meta property="og:url" content="{escape(canonical, quote=True)}"><meta property="og:image" content="{escape(site, quote=True)}/card.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#ffffff">
-<link rel="icon" href="/static/icon-192.png"><link rel="stylesheet" href="/static/seo.css?v=16349">{ld}</head>
+<link rel="icon" href="/static/icon-192.png"><link rel="stylesheet" href="/static/seo.css?v=16354">{ld}</head>
 <body><header class="top"><a class="brand" href="/"><span>R</span>UK Activity Radar</a><nav><a href="/">Live map</a><a href="/stations">Stations</a><a href="/operators">Operators</a><a href="/railway-lines">Lines</a><a href="/military-aircraft-tracker">Aircraft</a><a href="/guides">Guides</a></nav></header>
 <main>{body}</main>
 <footer><a href="/">Live map</a> · <a href="/stations">All stations</a> · <a href="/operators">Train operators</a> · <a href="/military-aircraft-tracker">Aircraft trackers</a> · <a href="/guides">Tracking guides</a> · <a href="/about">About</a> · <a href="/data-licences">Data licences</a><p>Times and delays from Network Rail open data. Contains information of Network Rail Infrastructure Limited.</p></footer>
@@ -148,6 +148,58 @@ def _status(row: dict) -> tuple[str, str]:
     if isinstance(delay, (int, float)):
         return "On time", "good"
     return "Scheduled", ""
+
+
+_USAGE: dict | None = None
+
+
+def station_usage(crs: str) -> dict | None:
+    """Official yearly passenger numbers for a station (ORR table 1415), bundled."""
+    global _USAGE
+    if _USAGE is None:
+        import json
+        from pathlib import Path
+        try:
+            _USAGE = json.loads((Path(__file__).resolve().parent / "assets" / "station_usage.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _USAGE = {"stations": {}}
+    row = (_USAGE.get("stations") or {}).get(str(crs or "").upper())
+    return {**row, "latest": _USAGE.get("latest"), "ranked": _USAGE.get("ranked")} if row else None
+
+
+def _people(value: int) -> str:
+    return f"{value / 1_000_000:.1f} million" if value >= 1_000_000 else f"{value:,}"
+
+
+def station_usage_html(crs: str, name: str) -> str:
+    row = station_usage(crs)
+    if not row:
+        return ""
+    years = list(row["usage"].items())
+    latest_year, latest = years[-1]
+    lines = [f"About <strong>{_people(latest)}</strong> passenger entries and exits in {escape(latest_year)}"
+             + (f", the {row['rank']:,}{_ordinal(row['rank'])} busiest of {row['ranked']:,} stations in Great Britain." if row.get("rank") else ".")]
+    if len(years) > 1 and years[-2][1]:
+        change = (latest - years[-2][1]) * 100 / years[-2][1]
+        lines.append(f"{'Up' if change >= 0 else 'Down'} {abs(change):.0f}% on {escape(years[-2][0])}.")
+    pre = row["usage"].get("2019-20")
+    if pre:
+        lines.append(f"{round(latest * 100 / pre)}% of its level before the pandemic (2019-20).")
+    if row.get("interchanges"):
+        lines.append(f"About {_people(row['interchanges'])} people change trains here a year.")
+    top = max(value for _, value in years) or 1
+    bars = "".join(
+        f'<li><span>{escape(year)}</span><i style="width:{max(2, round(value * 100 / top))}%"></i><b>{_people(value)}</b></li>'
+        for year, value in years)
+    where = ", ".join(x for x in (row.get("district"), row.get("region")) if x)
+    return f"""<h2>How busy is {escape(name)}?</h2>
+<p>{" ".join(lines)}{f" In {escape(where)}." if where else ""}</p>
+<ul class="usage-bars" aria-label="Passenger entries and exits by year">{bars}</ul>
+<p class="source">Source: Office of Rail and Road, Estimates of station usage (table 1415), financial years April to March. Open Government Licence v3.0.</p>"""
+
+
+def _ordinal(n: int) -> str:
+    return "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
 
 
 def station_page(
@@ -233,6 +285,7 @@ def station_page(
 {snapshot}
 {table}
 {f'<h2>Operators at {escape(name)}</h2><ul class="links">{operator_links}</ul>' if operator_links else ''}
+{station_usage_html(crs, name)}
 <h2>About this page</h2><p>Departures from {escape(name)} ({escape(crs)}) for the next few hours, from the published timetable with live running from Network Rail where the train can be matched. Delays update every minute on the <a href="/?place=rail-station:{escape(crs)}">live map</a>, where you can also save the station, follow a train and get alerts when it is late, cancelled or changes platform. Read <a href="/guides/how-live-train-positions-work">how UK live train positions are estimated between railway reports</a>.</p>
 {f'<h2>Stations near {escape(name)}</h2><ul class="links">{nearby_links}</ul>' if nearby_links else ''}"""
     canonical = origin + station["path"]
@@ -311,6 +364,56 @@ def _operator_summary(row: dict) -> str:
     return text + f" (at {_now_clock()})."
 
 
+# Our operator names to ORR's. Thameslink, Southern, Great Northern and
+# Gatwick Express are reported together as Govia Thameslink Railway.
+_ORR_OPERATOR = {"LNER": "London North Eastern Railway", "Northern": "Northern Trains",
+                 "Transport for Wales": "TfW Rail", "Lumo": "Lumo (East Coast)",
+                 "Thameslink": "Greater Thameslink Railway", "Southern": "Greater Thameslink Railway",
+                 "Great Northern": "Greater Thameslink Railway", "Gatwick Express": "Greater Thameslink Railway"}
+_PERFORMANCE: dict | None = None
+
+
+def operator_performance(name: str) -> tuple[str, list[dict], list[dict]] | None:
+    """(ORR name, the operator's last 13 periods, Great Britain's) from ORR tables 3138 and 3124."""
+    global _PERFORMANCE
+    if _PERFORMANCE is None:
+        import json
+        from pathlib import Path
+        try:
+            _PERFORMANCE = json.loads((Path(__file__).resolve().parent / "assets" / "operator_performance.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _PERFORMANCE = {"operators": {}}
+    rows = _PERFORMANCE.get("operators") or {}
+    orr = _ORR_OPERATOR.get(name, name)
+    if orr not in rows:
+        return None
+    return orr, rows[orr], rows.get("Great Britain") or []
+
+
+def operator_performance_html(name: str) -> str:
+    found = operator_performance(name)
+    if not found:
+        return ""
+    orr, periods, britain = found
+    last = periods[-1]
+    gb = next((p for p in reversed(britain) if p["period"] == last["period"]), None)
+    facts = [f"<strong>{last['on_time']:.0f}%</strong> of station stops on time (to the minute)"]
+    if last.get("within_3") is not None:
+        facts.append(f"{last['within_3']:.0f}% within 3 minutes")
+    if last.get("cancelled") is not None:
+        facts.append(f"{last['cancelled']:.1f}% of trains cancelled")
+    compare = f" Great Britain overall: {gb['on_time']:.0f}% on time, {gb['cancelled']:.1f}% cancelled." if gb and gb.get("cancelled") is not None else ""
+    year = f" Over the last year: {last['on_time_year']:.0f}% on time." if last.get("on_time_year") else ""
+    shared = f" Figures are for {escape(orr)}, which includes {escape(name)}." if orr != name else ""
+    bars = "".join(
+        f'<li><span>{escape(p["period"])}</span><i style="width:{max(2, round(p["on_time"]))}%"></i><b>{p["on_time"]:.0f}%</b></li>'
+        for p in periods)
+    return f"""<h2>Official punctuality</h2>
+<p>In railway period {escape(last['period'])}: {", ".join(facts)}.{compare}{year}{shared}</p>
+<ul class="usage-bars" aria-label="Share of station stops on time, by four-week railway period">{bars}</ul>
+<p class="source">Source: Office of Rail and Road, tables 3138 and 3124. "On time" means arriving within 59 seconds of the timetable at each recorded station stop. Railway periods are four weeks long. Open Government Licence v3.0.</p>"""
+
+
 def operator_page(origin: str, row: dict) -> str:
     worst = "".join(
         "<tr><td><strong>{}</strong>{}</td><td class=\"status {}\">{}</td></tr>".format(
@@ -328,6 +431,7 @@ def operator_page(origin: str, row: dict) -> str:
 <p class="lede">{escape(_operator_summary(row))}</p>
 <p><a class="button" href="/">See {escape(name)} trains on the live map</a></p>
 {f'<h2>Most delayed right now</h2><table class="board"><tbody>{worst}</tbody></table>' if worst else ''}
+{operator_performance_html(name)}
 <h2>About this page</h2><p>How {escape(name)} trains are running now, worked out from every {escape(name)} train reporting to Network Rail: the share running five or more minutes late, how late, and cancellations. It updates through the day. See <a href="/operators">all train operators</a> or learn <a href="/guides/how-live-train-positions-work">how live train positions work between railway reports</a>.</p>"""
     canonical = origin + operator_path(name)
     return _shell(title=f"{name} delays and service status today | UK Activity Radar",
