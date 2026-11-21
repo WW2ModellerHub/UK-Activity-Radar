@@ -1,5 +1,16 @@
 # Codex stabilization changelog
 
+## 2026-11-21 — airports open in the app; links keep their place
+
+- Tapping an airport no longer sends you to a separate page: the map
+  centres on it with the planes around it (the "above me" lookup, centred on
+  the airport, refreshing every 12 s), and the panel lists them as arriving,
+  leaving, on the ground and overhead, each opening its full panel. The web
+  page stays for search engines; its map button opens /?airport=BHX, the
+  same in-app view.
+- Links that place the map (?airport, ?lat/lon, ?place, ?open) are no longer
+  undone a moment later by the startup "centre on my location".
+
 ## 2026-11-21 — aircraft photos fall back; airports on the map; links to pages
 
 - Aircraft photos: an exact Planespotters photo first; with none, an

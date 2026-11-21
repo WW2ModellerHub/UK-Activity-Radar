@@ -2790,11 +2790,7 @@
       const rows=await fetch('/api/airports').then(r=>r.ok?r.json():[]);
       airportLayer.markers=L.layerGroup(rows.map(a=>{
         const marker=L.marker([a.lat,a.lon],{icon:L.divIcon({className:'airport-marker-wrap',html:`<div class="airport-marker" title="${esc(a.name)} Airport"><b>${esc(a.iata)}</b></div>`,iconSize:[38,22],iconAnchor:[19,11]}),zIndexOffset:-200});
-        marker.on('click',()=>{
-          openInfoPanel(`${a.name} Airport`,`${a.iata} · live arrivals, departures and planes overhead`,
-            `<p class="airport-panel-copy">See what is arriving, leaving and flying over ${esc(a.name)} right now, with routes and aircraft types.</p><p><a class="primary-button airport-page-link" href="${esc(a.path)}">Open ${esc(a.name)} airport page</a></p>`);
-          trackProduct('airport_marker',a.iata);
-        });
+        marker.on('click',()=>openAirport(a));
         return marker;
       }));
       if(enabledActivityTypes.has('aircraft'))airportLayer.markers.addTo(map);
@@ -4272,7 +4268,7 @@
     note.classList.remove('hidden'); $('near-clear').classList.remove('hidden');
     // A small pill that says what the map is limited to, with its own off
     // switch: the only other way out was buried in the side panel.
-    const where = nearbyState.source === 'device' ? 'you' : 'this spot';
+    const where = nearbyState.source === 'device' ? 'you' : nearbyState.source === 'airport' ? `${nearbyState.label} airport` : 'this spot';
     const label = overheadActive ? `Aircraft within ${nearbyState.radiusMiles} miles of ${where}` : `Within ${nearbyState.radiusMiles} miles of ${where}`;
     note.innerHTML = `<span>${esc(label)}</span><button type="button" class="nearby-note-close" aria-label="Show everything again">×</button>`;
     note.querySelector('.nearby-note-close')?.addEventListener('click', () => {
@@ -4328,6 +4324,7 @@
         : `${nearbyAircraftRows.length} live aircraft • refreshing automatically`;
       if(skyPointer.active)renderSkyPointer();
       if(cameraView.active&&!cameraView.frame)cameraView.frame=requestAnimationFrame(drawCameraView);
+      if(airportOpen&&nearbyState.source==='airport'&&!selectedId&&$('detail-title')?.textContent===`${airportOpen.name} Airport`)renderAirportPanel(airportOpen);
       if(pendingPlanesList){pendingPlanesList=false;showPlanesList();}
       else if(announce)showToast(payload.degraded
         ? (nearbyAircraftRows.length?`Showing ${nearbyAircraftRows.length} retained aircraft while the live lookup retries.`:'The live aircraft lookup is retrying; nothing retained nearby yet.')
@@ -6087,8 +6084,13 @@
     if(button){button.textContent='My location';button.title='Centre on my current location';}
   }
 
+  let mapPlacedByLink=false;
   function centreMapOnDeviceLocation({silent=false,startup=false}={}) {
+    // Opened from a link to a place, airport or item: show where the user is,
+    // but do not move the map away from what the link asked for.
+    const keepView=()=>startup&&mapPlacedByLink;
     if(lastKnownDeviceLocation){
+      if(keepView())return;
       map.setView([lastKnownDeviceLocation.lat,lastKnownDeviceLocation.lon],Math.max(map.getZoom(),12),{animate:!startup});
       sendViewport();
       return;
@@ -6101,6 +6103,7 @@
       const lat=Number(position.coords.latitude),lon=Number(position.coords.longitude);
       if(!Number.isFinite(lat)||!Number.isFinite(lon))return;
       showDeviceLocation(lat,lon);
+      if(keepView())return;
       map.setView([lat,lon],12,{animate:!startup});
       sendViewport();
       if(!startup)trackProduct('nearby_used','recenter-location');
@@ -6136,6 +6139,77 @@
       } finally {if(button)button.disabled=false;if(note)note.textContent='Nearest stop and live departures';}
     }, () => {if(button)button.disabled=false;if(note)note.textContent='Nearest stop and live departures';showToast('Location is off. Search for a stop instead.');}, {enableHighAccuracy:true,timeout:10000,maximumAge:120000});
   });
+  // "Planes above" anywhere: the user (Above me) or an airport.
+  async function startOverheadAt(lat,lon,{source='device',label='',zoom=9,radius=25,announce=false}={}){
+    const button=$('overhead-now');
+    clearTransientLocationModes();
+    if($('near-radius')){if(![...$('near-radius').options].some(o=>o.value===String(radius))){const o=document.createElement('option');o.value=String(radius);o.textContent=`${radius} mi`;$('near-radius').appendChild(o);}$('near-radius').value=String(radius);}
+    overheadActive=true;button?.classList.add('active');
+    selectedType='nearby-aircraft';
+    if(currentWorkspace==='useful'&&!enabledActivityTypes.has('aircraft')){enabledActivityTypes.add('aircraft');overheadAutoEnabledAircraft=true;updateLayerToggleUi();}
+    document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x.dataset.type==='cool-air'));
+    setNearby(lat,lon,source);
+    nearbyState.label=label;
+    renderNearbyOverlay();
+    seedNearbyAircraftFromLiveMap();
+    const retainedCount=nearbyAircraftRows.length;
+    if(button?.querySelector('small'))button.querySelector('small').textContent=retainedCount
+      ? `${retainedCount} aircraft already on map • checking live feed…`
+      : 'Checking the live aircraft feed…';
+    map.setView([lat,lon],zoom,{animate:true});
+    if(source==='device')collapseWorkspaceOnPhone();
+    await refreshOverheadAircraft({announce});
+    sendViewport();
+  }
+
+  // An airport in the app: planes around it on the map, and a panel saying
+  // what is arriving, leaving, on the ground and overhead. Each flight opens.
+  const AIRPORT_RADIUS_MILES=15;
+  function airportGroups(airport){
+    const groups={arriving:[],departing:[],ground:[],overhead:[]};
+    for(const a of nearbyAircraftRows){
+      if(!['aircraft','sar'].includes(a.type))continue;
+      if(['TWR','GND','SVC'].includes(String(a.aircraft_type_code||'').toUpperCase()))continue;
+      const km=distanceKm(airport.lat,airport.lon,Number(a.lat),Number(a.lon));
+      if(!Number.isFinite(km)||km>AIRPORT_RADIUS_MILES*1.609344)continue;
+      const alt=a.altitude_ft==null?null:Number(a.altitude_ft), rate=Number(a.vertical_rate_fpm)||0;
+      const route=flightRouteById.get(a.id);
+      const to=String(a.destination||route?.destination?.iata||'').toUpperCase(), from=String(a.origin||route?.origin?.iata||'').toUpperCase();
+      const ground=/on ground/i.test(String(a.status||''))||(alt!=null&&alt<100&&km<3);
+      const row={a,km};
+      if(ground&&km<5)groups.ground.push(row);
+      else if(to===airport.iata||(!to&&alt!=null&&alt<6000&&rate<-300&&km<24))groups.arriving.push(row);
+      else if(from===airport.iata||(!from&&alt!=null&&alt<6000&&rate>300&&km<24))groups.departing.push(row);
+      else groups.overhead.push(row);
+    }
+    Object.values(groups).forEach(rows=>rows.sort((x,y)=>x.km-y.km));
+    return groups;
+  }
+  function renderAirportPanel(airport){
+    if(!overheadActive||nearbyState.source!=='airport'||nearbyState.label!==airport.iata)return;
+    const g=airportGroups(airport);
+    const row=({a,km})=>{
+      const alt=a.altitude_ft!=null&&Number(a.altitude_ft)>=100?`${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} ft`:'on the ground';
+      const route=[a.origin,a.destination].filter(Boolean).join(' → ');
+      const facts=[route,a.aircraft_model||a.aircraft_type_code,alt,awayText(km)].filter(Boolean).join(' · ');
+      return `<button type="button" class="line-train" data-job-plane="${esc(a.id)}"><i class="line-dot" aria-hidden="true"></i><span><strong>${esc(a.name)}</strong><small>${esc(facts)}</small></span><b>›</b></button>`;
+    };
+    const section=(title,rows)=>rows.length?`<h3 class="airport-group">${esc(title)} <span>${rows.length}</span></h3><div class="line-trains">${rows.slice(0,12).map(row).join('')}</div>`:'';
+    const html=[section('Arriving',g.arriving),section('Leaving',g.departing),section('On the ground',g.ground),section('Passing overhead',g.overhead)].join('')
+      ||'<p class="transport-empty">No aircraft are being tracked near the airport right now. It refreshes every few seconds.</p>';
+    const box=openInfoPanel(`${airport.name} Airport`,`${g.arriving.length} arriving · ${g.departing.length} leaving · ${g.ground.length} on the ground · ${g.overhead.length} overhead`,
+      `${html}<p class="airport-panel-note">From live aircraft tracking within ${AIRPORT_RADIUS_MILES} miles, not an official arrivals board. <a href="${esc(airport.path)}">Airport page</a></p>`);
+    box.querySelectorAll('[data-job-plane]').forEach(button=>button.addEventListener('click',()=>focusActivityById(button.dataset.jobPlane,map.getZoom())));
+  }
+  let airportOpen=null;
+  async function openAirport(airport){
+    airportOpen=airport;
+    openInfoPanel(`${airport.name} Airport`,'Finding aircraft around the airport…','<p class="coverage-loading">Checking the live aircraft feed…</p>');
+    await startOverheadAt(airport.lat,airport.lon,{source:'airport',label:airport.iata,zoom:10,radius:AIRPORT_RADIUS_MILES});
+    renderAirportPanel(airport);
+    trackProduct('airport_opened',airport.iata);
+  }
+
   $('overhead-now')?.addEventListener('click',()=>{
     const button=$('overhead-now');
     if(overheadActive){
@@ -6146,22 +6220,7 @@
     if(!navigator.geolocation){showToast('Location is not available in this browser.');return;}
     if(button){button.disabled=true;button.setAttribute('aria-busy','true');button.querySelector('small').textContent='Finding your location…';}
     navigator.geolocation.getCurrentPosition(async pos=>{
-      clearTransientLocationModes();
-      if($('near-radius'))$('near-radius').value='25';
-      overheadActive=true;button?.classList.add('active');
-      selectedType='nearby-aircraft';
-      if(currentWorkspace==='useful'&&!enabledActivityTypes.has('aircraft')){enabledActivityTypes.add('aircraft');overheadAutoEnabledAircraft=true;updateLayerToggleUi();}
-      document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x.dataset.type==='cool-air'));
-      setNearby(pos.coords.latitude,pos.coords.longitude,'device');
-      seedNearbyAircraftFromLiveMap();
-      const retainedCount=nearbyAircraftRows.length;
-      if(button?.querySelector('small'))button.querySelector('small').textContent=retainedCount
-        ? `${retainedCount} aircraft already on map • checking live feed…`
-        : 'Checking the live aircraft feed…';
-      map.setView([pos.coords.latitude,pos.coords.longitude],9,{animate:true});
-      collapseWorkspaceOnPhone();
-      await refreshOverheadAircraft({announce:true});
-      sendViewport();
+      await startOverheadAt(pos.coords.latitude,pos.coords.longitude,{source:'device',zoom:9,radius:25,announce:true});
       if(button){button.disabled=false;button.removeAttribute('aria-busy');}
     },()=>{
       showToast('Location is off.');
@@ -6433,6 +6492,7 @@
   (()=>{
     const placeId=new URLSearchParams(location.search).get('place');
     if(!placeId||!/^rail-station:[A-Z]{3}$/.test(placeId))return;
+    mapPlacedByLink=true;
     history.replaceState(null,'',location.pathname+location.hash);
     setTimeout(async()=>{
       try {
@@ -6446,6 +6506,17 @@
       } catch {}
     },400);
   })();
+  // /?airport=BHX (from an airport page): the airport view in the app.
+  (()=>{
+    const code=String(new URLSearchParams(location.search).get('airport')||'').toUpperCase();
+    if(!/^[A-Z]{3}$/.test(code))return;
+    mapPlacedByLink=true;
+    history.replaceState(null,'',location.pathname+location.hash);
+    fetch('/api/airports').then(r=>r.ok?r.json():[]).then(rows=>{
+      const airport=rows.find(a=>a.iata===code);
+      if(airport)setTimeout(()=>openAirport(airport),300);
+    }).catch(()=>{});
+  })();
   // /?lat=..&lon=..&zoom=..&layer=aircraft (from an airport page): open the
   // map there with that layer on.
   (()=>{
@@ -6453,6 +6524,7 @@
     const lat=Number(q.get('lat')),lon=Number(q.get('lon'));
     if(!q.has('lat')||!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return;
     const zoom=Math.max(5,Math.min(16,Number(q.get('zoom'))||11));
+    mapPlacedByLink=true;
     const layer=q.get('layer');
     history.replaceState(null,'',location.pathname+location.hash);
     map.setView([lat,lon],zoom);
@@ -6465,6 +6537,7 @@
   (()=>{
     const wanted=new URLSearchParams(location.search).get('open');
     if(!wanted||wanted.length>120)return;
+    mapPlacedByLink=true;
     history.replaceState(null,'',location.pathname+location.hash);
     let tries=0;
     const attempt=async()=>{
