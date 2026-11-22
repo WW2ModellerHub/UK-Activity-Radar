@@ -43,3 +43,13 @@ def test_airport_pages_are_served_and_listed(monkeypatch):
     assert page.status_code == 200 and "East Midlands Airport live aircraft" in page.text and "RYR1" in page.text
     assert client.get("/airport/nowhere-xxx").status_code == 404
     assert airport_path(EMA) in client.get("/airports").text
+
+
+def test_the_map_airport_list_carries_each_airports_height():
+    # A plane on Birmingham's runway reports about 341 ft: the map subtracts
+    # the airport's height so it reads "On runway", not "flying at 341 ft".
+    rows = TestClient(main.app).get("/api/airports").json()
+    assert len(rows) == len(AIRPORTS)
+    bhx = next(row for row in rows if row["iata"] == "BHX")
+    assert bhx["elevation_ft"] == 341
+    assert all(isinstance(row["elevation_ft"], int) and 0 < row["elevation_ft"] < 1000 for row in rows)

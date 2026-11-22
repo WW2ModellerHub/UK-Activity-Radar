@@ -2339,7 +2339,7 @@ test('a map link with a place and a layer opens the map there with that layer on
 });
 
 test('tapping an airport shows its planes in the app, grouped, each one tappable', async ({ page }) => {
-  await page.route('**/api/airports', route => route.fulfill({ json:[{ name:'East Midlands', iata:'EMA', lat:52.83, lon:-1.33, path:'/airport/east-midlands-ema' }] }));
+  await page.route('**/api/airports*', route => route.fulfill({ json:[{ name:'East Midlands', iata:'EMA', lat:52.83, lon:-1.33, path:'/airport/east-midlands-ema' }] }));
   await page.route('**/api/aircraft/nearby**', route => route.fulfill({ json:{ source:'test', checked:2, radius_miles:50, activities:[
     { kind:'vehicle', id:'aircraft:aaa111', type:'aircraft', name:'RYR12', lat:52.80, lon:-1.25, altitude_ft:3000, vertical_rate_fpm:-700, origin:'DUB', destination:'EMA', aircraft_type_code:'B738', status:'Airborne', source:'test', last_updated:new Date().toISOString() },
     { kind:'vehicle', id:'aircraft:bbb222', type:'aircraft', name:'BAW6B', lat:52.85, lon:-1.40, altitude_ft:23000, vertical_rate_fpm:0, origin:'SFO', destination:'LHR', aircraft_type_code:'B772', status:'Airborne', source:'test', last_updated:new Date().toISOString() },
@@ -2355,7 +2355,7 @@ test('tapping an airport shows its planes in the app, grouped, each one tappable
 });
 
 test('an airport page link opens that airport in the app, not the default map', async ({ page }) => {
-  await page.route('**/api/airports', route => route.fulfill({ json:[{ name:'East Midlands', iata:'EMA', lat:52.83, lon:-1.33, path:'/airport/east-midlands-ema' }] }));
+  await page.route('**/api/airports*', route => route.fulfill({ json:[{ name:'East Midlands', iata:'EMA', lat:52.83, lon:-1.33, path:'/airport/east-midlands-ema' }] }));
   await page.goto('/?airport=EMA');
   await expect(page.locator('#mode-pill')).toHaveText(/LIVE|FIXTURE/, { timeout:5000 });
   await expect(page.locator('#detail-title')).toHaveText('East Midlands Airport');
@@ -2546,4 +2546,69 @@ test('each aircraft carries an ATC-style data block: callsign, type, level, tren
   // Not heard from for 7 minutes: faded, so an old position never looks live.
   await expect(block('RRR2129').locator('.aerial-map-marker')).toHaveClass(/is-stale/);
   await expect(block('BAW123').locator('.aerial-map-marker')).not.toHaveClass(/is-stale/);
+});
+
+test('a plane on the runway says landing, taking off or on runway, never "0ft"', async ({ page }) => {
+  await page.locator('[data-layer-toggle="aircraft"]').click();
+  await waitForViewportRequestsToSettle(page);
+  const send = rows => page.evaluate(rows => {
+    const first = window.__fixtureSnapshot.activities.find(row => row.id === 'aircraft-live-1');
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities: rows.map(extra => ({
+      ...first, cool_category:null, cool_score:0, cool_label:null, aircraft_model:'Airbus A320', aircraft_type_code:'A320', speed_unit:'kt', bearing:150, position_source:'ADS-B', ...extra })) }) });
+  }, rows);
+  const t = new Date(Date.now() - 4000).toISOString();
+  await send([
+    { id:'ac-roll', name:'EZY72GD', altitude_ft:0, vertical_rate_fpm:0, speed:122, lat:52.45, last_updated:t },
+    { id:'ac-land', name:'BAW1', altitude_ft:75, vertical_rate_fpm:-700, speed:138, lat:52.5, last_updated:t },
+    { id:'ac-taxi', name:'TOM2', altitude_ft:0, vertical_rate_fpm:0, speed:15, lat:52.55, last_updated:t },
+    { id:'ac-park', name:'RYR3', altitude_ft:-25, status:'On ground', speed:0, lat:52.6, last_updated:t },
+  ]);
+  const data = name => page.locator('.aerial-marker-wrap').filter({ has: page.locator('.ac-callsign', { hasText:name }) }).locator('.ac-data');
+  await expect(data('EZY72GD')).toHaveText('On runway 122kt');
+  await expect(data('BAW1')).toHaveText('Landing 138kt');
+  await expect(data('TOM2')).toHaveText('Taxiing 15kt');
+  await expect(data('RYR3')).toHaveText('Parked');
+  // The next report is faster and still on the ground: a take-off roll.
+  await send([{ id:'ac-roll', name:'EZY72GD', altitude_ft:0, vertical_rate_fpm:0, speed:131, lat:52.45, last_updated:new Date(Date.now()-1000).toISOString() }]);
+  await expect(data('EZY72GD')).toHaveText('Taking off 131kt');
+  await expect(page.locator('.ac-data').filter({ hasText:/\b0ft\b/ })).toHaveCount(0);
+  // The panel says it in words, not "holding level at 0 feet".
+  await page.locator('.aerial-map-marker.aerial-aircraft').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-panel')).toContainText('This Airbus A320 is taking off at 131 knots, heading south-east.');
+  await expect(page.locator('#detail-panel')).toContainText(/Altitude\s*Taking off/);
+  await expect(page.locator('#detail-panel')).not.toContainText(/\b0 (feet|ft)\b/);
+});
+
+test('at Birmingham a plane on the runway reads the airport height, not flying at 341 ft', async ({ page }) => {
+  // Birmingham is 341 ft above sea level: on a normal day a plane on its
+  // runway reports about 341 ft.
+  await page.route('**/api/airports*', route => route.fulfill({ json:[
+    { name:'Birmingham', iata:'BHX', lat:52.4539, lon:-1.7480, elevation_ft:341, path:'/airport/birmingham-bhx' }] }));
+  await page.locator('[data-layer-toggle="aircraft"]').click();
+  await waitForViewportRequestsToSettle(page);
+  const send = rows => page.evaluate(rows => {
+    const first = window.__fixtureSnapshot.activities.find(row => row.id === 'aircraft-live-1');
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities: rows.map(extra => ({
+      ...first, cool_category:null, cool_score:0, cool_label:null, aircraft_model:'Airbus A320', aircraft_type_code:'A320', aircraft_category:null,
+      speed_unit:'kt', bearing:330, position_source:'ADS-B', status:'Airborne', ...extra })) }) });
+  }, rows);
+  const t = new Date(Date.now() - 4000).toISOString();
+  await send([
+    { id:'bhx-roll', name:'EZY72GD', lat:52.4500, lon:-1.7420, altitude_ft:350, vertical_rate_fpm:0, speed:122, last_updated:t },
+    { id:'bhx-final', name:'BAW9', lat:52.4790, lon:-1.7750, altitude_ft:700, vertical_rate_fpm:-700, speed:145, bearing:150, last_updated:t },
+    { id:'bhx-high', name:'RYR8', lat:52.4600, lon:-1.7500, altitude_ft:1300, vertical_rate_fpm:-700, speed:170, last_updated:t },
+    // A rescue helicopter low over the sea, far from any airport.
+    { id:'heli-sea', name:'RESCUE1', lat:53.40, lon:-3.50, altitude_ft:75, vertical_rate_fpm:0, speed:110,
+      aircraft_model:'Leonardo AW189', aircraft_type_code:'A189', aircraft_category:'Helicopter / rotorcraft', last_updated:t },
+  ]);
+  const data = name => page.locator('.aerial-marker-wrap').filter({ has: page.locator('.ac-callsign', { hasText:name }) }).locator('.ac-data');
+  await expect(data('EZY72GD')).toHaveText('On runway 122kt');
+  await expect(data('BAW9')).toHaveText('Landing 145kt');
+  await expect(data('RYR8')).toHaveText('1,300ft ↓ 170kt');
+  await expect(data('RESCUE1')).toHaveText('Low 110kt');
+  await send([{ id:'bhx-roll', name:'EZY72GD', lat:52.4520, lon:-1.7450, altitude_ft:350, vertical_rate_fpm:0, speed:131, last_updated:new Date(Date.now()-1000).toISOString() }]);
+  await expect(data('EZY72GD')).toHaveText('Taking off 131kt');
+  await page.locator('.aerial-map-marker.aerial-aircraft').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-panel')).toContainText('This Airbus A320 is taking off from Birmingham Airport at 131 knots, heading north-west.');
+  await expect(page.locator('#detail-panel')).not.toContainText(/350 (feet|ft)/);
 });

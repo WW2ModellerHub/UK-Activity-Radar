@@ -46,6 +46,8 @@
     openPopup() { return this; }
     openTooltip() { return this; }
     setLatLng(latlng) { this.latlng = latlng; stats.markerMoves += 1; return this; }
+    // As in Leaflet: the marker's element, or undefined while it is off the map.
+    getElement() { return this._el || undefined; }
     setIcon(icon) { this.options.icon = icon; stats.markerIconUpdates += 1; if (this._el) { this._el.className = `leaflet-marker-icon ${icon.options?.className || ''}`; this._el.innerHTML = icon.options?.html || ''; } return this; }
     setZIndexOffset() { return this; }
   }

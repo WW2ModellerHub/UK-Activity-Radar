@@ -1916,14 +1916,77 @@
     if(name&&!/^(special aircraft|aircraft|unknown)\b/i.test(name))return name.toUpperCase().slice(0,10);
     return String(v.vehicle_ref||v.source_id||name||'').toUpperCase().slice(0,10);
   }
-  function aircraftDataLine(v) {
+  function aircraftSpeedKt(v) {
     let speed=Number(v.speed);
-    if(String(v.speed_unit||'').toLowerCase()==='m/s')speed*=1.94384;
-    else if(String(v.speed_unit||'').toLowerCase()==='km/h')speed/=1.852;
+    const unit=String(v.speed_unit||'').toLowerCase();
+    if(unit==='m/s')speed*=1.94384; else if(unit==='km/h')speed/=1.852;
+    return speed;
+  }
+  // The change since the plane's previous report, to tell a landing roll
+  // (slowing, coming down) from a take-off roll (speeding up, going up).
+  // Only a report from the last two minutes counts: a plane back in range
+  // after half an hour has not "sped up".
+  const aircraftReports=new Map();
+  function aircraftTrend(v) {
+    const now={at:String(v.last_updated||''),ms:Date.parse(v.last_updated||''),alt:Number(v.altitude_ft),speed:aircraftSpeedKt(v)};
+    let entry=aircraftReports.get(v.id);
+    if(!entry){if(aircraftReports.size>4000)aircraftReports.clear();entry={cur:now,prev:null};aircraftReports.set(v.id,entry);}
+    else if(entry.cur.at!==now.at){entry.prev=entry.cur;entry.cur=now;}
+    const {cur,prev}=entry;
+    if(!prev||!(cur.ms-prev.ms<=120000))return null;
+    return {dAlt:cur.alt-prev.alt,dSpeed:cur.speed-prev.speed};
+  }
+  // The airport a plane is at or just above: within 4 km of its reference
+  // point covers the runways and the last mile of approach or climb-out.
+  function nearestAirfield(v) {
+    const lat=Number(v.lat),lon=Number(v.lon);
+    if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;
+    let best=null,bestKm=4;
+    for(const field of airportLayer.rows||[]){
+      const km=distanceKm(lat,lon,Number(field.lat),Number(field.lon));
+      if(km<bestKm){best=field;bestKm=km;}
+    }
+    return best;
+  }
+  // On or just above a runway. Aircraft report barometric altitude, so on the
+  // ground it reads about the airport's height (Birmingham ~341 ft), 0 ft or
+  // even below, depending on the weather: "0ft 122kt" looked like an error
+  // when it was a plane landing or taking off. Say which.
+  function aircraftGroundPhase(v) {
+    const alt=Number(v.altitude_ft),speed=aircraftSpeedKt(v),rate=Number(v.vertical_rate_fpm);
+    const trend=aircraftTrend(v);
+    const onGround=/on ground/i.test(String(v.status||''));
+    // Helicopters hover and fly low and slow away from airports.
+    if(!onGround&&aircraftMapShape(v).rotorcraft)return null;
+    const field=nearestAirfield(v);
+    const height=Number.isFinite(alt)?alt-(Number(field?.elevation_ft)||0):NaN;
+    const low=onGround||(Number.isFinite(height)&&height<150);
+    // Within 800 ft of the airport's height: the weather alone can move the
+    // reading by a few hundred feet, so this is only used with a clear trend.
+    const near=Boolean(field)&&Number.isFinite(height)&&height<800;
+    if(!low&&!near)return null;
+    if(!onGround&&Number.isFinite(speed)&&speed>200)return null;   // a low pass, not a runway
+    const at=field?` at ${field.name} Airport`:'',from=field?` from ${field.name} Airport`:'';
+    // A plane cannot fly at walking pace: slow means it is on the ground.
+    if(!Number.isFinite(speed)||speed<5)return {short:'Parked',chip:'On the ground',sentence:`is on the ground${at}`};
+    const knots=Math.round(speed);
+    if(speed<40)return {short:'Taxiing',chip:'On the ground',sentence:`is taxiing${at} at ${knots} knots`};
+    const down=(Number.isFinite(rate)&&rate<-150)||Boolean(trend&&(trend.dAlt<-40||trend.dSpeed<-3));
+    const up=(Number.isFinite(rate)&&rate>150)||Boolean(trend&&(trend.dAlt>40||trend.dSpeed>3));
+    if(down&&!up)return {short:'Landing',chip:'Landing',sentence:low?`is landing${at} at ${knots} knots`:`is coming in to land${at} at ${knots} knots`};
+    if(up&&!down)return {short:'Taking off',chip:'Taking off',sentence:low?`is taking off${from} at ${knots} knots`:`has just taken off${from}, climbing at ${knots} knots`};
+    if(!low)return null;
+    return {short:'On runway',chip:'On the runway',sentence:`is on the runway${at} at ${knots} knots, landing or taking off`};
+  }
+  function aircraftDataLine(v) {
+    const speed=aircraftSpeedKt(v);
+    const phase=aircraftGroundPhase(v);
+    if(phase)return phase.short==='Parked'?'Parked':`${phase.short} ${Math.round(speed)}kt`;
     const alt=Number(v.altitude_ft),rate=Number(v.vertical_rate_fpm);
-    const ground=/on ground/i.test(String(v.status||''))||(Number.isFinite(alt)&&alt<100&&(!Number.isFinite(speed)||speed<60));
-    const level=ground?'GND':!Number.isFinite(alt)?'':alt>=6000?`FL${String(Math.round(alt/100)).padStart(3,'0')}`:`${(Math.round(alt/100)*100).toLocaleString('en-GB')}ft`;
-    const trend=!ground&&Number.isFinite(rate)?(rate>300?'↑':rate<-300?'↓':''):'';
+    // Below 100 ft the barometric reading says little (it can be negative on
+    // a high-pressure day), so a helicopter over the sea reads "Low".
+    const level=!Number.isFinite(alt)?'':alt>=6000?`FL${String(Math.round(alt/100)).padStart(3,'0')}`:alt<100?'Low':`${(Math.round(alt/100)*100).toLocaleString('en-GB')}ft`;
+    const trend=Number.isFinite(rate)?(rate>300?'↑':rate<-300?'↓':''):'';
     const pace=Number.isFinite(speed)&&speed>=1?`${Math.round(speed)}kt`:'';
     return [level&&trend?`${level} ${trend}`:level,pace].filter(Boolean).join(' ');
   }
@@ -2975,7 +3038,10 @@
   }
 
   // Airports with live pages, shown while the Aircraft layer is on.
-  const airportLayer={markers:null,loading:false};
+  // ?v=2: the list now carries each airport's elevation, and the old one is
+  // cached in browsers for a day.
+  const AIRPORTS_URL='/api/airports?v=2';
+  const airportLayer={markers:null,loading:false,rows:[]};
   async function syncAirports(){
     const wanted=enabledActivityTypes.has('aircraft');
     if(!wanted){if(airportLayer.markers)map.removeLayer(airportLayer.markers);return;}
@@ -2983,13 +3049,16 @@
     if(airportLayer.loading)return;
     airportLayer.loading=true;
     try{
-      const rows=await fetch('/api/airports').then(r=>r.ok?r.json():[]);
-      airportLayer.markers=L.layerGroup(rows.map(a=>{
+      const rows=await fetch(AIRPORTS_URL).then(r=>r.ok?r.json():[]);
+      airportLayer.rows=Array.isArray(rows)?rows:[];
+      airportLayer.markers=L.layerGroup(airportLayer.rows.map(a=>{
         const marker=L.marker([a.lat,a.lon],{icon:L.divIcon({className:'airport-marker-wrap',html:`<div class="airport-marker" title="${esc(a.name)} Airport"><b>${esc(a.iata)}</b></div>`,iconSize:[38,22],iconAnchor:[19,11]}),zIndexOffset:-200});
         marker.on('click',()=>openAirport(a));
         return marker;
       }));
       if(enabledActivityTypes.has('aircraft'))airportLayer.markers.addTo(map);
+      // Planes drawn before the list arrived can now say "Landing at …".
+      if(airportLayer.rows.length)renderMap();
     }catch{}finally{airportLayer.loading=false;}
   }
 
@@ -3401,7 +3470,11 @@
       const identity=a.aircraft_model||a.aircraft_type_code||'aircraft';
       const movement=rate==null?'is airborne':rate>100?`is climbing at ${Math.round(rate).toLocaleString('en-GB')} feet per minute`:rate<-100?`is descending at ${Math.abs(Math.round(rate)).toLocaleString('en-GB')} feet per minute`:'is holding level';
       const liveContext=[a.bearing!=null?`tracking ${directionWord(a.bearing)}`:null,a.speed!=null?`at ${Math.round(Number(a.speed)).toLocaleString('en-GB')} knots`:null,a.altitude_ft!=null?`at ${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} feet`:null].filter(Boolean).join(' ');
-      const story=`This ${identity} ${movement}${liveContext?`, ${liveContext}`:''}.`;
+      // On the runway or taxiing, say so instead of "holding level at 0 feet".
+      const phase=aircraftGroundPhase(a);
+      const story=phase
+        ? `This ${identity} ${phase.sentence}${a.bearing!=null&&phase.short!=='Parked'?`, heading ${directionWord(a.bearing)}`:''}.`
+        : `This ${identity} ${movement}${liveContext?`, ${liveContext}`:''}.`;
       const stories=[];
       if(a.origin&&a.destination)stories.push(['Where it usually flies',`Receivers most often saw this callsign flying ${a.origin} to ${a.destination}${routeCount?` — ${Math.round(routeCount)} time${Math.round(routeCount)===1?'':'s'} recently`:''}. Today’s route may be different.`]);
       if(a.selected_altitude_ft!=null||targetHeading)stories.push(['What it is set to do',`The selected controls point toward ${[a.selected_altitude_ft!=null?`${Math.round(Number(a.selected_altitude_ft)).toLocaleString('en-GB')} feet`:null,targetHeading?`a ${targetHeading} heading`:null].filter(Boolean).join(' and ')}.`]);
@@ -4258,7 +4331,8 @@
       const delay = a.delay_minutes == null ? null : (a.delay_minutes === 0 ? 'On time' : `${a.delay_minutes > 0 ? '+' : ''}${a.delay_minutes} min`);
       const bearing = a.bearing == null ? null : `${Math.round(a.bearing)}°`;
       const identityLabel = a.type === 'vessel' ? 'MMSI' : (['sar','aircraft'].includes(a.type) ? 'Registration' : 'Vehicle');
-      const altitude = a.altitude_ft == null ? null : `${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} ft`;
+      const groundPhase=['sar','aircraft'].includes(a.type)?aircraftGroundPhase(a):null;
+      const altitude = groundPhase ? groundPhase.chip : a.altitude_ft == null ? null : `${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} ft`;
       const isAircraft=['sar','aircraft'].includes(a.type);
       const aircraftType=isAircraft ? (a.aircraft_model || a.aircraft_type_code || 'Type not identified by live feed') : null;
       const publishedRoute=a.route || (a.origin&&a.destination?`${a.origin} → ${a.destination}`:null);
@@ -6749,7 +6823,7 @@
     if(!/^[A-Z]{3}$/.test(code))return;
     mapPlacedByLink=true;
     history.replaceState(null,'',location.pathname+location.hash);
-    fetch('/api/airports').then(r=>r.ok?r.json():[]).then(rows=>{
+    fetch(AIRPORTS_URL).then(r=>r.ok?r.json():[]).then(rows=>{
       const airport=rows.find(a=>a.iata===code);
       if(airport)setTimeout(()=>openAirport(airport),300);
     }).catch(()=>{});
