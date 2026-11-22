@@ -1,5 +1,16 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — memory: arena cap, trimming, size-bounded page cache
+
+- The server restarted again (out of memory on the 2 GB instance). glibc
+  malloc arenas are capped at two at startup (before worker threads exist);
+  with ~40 worker threads the default arena-per-thread kept freed memory
+  resident. Free heap is returned to the OS every minute (`malloc_trim`).
+- The SEO page cache is bounded by size (40 MB) as well as count (3000
+  pages): station, route and town pages are 30-60 KB each.
+- `/api/health/runtime` reports the 5-minute memory peak, and with
+  `?detail=true` a breakdown (page cache, traffic tile caches, live rows).
+
 ## 2026-11-21 — direct train route pages
 
 - `/trains/{from}-to-{to}` (e.g. /trains/hinckley-to-leicester): every direct
