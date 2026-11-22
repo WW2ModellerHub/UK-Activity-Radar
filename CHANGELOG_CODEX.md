@@ -1,5 +1,13 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — aircraft: parked planes and tower transmitters left out
+
+- At a busy airport, parked planes (under 2 kt) and airport transmitters
+  (type TWR, GND or SVC, or ADS-B categories for service vehicles and
+  obstructions) crowded the map. They are left off the map, the in-app
+  airport list and the airport pages. Taxiing, landing and departing planes
+  stay.
+
 ## 2026-11-22 — aircraft: "0ft 122kt" was a taxiing plane with bad data
 
 - The real cause of "0ft 122kt": live at Birmingham, EZY682G (BHX to
