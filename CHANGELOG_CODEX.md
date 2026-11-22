@@ -1,5 +1,15 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — Delay Repay notice; faster railway lines after a tap
+
+- A passenger train 15+ minutes late (or cancelled) shows a Delay Repay
+  notice in its panel: the usual refund band for that delay, the operator to
+  claim from, and a link (`/go/delay-repay`, National Rail's compensation
+  help) that can be changed server-side. Not shown for freight, empty stock
+  or charters.
+- Selecting a train starts downloading the railway lines for where the map
+  is going at once, instead of after the pan or zoom animation ends.
+
 ## 2026-11-22 — memory: arena cap, trimming, size-bounded page cache
 
 - The server restarted again (out of memory on the 2 GB instance). glibc

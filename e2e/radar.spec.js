@@ -2460,3 +2460,20 @@ test('a station board has a Freight tab for freight passing through', async ({ p
   await expect(row).toContainText('passes through');
   await expect(page.locator('[data-board-list="departures"]')).toBeHidden();
 });
+
+test('a passenger train 15+ minutes late says Delay Repay may be owed; on-time trains do not', async ({ page }) => {
+  let delay = 22;
+  await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json:{ activity:'train-live-1', detail:{ available:true,
+    runs:[{ headcode:'1A23', origin:'Milton Keynes Central', destination:'London Euston', operator:'Avanti West Coast', delay_minutes:delay, status:`${delay} min late`,
+      calling_points:[{ name:'Milton Keynes Central', scheduled:'10:14', event:'Stops' },{ name:'London Euston', scheduled:'10:51', event:'Stops' }] }] } } }));
+  await page.goto('/?open=train-live-1');
+  const notice = page.locator('.delay-repay');
+  await expect(notice).toContainText('Running 22 min late');
+  await expect(notice).toContainText('a quarter of a single fare');
+  await expect(notice).toContainText('Avanti West Coast');
+  await expect(notice.locator('a')).toHaveAttribute('href', '/go/delay-repay');
+  delay = 3;
+  await page.goto('/?open=train-live-1');
+  await expect(page.locator('.transport-run-card, .rail-intelligence-shell').first()).toBeVisible();
+  await expect(page.locator('.delay-repay')).toHaveCount(0);
+});

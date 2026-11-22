@@ -2597,7 +2597,12 @@ def traffic_status():
 
 # Where "Book" buttons go. An affiliate link from the environment when one is
 # set (so it can change without a release), else the operator's own site.
-_BOOKING_SITES = {"national-express": "https://www.nationalexpress.com/"}
+_BOOKING_SITES = {
+    "national-express": "https://www.nationalexpress.com/",
+    # Delay Repay: National Rail's compensation help, which links every
+    # operator's own claim form. One place to change if the address moves.
+    "delay-repay": "https://www.nationalrail.co.uk/help-and-assistance/compensation-and-refunds/",
+}
 
 
 def _affiliate_url(partner: str) -> str | None:
