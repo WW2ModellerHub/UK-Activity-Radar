@@ -16,11 +16,13 @@ export function maplibreZoom(leafletZoom){return Number(leafletZoom)-1;}
 // Leaflet animates zooms with transform .25s cubic-bezier(0,0,.25,1).
 function leafletZoomEasing(t){return 1-Math.pow(1-t,3);}
 
-export function frameInterval(objectCount,selected=false,reducedMotion=false){
+export function frameInterval(objectCount,selected=false,reducedMotion=false,zoom=14){
   if(reducedMotion)return 100;
-  if(selected||objectCount<=120)return 16;
-  if(objectCount<=600)return 33;
-  return 50;
+  // Zoomed out, a train moves well under a pixel a frame: redraw less often.
+  // (MapLibre zoom, one below Leaflet's.) Every redraw re-sends every object.
+  const byZoom=zoom<8?400:zoom<10?200:zoom<12?80:0;
+  const byCount=selected||objectCount<=120?16:objectCount<=600?33:50;
+  return Math.max(byCount,selected?byZoom/2:byZoom);
 }
 
 function punctuality(activity){
@@ -152,7 +154,7 @@ export class LiveObjectRenderer{
   draw(timestamp,force=false){
     if(!this.ready)return;
     const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-    if(!force&&timestamp-this.lastDraw<frameInterval(this.rows.length,Boolean(this.selectedId),reduced))return;
+    if(!force&&timestamp-this.lastDraw<frameInterval(this.rows.length,Boolean(this.selectedId),reduced,this.map.getZoom()))return;
     this.lastDraw=timestamp;const now=Date.now();
     // Nothing to show and nothing shown: no update, so the map stays idle.
     if(!this.rows.length&&!this.lastFeatures.length)return;

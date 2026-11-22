@@ -259,7 +259,7 @@
   const placeGroup = typeof L.markerClusterGroup === 'function'
     // Station groups are small and white so they never read as trains.
     ? L.markerClusterGroup({ disableClusteringAtZoom: 14, maxClusterRadius: 40, showCoverageOnHover:false,
-        iconCreateFunction: cluster => L.divIcon({ html:`<span>${cluster.getChildCount()}</span>`, className:'station-cluster', iconSize:[22,22] }) })
+        iconCreateFunction: cluster => L.divIcon({ html:`<span>${cluster.getChildCount()}</span>`, className:'station-cluster', iconSize:[28,28] }) })
     : L.layerGroup();
   placeGroup.addTo(map);
   let places = [];

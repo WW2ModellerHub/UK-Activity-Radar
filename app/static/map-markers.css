@@ -180,5 +180,5 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 .marker-bus.marker-coach>span .ico{stroke:#fff}
 
 /* A group of stations (zoomed out): small, white, clearly not a train. */
-.station-cluster{display:grid!important;place-items:center;border-radius:50%;background:#fff;border:2px solid #2b3a46;box-shadow:0 1px 4px rgba(0,0,0,.25)}
-.station-cluster span{font:700 11px/1 system-ui,sans-serif;color:#2b3a46}
+.station-cluster{display:grid!important;place-items:center;background:none;border:0}
+.station-cluster span{display:grid;place-items:center;width:22px;height:22px;box-sizing:border-box;border-radius:50%;background:#fff;border:2px solid #2b3a46;box-shadow:0 1px 4px rgba(0,0,0,.25);font:700 11px/1 system-ui,sans-serif;color:#2b3a46}
