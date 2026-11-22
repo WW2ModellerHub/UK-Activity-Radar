@@ -2522,3 +2522,28 @@ test('the camera view says when a train will pass you, and points to trains out 
   await expect(freight).not.toHaveClass(/is-approaching/);
   await expect(page.locator('.ar-edge-left')).toContainText('To Leeds');
 });
+
+test('each aircraft carries an ATC-style data block: callsign, type, level, trend and speed', async ({ page }) => {
+  await page.locator('[data-layer-toggle="aircraft"]').click();
+  await waitForViewportRequestsToSettle(page);
+  await page.evaluate(() => {
+    const first = window.__fixtureSnapshot.activities.find(row => row.id === 'aircraft-live-1');
+    const now = Date.now();
+    const plane = (id, extra) => ({ ...first, cool_category:null, cool_score:0, cool_label:null, lat:52.2, lon:-1.4, ...extra, id });
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[
+      plane('ac-cruise', { name:'BAW123', aircraft_model:'Airbus A320', aircraft_type_code:'A320', altitude_ft:35020, vertical_rate_fpm:-900, speed:452.4, speed_unit:'kt', last_updated:new Date(now-5000).toISOString() }),
+      plane('ac-low', { name:'GBJXZ', aircraft_model:'', aircraft_type_code:'C172', altitude_ft:2340, vertical_rate_fpm:0, speed:96, speed_unit:'kt', lat:52.4, last_updated:new Date(now-5000).toISOString() }),
+      plane('ac-old', { name:'RRR2129', aircraft_model:'Airbus A330 MRTT', aircraft_type_code:'A332', altitude_ft:275, vertical_rate_fpm:-576, speed:123, speed_unit:'kt', lat:52.6, last_updated:new Date(now-7*60000).toISOString() }),
+    ] }) });
+    document.getElementById('map').classList.add('show-aircraft-data');
+  });
+  const block = id => page.locator(`.aerial-marker-wrap`).filter({ has: page.locator(`.ac-callsign`, { hasText: id }) });
+  await expect(block('BAW123').locator('.ac-type')).toHaveText('A320');
+  await expect(block('BAW123').locator('.ac-data')).toHaveText('FL350 ↓ 452kt');
+  await expect(block('BAW123').locator('.ac-data')).toBeVisible();
+  await expect(block('GBJXZ').locator('.ac-type')).toHaveText('CESSNA 172');
+  await expect(block('GBJXZ').locator('.ac-data')).toHaveText('2,300ft 96kt');
+  // Not heard from for 7 minutes: faded, so an old position never looks live.
+  await expect(block('RRR2129').locator('.aerial-map-marker')).toHaveClass(/is-stale/);
+  await expect(block('BAW123').locator('.aerial-map-marker')).not.toHaveClass(/is-stale/);
+});

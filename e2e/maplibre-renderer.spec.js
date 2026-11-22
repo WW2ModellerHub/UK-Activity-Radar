@@ -5,7 +5,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = relative => fs.readFileSync(path.join(root, relative));
 
-test('MapLibre live layer renders trains and aircraft from one motion clock', async ({ page }) => {
+test('MapLibre live layer renders trains; aircraft stay on the map markers with their data block', async ({ page }) => {
   const errors=[];
   page.on('pageerror',error=>errors.push(error.message));
   await page.route('**/*', route => {
@@ -27,7 +27,7 @@ test('MapLibre live layer renders trains and aircraft from one motion clock', as
   });
   await page.goto('http://radar.test/maplibre-test');
   await expect(page.locator('#live')).toHaveAttribute('data-renderer','ready',{timeout:10000}).catch(error=>{throw new Error(`${error.message}\nBrowser errors: ${errors.join(' | ')}`);});
-  await expect(page.locator('#live')).toHaveAttribute('data-object-count','3');
+  await expect(page.locator('#live')).toHaveAttribute('data-object-count','2');
   await expect(page.locator('#live')).toHaveAttribute('data-coincident-groups','1');
   await expect(page.locator('#live')).toHaveAttribute('data-separated-objects','2');
   await expect.poll(()=>page.evaluate(()=>{
@@ -35,8 +35,8 @@ test('MapLibre live layer renders trains and aircraft from one motion clock', as
     const feature=renderer.lastFeatures.find(row=>row.properties.id==='train-2');
     return renderer.featureAt(renderer.map.project(feature.geometry.coordinates));
   })).toBe('train-2');
-  // Train badges sit upright whatever their direction; aircraft face their heading.
-  expect(await page.evaluate(()=>Object.fromEntries(window.__renderer.lastFeatures.map(row=>[row.properties.id,row.properties.rotation])))).toEqual({'train-1':0,'train-2':0,'air-1':90});
+  // Train badges sit upright whatever their direction (aircraft are not on this layer).
+  expect(await page.evaluate(()=>Object.fromEntries(window.__renderer.lastFeatures.map(row=>[row.properties.id,row.properties.rotation])))).toEqual({'train-1':0,'train-2':0});
   await expect(page.locator('body')).toHaveAttribute('data-frame-intervals','16,33,50,16');
   await expect(page.locator('.map-panel')).toHaveClass(/maplibre-live-ready/);
 });

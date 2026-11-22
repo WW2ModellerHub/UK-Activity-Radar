@@ -7,7 +7,9 @@ if(!document.querySelector('link[data-maplibre-css]')){
   document.head.appendChild(link);
 }
 
-const MOVING_TYPES=new Set(['train','aircraft','sar']);
+// Trains only: there can be thousands. Aircraft are few and stay on the
+// map's own markers, which carry their silhouette and ATC-style data block.
+const MOVING_TYPES=new Set(['train']);
 
 // Leaflet's zoom levels are for 256px tiles and MapLibre's for 512px tiles, so
 // the same map scale is one MapLibre zoom level lower. Without this the live

@@ -182,3 +182,18 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 /* A group of stations (zoomed out): small, white, clearly not a train. */
 .station-cluster{display:grid!important;place-items:center;background:none;border:0}
 .station-cluster span{display:grid;place-items:center;width:22px;height:22px;box-sizing:border-box;border-radius:50%;background:#fff;border:2px solid #2b3a46;box-shadow:0 1px 4px rgba(0,0,0,.25);font:700 11px/1 system-ui,sans-serif;color:#2b3a46}
+
+/* Aircraft: a larger silhouette with an ATC-style data block beneath it -
+   callsign and type, then flight level, climb/descent and speed (from
+   regional zoom). Faded when the plane has not reported for 90 seconds. */
+.aerial-motion-shell{width:44px;height:44px}
+.aerial-map-marker{width:44px;height:44px}
+.aircraft-silhouette{width:38px;height:38px}
+.aircraft-silhouette svg{width:30px;height:30px}
+.aerial-map-marker .ac-block{position:absolute;left:50%;top:41px;transform:translateX(-50%);display:grid;grid-template-columns:auto auto;column-gap:5px;align-items:baseline;justify-content:center;padding:2px 6px 3px;border-radius:7px;background:rgba(255,255,255,.95);border:1px solid #d0d5dd;box-shadow:0 1px 3px rgba(16,24,40,.22);color:#101828;font:700 11px/1.25 system-ui,-apple-system,"Segoe UI",sans-serif;white-space:nowrap;pointer-events:none}
+.aerial-map-marker .ac-callsign{font-weight:800;letter-spacing:.02em}
+.aerial-map-marker .ac-type{font-style:normal;font-weight:600;font-size:10px;color:#475467}
+.aerial-map-marker .ac-data{display:none;grid-column:1/-1;justify-self:center;font-size:10.5px;font-weight:700;color:var(--ac);font-variant-numeric:tabular-nums}
+.show-aircraft-data .aerial-map-marker .ac-data:not(:empty){display:block}
+.aerial-map-marker.is-stale{opacity:.45}
+.aerial-map-marker.is-stale .ac-data::after{content:" · old";color:#667085;font-weight:600}
