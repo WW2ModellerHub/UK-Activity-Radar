@@ -1,5 +1,18 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — bus fleet and vehicle history
+
+- Every five minutes the route each live bus is working is recorded on disk
+  (`bus_days`, kept 90 days): day, operator code, vehicle, route,
+  destination, first and last seen.
+- `/fleet` lists operators seen this week; `/fleet/{code}` lists their buses
+  with routes worked, last seen and which are on the road now;
+  `/fleet/{code}/{bus}` shows one bus's routes day by day and links to it
+  live. Operator names are learned when a live bus matches its timetable,
+  else a known group name, else the code.
+- The app's bus and coach panel links to that vehicle's history; the Buses
+  page links to the fleets; operator fleet pages are in the sitemap.
+
 ## 2026-11-22 — engineering works and replacement buses
 
 - A small on-disk index (`replacement_calls`) lists, for the next 8 days,

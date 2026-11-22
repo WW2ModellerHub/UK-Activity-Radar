@@ -117,6 +117,7 @@ def buses_index(origin: str, routes: list[dict]) -> str:
                     for op, n in sorted(counts.items(), key=lambda kv: kv[0].lower()))
     body = f"""<p class="eyebrow">Buses</p><h1>Bus routes and live buses</h1>
 <p class="lede">Timetables and live buses by operator. More regions appear as they are used on the live map.</p>
+<p>Looking for a particular bus? See <a href="/fleet">bus fleets and vehicle history</a>: every bus seen this week and the routes it worked.</p>
 <ul class="links">{items or '<li>Bus timetables are loading; check back shortly.</li>'}</ul>"""
     canonical = origin + "/buses"
     return _shell(title="Bus routes, timetables and live buses by operator | UK Activity Radar",
