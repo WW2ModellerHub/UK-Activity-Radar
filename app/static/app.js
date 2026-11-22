@@ -784,6 +784,36 @@
     return response.json();
   }
 
+  function railCellKeys(b) {
+    const cell = 0.5, keys = [];
+    for (let cx = Math.floor(b.getWest()/cell); cx <= Math.floor(b.getEast()/cell); cx += 1) {
+      for (let cy = Math.floor(b.getSouth()/cell); cy <= Math.floor(b.getNorth()/cell); cy += 1) keys.push([cx, cy]);
+    }
+    return keys;
+  }
+
+  function railCell(level, cx, cy) {
+    const key = `${level}:${cx}:${cy}`;
+    if (!railLines.cells.has(key)) railLines.cells.set(key, fetchRailLineJson(`/api/rail/lines/${level}/${cx}/${cy}`).catch(() => { railLines.cells.delete(key); return { lines:[] }; }));
+    return railLines.cells.get(key);
+  }
+
+  // Start downloading the railway lines for where the map is about to go,
+  // so they are ready when a pan or zoom animation ends rather than only
+  // being requested then.
+  function prefetchRailLinesAt(lat, lon, zoom=map.getZoom()) {
+    if (!enabledActivityTypes.has('train') || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lon))) return;
+    const level = railLineLevel(zoom);
+    if (level === 0) return;
+    try {
+      const size = map.getSize().divideBy(2);
+      const centre = map.project(L.latLng(Number(lat), Number(lon)), zoom);
+      const bounds = L.latLngBounds(map.unproject(centre.subtract(size), zoom), map.unproject(centre.add(size), zoom));
+      const keys = railCellKeys(bounds);
+      if (keys.length <= 64) keys.forEach(([cx, cy]) => railCell(level, cx, cy));
+    } catch {}
+  }
+
   async function updateRailLines() {
     const seq = ++railLines.seq;
     if (!enabledActivityTypes.has('train')) { clearRailLines(); return; }
@@ -794,18 +824,9 @@
         if (seq === railLines.seq) drawRailLines(0, railLines.national.lines);
         return;
       }
-      const b = map.getBounds();
-      const cell = 0.5;
-      const keys = [];
-      for (let cx = Math.floor(b.getWest()/cell); cx <= Math.floor(b.getEast()/cell); cx += 1) {
-        for (let cy = Math.floor(b.getSouth()/cell); cy <= Math.floor(b.getNorth()/cell); cy += 1) keys.push([cx, cy]);
-      }
+      const keys = railCellKeys(map.getBounds());
       if (keys.length > 64) return;
-      const results = await Promise.all(keys.map(async ([cx, cy]) => {
-        const key = `${level}:${cx}:${cy}`;
-        if (!railLines.cells.has(key)) railLines.cells.set(key, fetchRailLineJson(`/api/rail/lines/${level}/${cx}/${cy}`).catch(() => { railLines.cells.delete(key); return { lines:[] }; }));
-        return railLines.cells.get(key);
-      }));
+      const results = await Promise.all(keys.map(([cx, cy]) => railCell(level, cx, cy)));
       if (seq !== railLines.seq) return;
       drawRailLines(level, results.flatMap(result => result?.lines || []));
     } catch {}
@@ -3872,6 +3893,24 @@
     };
   }
 
+  // Delay Repay: passengers on a train 15+ minutes late (or cancelled) can
+  // usually claim part of their fare back from the operator.
+  function delayRepayHtml(run) {
+    if(!run||run.freight)return '';
+    const head=String(run.headcode||'').toUpperCase();
+    if(!/^[129]/.test(head)||/^1Z/.test(head))return '';
+    const delay=Number(run.delay_minutes);
+    const cancelled=Boolean(run.cancelled);
+    if(!cancelled&&!(Number.isFinite(delay)&&delay>=15))return '';
+    const operator=humanTransitLabel(run.operator||'')||'the train company';
+    const band=cancelled?'Cancelled trains count too, if it delays your journey.'
+      :delay>=120?'At 2 hours or more, most operators refund the whole return fare.'
+      :delay>=60?'At 1 hour or more, most operators refund the whole single fare.'
+      :delay>=30?'At 30 minutes or more, most operators refund half of a single fare.'
+      :'From 15 minutes, most operators refund a quarter of a single fare.';
+    return `<section class="delay-repay" aria-label="Delay Repay"><strong>${cancelled?'Cancelled':`Running ${esc(delay)} min late`}: you may be owed money back</strong><span>${esc(band)} Claims go to ${esc(operator)} through Delay Repay, usually within 28 days; keep your ticket.</span><a class="secondary-button" href="/go/delay-repay" target="_blank" rel="nofollow noopener">How to claim Delay Repay</a></section>`;
+  }
+
   function renderRailIntelligence(detail) {
     const runs=Array.isArray(detail?.runs) ? detail.runs : [];
     const terms=detail?.terms_url ? safeUrl(detail.terms_url) : null;
@@ -3895,8 +3934,9 @@
       freight.traction?[freight.traction,'power']:null,
       freight.max_mph?[`${freight.max_mph} mph`,'top speed']:null,
     ].filter(Boolean):[];
+    const repay=delayRepayHtml(runs[0]);
     const freightCard=freight?`<section class="freight-card" aria-label="What this train is carrying"><b class="freight-cargo">${esc(freight.cargo)}</b>${freightFacts.length?`<dl>${freightFacts.map(([value,label])=>`<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`:''}</section>`:'';
-    return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}>${liveState}${freightCard}${cards || `<div class="transport-unavailable"><strong>Stops not published</strong><span>${esc(message)}</span></div>`}${stockCard}${terms?`<p class="transport-source"><a target="_blank" rel="noopener" href="${esc(terms)}">Data terms ↗</a></p>`:''}</div>`;
+    return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}>${liveState}${repay}${freightCard}${cards || `<div class="transport-unavailable"><strong>Stops not published</strong><span>${esc(message)}</span></div>`}${stockCard}${terms?`<p class="transport-source"><a target="_blank" rel="noopener" href="${esc(terms)}">Data terms ↗</a></p>`:''}</div>`;
   }
 
   function busLatenessLabel(detail) {
@@ -4156,8 +4196,8 @@
     }
     renderTrackingControl(a);
     renderSelectedTrail(a);
-    if (pan && focusZoom != null) map.setView([a.lat, a.lon], Math.max(map.getZoom(), focusZoom), {animate:true});
-    else if (pan || trackedActivityId === id) map.panTo([a.lat, a.lon], { animate: true });
+    if (pan && focusZoom != null) { prefetchRailLinesAt(a.lat, a.lon, Math.max(map.getZoom(), focusZoom)); map.setView([a.lat, a.lon], Math.max(map.getZoom(), focusZoom), {animate:true}); }
+    else if (pan || trackedActivityId === id) { prefetchRailLinesAt(a.lat, a.lon); map.panTo([a.lat, a.lon], { animate: true }); }
     renderRanking();
   }
 

@@ -35,3 +35,10 @@ def test_book_link_goes_to_the_operator_until_an_affiliate_link_is_set(monkeypat
     monkeypatch.setattr(main, "settings", replace(main.settings, national_express_affiliate_url="javascript:alert(1)"))
     assert client.get("/go/national-express", follow_redirects=False).headers["location"] == "https://www.nationalexpress.com/"
     assert client.get("/go/somewhere-else", follow_redirects=False).status_code == 404
+
+
+def test_delay_repay_link_goes_to_national_rail_help():
+    client = TestClient(main.app)
+    response = client.get("/go/delay-repay", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"].startswith("https://www.nationalrail.co.uk/")
