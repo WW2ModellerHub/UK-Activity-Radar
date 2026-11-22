@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="UK Activity Radar">
+  <rect width="512" height="512" rx="112" fill="#54d7a5"/>
+  <path d="M256 256 L256 70 A186 186 0 0 1 417.1 163 Z" fill="#071019" opacity=".18"/>
+  <circle cx="256" cy="256" r="178" fill="none" stroke="#071019" stroke-width="34"/>
+  <circle cx="256" cy="256" r="94" fill="none" stroke="#071019" stroke-width="34"/>
+  <line x1="256" y1="256" x2="395" y2="117" stroke="#071019" stroke-width="34" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="38" fill="#071019"/>
+  <circle cx="338" cy="338" r="30" fill="#ffffff" stroke="#071019" stroke-width="14"/>
+</svg>
