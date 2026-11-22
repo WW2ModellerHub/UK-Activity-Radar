@@ -6,6 +6,6 @@
 // if it does not load.
 window.UKActivityLoadLiveRenderer = () => {
   window.UKActivityLiveRendererModule = window.UKActivityLiveRendererModule
-    || import('/static/live-object-renderer.js?v=16380');
+    || import('/static/live-object-renderer.js?v=16381');
   return window.UKActivityLiveRendererModule;
 };

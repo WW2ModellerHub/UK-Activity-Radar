@@ -115,11 +115,31 @@ export class LiveObjectRenderer{
       style:{version:8,sources:{},layers:[]},center:[center.lng,center.lat],zoom:maplibreZoom(leafMap.getZoom())});
     // Follow the base map in the same frame it moves, so live objects stay
     // fixed to the tracks while dragging rather than trailing by a frame.
+    // Centre on the middle of the map area as it is on screen now. Leaflet's
+    // own centre is only updated by invalidateSize(): when a panel opened and
+    // the map narrowed by 400 px, getCenter() still gave the middle of the
+    // old, wider area, and every plane and train was drawn 200 px off.
     this.sync=()=>{
-      const value=leafMap.getCenter();
+      const box=leafMap.getContainer?.();
+      const value=box?.clientWidth&&box?.clientHeight
+        ? leafMap.containerPointToLatLng([box.clientWidth/2,box.clientHeight/2])
+        : leafMap.getCenter();
       this.map.jumpTo({center:[value.lng,value.lat],zoom:maplibreZoom(leafMap.getZoom()),bearing:0,pitch:0});
     };
     this.resize=()=>{this.map.resize();this.sync();};
+    // Panels opening and closing resize the map without a window resize, so
+    // Leaflet never hears of it. Watch the map box itself and keep both maps
+    // in step (pan:false keeps everything where it is on screen).
+    if(typeof ResizeObserver==='function'&&typeof leafMap.getContainer==='function'){
+      let lastSize='';
+      this.resizeObserver=new ResizeObserver(()=>{
+        const box=leafMap.getContainer(),size=`${box.clientWidth}x${box.clientHeight}`;
+        if(size===lastSize)return;lastSize=size;
+        leafMap.invalidateSize({pan:false});
+        this.resize();
+      });
+      this.resizeObserver.observe(leafMap.getContainer());
+    }
     // Button, wheel and double-tap zooms are CSS animations in Leaflet that
     // only report the new zoom at the end. Run the same animation here so
     // objects scale with the map instead of jumping when it finishes.
@@ -209,5 +229,5 @@ export class LiveObjectRenderer{
     };
     this.frame=requestAnimationFrame(tick);
   }
-  destroy(){cancelAnimationFrame(this.frame);this.frame=0;this.leafMap.off('move zoom',this.sync);this.leafMap.off('resize',this.resize);this.leafMap.off('zoomanim',this.zoomAnim);this.map.remove();this.container.closest('.map-panel')?.classList.remove('maplibre-live-ready');}
+  destroy(){cancelAnimationFrame(this.frame);this.frame=0;this.resizeObserver?.disconnect();this.leafMap.off('move zoom',this.sync);this.leafMap.off('resize',this.resize);this.leafMap.off('zoomanim',this.zoomAnim);this.map.remove();this.container.closest('.map-panel')?.classList.remove('maplibre-live-ready');}
 }
