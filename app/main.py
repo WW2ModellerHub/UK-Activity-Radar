@@ -631,6 +631,12 @@ async def _history_loop() -> None:
                 state.all(include_buses=False, include_vessels=True, train_limit=None)))
         except Exception:
             pass
+        try:
+            # Bus fleet history: which route each bus is working, every 5 minutes.
+            await asyncio.to_thread(lambda: history_store.record_buses(
+                [row for row in state.all(include_trains=False, include_buses=True, include_vessels=False) if row.type == "bus"]))
+        except Exception:
+            pass
         await asyncio.sleep(300)
 
 
@@ -1613,6 +1619,66 @@ def _bus_routes() -> list[dict]:
         return []
 
 
+def _fleet_vehicle_path(operator: str | None, vehicle: str | None) -> str | None:
+    from .fleet_pages import vehicle_path
+    return vehicle_path(operator, vehicle) if operator and vehicle else None
+
+
+def _bus_ids_live(code: str) -> dict[str, object]:
+    """This operator's buses on the road now, by vehicle reference."""
+    out: dict[str, object] = {}
+    for row in state.all(include_trains=False, include_buses=True, include_vessels=False):
+        if row.type == "bus" and str(row.operator or "").upper() == code and row.vehicle_ref:
+            out[str(row.vehicle_ref)] = row
+    return out
+
+
+@app.get("/fleet", include_in_schema=False)
+def fleet_index_route(request: Request):
+    from .fleet_pages import fleet_index
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="Fleet history is starting")
+    origin = _site_origin(request)
+    return _cached_page("fleet", 600, lambda: fleet_index(origin, history_store.bus_operators(), history_store.operator_names()))
+
+
+@app.get("/fleet/{code}", include_in_schema=False)
+def fleet_operator_route(code: str, request: Request):
+    from .fleet_pages import fleet_page, operator_label
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="Fleet history is starting")
+    code = code.upper()
+    if not re.fullmatch(r"[A-Z0-9]{2,12}", code):
+        raise HTTPException(status_code=404, detail="Operator not found")
+    origin = _site_origin(request)
+
+    def build() -> str:
+        vehicles = history_store.bus_fleet(code)
+        if not vehicles:
+            raise HTTPException(status_code=404, detail="No buses seen for this operator")
+        return fleet_page(origin, code, operator_label(code, history_store.operator_names()), vehicles, set(_bus_ids_live(code)))
+    return _cached_page(f"fleet:{code}", 300, build)
+
+
+@app.get("/fleet/{code}/{vehicle}", include_in_schema=False)
+def fleet_vehicle_route(code: str, vehicle: str, request: Request):
+    from .fleet_pages import operator_label, vehicle_page, vehicle_slug
+    if history_store is None:
+        raise HTTPException(status_code=503, detail="Fleet history is starting")
+    code = code.upper()
+    if not re.fullmatch(r"[A-Z0-9]{2,12}", code):
+        raise HTTPException(status_code=404, detail="Operator not found")
+    match = next((v["vehicle"] for v in history_store.bus_fleet(code, days=90) if vehicle_slug(v["vehicle"]) == vehicle), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail="Bus not found")
+    origin = _site_origin(request)
+
+    def build() -> str:
+        return vehicle_page(origin, code, operator_label(code, history_store.operator_names()), match,
+                            history_store.bus_vehicle(code, match), _bus_ids_live(code).get(match))
+    return _cached_page(f"fleet:{code}:{match}", 120, build)
+
+
 @app.get("/buses", include_in_schema=False)
 def buses_page(request: Request):
     from .bus_route_pages import buses_index
@@ -1795,6 +1861,7 @@ def sitemap(request: Request):
             "/buses", *dict.fromkeys(bus_operator_path(r["operator"]) for r in _bus_routes()),
             *(bus_route_path(r["operator"], r["route"]) for r in _bus_routes()),
             "/discover-archive", *(f"/discover/{d}" for d, n in (history_store.sighting_days(limit=400) if history_store else []) if n >= 3),
+            "/fleet", *(f"/fleet/{o['operator'].lower()}" for o in (history_store.bus_operators() if history_store else []) if o["vehicles"] >= 5),
             *aircraft_landing_paths(),
             *(f"/guides/{slug}" for slug in guide_slugs()),
             *(station_letter_path(letter) for letter in letters),
@@ -3079,10 +3146,17 @@ def activity_bus(request: Request, activity_id: str, limit: int = 30):
         raise HTTPException(status_code=404, detail="Bus activity not found")
     if smart_places is None:
         raise HTTPException(status_code=503, detail="Bus intelligence is not ready")
-    return {
-        "activity": activity_id,
-        "detail": smart_places.bus_vehicle_journey(item, limit=max(3, min(int(limit), 30))),
-    }
+    detail = smart_places.bus_vehicle_journey(item, limit=max(3, min(int(limit), 30)))
+    if isinstance(detail, dict) and detail.get("operator") and history_store is not None:
+        # The timetable names the operator behind a live bus's code (ARMD ->
+        # "Arriva Midlands"): remember it for the fleet pages.
+        try:
+            history_store.learn_operator_name(item.operator, detail["operator"])
+        except Exception:
+            pass
+    if isinstance(detail, dict):
+        detail["fleet_path"] = _fleet_vehicle_path(item.operator, item.vehicle_ref)
+    return {"activity": activity_id, "detail": detail}
 
 
 _incident_refresh_running = False

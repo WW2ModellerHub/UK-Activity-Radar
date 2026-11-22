@@ -3986,7 +3986,8 @@
     const vehicleWord=coachInfo(a)?'Coach':'Bus';
     const list=stopTimelineHtml(rows,{vehicle:vehicleWord,hasProgress:rows.some(row=>row.state),className:'bus-stops train-full-route'});
     const empty=`<div class="transport-unavailable"><strong>${detail?.mode==='timetable_sync'?'Timetable preparing':'Stops not available'}</strong><span>This ${vehicleWord.toLowerCase()} has not been linked to a timetabled journey yet.</span></div>`;
-    return `${head}${coachBookingHtml(a)}${list||empty}`;
+    const fleet=detail?.fleet_path?`<p class="fleet-link"><a href="${esc(detail.fleet_path)}">Where else this ${coachInfo(a)?'coach':'bus'} has worked →</a></p>`:'';
+    return `${head}${coachBookingHtml(a)}${list||empty}${fleet}`;
   }
 
   async function loadActivityIntelligence(a, force=false) {

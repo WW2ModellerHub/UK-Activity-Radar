@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 
 LONDON = ZoneInfo("Europe/London")
 KEEP_DAYS = 400
+BUS_KEEP_DAYS = 90
 LATE_MINUTES = 5
 
 
@@ -45,11 +46,19 @@ class HistoryStore:
                CREATE TABLE IF NOT EXISTS sightings (
                  day TEXT NOT NULL, item_id TEXT NOT NULL, type TEXT, name TEXT, category TEXT,
                  subtype TEXT, badge TEXT, explanation TEXT, place TEXT, score INTEGER,
-                 first_seen TEXT, last_seen TEXT, PRIMARY KEY (day, item_id));"""
+                 first_seen TEXT, last_seen TEXT, PRIMARY KEY (day, item_id));
+               CREATE TABLE IF NOT EXISTS bus_days (
+                 day TEXT NOT NULL, operator TEXT NOT NULL, vehicle TEXT NOT NULL, route TEXT NOT NULL,
+                 destination TEXT, first_seen TEXT, last_seen TEXT, samples INTEGER NOT NULL DEFAULT 0,
+                 PRIMARY KEY (day, operator, vehicle, route)) WITHOUT ROWID;
+               CREATE INDEX IF NOT EXISTS bus_days_vehicle ON bus_days(operator, vehicle, day);
+               CREATE TABLE IF NOT EXISTS operator_names (
+                 code TEXT PRIMARY KEY, name TEXT NOT NULL, seen TEXT);"""
         )
         cutoff = (date.today() - timedelta(days=KEEP_DAYS)).isoformat()
         self._db.execute("DELETE FROM train_days WHERE day < ?", (cutoff,))
         self._db.execute("DELETE FROM sightings WHERE day < ?", (cutoff,))
+        self._db.execute("DELETE FROM bus_days WHERE day < ?", ((date.today() - timedelta(days=BUS_KEEP_DAYS)).isoformat(),))
         self._db.commit()
 
     # ---- recording -------------------------------------------------------
@@ -99,6 +108,76 @@ class HistoryStore:
             self._db.commit()
         return trains, sightings
 
+    def record_buses(self, rows: list, *, day: str | None = None, now: datetime | None = None) -> int:
+        """Which route each bus is working, sampled through the day (bus fleet history)."""
+        day = day or today()
+        stamp = (now or datetime.now(timezone.utc)).astimezone(LONDON).strftime("%H:%M")
+        batch = []
+        for row in rows:
+            if getattr(row, "type", None) != "bus" or getattr(row, "restored_snapshot", False):
+                continue
+            operator = str(getattr(row, "operator", "") or "").strip().upper()
+            vehicle = str(getattr(row, "vehicle_ref", "") or "").strip()
+            route = str(getattr(row, "route", "") or "").strip()
+            if operator and vehicle and route and operator != "UNKNOWN OPERATOR":
+                batch.append((day, operator[:12], vehicle[:24], route[:12], getattr(row, "destination", None), stamp, stamp))
+        if not batch:
+            return 0
+        with self._lock:
+            self._db.executemany(
+                """INSERT INTO bus_days VALUES (?,?,?,?,?,?,?,1)
+                   ON CONFLICT(day, operator, vehicle, route) DO UPDATE SET
+                     destination=COALESCE(excluded.destination, destination), last_seen=excluded.last_seen,
+                     samples=samples+1""", batch)
+            self._db.commit()
+        return len(batch)
+
+    def learn_operator_name(self, code: str | None, name: str | None) -> None:
+        """Remember a bus operator's name, seen when a live bus matches its timetable."""
+        code = str(code or "").strip().upper()
+        name = " ".join(str(name or "").split())
+        if not code or not name or name.upper() == code:
+            return
+        with self._lock:
+            self._db.execute("INSERT INTO operator_names VALUES (?,?,?) ON CONFLICT(code) DO UPDATE SET name=excluded.name, seen=excluded.seen",
+                             (code[:12], name[:80], today()))
+            self._db.commit()
+
+    def operator_names(self) -> dict[str, str]:
+        with self._lock:
+            return dict(self._db.execute("SELECT code, name FROM operator_names").fetchall())
+
+    def bus_operators(self, *, days: int = 7) -> list[dict]:
+        since = (date.today() - timedelta(days=days)).isoformat()
+        with self._lock:
+            rows = self._db.execute(
+                """SELECT operator, COUNT(DISTINCT vehicle), COUNT(DISTINCT route) FROM bus_days
+                   WHERE day>=? GROUP BY operator ORDER BY COUNT(DISTINCT vehicle) DESC""", (since,)).fetchall()
+        return [{"operator": o, "vehicles": v, "routes": r} for o, v, r in rows]
+
+    def bus_fleet(self, operator: str, *, days: int = 14) -> list[dict]:
+        since = (date.today() - timedelta(days=days)).isoformat()
+        with self._lock:
+            rows = self._db.execute(
+                """SELECT vehicle, MAX(day), COUNT(DISTINCT day), GROUP_CONCAT(DISTINCT route) FROM bus_days
+                   WHERE operator=? AND day>=? GROUP BY vehicle""", (str(operator).upper(), since)).fetchall()
+        out = [{"vehicle": v, "last_day": last, "days": n, "routes": sorted(set((routes or "").split(",")), key=_route_key)}
+               for v, last, n, routes in rows]
+        return sorted(out, key=lambda r: _route_key(r["vehicle"]))
+
+    def bus_vehicle(self, operator: str, vehicle: str, *, days: int = BUS_KEEP_DAYS) -> list[dict]:
+        since = (date.today() - timedelta(days=days)).isoformat()
+        with self._lock:
+            rows = self._db.execute(
+                """SELECT day, route, destination, first_seen, last_seen FROM bus_days
+                   WHERE operator=? AND vehicle=? AND day>=? ORDER BY day DESC, first_seen""",
+                (str(operator).upper(), str(vehicle), since)).fetchall()
+        days_out: dict[str, dict] = {}
+        for day, route, destination, first, last in rows:
+            entry = days_out.setdefault(day, {"day": day, "work": []})
+            entry["work"].append({"route": route, "destination": destination, "first": first, "last": last})
+        return list(days_out.values())
+
     # ---- reading ---------------------------------------------------------
     def usually(self, train, *, days: int = 30) -> dict | None:
         """How this service has run on earlier days: {"days", "late", "cancelled", "average"}."""
@@ -138,6 +217,13 @@ class HistoryStore:
         with self._lock:
             return self._db.execute(
                 "SELECT day, COUNT(*) FROM sightings GROUP BY day ORDER BY day DESC LIMIT ?", (limit,)).fetchall()
+
+
+def _route_key(value: str):
+    """Natural order: 7 before 16 before 158, then letters."""
+    import re
+    parts = re.findall(r"\d+|\D+", str(value or ""))
+    return [(0, int(p), "") if p.isdigit() else (1, 0, p.lower()) for p in parts]
 
 
 def _place(row) -> str | None:

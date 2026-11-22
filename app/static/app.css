@@ -1466,3 +1466,6 @@ strong[data-plus].needs-plus::after,
 .engineering-notice strong { font-size: 14px; }
 .engineering-notice ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font-size: 13px; }
 .engineering-notice small { color: var(--muted); font-size: 11px; }
+
+.fleet-link { margin: 10px 0 0; font-size: 14px; }
+.fleet-link a { font-weight: 600; }
