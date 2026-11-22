@@ -1,5 +1,14 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — WebGL renderer: zoom-scaled markers, clearer station groups
+
+- On the live site the WebGL train markers were drawn full size at every
+  zoom, so busy areas became one blob; halo, icon and lateness dot now
+  scale with zoom.
+- Groups of stations (clustered until zoom 14) used the same dark bubble
+  as trains and, now drawn above the WebGL layer, looked like train
+  clusters; they are small white circles instead.
+
 ## 2026-11-22 — WebGL renderer switched on; Lighthouse speed fixes
 
 - The WebGL (MapLibre) renderer for moving trains and aircraft had never run

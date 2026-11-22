@@ -178,3 +178,7 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 /* Coaches (National Express): a coach on its teal, a little wider than a bus. */
 .marker-bus.marker-coach{background:#007e8a;border-color:#d9f4f1;width:36px;border-radius:7px}
 .marker-bus.marker-coach>span .ico{stroke:#fff}
+
+/* A group of stations (zoomed out): small, white, clearly not a train. */
+.station-cluster{display:grid!important;place-items:center;border-radius:50%;background:#fff;border:2px solid #2b3a46;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+.station-cluster span{font:700 11px/1 system-ui,sans-serif;color:#2b3a46}
