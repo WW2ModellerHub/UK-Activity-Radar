@@ -2562,12 +2562,15 @@ test('a plane on the runway says landing, taking off or on runway, never "0ft"',
     { id:'ac-land', name:'BAW1', altitude_ft:75, vertical_rate_fpm:-700, speed:138, lat:52.5, last_updated:t },
     { id:'ac-taxi', name:'TOM2', altitude_ft:0, vertical_rate_fpm:0, speed:15, lat:52.55, last_updated:t },
     { id:'ac-park', name:'RYR3', altitude_ft:-25, status:'On ground', speed:0, lat:52.6, last_updated:t },
+    // As at Heathrow: on the ground, no altitude, creeping at 3.8 kt.
+    { id:'ac-push', name:'BAW293', altitude_ft:null, vertical_rate_fpm:null, status:'On ground', speed:3.8, lat:52.65, last_updated:t },
   ]);
   const data = name => page.locator('.aerial-marker-wrap').filter({ has: page.locator('.ac-callsign', { hasText:name }) }).locator('.ac-data');
   await expect(data('EZY72GD')).toHaveText('On runway 122kt');
   await expect(data('BAW1')).toHaveText('Landing 138kt');
   await expect(data('TOM2')).toHaveText('Taxiing 15kt');
   await expect(data('RYR3')).toHaveText('Parked');
+  await expect(data('BAW293')).toHaveText('Taxiing 4kt');
   // The next report is faster and still on the ground: a take-off roll.
   await send([{ id:'ac-roll', name:'EZY72GD', altitude_ft:0, vertical_rate_fpm:0, speed:131, lat:52.45, last_updated:new Date(Date.now()-1000).toISOString() }]);
   await expect(data('EZY72GD')).toHaveText('Taking off 131kt');

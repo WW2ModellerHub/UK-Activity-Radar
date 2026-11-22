@@ -1968,7 +1968,8 @@
     if(!onGround&&Number.isFinite(speed)&&speed>200)return null;   // a low pass, not a runway
     const at=field?` at ${field.name} Airport`:'',from=field?` from ${field.name} Airport`:'';
     // A plane cannot fly at walking pace: slow means it is on the ground.
-    if(!Number.isFinite(speed)||speed<5)return {short:'Parked',chip:'On the ground',sentence:`is on the ground${at}`};
+    // Live Heathrow reports: parked 0-1 kt, pushing back or taxiing from 3 kt.
+    if(!Number.isFinite(speed)||speed<2)return {short:'Parked',chip:'On the ground',sentence:`is on the ground${at}`};
     const knots=Math.round(speed);
     if(speed<40)return {short:'Taxiing',chip:'On the ground',sentence:`is taxiing${at} at ${knots} knots`};
     const down=(Number.isFinite(rate)&&rate<-150)||Boolean(trend&&(trend.dAlt<-40||trend.dSpeed<-3));

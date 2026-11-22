@@ -6,7 +6,8 @@
   screenshot). Aircraft report barometric altitude, so on the ground it
   reads about the airport's height, 0 ft or below, depending on the
   weather, and some transponders still say airborne during the take-off or
-  landing roll. The label now says what the plane is doing: Parked,
+  landing roll. The label now says what the plane is doing: Parked (under
+  2 kt; live Heathrow reports show taxiing and pushback from 3 kt),
   Taxiing 15kt, On runway 122kt, Landing 138kt or Taking off 131kt. Landing
   or taking off is read from the vertical rate or the change since the
   plane's last report (slowing and coming down, or speeding up and
