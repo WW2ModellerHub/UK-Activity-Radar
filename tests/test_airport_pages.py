@@ -53,3 +53,12 @@ def test_the_map_airport_list_carries_each_airports_height():
     bhx = next(row for row in rows if row["iata"] == "BHX")
     assert bhx["elevation_ft"] == 341
     assert all(isinstance(row["elevation_ft"], int) and 0 < row["elevation_ft"] < 1000 for row in rows)
+
+
+def test_parked_planes_are_left_off_the_airport_page():
+    parked = _plane("PRK1", 52.831, -1.330, None, status="On ground")
+    parked.speed = 0
+    taxiing = _plane("TAX1", 52.832, -1.331, None, status="On ground")
+    taxiing.speed = 12
+    groups = classify(EMA, [parked, taxiing])
+    assert [r["plane"].name for r in groups["ground"]] == ["TAX1"]

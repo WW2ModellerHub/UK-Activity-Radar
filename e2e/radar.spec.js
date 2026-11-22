@@ -2362,15 +2362,18 @@ test('the airport list says a plane is landing or on the runway, not "0 ft" or "
     plane({ id:'aircraft:roll1', name:'EZY72GD', lat:52.829, lon:-1.320, altitude_ft:300, vertical_rate_fpm:0, speed:122 }),
     plane({ id:'aircraft:final1', name:'BAW1', lat:52.835, lon:-1.360, altitude_ft:500, vertical_rate_fpm:-700, speed:135 }),
     plane({ id:'aircraft:park1', name:'TOM9', lat:52.832, lon:-1.330, altitude_ft:null, vertical_rate_fpm:null, speed:0, status:'On ground' }),
+    plane({ id:'aircraft:twr1', name:'EGNX TWR', lat:52.831, lon:-1.328, altitude_ft:null, vertical_rate_fpm:null, speed:0, status:'On ground', aircraft_type_code:'TWR' }),
   ] } }));
   await page.locator('[data-layer-chip="aircraft"]').click();
   await expect(page.locator('.airport-marker')).toHaveText('EMA');
   await page.locator('.airport-marker').evaluate(el => el.closest('.leaflet-marker-icon, .airport-marker-wrap')?.dispatchEvent(new MouseEvent('click', { bubbles:true })));
-  await expect(page.locator('#detail-subtitle')).toHaveText('1 arriving · 0 leaving · 2 on the ground · 0 overhead');
+  await expect(page.locator('#detail-subtitle')).toHaveText('1 arriving · 0 leaving · 1 on the ground · 0 overhead');
   const row = id => page.locator(`#detail-insight [data-job-plane="${id}"]`);
   await expect(row('aircraft:roll1')).toContainText('on the runway at 122 kt');
   await expect(row('aircraft:final1')).toContainText('landing at 135 kt');
-  await expect(row('aircraft:park1')).toContainText('parked');
+  // Parked planes and the tower transmitter are left out.
+  await expect(row('aircraft:park1')).toHaveCount(0);
+  await expect(row('aircraft:twr1')).toHaveCount(0);
   await expect(page.locator('#detail-insight')).not.toContainText(/\b(300|500) ft\b/);
 });
 
@@ -2589,7 +2592,8 @@ test('a plane on the runway says landing, taking off or on runway, never "0ft"',
   await expect(data('EZY72GD')).toHaveText('On runway 122kt');
   await expect(data('BAW1')).toHaveText('Landing 138kt');
   await expect(data('TOM2')).toHaveText('Taxiing 15kt');
-  await expect(data('RYR3')).toHaveText('Parked');
+  // Parked: left off the map.
+  await expect(page.locator('.ac-callsign', { hasText:'RYR3' })).toHaveCount(0);
   await expect(data('BAW293')).toHaveText('Taxiing 4kt');
   // The next report is faster and still on the ground: a take-off roll.
   await send([{ id:'ac-roll', name:'EZY72GD', altitude_ft:0, vertical_rate_fpm:0, speed:131, lat:52.45, last_updated:new Date(Date.now()-1000).toISOString() }]);

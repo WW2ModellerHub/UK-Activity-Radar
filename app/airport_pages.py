@@ -61,6 +61,9 @@ def classify(airport: dict, planes: list) -> dict[str, list[dict]]:
         ground = str(getattr(plane, "status", "")).lower() == "on ground" or (altitude is not None and altitude < 100 and miles < 2)
         if str(getattr(plane, "aircraft_type_code", "")).upper() in {"TWR", "GND", "SVC"}:
             continue   # airport vehicles and fixed transmitters, not aircraft
+        speed = getattr(plane, "speed", None)
+        if ground and speed is not None and speed < 2:
+            continue   # parked: clutter, as on the live map
         row = {"plane": plane, "miles": miles}
         if ground and miles < 3:
             groups["ground"].append(row)

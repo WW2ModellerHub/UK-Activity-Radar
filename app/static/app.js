@@ -2770,6 +2770,16 @@
     a.speed_unit='kt';
   }
 
+  // Parked planes and airport transmitters (tower, ground, service vehicles)
+  // only clutter the map and the airport lists: leave them out.
+  const AIRPORT_TRANSMITTERS=new Set(['TWR','GND','SVC']);
+  function aircraftNotWorthShowing(a) {
+    if(!['aircraft','sar'].includes(a?.type))return false;
+    if(AIRPORT_TRANSMITTERS.has(String(a.aircraft_type_code||'').toUpperCase()))return true;
+    if(/airport service vehicle|emergency vehicle|obstruction/i.test(String(a.aircraft_category||'')))return true;
+    return aircraftGroundPhase(a)?.short==='Parked';
+  }
+
   function replaceActivities(nextActivities) {
     activities = Array.isArray(nextActivities) ? nextActivities : [];
     for (const activity of activities) checkAircraftGroundSpeed(activity);
@@ -2852,6 +2862,7 @@
     if (cacheKey === filteredCacheKey) return filteredCacheRows;
     const source=currentWorkspace==='cool'&&globalCoolActivities.length ? globalCoolRows() : activities;
     filteredCacheRows = source.filter(a => {
+      if (aircraftNotWorthShowing(a)) return false;
       if (!layerTypeMatch(a, selectedType)) return false;
       if (!operatorMatches(a)) return false;
       if (!inNearby(a)) return false;
@@ -6538,7 +6549,7 @@
     const groups={arriving:[],departing:[],ground:[],overhead:[]};
     for(const a of nearbyAircraftRows){
       if(!['aircraft','sar'].includes(a.type))continue;
-      if(['TWR','GND','SVC'].includes(String(a.aircraft_type_code||'').toUpperCase()))continue;
+      if(aircraftNotWorthShowing(a))continue;
       const km=distanceKm(airport.lat,airport.lon,Number(a.lat),Number(a.lon));
       if(!Number.isFinite(km)||km>AIRPORT_RADIUS_MILES*1.609344)continue;
       const alt=a.altitude_ft==null?null:Number(a.altitude_ft), rate=Number(a.vertical_rate_fpm)||0;
