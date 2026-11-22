@@ -1,5 +1,16 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — WebGL renderer: idle when nothing moves, loaded on demand
+
+- After switching the renderer on, Lighthouse showed the map page's speed
+  falling from 97 to 47: the renderer redrew every animation frame forever,
+  and sent MapLibre a fresh (even empty) object list each time (73 s of
+  blocking time under Lighthouse's throttling; on a phone, battery).
+  The loop now runs only while there is something moving and the page is
+  visible, and unchanged empty updates are skipped.
+- The renderer (MapLibre, ~1.6 MB with its worker) loads only when trains or
+  aircraft are switched on; until then pages never fetch it.
+
 ## 2026-11-22 — WebGL renderer: zoom-scaled markers, clearer station groups
 
 - On the live site the WebGL train markers were drawn full size at every
