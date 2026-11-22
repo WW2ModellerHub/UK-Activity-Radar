@@ -89,19 +89,31 @@
       : null;
     mapNode.dataset.mapProvider=config?.configured?'mapbox':'tomtom-fallback';
     syncBaseMap();
-    if(config?.live_object_renderer!==false&&window.UKActivityLiveRendererModule&&window.UKActivityMotionEngine){
-      try{
-        const module=await window.UKActivityLiveRendererModule;
-        liveObjectRenderer=new module.LiveObjectRenderer({
-          container:document.getElementById('live-object-map'),leafMap:map,motionEngine:window.UKActivityMotionEngine,
-          onReady:()=>renderMap(),
-        });
-        document.getElementById('map').dataset.liveRenderer='maplibre';
-      }catch(error){
-        document.getElementById('map').dataset.liveRenderer='leaflet-fallback';
-        console.warn('MapLibre live renderer unavailable; retaining Leaflet markers.',error);
-      }
-    }
+    liveRendererAllowed=config?.live_object_renderer!==false;
+    ensureLiveRenderer();
+  }
+
+  // The WebGL renderer for moving trains and aircraft starts the first time
+  // one of those layers is on; until it is ready, Leaflet markers show them.
+  let liveRendererAllowed=false,liveRendererStarting=false;
+  async function ensureLiveRenderer(){
+    if(liveObjectRenderer||liveRendererStarting||!liveRendererAllowed)return;
+    if(!['train','aircraft','sar'].some(type=>enabledActivityTypes.has(type)))return;
+    const load=window.UKActivityLoadLiveRenderer||(()=>window.UKActivityLiveRendererModule);
+    if(!window.UKActivityMotionEngine||typeof load!=='function')return;
+    liveRendererStarting=true;
+    try{
+      const module=await load();
+      if(!module)throw new Error('renderer not available');
+      liveObjectRenderer=new module.LiveObjectRenderer({
+        container:document.getElementById('live-object-map'),leafMap:map,motionEngine:window.UKActivityMotionEngine,
+        onReady:()=>renderMap(),
+      });
+      document.getElementById('map').dataset.liveRenderer='maplibre';
+    }catch(error){
+      document.getElementById('map').dataset.liveRenderer='leaflet-fallback';
+      console.warn('MapLibre live renderer unavailable; retaining Leaflet markers.',error);
+    }finally{liveRendererStarting=false;}
   }
   configureBaseMap();
 
@@ -2959,6 +2971,7 @@
     }
     const now=Date.now();
     const presentations=rows.map(row=>activityMapPresentation(row,now));
+    if(!liveObjectRenderer)ensureLiveRenderer();
     liveObjectRenderer?.setActivities(rows,selectedId);
     const coincidentLayouts=trainCoincidentLayouts(presentations);
     const shown = new Set(rows.map(a => a.id));

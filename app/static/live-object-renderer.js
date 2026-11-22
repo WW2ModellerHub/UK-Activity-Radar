@@ -125,13 +125,14 @@ export class LiveObjectRenderer{
       this.map.addLayer({id:'live-object-punctuality',type:'circle',source:'live-objects',filter:['has','punctuality'],paint:{'circle-radius':['interpolate',['linear'],['zoom'],4,2.5,8,4,11,5],'circle-translate':['interpolate',['linear'],['zoom'],4,['literal',[4,-4]],8,['literal',[8,-8]],11,['literal',[11,-11]]],'circle-color':['match',['get','punctuality'],'on-time','#1e9e6a','late','#d4a017','cancelled','#6b7280','#d64545'],'circle-stroke-width':2,'circle-stroke-color':'#ffffff'}});
       this.map.addLayer({id:'live-object-symbol',type:'symbol',source:'live-objects',layout:{'icon-image':['get','icon'],'icon-size':['interpolate',['linear'],['zoom'],4,.2,8,.34,11,.52],'icon-allow-overlap':true,'icon-ignore-placement':true,'icon-rotate':['get','rotation'],'icon-rotation-alignment':'map'}});
       this.ready=true;this.container.closest('.map-panel')?.classList.add('maplibre-live-ready');this.container.dataset.renderer='ready';onReady?.();this.start();
+      document.addEventListener('visibilitychange',()=>{if(!document.hidden)this.start();});
     });
     this.map.on('error',event=>{
       if(!this.ready){this.container.dataset.renderer='fallback';this.container.closest('.map-panel')?.classList.remove('maplibre-live-ready');}
       console.warn(this.ready?'Live renderer warning':'Live renderer fallback',event?.error||event);
     });
   }
-  setActivities(rows,selectedId){this.rows=(rows||[]).filter(row=>MOVING_TYPES.has(row?.type));this.selectedId=selectedId||null;if(this.ready)this.draw(performance.now(),true);}
+  setActivities(rows,selectedId){this.rows=(rows||[]).filter(row=>MOVING_TYPES.has(row?.type));this.selectedId=selectedId||null;if(this.ready){this.draw(performance.now(),true);this.start();}}
   featureAt(point){
     if(!this.ready||!point)return null;
     const x=Number(point.x),y=Number(point.y);
@@ -153,6 +154,8 @@ export class LiveObjectRenderer{
     const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
     if(!force&&timestamp-this.lastDraw<frameInterval(this.rows.length,Boolean(this.selectedId),reduced))return;
     this.lastDraw=timestamp;const now=Date.now();
+    // Nothing to show and nothing shown: no update, so the map stays idle.
+    if(!this.rows.length&&!this.lastFeatures.length)return;
     const displayed=this.rows.map(row=>this.motionEngine.present(row,now,reduced)).filter(row=>Number.isFinite(Number(row.lat))&&Number.isFinite(Number(row.lon)));
     const groups=new Map();
     for(const row of displayed){
@@ -184,6 +187,15 @@ export class LiveObjectRenderer{
     this.container.dataset.coincidentGroups=String(coincidentGroups);
     this.container.dataset.separatedObjects=String(separatedObjects);
   }
-  start(){const tick=time=>{this.draw(time);this.frame=requestAnimationFrame(tick);};this.frame=requestAnimationFrame(tick);}
-  destroy(){cancelAnimationFrame(this.frame);this.leafMap.off('move zoom',this.sync);this.leafMap.off('resize',this.resize);this.leafMap.off('zoomanim',this.zoomAnim);this.map.remove();this.container.closest('.map-panel')?.classList.remove('maplibre-live-ready');}
+  // Animate only while there is something moving on screen and the page is
+  // visible: an idle loop redrew the map every frame and kept phones busy.
+  start(){
+    if(this.frame||!this.rows.length||document.hidden)return;
+    const tick=time=>{
+      if(!this.rows.length||document.hidden){this.draw(time,true);this.frame=0;return;}
+      this.draw(time);this.frame=requestAnimationFrame(tick);
+    };
+    this.frame=requestAnimationFrame(tick);
+  }
+  destroy(){cancelAnimationFrame(this.frame);this.frame=0;this.leafMap.off('move zoom',this.sync);this.leafMap.off('resize',this.resize);this.leafMap.off('zoomanim',this.zoomAnim);this.map.remove();this.container.closest('.map-panel')?.classList.remove('maplibre-live-ready');}
 }
