@@ -1,5 +1,18 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — fix: planes and trains drawn 200 px off after a panel opened
+
+- Opening a detail panel narrows the map by about 400 px without a window
+  resize, so Leaflet was never told: its getCenter() kept the middle of the
+  old, wider area. The WebGL layer centred on that and drew every plane and
+  train about 200 px to the side, and stayed off after the panel closed or a
+  zoom (user screenshots: planes bunched west of Birmingham when zoomed
+  out). The layer now centres on the middle of the map box as it is on
+  screen, and a ResizeObserver on the map box calls invalidateSize and
+  resyncs whenever it changes size. Replayed on the live site: 0 px off
+  after tapping a plane, closing the panel, zooming, Escape and deselect.
+  The renderer test now narrows and widens the map and fails without this.
+
 ## 2026-11-22 — aircraft full size again; stale aircraft faded
 
 - The zoom scaling added for busy rail areas also shrank aircraft to tiny

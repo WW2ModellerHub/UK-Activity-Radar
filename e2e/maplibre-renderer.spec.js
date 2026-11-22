@@ -68,4 +68,19 @@ test('the live layer lines up with the base map at every zoom', async ({ page })
   await expect.poll(offset).toBeLessThan(1.5);
   await page.evaluate(() => window.__leaflet.setZoom(7,{animate:false}));
   await expect.poll(offset).toBeLessThan(1.5);
+  // A detail panel opening narrows the map without a window resize (and
+  // without Leaflet being told). Planes were then drawn half the change off,
+  // 200 px for a 400 px panel, and stayed there.
+  const onScreen = () => page.evaluate(() => {
+    const point=[52.6,-1.5], L=window.__leaflet, r=window.__renderer;
+    const m=L.getContainer().getBoundingClientRect(), c=r.map.getCanvas().getBoundingClientRect();
+    const a=L.latLngToContainerPoint(point), b=r.map.project([point[1],point[0]]);
+    return Math.hypot(m.left+a.x-(c.left+b.x), m.top+a.y-(c.top+b.y));
+  });
+  await page.evaluate(() => { document.querySelector('.map-panel').style.width='400px'; });
+  await expect.poll(onScreen).toBeLessThan(1.5);
+  await page.evaluate(() => window.__leaflet.setZoom(9,{animate:false}));
+  await expect.poll(onScreen).toBeLessThan(1.5);
+  await page.evaluate(() => { document.querySelector('.map-panel').style.width='800px'; });
+  await expect.poll(onScreen).toBeLessThan(1.5);
 });
