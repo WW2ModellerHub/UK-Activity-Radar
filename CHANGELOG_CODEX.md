@@ -1,5 +1,14 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — WebGL renderer: redraw rate follows zoom
+
+- With trains on over Birmingham (~300 trains) the map page still redrew and
+  re-sent every train about 30 times a second. Zoomed out a train moves well
+  under a pixel a frame, so the redraw interval now follows zoom (400 ms
+  nationally, 200 ms regionally, 80 ms at town level, full rate close in).
+- Station groups keep their 22 px look with a 28 px tap target (Lighthouse
+  touch-target size).
+
 ## 2026-11-22 — WebGL renderer: idle when nothing moves, loaded on demand
 
 - After switching the renderer on, Lighthouse showed the map page's speed
