@@ -98,7 +98,7 @@
   let liveRendererAllowed=false,liveRendererStarting=false;
   async function ensureLiveRenderer(){
     if(liveObjectRenderer||liveRendererStarting||!liveRendererAllowed)return;
-    if(!['train','aircraft','sar'].some(type=>enabledActivityTypes.has(type)))return;
+    if(!enabledActivityTypes.has('train'))return;
     const load=window.UKActivityLoadLiveRenderer||(()=>window.UKActivityLiveRendererModule);
     if(!window.UKActivityMotionEngine||typeof load!=='function')return;
     liveRendererStarting=true;
@@ -1908,6 +1908,31 @@
     }
   }
 
+  // ATC-style data block: callsign, then flight level (or feet when low),
+  // climbing/descending and ground speed. The data line shows from regional
+  // zoom; it is updated in place so moving planes keep gliding.
+  function aircraftCallsign(v) {
+    const name=String(v.name||'').trim();
+    if(name&&!/^(special aircraft|aircraft|unknown)\b/i.test(name))return name.toUpperCase().slice(0,10);
+    return String(v.vehicle_ref||v.source_id||name||'').toUpperCase().slice(0,10);
+  }
+  function aircraftDataLine(v) {
+    let speed=Number(v.speed);
+    if(String(v.speed_unit||'').toLowerCase()==='m/s')speed*=1.94384;
+    else if(String(v.speed_unit||'').toLowerCase()==='km/h')speed/=1.852;
+    const alt=Number(v.altitude_ft),rate=Number(v.vertical_rate_fpm);
+    const ground=/on ground/i.test(String(v.status||''))||(Number.isFinite(alt)&&alt<100&&(!Number.isFinite(speed)||speed<60));
+    const level=ground?'GND':!Number.isFinite(alt)?'':alt>=6000?`FL${String(Math.round(alt/100)).padStart(3,'0')}`:`${(Math.round(alt/100)*100).toLocaleString('en-GB')}ft`;
+    const trend=!ground&&Number.isFinite(rate)?(rate>300?'↑':rate<-300?'↓':''):'';
+    const pace=Number.isFinite(speed)&&speed>=1?`${Math.round(speed)}kt`:'';
+    return [level&&trend?`${level} ${trend}`:level,pace].filter(Boolean).join(' ');
+  }
+  // Not heard from for 90 seconds: its last known position, drawn faded.
+  function aircraftIsStale(v) {
+    const updated=Date.parse(v.last_updated||'');
+    return Number.isFinite(updated)&&(Date.now()-updated)/1000>90;
+  }
+
   function aircraftMapIdentity(v) {
     const text=[v.aircraft_model,v.aircraft_type_code,v.subtitle,v.name].filter(Boolean).join(' ').toUpperCase();
     const known=[
@@ -1986,10 +2011,12 @@
       const priority=currentWorkspace === 'cool' && cool.score >= 45 ? `<em>${esc(cool.label)}</em>` : '';
       const observedBearing=aircraftDisplayBearing(v);
       const rotation = observedBearing;
+      const callsign=aircraftCallsign(v);
+      const kind=identity&&identity!==callsign?`<i class="ac-type">${esc(identity)}</i>`:'';
       return L.divIcon({
         className:'marker-wrap aerial-marker-wrap',
-        html:`<div class="motion-shell aerial-motion-shell"><div class="aerial-map-marker aerial-${esc(type)} ac-${shape.kind} aircraft-shape-${shape.kind}" title="${esc(identity)} — ${esc(v.name)}"><span class="aircraft-silhouette${shape.rotorcraft?' rotorcraft-silhouette':''}" style="transform:rotate(${rotation}deg)">${shape.html}</span><small>${esc(identity)}</small>${priority}</div>${pointer}</div>`,
-        iconSize:[40,40],iconAnchor:[20,20]
+        html:`<div class="motion-shell aerial-motion-shell"><div class="aerial-map-marker aerial-${esc(type)} ac-${shape.kind} aircraft-shape-${shape.kind}${aircraftIsStale(v)?' is-stale':''}" title="${esc(callsign)} · ${esc(identity)}"><span class="aircraft-silhouette${shape.rotorcraft?' rotorcraft-silhouette':''}" style="transform:rotate(${rotation}deg)">${shape.html}</span><span class="ac-block"><b class="ac-callsign">${esc(callsign)}</b>${kind}<small class="ac-data">${esc(aircraftDataLine(v))}</small></span>${priority}</div>${pointer}</div>`,
+        iconSize:[44,44],iconAnchor:[22,22]
       });
     }
     if(currentWorkspace==='cool' && cool.score>=45){
@@ -2900,10 +2927,16 @@
 
   function turnAircraftInPlace(marker,activity) {
     if(!['aircraft','sar'].includes(activity?.type))return;
-    const span=marker.getElement?.()?.querySelector?.('.aircraft-silhouette');
+    const element=marker.getElement?.();
+    const span=element?.querySelector?.('.aircraft-silhouette');
     if(!span)return;
     const turn=`rotate(${Math.round(aircraftDisplayBearing(activity))}deg)`;
     if(span.style.transform!==turn)span.style.transform=turn;
+    // Altitude, speed and freshness change every report: update the data
+    // block in place rather than rebuilding the marker (which stops its glide).
+    const data=element.querySelector('.ac-data'),text=aircraftDataLine(activity);
+    if(data&&data.textContent!==text)data.textContent=text;
+    element.querySelector('.aerial-map-marker')?.classList.toggle('is-stale',aircraftIsStale(activity));
   }
 
   // Move a marker, gliding for normal steps but jumping straight there after
@@ -2977,7 +3010,7 @@
     const shown = new Set(rows.map(a => a.id));
     let clusterDirty = false;
     for (const [id, marker] of markers.entries()) {
-      if (!shown.has(id)||(liveObjectRenderer?.ready&&['train','aircraft','sar'].includes(marker.__activityType))) {
+      if (!shown.has(id)||(liveObjectRenderer?.ready&&marker.__activityType==='train')) {
         if ((marker.__activityGroup || markerGroup) === markerGroup) clusterDirty = true;
         (marker.__activityGroup || markerGroup).removeLayer(marker);
         markers.delete(id);
@@ -2986,7 +3019,7 @@
     for (let index=0;index<rows.length;index+=1) {
       const a=rows[index];
       const displayActivity=withTrainCoincidentLayout(presentations[index],coincidentLayouts.get(a.id));
-      if(liveObjectRenderer?.ready&&['train','aircraft','sar'].includes(a.type))continue;
+      if(liveObjectRenderer?.ready&&a.type==='train')continue;
       // Discover is a curated, deliberately small set. Never cluster those
       // markers: each find must remain individually visible at every zoom.
       const intendedGroup = currentWorkspace==='cool' || ['aircraft','sar'].includes(a.type) ? aerialMarkerGroup : markerGroup;
@@ -3004,7 +3037,7 @@
         marker.__visualSignature = visualSignature;
         marker.__tooltipSignature = tooltipSignature;
         intendedGroup.addLayer(marker);
-        if(['train','aircraft','sar'].includes(a.type))marker.getElement?.()?.classList.add('live-object-proxy');
+        if(a.type==='train')marker.getElement?.()?.classList.add('live-object-proxy');
         markers.set(a.id, marker);
         if (intendedGroup === markerGroup) clusterDirty = true;
         diagnostics.markersCreated += 1;
@@ -3027,7 +3060,7 @@
           marker.__tooltipSignature = tooltipSignature;
           diagnostics.markerTooltipUpdates += 1;
         }
-        if(['train','aircraft','sar'].includes(a.type))marker.getElement?.()?.classList.add('live-object-proxy');
+        if(a.type==='train')marker.getElement?.()?.classList.add('live-object-proxy');
       }
     }
     if (clusterDirty && typeof markerGroup.refreshClusters === 'function') markerGroup.refreshClusters();
@@ -3072,7 +3105,7 @@
 
   function showFocusMarker(a) {
     if (focusMarker) { map.removeLayer(focusMarker); focusMarker=null; }
-    if(liveObjectRenderer?.ready&&['train','aircraft','sar'].includes(a?.type))return;
+    if(liveObjectRenderer?.ready&&a?.type==='train')return;
     if (!a || markers.has(a.id)) return;
     focusMarker=L.marker([a.lat,a.lon],{icon:markerIcon(a),riseOnHover:true,zIndexOffset:1200}).addTo(map);
     bindHoverCard(focusMarker,tooltipHtml(a),{direction:'top',offset:[0,-13],opacity:.97,className:'activity-tooltip'});
@@ -6128,12 +6161,14 @@
       map.getContainer().classList.toggle('show-station-labels',map.getZoom()>=12);
       map.getContainer().classList.toggle('show-bus-destinations',map.getZoom()>=15);
       map.getContainer().classList.toggle('show-train-destinations',map.getZoom()>=14);
+      map.getContainer().classList.toggle('show-aircraft-data',map.getZoom()>=7);
       if(enabledActivityTypes.has('train'))updateRailLines();
       if(effectivePlaceMode()!=='off')fetchPlaces();
       if(webcamsEnabled)fetchCameras(false);
       renderNearbySummary();
     },80);
   });
+  $('map')?.classList.toggle('show-aircraft-data',map.getZoom()>=7);
   document.querySelectorAll('.filter').forEach(button => button.addEventListener('click', () => {
     aircraftLandingView='';
     enabledActivityTypes.delete('sar');

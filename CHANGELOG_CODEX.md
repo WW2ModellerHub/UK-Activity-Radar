@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — aircraft: ATC-style data blocks, larger silhouettes
+
+- With the WebGL layer on, aircraft were plain circles with a small plane
+  and no label (WebGL cannot draw text here). Aircraft go back to the map's
+  own markers (few compared with trains; always aligned with the base map)
+  and the WebGL layer draws trains only.
+- Each aircraft has an ATC-style data block: callsign and type, then flight
+  level (FL350; feet below 6,000 ft; GND on the ground), climb/descent arrow
+  and ground speed in knots. The data line shows from zoom 7 and is updated
+  in place on every report, so planes keep gliding. Silhouettes are larger
+  (38 px). Planes not heard from for 90 s are faded and marked "old".
+
 ## 2026-11-22 — fix: planes and trains drawn 200 px off after a panel opened
 
 - Opening a detail panel narrows the map by about 400 px without a window
