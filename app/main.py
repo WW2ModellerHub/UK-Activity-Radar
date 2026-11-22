@@ -25,6 +25,12 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
 
+from . import memory as _memory
+
+# Before any worker thread exists: one malloc arena per busy thread made
+# resident memory balloon towards the 2 GB limit (see app/memory.py).
+_memory.limit_malloc_arenas(2)
+
 from .collectors.demo import run_demo
 from .collectors.bods import BODSCollector
 from .collectors.bods_sx import BODSSXCollector
@@ -762,8 +768,27 @@ def _memory_mb() -> float | None:
     return None
 
 
-def runtime_report() -> dict:
-    return {
+def _memory_breakdown() -> dict:
+    """What the big in-memory caches hold, so a memory climb can be traced."""
+    out: dict = {}
+    with _seo_cache_lock:
+        out["page_cache"] = {"pages": len(_seo_page_cache), "mb": round(_seo_page_cache_bytes / 1048576, 1)}
+    service = traffic_flow_service
+    if service is not None:
+        for name in ("_cache", "_map_cache", "_incident_cache"):
+            cache = getattr(service, name, None)
+            if isinstance(cache, dict):
+                size = sum(len(getattr(tile, "content", b"") or b"") for tile in list(cache.values()))
+                out[f"traffic{name}"] = {"tiles": len(cache), "mb": round(size / 1048576, 1)}
+    try:
+        out["live_rows"] = len(state.all(include_buses=True, include_vessels=True, train_limit=None))
+    except Exception:
+        pass
+    return out
+
+
+def runtime_report(detail: bool = False) -> dict:
+    report = {
         "uptime_seconds": round(time.time() - _runtime["started"]),
         "memory_mb": _memory_mb(),
         "os_threads": threading.active_count(),
@@ -772,7 +797,11 @@ def runtime_report() -> dict:
         "worker_threads_busy_max_5min": _runtime["threads_busy_max"],
         "loop_lag_ms": _runtime["loop_lag_ms"],
         "loop_lag_max_ms_5min": _runtime["loop_lag_max_ms"],
+        "memory_peak_mb_5min": _runtime.get("memory_peak_mb", 0.0),
     }
+    if detail:
+        report["memory"] = _memory_breakdown()
+    return report
 
 
 async def _runtime_monitor_loop() -> None:
@@ -787,6 +816,13 @@ async def _runtime_monitor_loop() -> None:
             window_started = time.monotonic()
             _runtime["loop_lag_max_ms"] = 0.0
             _runtime["threads_busy_max"] = 0
+            _runtime["memory_peak_mb"] = 0.0
+        resident = _memory_mb() or 0.0
+        _runtime["memory_peak_mb"] = max(_runtime.get("memory_peak_mb", 0.0), resident)
+        # Every minute, hand freed heap back to the OS so a burst does not
+        # leave the process permanently bigger. Off the event loop.
+        if int(time.monotonic()) % 60 == 0:
+            await asyncio.to_thread(_memory.trim)
         _runtime.update(
             loop_lag_ms=round(lag, 1),
             loop_lag_max_ms=round(max(_runtime["loop_lag_max_ms"], lag), 1),
@@ -1274,6 +1310,28 @@ def robots(request: Request):
 # ---- Pages for search: stations and operators -----------------------------
 _station_directory: tuple[float, list[dict]] = (-1e9, [])
 _seo_page_cache: dict[str, tuple[float, str]] = {}
+_seo_page_cache_bytes = 0
+# Thousands of station, route and town pages at 30-60 KB each: bound the
+# cache by size, not count, so crawling cannot fill the server's memory.
+SEO_PAGE_CACHE_MAX_BYTES = 40 * 1024 * 1024
+SEO_PAGE_CACHE_MAX_PAGES = 3000
+
+
+def _store_page(key: str, hit: tuple[float, str]) -> None:
+    global _seo_page_cache_bytes
+    with _seo_cache_lock:
+        old = _seo_page_cache.pop(key, None)
+        if old is not None:
+            _seo_page_cache_bytes -= len(old[1])
+        _seo_page_cache[key] = hit
+        _seo_page_cache_bytes += len(hit[1])
+        if _seo_page_cache_bytes > SEO_PAGE_CACHE_MAX_BYTES or len(_seo_page_cache) > SEO_PAGE_CACHE_MAX_PAGES:
+            # Oldest first, down to three quarters, so eviction is not per page.
+            for victim in sorted(_seo_page_cache, key=lambda k: _seo_page_cache[k][0]):
+                if (_seo_page_cache_bytes <= SEO_PAGE_CACHE_MAX_BYTES * 3 // 4
+                        and len(_seo_page_cache) <= SEO_PAGE_CACHE_MAX_PAGES * 5 // 6):
+                    break
+                _seo_page_cache_bytes = max(0, _seo_page_cache_bytes - len(_seo_page_cache.pop(victim)[1]))
 _MIN_PUBLIC_STATION_DIRECTORY = 2500
 
 
@@ -1367,11 +1425,7 @@ def _cached_page(key: str, seconds: int, build, light=None, *, heavy: bool = Fal
                 raise _seo_busy()
         try:
             hit = (time.monotonic(), build())
-            with _seo_cache_lock:
-                _seo_page_cache[key] = hit
-                if len(_seo_page_cache) > 3000:
-                    for old in sorted(_seo_page_cache, key=lambda k: _seo_page_cache[k][0])[:500]:
-                        _seo_page_cache.pop(old, None)
+            _store_page(key, hit)
         finally:
             if heavy_slot:
                 _seo_heavy_build_slots.release()
@@ -2133,9 +2187,11 @@ async def billing_webhook(request: Request):
 
 
 @app.get("/api/health/runtime")
-async def health_runtime():
+async def health_runtime(detail: bool = False):
     """Answers even when every worker thread is busy (it needs none)."""
-    return JSONResponse(runtime_report(), headers={"Cache-Control": "no-store"})
+    # The breakdown counts live rows and cached tiles: do that off the event loop.
+    report = await asyncio.to_thread(runtime_report, True) if detail else runtime_report()
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/health")
