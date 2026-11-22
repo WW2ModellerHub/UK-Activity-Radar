@@ -2616,6 +2616,7 @@ test('at Birmingham a plane on the runway reads the airport height, not flying a
       speed_unit:'kt', bearing:330, position_source:'ADS-B', status:'Airborne', ...extra })) }) });
   }, rows);
   const t = new Date(Date.now() - 4000).toISOString();
+  const base = Date.now() - 40000, t0 = new Date(base).toISOString(), later = seconds => new Date(base + seconds * 1000).toISOString();
   await send([
     { id:'bhx-roll', name:'EZY72GD', lat:52.4500, lon:-1.7420, altitude_ft:350, vertical_rate_fpm:0, speed:122, last_updated:t },
     { id:'bhx-final', name:'BAW9', lat:52.4790, lon:-1.7750, altitude_ft:700, vertical_rate_fpm:-700, speed:145, bearing:150, last_updated:t },
@@ -2623,15 +2624,38 @@ test('at Birmingham a plane on the runway reads the airport height, not flying a
     // A rescue helicopter low over the sea, far from any airport.
     { id:'heli-sea', name:'RESCUE1', lat:53.40, lon:-3.50, altitude_ft:75, vertical_rate_fpm:0, speed:110,
       aircraft_model:'Leonardo AW189', aircraft_type_code:'A189', aircraft_category:'Helicopter / rotorcraft', last_updated:t },
+    // As live at Birmingham: no altitude sent at all, and a runway speed. Some
+    // taxiing planes report a wildly wrong speed, so a first report like this
+    // says only "On ground" until the next one shows how fast it moved.
+    { id:'bhx-noalt', name:'EZY682G', lat:52.4560, lon:-1.7520, altitude_ft:null, vertical_rate_fpm:0, speed:122, origin:'BHX', destination:'BFS', last_updated:t0 },
+    { id:'bhx-noalt2', name:'TOM5', lat:52.4480, lon:-1.7400, altitude_ft:null, vertical_rate_fpm:null, speed:118, last_updated:t0 },
+    // No altitude, far from any airport: the speed alone, never "0ft" or "On runway".
+    { id:'cruise-noalt', name:'NOALT1', lat:53.00, lon:-1.00, altitude_ft:null, vertical_rate_fpm:null, speed:180, last_updated:t },
   ]);
   const data = name => page.locator('.aerial-marker-wrap').filter({ has: page.locator('.ac-callsign', { hasText:name }) }).locator('.ac-data');
   await expect(data('EZY72GD')).toHaveText('On runway 122kt');
   await expect(data('BAW9')).toHaveText('Landing 145kt');
   await expect(data('RYR8')).toHaveText('1,300ft ↓ 170kt');
   await expect(data('RESCUE1')).toHaveText('Low 110kt');
+  await expect(data('EZY682G')).toHaveText('On ground');
+  await expect(data('TOM5')).toHaveText('On ground');
+  await expect(data('NOALT1')).toHaveText('180kt');
   await send([{ id:'bhx-roll', name:'EZY72GD', lat:52.4520, lon:-1.7450, altitude_ft:350, vertical_rate_fpm:0, speed:131, last_updated:new Date(Date.now()-1000).toISOString() }]);
   await expect(data('EZY72GD')).toHaveText('Taking off 131kt');
   await page.locator('.aerial-map-marker.aerial-aircraft').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-panel')).toContainText('This Airbus A320 is taking off from Birmingham Airport at 131 knots, heading north-west.');
   await expect(page.locator('#detail-panel')).not.toContainText(/350 (feet|ft)/);
+  // Next reports. EZY682G covered 1 km in 10 s: really rolling, and its route
+  // is from Birmingham. TOM5 crept 120 m in 18 s while still claiming 118 kt:
+  // taxiing at 13 kt, as EZY682G did live.
+  await send([
+    { id:'bhx-noalt', name:'EZY682G', lat:52.46378, lon:-1.75937, altitude_ft:null, vertical_rate_fpm:0, speed:128, origin:'BHX', destination:'BFS', last_updated:later(10) },
+    { id:'bhx-noalt2', name:'TOM5', lat:52.44908, lon:-1.7400, altitude_ft:null, vertical_rate_fpm:null, speed:118, last_updated:later(18) },
+  ]);
+  await expect(data('EZY682G')).toHaveText('Taking off 128kt');
+  await expect(data('TOM5')).toHaveText('Taxiing 13kt');
+  await page.locator('.aerial-marker-wrap').filter({ has: page.locator('.ac-callsign', { hasText:'TOM5' }) }).locator('.aerial-map-marker')
+    .evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-panel')).toContainText('13 kt (from its movement; the feed said 118)');
+  await expect(page.locator('#detail-panel')).toContainText('is taxiing at Birmingham Airport at 13 knots');
 });

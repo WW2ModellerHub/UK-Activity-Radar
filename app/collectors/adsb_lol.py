@@ -255,8 +255,7 @@ def parse_interesting_aircraft_response(
         owner = _aircraft_operator(callsign, row.get("ownOp"))
         details = _aircraft_details(row)
         gs = _num(row.get("gs")); track = _num(row.get("track"))
-        altitude = row.get("alt_baro") or row.get("alt_geom")
-        altitude_ft = _num(altitude)
+        altitude_ft = _altitude_ft(row)
         bits = [x for x in (reg, model_name or model, f"{altitude_ft:.0f} ft" if altitude_ft is not None else None) if x]
         v = Vehicle(
             id=f"aircraft:{hex_id}", type="aircraft", name=callsign or reg or f"Special aircraft {hex_id.upper()}",
@@ -289,6 +288,20 @@ def _num(value):
         return None
 
 
+def _altitude_ft(row: dict) -> float | None:
+    """Barometric altitude in feet; None on the ground or when none was sent.
+
+    readsb sends alt_baro as a number or "ground". 0 is a real reading (a
+    runway near sea level, or Birmingham on a high-pressure day), so it must
+    not fall through to the geometric altitude, as `alt_baro or alt_geom` did.
+    """
+    baro = row.get("alt_baro")
+    if isinstance(baro, str) and baro.strip().lower() == "ground":
+        return None
+    value = _num(baro)
+    return value if value is not None else _num(row.get("alt_geom"))
+
+
 def parse_adsb_response(
     payload: dict, *, now: datetime | None = None, source_name: str = "ADSB.lol"
 ) -> tuple[list[Vehicle], int]:
@@ -317,8 +330,7 @@ def parse_adsb_response(
         details = _aircraft_details(row)
         gs = _num(row.get("gs"))
         track = _num(row.get("track"))
-        altitude = row.get("alt_baro") or row.get("alt_geom")
-        altitude_ft = _num(altitude)
+        altitude_ft = _altitude_ft(row)
         bits = [x for x in (reg, model_name or model, f"{altitude_ft:.0f} ft" if altitude_ft is not None else None) if x]
         subtitle = " • ".join(bits) or "Public-service aircraft"
         is_coastguard = bool(reg and _COASTGUARD_REG.match(reg)) or callsign.upper().replace(" ", "").startswith(("SRD", "SRG", "BRITISHRESCUE", "RESCUE", "CG"))
@@ -388,7 +400,7 @@ def parse_nearby_aircraft_response(
         details = _aircraft_details(row)
         seen_pos = _num(row.get("seen_pos")) or 0.0
         updated = now - timedelta(seconds=max(0.0, seen_pos))
-        altitude = _num(row.get("alt_baro") or row.get("alt_geom"))
+        altitude = _altitude_ft(row)
         identity = callsign or reg or f"Aircraft {hex_id.upper()}"
         facts = [value for value in (reg, model_name or model, owner) if value]
         out[f"aircraft:{hex_id}"] = Vehicle(

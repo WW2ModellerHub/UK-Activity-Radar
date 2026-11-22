@@ -1,5 +1,33 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — aircraft: "0ft 122kt" was a taxiing plane with bad data
+
+- The real cause of "0ft 122kt": live at Birmingham, EZY682G (BHX to
+  Belfast) arrived with no altitude at all, status airborne and a reported
+  122 kt near the terminal, the same as the user's EZY72GD. The map did
+  Number(null), which is 0, so "no altitude" became "0ft". Altitude, speed and vertical rate
+  that were not sent are now unknown: a plane with no altitude over an
+  airfield (within 2 km of its middle) is on or just above the runway, and
+  anywhere else the label shows its speed alone. Before this, the previous
+  release would have called a cruising plane with no altitude "On runway".
+- The 122 kt was wrong too. Polling the live feed every 12 s, EZY682G
+  reported 122 kt on four reports in a row while its positions moved 120-270
+  m per report, about 13-17 kt: it was taxiing, and took off only minutes
+  later; EZY907P flipped between 115 and 12.2 kt the same way. A plane with
+  no altitude, or on the ground, that reports a runway speed it could not
+  have reached in the distance it moved since a report 5-120 s earlier
+  (3 m/s² is a hard take-off push) now gets the speed it moved at, and the
+  panel says so ("13 kt (from its movement; the feed said 118)"). A first
+  report with no altitude and a runway speed says only "On ground" until
+  the next report bears the speed out. Real take-offs and landings at
+  Heathrow carry an altitude (50-575 ft) and plausible speeds, and still
+  read "Landing" or "Taking off".
+- On the runway with no climb, descent or change of speed to go on, the
+  flight's usual route decides: from this airport is a take-off, to it a
+  landing.
+- Server: `alt_baro or alt_geom` dropped a real 0 ft reading and used the
+  GNSS height instead; 0 is now kept, and "ground" stays None.
+
 ## 2026-11-22 — aircraft: "Landing", "Taking off", "On runway", never "0ft 122kt"
 
 - A plane on the runway at Birmingham showed "0ft 122kt" (EZY72GD, user
