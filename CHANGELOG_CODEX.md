@@ -1,5 +1,18 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — train camera view (AR) improvements
+
+- Trains glide: `/api/around` returns each train's velocity (from its
+  estimated position 10 s ahead) and the phone carries labels along it
+  between refreshes, which are now every 5 s (was 15 s, frozen in between).
+- "Passes right by you in ~2 min" / "moving away" on each moving train, from
+  its closest approach; approaching trains are ringed in yellow, and the
+  bottom line names the next train to pass you and which side to look.
+- Trains out of shot get an arrow at the screen edge (nearest two each side).
+- Labels lead with the destination ("To Leeds", "Freight to …"), then
+  headcode and operator; freight in rust. Range for trains is 5 km (was 3).
+- Labels stay wholly on screen, the passing time wraps instead of being cut.
+
 ## 2026-11-22 — bus fleet and vehicle history
 
 - Every five minutes the route each live bus is working is recorded on disk

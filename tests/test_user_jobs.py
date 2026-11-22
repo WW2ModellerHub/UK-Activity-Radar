@@ -65,3 +65,23 @@ def test_the_camera_view_gets_trains_and_buses_close_by_only(monkeypatch):
     rows = TestClient(main.app).get("/api/around", params={"lat": 52.0, "lon": -1.0}).json()["vehicles"]
     assert [(row["id"], row["type"]) for row in rows] == [("bus:A:1", "bus"), ("nr:near", "train")]
     assert rows[0]["distance_km"] < 0.5 and rows[1]["destination"] == "London"
+
+
+def test_camera_view_trains_carry_movement_and_freight(monkeypatch):
+    from datetime import datetime, timezone
+
+    from fastapi.testclient import TestClient
+
+    import app.main as main
+    from app.models import Vehicle
+    from app.state import LiveState
+
+    state = LiveState()
+    now = datetime.now(timezone.utc)
+    state.upsert(Vehicle(id="nr:f", type="train", name="6M87", headcode="6M87", lat=52.03, lon=-1.0, source="Network Rail TRUST", last_updated=now))
+    state.upsert(Vehicle(id="nr:p", type="train", name="1A23", headcode="1A23", lat=52.04, lon=-1.0, source="Network Rail TRUST", last_updated=now))
+    monkeypatch.setattr(main, "state", state)
+    rows = {r["id"]: r for r in TestClient(main.app).get("/api/around", params={"lat": 52.0, "lon": -1.0}).json()["vehicles"]}
+    assert set(rows) == {"nr:f", "nr:p"}                 # 4.4 km: within the camera view's 5 km
+    assert rows["nr:f"]["freight"] is True and rows["nr:p"]["freight"] is False
+    assert rows["nr:p"]["headcode"] == "1A23" and {"v_lat", "v_lon"} <= set(rows["nr:p"])

@@ -15,7 +15,7 @@ import time
 import requests
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlsplit
 from html import escape as html_escape
 
@@ -3255,9 +3255,12 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * 6371 * math.asin(math.sqrt(h))
 
 
+AROUND_TRAIN_KM = 5.0
+
+
 @app.get("/api/around")
 def vehicles_around(request: Request, lat: float, lon: float):
-    """Trains within 3 km and buses within 1 km of a point, for the camera view."""
+    """Trains within 5 km and buses within 1 km of a point, for the camera view."""
     _enforce_public_budget(request, lookup_request_budget)
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         raise HTTPException(status_code=400, detail="Invalid location")
@@ -3268,9 +3271,18 @@ def vehicles_around(request: Request, lat: float, lon: float):
             continue
         position = _estimated_train_position(vehicle, now) or (float(vehicle.lat), float(vehicle.lon))
         distance = _haversine_km(lat, lon, position[0], position[1])
-        if distance <= 3.0:
-            rows.append({"id": vehicle.id, "type": "train", "name": vehicle.name, "destination": vehicle.destination,
+        if distance <= AROUND_TRAIN_KM:
+            # Where the estimate puts it ten seconds on: the phone moves the
+            # label along that line between refreshes instead of freezing it.
+            ahead = _estimated_train_position(vehicle, now + timedelta(seconds=10))
+            moving = ahead is not None and ahead != position
+            head = str(vehicle.headcode or vehicle.name or "")
+            rows.append({"id": vehicle.id, "type": "train", "name": vehicle.name, "headcode": vehicle.headcode,
+                         "origin": vehicle.origin, "destination": vehicle.destination,
                          "operator": vehicle.operator, "delay_minutes": vehicle.delay_minutes,
+                         "freight": getattr(vehicle, "cool_subtype", None) == "freight" or head[:1] in {"4", "6", "7"},
+                         "v_lat": round((ahead[0] - position[0]) / 10, 7) if moving else 0.0,
+                         "v_lon": round((ahead[1] - position[1]) / 10, 7) if moving else 0.0,
                          "distance_km": round(distance, 2), "lat": round(position[0], 5), "lon": round(position[1], 5)})
     span_lat, span_lon = 1.0 / 111.32, 1.0 / (111.32 * max(0.2, math.cos(math.radians(lat))))
     for vehicle in state.all(bbox=(lon - span_lon, lat - span_lat, lon + span_lon, lat + span_lat),
@@ -3283,7 +3295,7 @@ def vehicles_around(request: Request, lat: float, lon: float):
                          "operator": vehicle.operator, "delay_minutes": None,
                          "distance_km": round(distance, 2), "lat": round(float(vehicle.lat), 5), "lon": round(float(vehicle.lon), 5)})
     rows.sort(key=lambda row: row["distance_km"])
-    return {"vehicles": rows[:30]}
+    return {"vehicles": rows[:40]}
 
 
 @app.get("/api/trains/status")
