@@ -1662,6 +1662,26 @@ def fleet_operator_route(code: str, request: Request):
     return _cached_page(f"fleet:{code}", 300, build)
 
 
+@app.get("/fleet/{code}/find", include_in_schema=False)
+def fleet_find_route(code: str, q: str = ""):
+    """The fleet page's "find a bus by its number" box."""
+    from .fleet_pages import fleet_path, vehicle_path, vehicle_slug
+    code = code.upper()
+    if history_store is None or not re.fullmatch(r"[A-Z0-9]{2,12}", code):
+        raise HTTPException(status_code=404, detail="Operator not found")
+    def key(value: str) -> str:
+        # "YX13 ABC", "yx13abc" and "yx13-abc" are the same bus.
+        return vehicle_slug(value).replace("-", "")
+    wanted = key(q)
+    fleet = history_store.bus_fleet(code, days=90) if wanted else []
+    match = next((v["vehicle"] for v in fleet if key(v["vehicle"]) == wanted), None)
+    if match is None:
+        # A partial number: the first bus whose number contains it.
+        match = next((v["vehicle"] for v in fleet if wanted in key(v["vehicle"])), None)
+    target = vehicle_path(code, match) if match else fleet_path(code)
+    return RedirectResponse(target, status_code=303, headers={"X-Robots-Tag": "noindex"})
+
+
 @app.get("/fleet/{code}/{vehicle}", include_in_schema=False)
 def fleet_vehicle_route(code: str, vehicle: str, request: Request):
     from .fleet_pages import operator_label, vehicle_page, vehicle_slug

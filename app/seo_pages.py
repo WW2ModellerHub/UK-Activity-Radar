@@ -118,6 +118,25 @@ def _breadcrumbs(origin: str, canonical: str, items: list[tuple[str, str]]) -> d
     }
 
 
+_SEO_CSS: str | None = None
+
+
+def _seo_css() -> str:
+    """The page stylesheet, inlined: one fewer request before the page can draw.
+
+    Lighthouse flagged the external stylesheet as render-blocking on every
+    content page; at under 7 KB it costs less inline than a round trip.
+    """
+    global _SEO_CSS
+    if _SEO_CSS is None:
+        from pathlib import Path
+        try:
+            _SEO_CSS = (Path(__file__).resolve().parent / "static" / "seo.css").read_text(encoding="utf-8")
+        except OSError:
+            _SEO_CSS = ""
+    return _SEO_CSS.replace("</", "<\\/")
+
+
 def _shell(*, title: str, description: str, canonical: str, body: str, json_ld: dict | None = None) -> str:
     site = re.match(r"https?://[^/]+", canonical).group(0) if re.match(r"https?://[^/]+", canonical) else ""
     ld = f'<script type="application/ld+json">{_json_for_script(json_ld)}</script>' if json_ld else ""
@@ -129,7 +148,7 @@ def _shell(*, title: str, description: str, canonical: str, body: str, json_ld: 
 <meta property="og:title" content="{escape(title, quote=True)}"><meta property="og:description" content="{escape(description, quote=True)}">
 <meta property="og:url" content="{escape(canonical, quote=True)}"><meta property="og:image" content="{escape(site, quote=True)}/card.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#ffffff">
-<link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" href="/static/brand/logo.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="stylesheet" href="/static/seo.css?v=16374">{ld}</head>
+<link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" href="/static/brand/logo.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><style>{_seo_css()}</style>{ld}</head>
 <body><header class="top"><a class="brand" href="/"><img src="/static/brand/logo.svg" width="32" height="32" alt="">UK Activity Radar</a><nav><a href="/">Live map</a><a href="/towns">Towns</a><a href="/stations">Stations</a><a href="/operators">Operators</a><a href="/railway-lines">Lines</a><a href="/buses">Buses</a><a href="/airports">Airports</a><a href="/discover-archive">Finds</a><a href="/military-aircraft-tracker">Aircraft</a><a href="/guides">Guides</a></nav></header>
 <main>{body}</main>
 <footer><a href="/">Live map</a> · <a href="/stations">All stations</a> · <a href="/operators">Train operators</a> · <a href="/military-aircraft-tracker">Aircraft trackers</a> · <a href="/guides">Tracking guides</a> · <a href="/about">About</a> · <a href="/data-licences">Data licences</a><p>Times and delays from Network Rail open data. Contains information of Network Rail Infrastructure Limited.</p></footer>

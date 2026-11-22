@@ -1,5 +1,12 @@
 import * as maplibregl from './vendor/maplibre/maplibre-gl.mjs';
 
+// MapLibre's stylesheet is only needed once this renderer runs, so it is
+// added here rather than holding up the first paint of every page.
+if(!document.querySelector('link[data-maplibre-css]')){
+  const link=document.createElement('link');link.rel='stylesheet';link.href='/static/vendor/maplibre/maplibre-gl.css?v=6.17.0';link.dataset.maplibreCss='';
+  document.head.appendChild(link);
+}
+
 const MOVING_TYPES=new Set(['train','aircraft','sar']);
 
 // Leaflet's zoom levels are for 256px tiles and MapLibre's for 512px tiles, so

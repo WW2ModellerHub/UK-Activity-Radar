@@ -223,7 +223,10 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     assert "/static/map-markers.css?v=16366" in index
     assert "/static/app.js?v=16373" in index
     assert "/static/motion-engine.js?v=15162" in index
-    assert "/static/live-object-renderer.js?v=16364" in index
+    # The renderer loads through a file, not an inline script (blocked by CSP).
+    assert "/static/renderer-loader.js?v=16376" in index
+    loader = (ROOT / "app" / "static" / "renderer-loader.js").read_text(encoding="utf-8")
+    assert "/static/live-object-renderer.js?v=16376" in loader
     # The v1.5 stylesheets were replaced by the flat redesign.
     for retired in ("styles.css", "refinements.css", "movement-history.css"):
         assert f"/static/{retired}" not in index
@@ -234,8 +237,8 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     assert "/static/map-markers.css?v=16366" in worker
     assert "/static/app.js?v=16373" in worker
     assert "/static/motion-engine.js?v=15162" in worker
-    assert "/static/live-object-renderer.js?v=16364" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r151" in worker
+    assert "/static/live-object-renderer.js?v=16376" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r153" in worker
 
 
 def test_sparse_reporting_interval_does_not_grey_live_trains():
@@ -295,3 +298,12 @@ def test_map_has_a_max_zoom_before_marker_clusters_are_attached():
 
     map_setup = app_js[:app_js.index("const markerGroup")]
     assert "maxZoom: 20" in map_setup
+
+
+def test_the_app_page_has_no_inline_scripts_the_csp_would_block():
+    import re
+    index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
+    for attrs, body in re.findall(r"<script([^>]*)>(.*?)</script>", index, flags=re.S):
+        # Only data blocks (structured data) may be inline; code must be a file.
+        assert 'src="' in attrs or "application/ld+json" in attrs, attrs
+    assert (ROOT / "app" / "static" / "vendor" / "maplibre" / "maplibre-gl-worker.mjs").exists()
