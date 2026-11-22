@@ -532,7 +532,14 @@ async def _schedule_sync_loop() -> None:
     """Keep the daily schedule cache fresh without relying on service restarts."""
     while True:
         await _sync_schedule()
-        await asyncio.sleep(6 * 3600)
+        for _ in range(6):
+            try:
+                # A new day moves the engineering-works window on; checked
+                # hourly so it rolls over soon after midnight.
+                await asyncio.to_thread(schedules.ensure_replacement_index)
+            except Exception:
+                pass
+            await asyncio.sleep(3600)
 
 
 async def _reference_sync_loop() -> None:
@@ -916,6 +923,8 @@ async def lifespan(app: FastAPI):
             ))
             if not schedules.call_index_ready():
                 tasks.append(asyncio.create_task(asyncio.to_thread(schedules.ensure_call_index)))
+            # Replacement buses for engineering works, over the next week.
+            tasks.append(asyncio.create_task(asyncio.to_thread(schedules.ensure_replacement_index)))
         if settings.auto_sync_schedule:
             tasks.append(asyncio.create_task(_schedule_sync_loop()))
 
@@ -1488,6 +1497,10 @@ def station_page_route(name: str, request: Request):
                 facts["bus_stops"] = smart_places.bus_stops_near(station["lat"], station["lon"])
             except Exception:
                 pass
+        try:
+            facts["engineering"] = schedules.replacements_at(crs) or []
+        except Exception:
+            pass
         # Each direct destination links to its route page ("Hinckley to Leicester trains").
         from .route_pages import route_path
         paths = {row["crs"]: route_path(station, row) for row in _stations() if row["crs"] != crs}
@@ -1517,7 +1530,14 @@ def route_page_route(pair: str, request: Request):
                 data = smart_places.direct_trains(frm["crs"], to["crs"])
             except Exception:
                 data = None
-        return route_page(origin, frm, to, data, settings.trainline_affiliate_url)
+        works: list[str] = []
+        try:
+            # Days when replacement buses serve both ends: engineering on this route.
+            ends = [{row["day"] for row in (schedules.replacements_at(code) or [])} for code in (frm["crs"], to["crs"])]
+            works = sorted(ends[0] & ends[1])
+        except Exception:
+            works = []
+        return route_page(origin, frm, to, data, settings.trainline_affiliate_url, engineering_days=works)
     return _cached_page(f"route:{frm['crs']}:{to['crs']}", 600, build, heavy=True)
 
 

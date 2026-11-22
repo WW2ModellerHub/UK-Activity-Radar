@@ -954,7 +954,11 @@ class SmartPlacesService:
         local_ready=self.schedules.ready()
         if self.schedules.ready():
             local=self._scheduled_station_calls(crs,limit)
-            payload={"mode":"network_rail","source":"Network Rail timetable and live movements","departures":local.get('departures',[]),"arrivals":local.get('arrivals',[]),"freight":local.get('freight',[]),"recent":[],"note":"Published calling times are combined with live delay and status only when the exact service can be matched."}
+            try:
+                engineering=self.schedules.replacements_at(crs) or []
+            except Exception:
+                engineering=[]
+            payload={"mode":"network_rail","source":"Network Rail timetable and live movements","departures":local.get('departures',[]),"arrivals":local.get('arrivals',[]),"freight":local.get('freight',[]),"engineering":engineering,"recent":[],"note":"Published calling times are combined with live delay and status only when the exact service can be matched."}
             payload['next_live_id']=next((
                 x.get('live_train_id')
                 for x in [*payload['departures'], *payload['arrivals']]
@@ -964,7 +968,8 @@ class SmartPlacesService:
             # the national base timetable.  An empty local board must therefore
             # fall through to the public live board instead of showing a broken
             # blank departures/arrivals panel indefinitely.
-            if payload['departures'] or payload['arrivals']:
+            # A day when buses replace every train still has a board to show.
+            if payload['departures'] or payload['arrivals'] or engineering:
                 with self._lock:
                     self._rail_board_cache[cache_key]=(time.monotonic(),payload)
                 return payload

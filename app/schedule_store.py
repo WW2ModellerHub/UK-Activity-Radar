@@ -421,10 +421,114 @@ class ScheduleStore:
             (last_date,first_date),
         )
         count=int(conn.execute("SELECT COUNT(*) FROM schedule_calls").fetchone()[0])
+        ScheduleStore._rebuild_replacement_index_on(conn, active_date)
         conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('schedule_calls_version','2')")
         conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('schedule_calls_date',?)",(active_date,))
         conn.commit()
         return count
+
+    # ---- Engineering works: replacement buses -------------------------
+    REPLACEMENT_DAYS = 8
+
+    @staticmethod
+    def _rebuild_replacement_index_on(conn: sqlite3.Connection, active_date: str | None = None) -> int:
+        """Which stations replacement buses serve on each of the next days.
+
+        Engineering works are published in advance as bus schedules (CIF
+        category BR, "bus replacing trains for engineering work"). Stored as
+        (day, TIPLOC, schedule) rows on disk, so lookups cost no memory.
+        """
+        today = date.fromisoformat(active_date) if active_date else datetime.now(london_tz()).date()
+        last = today + timedelta(days=ScheduleStore.REPLACEMENT_DAYS - 1)
+        conn.execute("""CREATE TABLE IF NOT EXISTS replacement_calls(
+            day TEXT NOT NULL, tiploc TEXT NOT NULL, schedule_id INTEGER NOT NULL, clock TEXT,
+            PRIMARY KEY(day, tiploc, schedule_id)) WITHOUT ROWID""")
+        conn.execute("DELETE FROM replacement_calls")
+        rows = conn.execute(
+            """SELECT id, start_date, end_date, days_runs, stp_indicator, locations_json FROM schedules
+               WHERE train_category='BR' AND COALESCE(stp_indicator,'')<>'C'
+                 AND (end_date IS NULL OR end_date='' OR end_date>=?)
+                 AND (start_date IS NULL OR start_date='' OR start_date<=?)""",
+            (today.isoformat(), last.isoformat()))
+        batch: list[tuple] = []
+        for schedule_id, start, end, days_runs, _stp, locations_json in rows:
+            try:
+                locations = json.loads(locations_json or "[]")
+                first = max(today, date.fromisoformat(start)) if start else today
+                final = min(last, date.fromisoformat(end)) if end else last
+            except (TypeError, ValueError):
+                continue
+            runs = str(days_runs or "").strip()
+            day = first
+            while day <= final:
+                if not runs or (len(runs) == 7 and runs[day.weekday()] == "1"):
+                    for loc in locations:
+                        if not isinstance(loc, dict):
+                            continue
+                        code = str(loc.get("tiploc_code") or "").strip().upper()
+                        clock = str(loc.get("public_departure") or loc.get("departure") or loc.get("public_arrival")
+                                    or loc.get("arrival") or "").strip()[:4] or None
+                        if code:
+                            batch.append((day.isoformat(), code, int(schedule_id), clock))
+                day += timedelta(days=1)
+            if len(batch) > 5000:
+                conn.executemany("INSERT OR IGNORE INTO replacement_calls VALUES(?,?,?,?)", batch); batch.clear()
+        if batch:
+            conn.executemany("INSERT OR IGNORE INTO replacement_calls VALUES(?,?,?,?)", batch)
+        conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('replacement_calls_date',?)", (today.isoformat(),))
+        conn.commit()
+        return int(conn.execute("SELECT COUNT(*) FROM replacement_calls").fetchone()[0])
+
+    def replacement_index_ready(self) -> bool:
+        try:
+            with self._connect() as conn:
+                row = conn.execute("SELECT value FROM meta WHERE key='replacement_calls_date'").fetchone()
+            return bool(row) and row[0] == datetime.now(london_tz()).date().isoformat()
+        except sqlite3.Error:
+            return False
+
+    def ensure_replacement_index(self) -> int:
+        if self.replacement_index_ready():
+            return 0
+        with self._connect() as conn:
+            conn.execute("PRAGMA busy_timeout=60000")
+            return self._rebuild_replacement_index_on(conn)
+
+    def replacements_at(self, crs: str, *, today: date | None = None) -> list[dict] | None:
+        """Replacement buses calling at a station over the next days, one row per day.
+
+        [{"day", "buses", "first", "last", "between": [place names]}]; None
+        when the index has not been built yet.
+        """
+        crs = str(crs or "").strip().upper()
+        today = today or datetime.now(london_tz()).date()
+        try:
+            with self._connect() as conn:
+                if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='replacement_calls'").fetchone():
+                    return None
+                tiplocs = [r[0] for r in conn.execute("SELECT tiploc FROM tiplocs WHERE crs=?", (crs,))]
+                if not tiplocs:
+                    return []
+                marks = ",".join("?" for _ in tiplocs)
+                rows = conn.execute(
+                    f"""SELECT r.day, r.schedule_id, r.clock, s.origin_name, s.destination_name
+                        FROM replacement_calls r JOIN schedules s ON s.id=r.schedule_id
+                        WHERE r.tiploc IN ({marks}) AND r.day>=? ORDER BY r.day, r.clock""",
+                    (*tiplocs, today.isoformat())).fetchall()
+        except sqlite3.Error:
+            return None
+        days: dict[str, dict] = {}
+        for day, schedule_id, clock, origin, destination in rows:
+            entry = days.setdefault(day, {"day": day, "buses": 0, "first": None, "last": None, "between": []})
+            entry["buses"] += 1
+            if clock and len(clock) == 4 and clock.isdigit():
+                text = f"{clock[:2]}:{clock[2:]}"
+                entry["first"] = min(entry["first"] or text, text)
+                entry["last"] = max(entry["last"] or text, text)
+            for place in (origin, destination):
+                if place and place not in entry["between"] and len(entry["between"]) < 6:
+                    entry["between"].append(place)
+        return list(days.values())
 
     def ensure_call_index(self) -> int:
         if self.call_index_ready():

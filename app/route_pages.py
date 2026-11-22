@@ -47,7 +47,7 @@ def _took(minutes: int) -> str:
 
 
 def route_page(origin: str, frm: dict, to: dict, data: dict | None, trainline_affiliate_url: str = "",
-               now: datetime | None = None) -> str:
+               now: datetime | None = None, engineering_days: list[str] | None = None) -> str:
     trains = (data or {}).get("trains") or []
     now = now or datetime.now(LONDON)
     clock_now = now.strftime("%H:%M")
@@ -90,10 +90,17 @@ def route_page(origin: str, frm: dict, to: dict, data: dict | None, trainline_af
                f'Check tickets on Trainline</a><small class="affiliate-note">Affiliate link · UK Activity Radar may earn a commission if you book.</small>'
                if affiliate_url.startswith("https://") else "")
     back = route_path(to, frm)
+    works = ""
+    if engineering_days:
+        from .seo_pages import _day_label
+        days = ", ".join(_day_label(day) for day in engineering_days[:4])
+        works = (f'<section class="engineering"><h2>Engineering works</h2><p>Replacement buses run between {escape(fname)} '
+                 f'and {escape(tname)} on {escape(days)}. Some or all trains may not run; check before you travel.</p></section>')
     body = f"""<p class="eyebrow">Direct trains · {escape(frm['crs'])} to {escape(to['crs'])}</p>
 <h1>{escape(fname)} to {escape(tname)} trains</h1>
 <p class="lede">{lede}</p>
 {f'<ul class="station-facts">{chips}</ul>' if chips else ''}
+{works}
 <p class="station-actions"><a class="button" href="/?place=rail-station:{escape(frm['crs'])}">Live departures from {escape(fname)}</a>{tickets}</p>
 {f'<h2>Every direct train today</h2>{table}' if table else ''}
 {f"<p>Run by {escape(', '.join(operators))}.</p>" if operators else ''}

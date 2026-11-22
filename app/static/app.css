@@ -1460,3 +1460,9 @@ strong[data-plus].needs-plus::after,
 .delay-repay strong { font-size: 15px; }
 .delay-repay span { font-size: 13px; color: var(--muted); }
 .delay-repay a { justify-self: start; padding: 8px 14px; border-radius: 10px; border: 1px solid #c98a2e; color: #8a4b00; font-weight: 700; text-decoration: none; background: #fff; }
+
+/* Engineering works: replacement buses at this station this week. */
+.engineering-notice { display: grid; gap: 4px; margin: 0 0 10px; padding: 10px 12px; border-radius: 12px; background: #fff8e1; border: 1px solid #f1d27a; }
+.engineering-notice strong { font-size: 14px; }
+.engineering-notice ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font-size: 13px; }
+.engineering-notice small { color: var(--muted); font-size: 11px; }
