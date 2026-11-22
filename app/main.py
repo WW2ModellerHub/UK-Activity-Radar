@@ -1933,6 +1933,20 @@ def _share_preview_text(payload: dict) -> tuple[str, str]:
 _card_cache: dict[str, tuple[float, bytes]] = {}
 
 
+# Browsers and Google look for the site icon at the root, not under /static.
+_ROOT_ICONS = {"favicon.ico": "image/x-icon", "apple-touch-icon.png": "image/png", "apple-touch-icon-precomposed.png": "image/png"}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+@app.get("/apple-touch-icon.png", include_in_schema=False)
+@app.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
+def root_icon(request: Request):
+    name = request.url.path.lstrip("/")
+    source = "apple-touch-icon.png" if name.startswith("apple-touch-icon") else name
+    return FileResponse(STATIC_DIR / source, media_type=_ROOT_ICONS[name],
+                        headers={"Cache-Control": "public, max-age=604800"})
+
+
 @app.get("/card.png", include_in_schema=False)
 def site_card():
     from .share_card import render

@@ -1,5 +1,19 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — logo and site icon for Google; SEO audit fixes
+
+- New logo (radar rings, sweep and a live "blip" on the brand green, full
+  bleed with no dark border) in `app/static/brand/logo.svg`, with a
+  simplified version for 16/32 px. `/favicon.ico` (16/32/48) and
+  `/apple-touch-icon.png` are now served at the site root, where browsers
+  and Google look (favicon.ico was a 404); PNGs at 48/96/144/192/512 px
+  (Google wants multiples of 48). Every page head links them; the manifest
+  lists them; the header brand mark uses the logo.
+- Lighthouse (GoogleChrome/lighthouse) on live pages: station, route, town
+  and fleet pages score 100 for SEO, performance, accessibility and best
+  practice; the map scores SEO 100. Fixed its one accessibility issue (the
+  analytics prompt used role=dialog on an <aside>).
+
 ## 2026-11-22 — train camera view (AR) improvements
 
 - Trains glide: `/api/around` returns each train's velocity (from its

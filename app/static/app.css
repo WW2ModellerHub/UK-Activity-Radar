@@ -1480,3 +1480,6 @@ strong[data-plus].needs-plus::after,
 .ar-edge b { flex: none; font-size: 14px; }
 .ar-edge-left { left: 8px; } .ar-edge-right { right: 8px; }
 .ar-edge.is-approaching { background: rgba(122,84,0,.9); }
+
+.brand-mark { background: none; overflow: hidden; }
+.brand-mark img { width: 34px; height: 34px; display: block; }
