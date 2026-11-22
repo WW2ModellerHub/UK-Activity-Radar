@@ -61,3 +61,11 @@ def test_fleet_pages_list_buses_and_show_one_bus_history(monkeypatch):
     assert bus.status_code == 200 and "Bus YX13 ABC" in bus.text and "see it on the live map" in bus.text
     assert client.get("/fleet/armd/nope").status_code == 404
     assert client.get("/fleet/zzzz").status_code == 404
+
+
+def test_coach_operators_are_called_coaches():
+    from app.fleet_pages import fleet_page, vehicle_page
+    page = fleet_page("https://x.test", "NATX", "National Express", [{"vehicle": "BV24ZFM", "last_day": date.today().isoformat(), "days": 1, "routes": ["460"]}], set())
+    assert "1 coach seen" in page and "<th>Coach</th>" in page
+    one = vehicle_page("https://x.test", "NATX", "National Express", "BV24ZFM", [], None)
+    assert "Coach BV24ZFM" in one and "National Express coach BV24ZFM" in one

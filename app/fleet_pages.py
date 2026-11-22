@@ -42,6 +42,12 @@ def operator_label(code: str, learned: dict[str, str] | None = None) -> str:
     return f"{group} ({code})" if group else code
 
 
+def noun(code: str) -> str:
+    """'coach' for long-distance coach operators, else 'bus'."""
+    from .collectors.bods import COACH_OPERATORS
+    return "coach" if str(code or "").upper() in COACH_OPERATORS else "bus"
+
+
 def _when(day: str) -> str:
     try:
         value = date.fromisoformat(day)
@@ -75,9 +81,10 @@ def fleet_page(origin: str, code: str, label: str, vehicles: list[dict], live: s
             escape(", ".join(v["routes"][:8]) + (" …" if len(v["routes"]) > 8 else "")), escape(_when(v["last_day"])))
         for v in vehicles)
     out_now = sum(1 for v in vehicles if v["vehicle"] in live)
-    body = f"""<p class="eyebrow">Bus fleet · {escape(code)}</p><h1>{escape(label)} fleet</h1>
-<p class="lede">{len(vehicles):,} buses seen in the last two weeks; {out_now:,} on the road now.</p>
-<table class="board"><thead><tr><th>Bus</th><th>Routes worked</th><th>Last seen</th></tr></thead><tbody>{rows}</tbody></table>
+    kind = noun(code)
+    body = f"""<p class="eyebrow">{kind.capitalize()} fleet · {escape(code)}</p><h1>{escape(label)} fleet</h1>
+<p class="lede">{len(vehicles):,} {kind if len(vehicles) == 1 else kind + 'es'} seen in the last two weeks; {out_now:,} on the road now.</p>
+<table class="board"><thead><tr><th>{kind.capitalize()}</th><th>Routes worked</th><th>Last seen</th></tr></thead><tbody>{rows}</tbody></table>
 <p class="source">From live positions, recorded every five minutes. See <a href="/fleet">all bus fleets</a>.</p>"""
     canonical = origin + fleet_path(code)
     return _shell(title=f"{label} bus fleet and vehicle history | UK Activity Radar",
@@ -104,16 +111,17 @@ def vehicle_page(origin: str, code: str, label: str, vehicle: str, days: list[di
                 for w in d["work"]))
         for d in days)
     routes = sorted({w["route"] for d in days for w in d["work"]})
-    body = f"""<p class="eyebrow">{escape(label)} · bus {escape(vehicle)}</p><h1>Bus {escape(vehicle)}</h1>
-<p class="lede">{escape(label)} bus {escape(vehicle)} has been seen on {len(days)} day{'s' if len(days) != 1 else ''}{f", working route{'s' if len(routes) != 1 else ''} {escape(', '.join(routes[:10]))}" if routes else ''}.</p>
+    kind = noun(code)
+    body = f"""<p class="eyebrow">{escape(label)} · {kind} {escape(vehicle)}</p><h1>{kind.capitalize()} {escape(vehicle)}</h1>
+<p class="lede">{escape(label)} {kind} {escape(vehicle)} has been seen on {len(days)} day{'s' if len(days) != 1 else ''}{f", working route{'s' if len(routes) != 1 else ''} {escape(', '.join(routes[:10]))}" if routes else ''}.</p>
 {now}
 {f'<table class="board"><thead><tr><th>Day</th><th>Routes worked (times seen)</th></tr></thead><tbody>{rows}</tbody></table>' if rows else '<p>No history recorded for this bus yet.</p>'}
 <p class="source">Recorded from live positions every five minutes, kept for 90 days. See the <a href="{escape(fleet_path(code))}">{escape(label)} fleet</a>.</p>"""
     canonical = origin + vehicle_path(code, vehicle)
-    return _shell(title=f"{label} bus {vehicle}: routes worked and where it is now | UK Activity Radar",
-                  description=f"Which routes {label} bus {vehicle} has worked day by day, and where it is now.",
+    return _shell(title=f"{label} {kind} {vehicle}: routes worked and where it is now | UK Activity Radar",
+                  description=f"Which routes {label} {kind} {vehicle} has worked day by day, and where it is now.",
                   canonical=canonical, body=body,
                   json_ld={"@context": "https://schema.org", "@graph": [
-                      {"@type": "WebPage", "name": f"{label} bus {vehicle}", "url": canonical},
+                      {"@type": "WebPage", "name": f"{label} {kind} {vehicle}", "url": canonical},
                       _breadcrumbs(origin, canonical, [("Home", "/"), ("Fleets", "/fleet"), (label, fleet_path(code)),
-                                                       (f"Bus {vehicle}", vehicle_path(code, vehicle))])]})
+                                                       (f"{kind.capitalize()} {vehicle}", vehicle_path(code, vehicle))])]})
