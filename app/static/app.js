@@ -2340,6 +2340,19 @@
     return `<section class="station-live-snapshot station-summary" aria-label="How trains are running"><p class="station-headline${tone?` is-${tone}`:''}">${esc(headline)}</p>${segments?`<div class="station-status-chart" role="img" aria-label="${esc(summary)}">${segments}</div>`:''}${destinationList.length?`<p class="station-destinations"><b>Direct to</b>${destinationList.map(value=>`<span>${esc(value)}</span>`).join('')}${destinations.size>destinationList.length?`<em>+${destinations.size-destinationList.length}</em>`:''}</p>`:''}</section>`;
   }
 
+  // Engineering works: days in the next week when buses replace trains here.
+  function engineeringNoticeHtml(days){
+    const rows=(Array.isArray(days)?days:[]).slice(0,3);
+    if(!rows.length)return '';
+    const today=new Date(Date.now());today.setHours(12,0,0,0);
+    const label=day=>{
+      const d=new Date(`${day}T12:00:00`);const diff=Math.round((d-today)/86400000);
+      return diff===0?'Today':diff===1?'Tomorrow':d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+    };
+    const items=rows.map(row=>`<li><b>${esc(label(row.day))}</b> ${esc(row.buses)} replacement bus${row.buses===1?'':'es'}${row.first&&row.last?` · ${esc(row.first)}–${esc(row.last)}`:''}${row.between?.length?` · ${esc(row.between.slice(0,3).map(humanTransitLabel).join(', '))}`:''}</li>`).join('');
+    return `<section class="engineering-notice" aria-label="Engineering works"><strong>Buses replace some trains</strong><ul>${items}</ul><small>Engineering works from the published timetable. Check before you travel.</small></section>`;
+  }
+
   // Save and the station page, side by side under a station board.
   function stationActions(place){
     if(!place||!/^[A-Z]{3}$/.test(String(place.crs||'')))return '';
@@ -2364,7 +2377,7 @@
       if(tab==='freight'&&!freight)tab='departures';
       const freightTab=freight?`<button type="button" role="tab" data-board-tab="freight" aria-selected="${tab==='freight'}">Freight <small>${freightRows.length}</small></button>`:'';
       const freightList=freight?`<div class="board-list" data-board-list="freight"${tab==='freight'?'':' hidden'}><p class="board-note">Freight and engineering trains due in the next two hours.</p>${freight}</div>`:'';
-      html=`${waiting}<div class="board-switch${freight?' has-three':''}" role="tablist" aria-label="Departures, arrivals or freight"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button>${freightTab}</div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>${freightList}${railBoardSnapshot(board)}${stationActions(place)}`;
+      html=`${waiting}${engineeringNoticeHtml(board.engineering)}<div class="board-switch${freight?' has-three':''}" role="tablist" aria-label="Departures, arrivals or freight"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button>${freightTab}</div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>${freightList}${railBoardSnapshot(board)}${stationActions(place)}`;
     } else if(place.place_type==='bus_stop') {
       box.classList.add('bus-departure-board');
       const rows=(board.rows||[]).map(r=>boardRow(r,'bus')).join('');

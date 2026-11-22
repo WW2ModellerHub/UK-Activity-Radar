@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — engineering works and replacement buses
+
+- A small on-disk index (`replacement_calls`) lists, for the next 8 days,
+  which stations replacement buses serve (CIF category BR). Built with the
+  daily timetable, checked at startup and hourly, so it rolls over soon after
+  midnight.
+- The app's station board shows "Buses replace some trains" with each day,
+  how many buses, first and last, and the places served; a day when buses
+  replace every train still shows a board instead of "timetable loading".
+- Station pages gain an "Engineering works at …" section; route pages say
+  when replacement buses run between the two stations.
+
 ## 2026-11-22 — Delay Repay notice; faster railway lines after a tap
 
 - A passenger train 15+ minutes late (or cancelled) shows a Delay Repay

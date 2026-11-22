@@ -129,7 +129,7 @@ def _shell(*, title: str, description: str, canonical: str, body: str, json_ld: 
 <meta property="og:title" content="{escape(title, quote=True)}"><meta property="og:description" content="{escape(description, quote=True)}">
 <meta property="og:url" content="{escape(canonical, quote=True)}"><meta property="og:image" content="{escape(site, quote=True)}/card.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#ffffff">
-<link rel="icon" href="/static/icon-192.png"><link rel="stylesheet" href="/static/seo.css?v=16368">{ld}</head>
+<link rel="icon" href="/static/icon-192.png"><link rel="stylesheet" href="/static/seo.css?v=16370">{ld}</head>
 <body><header class="top"><a class="brand" href="/"><span>R</span>UK Activity Radar</a><nav><a href="/">Live map</a><a href="/towns">Towns</a><a href="/stations">Stations</a><a href="/operators">Operators</a><a href="/railway-lines">Lines</a><a href="/buses">Buses</a><a href="/airports">Airports</a><a href="/discover-archive">Finds</a><a href="/military-aircraft-tracker">Aircraft</a><a href="/guides">Guides</a></nav></header>
 <main>{body}</main>
 <footer><a href="/">Live map</a> · <a href="/stations">All stations</a> · <a href="/operators">Train operators</a> · <a href="/military-aircraft-tracker">Aircraft trackers</a> · <a href="/guides">Tracking guides</a> · <a href="/about">About</a> · <a href="/data-licences">Data licences</a><p>Times and delays from Network Rail open data. Contains information of Network Rail Infrastructure Limited.</p></footer>
@@ -171,6 +171,29 @@ def _people(value: int) -> str:
     return f"{value / 1_000_000:.1f} million" if value >= 1_000_000 else f"{value:,}"
 
 
+def _day_label(day: str) -> str:
+    from datetime import date
+    try:
+        return date.fromisoformat(day).strftime("%A %-d %B")
+    except ValueError:
+        return day
+
+
+def engineering_html(name: str, days: list[dict]) -> str:
+    """Engineering works: the days this week when buses replace trains here."""
+    if not days:
+        return ""
+    items = "".join(
+        "<li><strong>{}</strong>: {} replacement bus{}{}{}</li>".format(
+            escape(_day_label(d["day"])), d["buses"], "es" if d["buses"] != 1 else "",
+            f", {escape(d['first'])} to {escape(d['last'])}" if d.get("first") and d.get("last") else "",
+            f", serving {escape(', '.join(tidy_name(p) for p in d.get('between', [])[:4]))}" if d.get("between") else "")
+        for d in days[:7])
+    return (f'<section class="engineering"><h2>Engineering works at {escape(name)}</h2>'
+            f'<p>Buses replace some trains on these days, from the published timetable:</p><ul>{items}</ul>'
+            '<p class="source">Check with the train company before you travel; replacement buses usually leave from outside the station.</p></section>')
+
+
 def station_facts_html(crs: str, name: str, facts: dict, paths: dict[str, str]) -> tuple[str, str]:
     """Quick facts as chips, then where the station's trains go direct today.
 
@@ -191,8 +214,9 @@ def station_facts_html(crs: str, name: str, facts: dict, paths: dict[str, str]) 
         chips.append(f"{usage['rank']:,}{_ordinal(usage['rank'])} busiest in Britain")
     if facts.get("bus_stops"):
         chips.append(f"{facts['bus_stops']} bus stop{'s' if facts['bus_stops'] != 1 else ''} within 400 m")
+    works = engineering_html(name, facts.get("engineering") or [])
     if not chips:
-        return "", ""
+        return works, ""
     chip_html = "".join(f"<li>{escape(chip)}</li>" for chip in chips)
     rows = "".join(
         "<li>{}<small>{} train{} today</small></li>".format(
@@ -202,7 +226,7 @@ def station_facts_html(crs: str, name: str, facts: dict, paths: dict[str, str]) 
     more = f"<p>And {len(destinations) - 40} more stations.</p>" if len(destinations) > 40 else ""
     section = (f'<h2>Direct trains from {escape(name)}</h2><p>Stations you can reach from {escape(name)} today without changing, '
                f'with how many trains go there.</p><ul class="links direct-list">{rows}</ul>{more}') if rows else ""
-    return f'<ul class="station-facts" aria-label="{escape(name)} at a glance">{chip_html}</ul>', section
+    return f'<ul class="station-facts" aria-label="{escape(name)} at a glance">{chip_html}</ul>{works}', section
 
 
 def station_usage_html(crs: str, name: str) -> str:

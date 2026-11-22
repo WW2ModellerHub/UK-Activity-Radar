@@ -140,3 +140,41 @@ def test_route_endpoint_redirects_to_one_address_and_404s_unknown(monkeypatch):
     client = TestClient(main.app)
     assert client.get("/trains/hinckley-to-leicester").status_code == 200
     assert client.get("/trains/nowhere-to-leicester").status_code == 404
+
+
+def test_replacement_buses_are_indexed_by_station_and_day(tmp_path):
+    from datetime import date, timedelta
+    store = ScheduleStore(tmp_path / "schedule.sqlite")
+    today = date(2026, 11, 22)                       # a Sunday
+    with store._connect() as conn:
+        conn.executemany("INSERT INTO tiplocs(tiploc,crs,description) VALUES(?,?,?)", [
+            ("HINCKLY", "HNK", "HINCKLEY"), ("LESTER", "LEI", "LEICESTER")])
+        bus = [{"tiploc_code": "HINCKLY", "public_departure": "0910"}, {"tiploc_code": "LESTER", "public_arrival": "0950"}]
+        for uid, days, start, end in (("B00001", "0000001", today, today + timedelta(days=7)),     # Sundays only
+                                      ("B00002", "0000001", today, today)):
+            conn.execute("""INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,signalling_id,
+                              locations_json,train_category,origin_name,destination_name) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                         (uid, start.isoformat(), end.isoformat(), days, "N", "0B00", json.dumps(bus), "BR", "HINCKLEY", "LEICESTER"))
+        # An ordinary train is not engineering work.
+        conn.execute("""INSERT INTO schedules(train_uid,start_date,end_date,days_runs,stp_indicator,signalling_id,locations_json,train_category)
+                        VALUES('T00001',?,?,'1111111','P','1L00',?,'OO')""", (today.isoformat(), today.isoformat(), json.dumps(bus)))
+        ScheduleStore._rebuild_replacement_index_on(conn, today.isoformat())
+
+    days = store.replacements_at("HNK", today=today)
+    assert [d["day"] for d in days] == ["2026-11-22", "2026-11-29"]
+    assert days[0]["buses"] == 2 and days[0]["first"] == "09:10"
+    assert days[0]["between"] == ["HINCKLEY", "LEICESTER"]
+    assert store.replacements_at("XYZ", today=today) == []
+
+
+def test_engineering_works_read_well_on_station_and_route_pages():
+    from datetime import datetime
+    from app.route_pages import route_page
+    from app.seo_pages import engineering_html
+    html = engineering_html("Hinckley", [{"day": "2026-11-22", "buses": 2, "first": "09:10", "last": "21:10",
+                                          "between": ["HINCKLEY", "LEICESTER"]}])
+    assert "Engineering works at Hinckley" in html
+    assert "Sunday 22 November" in html and "2 replacement buses, 09:10 to 21:10" in html
+    page = route_page("https://x.test", STATIONS[0], STATIONS[1], {"trains": []}, engineering_days=["2026-11-22"],
+                      now=datetime(2026, 11, 21, 8, 0, tzinfo=london_tz()))
+    assert "Replacement buses run between Hinckley and Leicester on Sunday 22 November" in page
