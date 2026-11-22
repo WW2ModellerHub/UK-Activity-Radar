@@ -1916,8 +1916,13 @@
     if(name&&!/^(special aircraft|aircraft|unknown)\b/i.test(name))return name.toUpperCase().slice(0,10);
     return String(v.vehicle_ref||v.source_id||name||'').toUpperCase().slice(0,10);
   }
+  // A value the feed did not send is unknown, never 0. Number(null) is 0,
+  // which turned "no altitude" into "0ft": EZY72GD on Birmingham's runway.
+  function aircraftNumber(value) {
+    return value==null||value===''?NaN:Number(value);
+  }
   function aircraftSpeedKt(v) {
-    let speed=Number(v.speed);
+    let speed=aircraftNumber(v.speed);
     const unit=String(v.speed_unit||'').toLowerCase();
     if(unit==='m/s')speed*=1.94384; else if(unit==='km/h')speed/=1.852;
     return speed;
@@ -1928,7 +1933,7 @@
   // after half an hour has not "sped up".
   const aircraftReports=new Map();
   function aircraftTrend(v) {
-    const now={at:String(v.last_updated||''),ms:Date.parse(v.last_updated||''),alt:Number(v.altitude_ft),speed:aircraftSpeedKt(v)};
+    const now={at:String(v.last_updated||''),ms:Date.parse(v.last_updated||''),alt:aircraftNumber(v.altitude_ft),speed:aircraftSpeedKt(v)};
     let entry=aircraftReports.get(v.id);
     if(!entry){if(aircraftReports.size>4000)aircraftReports.clear();entry={cur:now,prev:null};aircraftReports.set(v.id,entry);}
     else if(entry.cur.at!==now.at){entry.prev=entry.cur;entry.cur=now;}
@@ -1936,8 +1941,9 @@
     if(!prev||!(cur.ms-prev.ms<=120000))return null;
     return {dAlt:cur.alt-prev.alt,dSpeed:cur.speed-prev.speed};
   }
-  // The airport a plane is at or just above: within 4 km of its reference
-  // point covers the runways and the last mile of approach or climb-out.
+  // The airport a plane is at or just above, and how far it is from the
+  // airport's middle: 4 km covers the runways and the last mile of approach
+  // or climb-out.
   function nearestAirfield(v) {
     const lat=Number(v.lat),lon=Number(v.lon);
     if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;
@@ -1946,46 +1952,65 @@
       const km=distanceKm(lat,lon,Number(field.lat),Number(field.lon));
       if(km<bestKm){best=field;bestKm=km;}
     }
-    return best;
+    return best?{field:best,km:bestKm}:null;
   }
   // On or just above a runway. Aircraft report barometric altitude, so on the
   // ground it reads about the airport's height (Birmingham ~341 ft), 0 ft or
-  // even below, depending on the weather: "0ft 122kt" looked like an error
-  // when it was a plane landing or taking off. Say which.
+  // even below, depending on the weather, and some send no altitude at all
+  // during the take-off or landing roll. Say what the plane is doing instead.
   function aircraftGroundPhase(v) {
-    const alt=Number(v.altitude_ft),speed=aircraftSpeedKt(v),rate=Number(v.vertical_rate_fpm);
+    const alt=aircraftNumber(v.altitude_ft),speed=aircraftSpeedKt(v),rate=aircraftNumber(v.vertical_rate_fpm);
     const trend=aircraftTrend(v);
     const onGround=/on ground/i.test(String(v.status||''));
     // Helicopters hover and fly low and slow away from airports.
     if(!onGround&&aircraftMapShape(v).rotorcraft)return null;
-    const field=nearestAirfield(v);
+    const nearest=nearestAirfield(v),field=nearest?.field||null;
     const height=Number.isFinite(alt)?alt-(Number(field?.elevation_ft)||0):NaN;
-    const low=onGround||(Number.isFinite(height)&&height<150);
+    // No altitude sent, over the airfield itself (within 2 km of its middle):
+    // on or just above the runway. Live: EZY682G at Birmingham, 122 kt.
+    const overField=!Number.isFinite(alt)&&Number.isFinite(speed)&&nearest!=null&&nearest.km<2;
+    const low=onGround||(Number.isFinite(height)&&height<150)||overField;
     // Within 800 ft of the airport's height: the weather alone can move the
     // reading by a few hundred feet, so this is only used with a clear trend.
     const near=Boolean(field)&&Number.isFinite(height)&&height<800;
     if(!low&&!near)return null;
     if(!onGround&&Number.isFinite(speed)&&speed>200)return null;   // a low pass, not a runway
     const at=field?` at ${field.name} Airport`:'',from=field?` from ${field.name} Airport`:'';
+    if(!Number.isFinite(speed))return onGround?{short:'On ground',chip:'On the ground',sentence:`is on the ground${at}`}:null;
+    // No altitude and a runway speed not yet borne out by its movement (a
+    // first report): too often a taxiing plane's bad speed, so wait for the
+    // next report before saying it is landing or taking off.
+    if(speed>=40&&!Number.isFinite(alt)&&!v.speed_verified)return {short:'On ground',chip:'On the ground',sentence:`is on the ground${at}`};
     // A plane cannot fly at walking pace: slow means it is on the ground.
     // Live Heathrow reports: parked 0-1 kt, pushing back or taxiing from 3 kt.
-    if(!Number.isFinite(speed)||speed<2)return {short:'Parked',chip:'On the ground',sentence:`is on the ground${at}`};
+    if(speed<2)return {short:'Parked',chip:'On the ground',sentence:`is on the ground${at}`};
     const knots=Math.round(speed);
     if(speed<40)return {short:'Taxiing',chip:'On the ground',sentence:`is taxiing${at} at ${knots} knots`};
     const down=(Number.isFinite(rate)&&rate<-150)||Boolean(trend&&(trend.dAlt<-40||trend.dSpeed<-3));
     const up=(Number.isFinite(rate)&&rate>150)||Boolean(trend&&(trend.dAlt>40||trend.dSpeed>3));
-    if(down&&!up)return {short:'Landing',chip:'Landing',sentence:low?`is landing${at} at ${knots} knots`:`is coming in to land${at} at ${knots} knots`};
-    if(up&&!down)return {short:'Taking off',chip:'Taking off',sentence:low?`is taking off${from} at ${knots} knots`:`has just taken off${from}, climbing at ${knots} knots`};
+    // On the runway with no climb, descent or change of speed to go on, the
+    // flight's usual route says which: from this airport is a take-off.
+    const code=String(field?.iata||'').toUpperCase();
+    const fromHere=Boolean(code)&&String(v.origin||'').toUpperCase()===code;
+    const toHere=Boolean(code)&&String(v.destination||'').toUpperCase()===code;
+    const still=low&&!down&&!up;
+    if((down&&!up)||(still&&toHere&&!fromHere))return {short:'Landing',chip:'Landing',sentence:low?`is landing${at} at ${knots} knots`:`is coming in to land${at} at ${knots} knots`};
+    if((up&&!down)||(still&&fromHere&&!toHere))return {short:'Taking off',chip:'Taking off',sentence:low?`is taking off${from} at ${knots} knots`:`has just taken off${from}, climbing at ${knots} knots`};
     if(!low)return null;
     return {short:'On runway',chip:'On the runway',sentence:`is on the runway${at} at ${knots} knots, landing or taking off`};
+  }
+  // "Taking off 131kt", or the phase alone when it has no speed to show.
+  function aircraftPhaseText(phase,speed) {
+    return ['Parked','On ground'].includes(phase.short)||!Number.isFinite(speed)?phase.short:`${phase.short} ${Math.round(speed)}kt`;
   }
   function aircraftDataLine(v) {
     const speed=aircraftSpeedKt(v);
     const phase=aircraftGroundPhase(v);
-    if(phase)return phase.short==='Parked'?'Parked':`${phase.short} ${Math.round(speed)}kt`;
-    const alt=Number(v.altitude_ft),rate=Number(v.vertical_rate_fpm);
+    if(phase)return aircraftPhaseText(phase,speed);
+    const alt=aircraftNumber(v.altitude_ft),rate=aircraftNumber(v.vertical_rate_fpm);
     // Below 100 ft the barometric reading says little (it can be negative on
-    // a high-pressure day), so a helicopter over the sea reads "Low".
+    // a high-pressure day), so a helicopter over the sea reads "Low". With no
+    // altitude sent, the line shows the speed alone.
     const level=!Number.isFinite(alt)?'':alt>=6000?`FL${String(Math.round(alt/100)).padStart(3,'0')}`:alt<100?'Low':`${(Math.round(alt/100)*100).toLocaleString('en-GB')}ft`;
     const trend=Number.isFinite(rate)?(rate>300?'↑':rate<-300?'↓':''):'';
     const pace=Number.isFinite(speed)&&speed>=1?`${Math.round(speed)}kt`:'';
@@ -2714,8 +2739,40 @@
     return a.type === type;
   }
 
+  // Some transponders on the ground send a wildly wrong ground speed. Live at
+  // Birmingham, EZY682G taxied at 13-17 kt (its positions show it) while
+  // reporting 122 kt, which read as "0ft 122kt" and then "Taking off". A plane
+  // with no altitude, or on the ground, that reports a runway speed it could
+  // not have reached in the distance it actually moved since a report 5-120 s
+  // earlier gets the speed it moved at. 3 m/s² is a hard take-off push.
+  const MAX_GROUND_ACCEL_MS2=3;
+  function checkAircraftGroundSpeed(a) {
+    if(!['aircraft','sar'].includes(a?.type)||a._speedCheckedAt===a.last_updated)return;
+    const reported=aircraftSpeedKt(a);
+    if(!Number.isFinite(reported)||reported<40)return;
+    if(Number.isFinite(aircraftNumber(a.altitude_ft))&&!/on ground/i.test(String(a.status||'')))return;
+    const at=Date.parse(a.last_updated||''),lat=Number(a.lat),lon=Number(a.lon);
+    if(!Number.isFinite(at)||!Number.isFinite(lat)||!Number.isFinite(lon))return;
+    const points=movementHistory.points(a.id);
+    let earlier=null;
+    for(let i=points.length-1;i>=0;i-=1){
+      const gap=(at-points[i].at)/1000;
+      if(gap>=5){earlier=gap<=120?points[i]:null;break;}
+    }
+    if(!earlier)return;   // nothing to check against yet: see aircraftGroundPhase
+    a._speedCheckedAt=a.last_updated;
+    const seconds=(at-earlier.at)/1000,metres=distanceKm(earlier.lat,earlier.lon,lat,lon)*1000;
+    const v=reported*0.514444;
+    const needed=seconds>=v/MAX_GROUND_ACCEL_MS2?v*v/(2*MAX_GROUND_ACCEL_MS2):v*seconds-MAX_GROUND_ACCEL_MS2*seconds*seconds/2;
+    if(metres>=needed*0.8){a.speed_verified=true;return;}
+    a.speed_reported=a.speed;
+    a.speed=Math.round(metres/seconds/0.514444*10)/10;
+    a.speed_unit='kt';
+  }
+
   function replaceActivities(nextActivities) {
     activities = Array.isArray(nextActivities) ? nextActivities : [];
+    for (const activity of activities) checkAircraftGroundSpeed(activity);
     movementHistory.ingest(activities);
     activitiesById = new Map(activities.map(activity => [activity.id, activity]));
     if(selectedId&&activitiesById.has(selectedId))selectedActivitySnapshot=activitiesById.get(selectedId);
@@ -3474,7 +3531,7 @@
       // On the runway or taxiing, say so instead of "holding level at 0 feet".
       const phase=aircraftGroundPhase(a);
       const story=phase
-        ? `This ${identity} ${phase.sentence}${a.bearing!=null&&phase.short!=='Parked'?`, heading ${directionWord(a.bearing)}`:''}.`
+        ? `This ${identity} ${phase.sentence}${a.bearing!=null&&!['Parked','On ground'].includes(phase.short)?`, heading ${directionWord(a.bearing)}`:''}.`
         : `This ${identity} ${movement}${liveContext?`, ${liveContext}`:''}.`;
       const stories=[];
       if(a.origin&&a.destination)stories.push(['Where it usually flies',`Receivers most often saw this callsign flying ${a.origin} to ${a.destination}${routeCount?` — ${Math.round(routeCount)} time${Math.round(routeCount)===1?'':'s'} recently`:''}. Today’s route may be different.`]);
@@ -4328,7 +4385,7 @@
       $('follow').textContent = followed.has(id) ? 'Saved ✓' : 'Save';
       loadCoverage(a);
     } else {
-      const speed = a.speed == null ? null : `${a.speed} ${a.speed_unit || ''}`.trim();
+      const speed = a.speed == null ? null : `${a.speed} ${a.speed_unit || ''}`.trim()+(a.speed_reported!=null?` (from its movement; the feed said ${a.speed_reported})`:'');
       const delay = a.delay_minutes == null ? null : (a.delay_minutes === 0 ? 'On time' : `${a.delay_minutes > 0 ? '+' : ''}${a.delay_minutes} min`);
       const bearing = a.bearing == null ? null : `${Math.round(a.bearing)}°`;
       const identityLabel = a.type === 'vessel' ? 'MMSI' : (['sar','aircraft'].includes(a.type) ? 'Registration' : 'Vehicle');
@@ -6489,7 +6546,7 @@
       const to=String(a.destination||route?.destination?.iata||'').toUpperCase(), from=String(a.origin||route?.origin?.iata||'').toUpperCase();
       // Landing or taking off counts as arriving or leaving, not on the ground.
       const phase=km<5?aircraftGroundPhase(a)?.short:null;
-      const ground=phase?['Parked','Taxiing','On runway'].includes(phase):(/on ground/i.test(String(a.status||''))||(alt!=null&&alt<100&&km<3));
+      const ground=phase?['Parked','On ground','Taxiing','On runway'].includes(phase):(/on ground/i.test(String(a.status||''))||(alt!=null&&alt<100&&km<3));
       const row={a,km};
       if(ground&&km<5)groups.ground.push(row);
       else if(phase==='Landing')groups.arriving.push(row);
@@ -6507,7 +6564,9 @@
     const row=({a,km})=>{
       // The same words as the map label: "landing at 122 kt", not "0 ft".
       const phase=aircraftGroundPhase(a);
-      const alt=phase?(phase.short==='Parked'?'parked':`${phase.short==='On runway'?'on the runway':phase.short.toLowerCase()} at ${Math.round(aircraftSpeedKt(a))} kt`)
+      const knots=Math.round(aircraftSpeedKt(a));
+      const words={'On runway':'on the runway','On ground':'on the ground',Parked:'parked',Taxiing:'taxiing',Landing:'landing','Taking off':'taking off'};
+      const alt=phase?(['Parked','On ground'].includes(phase.short)||!Number.isFinite(knots)?words[phase.short]:`${words[phase.short]} at ${knots} kt`)
         :a.altitude_ft==null?(/on ground/i.test(String(a.status||''))?'on the ground':'')
         :Number(a.altitude_ft)>=100?`${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} ft`:'low';
       const route=[a.origin,a.destination].filter(Boolean).join(' → ');
