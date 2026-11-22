@@ -1,5 +1,23 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — WebGL renderer switched on; Lighthouse speed fixes
+
+- The WebGL (MapLibre) renderer for moving trains and aircraft had never run
+  for visitors: its loader was an inline script, which the site's Content
+  Security Policy (script-src 'self') blocks, and MapLibre's worker file
+  (`maplibre-gl-worker.mjs`) was missing from the vendored copy. The loader
+  is now `/static/renderer-loader.js` and the worker comes from the
+  official maplibre-gl@6.17.0 package (the main module is byte-identical).
+  Checked locally with the production CSP: renderer runs, taps select.
+  A test keeps code out of inline scripts.
+- Lighthouse across every page type (SEO 100 everywhere):
+  content pages inline their 7 KB stylesheet instead of a render-blocking
+  request; legal.css and vendor files carry version numbers for long
+  caching; the map page defers its scripts and loads MapLibre's CSS only
+  when the renderer starts; fleet pages list at most 300 vehicles (on the
+  road now first) with a "find a bus by its number" box, instead of 35,000
+  elements for London.
+
 ## 2026-11-22 — logo and site icon for Google; SEO audit fixes
 
 - New logo (radar rings, sweep and a live "blip" on the brand green, full

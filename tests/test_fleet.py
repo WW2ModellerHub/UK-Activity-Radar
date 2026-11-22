@@ -69,3 +69,22 @@ def test_coach_operators_are_called_coaches():
     assert "1 coach seen" in page and "<th>Coach</th>" in page
     one = vehicle_page("https://x.test", "NATX", "National Express", "BV24ZFM", [], None)
     assert "Coach BV24ZFM" in one and "National Express coach BV24ZFM" in one
+
+
+def test_a_big_fleet_page_stays_small_and_any_bus_can_be_found(monkeypatch):
+    from app.fleet_pages import FLEET_PAGE_LIMIT, fleet_page
+    today = date.today().isoformat()
+    vehicles = [{"vehicle": f"LT{n}", "last_day": today, "days": 1, "routes": ["38"]} for n in range(FLEET_PAGE_LIMIT + 200)]
+    page = fleet_page("https://x.test", "TFLO", "London", vehicles, {"LT450"})
+    assert page.count("<tr><td>") == FLEET_PAGE_LIMIT
+    assert f"Showing {FLEET_PAGE_LIMIT} of {FLEET_PAGE_LIMIT + 200:,} buses" in page
+    assert page.index("LT450") < page.index("LT0<")          # on the road now comes first
+    assert 'action="/fleet/tflo/find"' in page
+
+    store = HistoryStore(":memory:")
+    store.record_buses([_bus("YX13 ABC", "158"), _bus("4408", "48")])
+    monkeypatch.setattr(main, "history_store", store)
+    client = TestClient(main.app)
+    assert client.get("/fleet/armd/find", params={"q": "yx13abc"}, follow_redirects=False).headers["location"] == "/fleet/armd/yx13-abc"
+    assert client.get("/fleet/armd/find", params={"q": "440"}, follow_redirects=False).headers["location"] == "/fleet/armd/4408"
+    assert client.get("/fleet/armd/find", params={"q": "nope"}, follow_redirects=False).headers["location"] == "/fleet/armd"

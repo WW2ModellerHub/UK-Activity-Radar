@@ -73,18 +73,36 @@ def fleet_index(origin: str, operators: list[dict], learned: dict[str, str]) -> 
                   json_ld={"@context": "https://schema.org", "@type": "CollectionPage", "name": "Bus fleets", "url": canonical})
 
 
+FLEET_PAGE_LIMIT = 300
+
+
 def fleet_page(origin: str, code: str, label: str, vehicles: list[dict], live: set[str]) -> str:
+    total = len(vehicles)
+    # A big fleet (London has 4,000+ buses) made a 35,000-element page that is
+    # slow on a phone. List those on the road now, then the most recently
+    # seen; any bus can still be found by its number.
+    shown = sorted(vehicles, key=lambda v: (v["vehicle"] not in live, -int(str(v["last_day"]).replace("-", "") or 0)))[:FLEET_PAGE_LIMIT]
+    shown.sort(key=lambda v: (v["vehicle"] not in live, v["vehicle"]))
+    vehicles_all, vehicles = vehicles, shown
     rows = "".join(
         "<tr><td><a href=\"{}\"><strong>{}</strong></a>{}</td><td>{}</td><td>{}</td></tr>".format(
             escape(vehicle_path(code, v["vehicle"])), escape(v["vehicle"]),
             ' <span class="pill good">on the road</span>' if v["vehicle"] in live else "",
             escape(", ".join(v["routes"][:8]) + (" …" if len(v["routes"]) > 8 else "")), escape(_when(v["last_day"])))
         for v in vehicles)
-    out_now = sum(1 for v in vehicles if v["vehicle"] in live)
+    out_now = sum(1 for v in vehicles_all if v["vehicle"] in live)
     kind = noun(code)
+    plural = kind if total == 1 else kind + "es"
+    finder = (f'<form class="fleet-find" action="{escape(fleet_path(code))}/find" method="get"><label for="fleet-q">Find a {kind} by its number</label>'
+              f'<input id="fleet-q" name="q" inputmode="text" autocomplete="off" placeholder="e.g. {escape(vehicles_all[0]["vehicle"] if vehicles_all else "")}">'
+              '<button type="submit">Find</button></form>')
+    more = (f"<p>Showing {len(vehicles):,} of {total:,} {plural}: those on the road now, then the most recently seen. "
+            f"Use the box above to find any other {kind}.</p>") if total > len(vehicles) else ""
     body = f"""<p class="eyebrow">{kind.capitalize()} fleet · {escape(code)}</p><h1>{escape(label)} fleet</h1>
-<p class="lede">{len(vehicles):,} {kind if len(vehicles) == 1 else kind + 'es'} seen in the last two weeks; {out_now:,} on the road now.</p>
+<p class="lede">{total:,} {plural} seen in the last two weeks; {out_now:,} on the road now.</p>
+{finder}
 <table class="board"><thead><tr><th>{kind.capitalize()}</th><th>Routes worked</th><th>Last seen</th></tr></thead><tbody>{rows}</tbody></table>
+{more}
 <p class="source">From live positions, recorded every five minutes. See <a href="/fleet">all bus fleets</a>.</p>"""
     canonical = origin + fleet_path(code)
     return _shell(title=f"{label} bus fleet and vehicle history | UK Activity Radar",
