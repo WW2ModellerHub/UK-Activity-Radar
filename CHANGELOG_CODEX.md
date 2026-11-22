@@ -1,5 +1,16 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — aircraft full size again; stale aircraft faded
+
+- The zoom scaling added for busy rail areas also shrank aircraft to tiny
+  dots at national zoom. Aircraft are few: they are full size at every zoom
+  again, and trains shrink less when zoomed out.
+- An aircraft not heard from for 90 seconds is drawn faded (WebGL layer):
+  a 7-minute-old position looked exactly like a live one, so a plane seemed
+  to jump when its next report arrived. Live check: drawn positions are
+  within 0.5-4.5 km of the latest report (normal dead reckoning), and the
+  layer stays aligned with the map during wheel zoom (one 12 px frame).
+
 ## 2026-11-22 — WebGL renderer: redraw rate follows zoom
 
 - With trains on over Birmingham (~300 trains) the map page still redrew and

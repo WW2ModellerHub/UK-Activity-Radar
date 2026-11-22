@@ -40,6 +40,15 @@ function isFreight(activity){
   return /^[467]/.test(head);
 }
 
+// An aircraft not heard from for 90 seconds is drawn faded: its last known
+// position, not where it is now. (Aircraft report every few seconds.)
+const AIRCRAFT_STALE_SECONDS=90;
+function isStale(activity,now=Date.now()){
+  if(!['aircraft','sar'].includes(activity.type))return false;
+  const updated=Date.parse(activity.last_updated||'');
+  return Number.isFinite(updated)&&(now-updated)/1000>AIRCRAFT_STALE_SECONDS;
+}
+
 function iconKind(activity){
   if(activity.type==='train')return isFreight(activity)?'freight':'train';
   const text=`${activity.aircraft_model||''} ${activity.aircraft_type_code||''} ${activity.kind||''}`.toLowerCase();
@@ -99,7 +108,8 @@ function drawIcon(kind,size=64){
 
 export class LiveObjectRenderer{
   constructor({container,leafMap,motionEngine,onReady}){
-    this.container=container;this.leafMap=leafMap;this.motionEngine=motionEngine;this.rows=[];this.selectedId=null;this.ready=false;this.frame=0;this.syncFrame=0;this.lastDraw=0;this.lastFeatures=[];
+    // container.__liveRenderer: lets tests compare drawn and reported positions.
+    this.container=container;this.leafMap=leafMap;container.__liveRenderer=this;this.motionEngine=motionEngine;this.rows=[];this.selectedId=null;this.ready=false;this.frame=0;this.syncFrame=0;this.lastDraw=0;this.lastFeatures=[];
     const center=leafMap.getCenter();
     this.map=new maplibregl.Map({container,interactive:false,attributionControl:false,antialias:true,renderWorldCopies:true,
       style:{version:8,sources:{},layers:[]},center:[center.lng,center.lat],zoom:maplibreZoom(leafMap.getZoom())});
@@ -123,9 +133,9 @@ export class LiveObjectRenderer{
     this.map.on('load',()=>{
       for(const kind of ['train','freight','airliner','propeller','helicopter','fastjet','heavy'])this.map.addImage(`live-${kind}`,drawIcon(kind),{pixelRatio:2});
       this.map.addSource('live-objects',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
-      this.map.addLayer({id:'live-object-halo',type:'circle',source:'live-objects',paint:{'circle-radius':['interpolate',['linear'],['zoom'],4,['case',['get','selected'],12,['==',['get','type'],'train'],6,8],8,['case',['get','selected'],18,['==',['get','type'],'train'],12,12],11,['case',['get','selected'],23,['==',['get','type'],'train'],19,16]],'circle-color':['case',['==',['get','icon'],'live-freight'],'rgba(140,60,16,.9)',['==',['get','type'],'train'],'rgba(77,22,69,.88)','#ffffff'],'circle-stroke-width':['interpolate',['linear'],['zoom'],4,['case',['get','selected'],3,1],11,['case',['get','selected'],4,2]],'circle-stroke-color':['case',['get','selected'],'#ffe27a',['==',['get','type'],'train'],'#effaff',['match',['get','icon'],'live-helicopter','#d64545','live-heavy','#6d4fd8','live-fastjet','#b26a00','live-propeller','#0f8a7a','#0b63ce']],'circle-blur':.12}});
-      this.map.addLayer({id:'live-object-punctuality',type:'circle',source:'live-objects',filter:['has','punctuality'],paint:{'circle-radius':['interpolate',['linear'],['zoom'],4,2.5,8,4,11,5],'circle-translate':['interpolate',['linear'],['zoom'],4,['literal',[4,-4]],8,['literal',[8,-8]],11,['literal',[11,-11]]],'circle-color':['match',['get','punctuality'],'on-time','#1e9e6a','late','#d4a017','cancelled','#6b7280','#d64545'],'circle-stroke-width':2,'circle-stroke-color':'#ffffff'}});
-      this.map.addLayer({id:'live-object-symbol',type:'symbol',source:'live-objects',layout:{'icon-image':['get','icon'],'icon-size':['interpolate',['linear'],['zoom'],4,.2,8,.34,11,.52],'icon-allow-overlap':true,'icon-ignore-placement':true,'icon-rotate':['get','rotation'],'icon-rotation-alignment':'map'}});
+      this.map.addLayer({id:'live-object-halo',type:'circle',source:'live-objects',paint:{'circle-radius':['interpolate',['linear'],['zoom'],4,['case',['get','selected'],20,['==',['get','type'],'train'],10,16],8,['case',['get','selected'],22,['==',['get','type'],'train'],14,16],11,['case',['get','selected'],23,['==',['get','type'],'train'],19,16]],'circle-color':['case',['==',['get','icon'],'live-freight'],'rgba(140,60,16,.9)',['==',['get','type'],'train'],'rgba(77,22,69,.88)','#ffffff'],'circle-stroke-width':['interpolate',['linear'],['zoom'],4,['case',['get','selected'],4,['==',['get','type'],'train'],1.5,2],11,['case',['get','selected'],4,2]],'circle-stroke-color':['case',['get','selected'],'#ffe27a',['==',['get','type'],'train'],'#effaff',['match',['get','icon'],'live-helicopter','#d64545','live-heavy','#6d4fd8','live-fastjet','#b26a00','live-propeller','#0f8a7a','#0b63ce']],'circle-blur':.12,'circle-opacity':['case',['get','stale'],.45,1],'circle-stroke-opacity':['case',['get','stale'],.45,1]}});
+      this.map.addLayer({id:'live-object-punctuality',type:'circle',source:'live-objects',filter:['has','punctuality'],paint:{'circle-radius':['interpolate',['linear'],['zoom'],4,3.5,8,4.5,11,5],'circle-translate':['interpolate',['linear'],['zoom'],4,['literal',[6,-6]],8,['literal',[9,-9]],11,['literal',[11,-11]]],'circle-color':['match',['get','punctuality'],'on-time','#1e9e6a','late','#d4a017','cancelled','#6b7280','#d64545'],'circle-stroke-width':2,'circle-stroke-color':'#ffffff'}});
+      this.map.addLayer({id:'live-object-symbol',type:'symbol',source:'live-objects',layout:{'icon-image':['get','icon'],'icon-size':['interpolate',['linear'],['zoom'],4,['case',['==',['get','type'],'train'],.28,.52],8,['case',['==',['get','type'],'train'],.38,.52],11,.52],'icon-allow-overlap':true,'icon-ignore-placement':true,'icon-rotate':['get','rotation'],'icon-rotation-alignment':'map'},paint:{'icon-opacity':['case',['get','stale'],.45,1]}});
       this.ready=true;this.container.closest('.map-panel')?.classList.add('maplibre-live-ready');this.container.dataset.renderer='ready';onReady?.();this.start();
       document.addEventListener('visibilitychange',()=>{if(!document.hidden)this.start();});
     });
@@ -180,7 +190,7 @@ export class LiveObjectRenderer{
         }
         // Only aircraft turn to face their heading; a train or bus badge is a
         // sign and always sits upright.
-        features.push({type:'Feature',id:String(row.id),geometry:{type:'Point',coordinates:[lon,lat]},properties:{id:String(row.id),type:row.type,selected:row.id===this.selectedId,icon:`live-${iconKind(row)}`,rotation:['aircraft','sar'].includes(row.type)?Number(row.bearing||0):0,...punctuality(row)}});
+        features.push({type:'Feature',id:String(row.id),geometry:{type:'Point',coordinates:[lon,lat]},properties:{id:String(row.id),type:row.type,selected:row.id===this.selectedId,icon:`live-${iconKind(row)}`,rotation:['aircraft','sar'].includes(row.type)?Number(row.bearing||0):0,stale:isStale(row,now),...punctuality(row)}});
       });
     }
     this.lastFeatures=features;
