@@ -1082,12 +1082,36 @@
       return {id:a.id,type:'aircraft',title:a.name||'Aircraft',journey:a.aircraft_model||a.aircraft_type_code||'Aircraft',facts:[`${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} ft`,movement],distance:awayText(km),
         km,bearing:bearingBetween(fix.lat,fix.lon,Number(a.lat),Number(a.lon)),up:Math.atan2(Number(a.altitude_ft)*0.3048,Math.max(1,km*1000))*180/Math.PI};
     }).filter(row=>Number.isFinite(row.km)&&row.km<=60);
+    // Trains keep moving between refreshes: carry each one along its
+    // estimated track direction for up to 20 seconds rather than freezing it.
+    const elapsed=Math.min(20,Math.max(0,(Date.now()-(cameraView.groundAt||Date.now()))/1000));
+    const kmPerLat=111.32,kmPerLon=111.32*Math.cos(fix.lat*Math.PI/180);
     const ground=cameraView.ground.map(v=>{
-      const km=distanceKm(fix.lat,fix.lon,Number(v.lat),Number(v.lon));
+      const vLat=Number(v.v_lat)||0,vLon=Number(v.v_lon)||0;
+      const lat=Number(v.lat)+vLat*elapsed,lon=Number(v.lon)+vLon*elapsed;
+      const km=distanceKm(fix.lat,fix.lon,lat,lon);
       const late=v.type==='train'&&Number(v.delay_minutes)>=1?`${Math.round(Number(v.delay_minutes))} min late`:null;
       const onTime=v.type==='train'&&v.delay_minutes!=null&&!late?'On time':null;
-      return {id:v.id,type:v.type,title:v.name,journey:v.destination?`to ${humanTransitLabel(v.destination)}`:'Live vehicle',facts:[late||onTime,humanTransitLabel(v.operator||'')],distance:awayText(km),
-        km,bearing:bearingBetween(fix.lat,fix.lon,Number(v.lat),Number(v.lon)),up:0};
+      // Closest approach: where its straight-line path passes nearest to you.
+      const px=(lon-fix.lon)*kmPerLon,py=(lat-fix.lat)*kmPerLat,vx=vLon*kmPerLon,vy=vLat*kmPerLat,speed=Math.hypot(vx,vy);
+      let pass=null,approaching=false,passIn=null;
+      if(v.type==='train'&&speed>0.002){
+        const t=-(px*vx+py*vy)/(speed*speed);
+        if(t>5&&t<900){
+          approaching=true;
+          const closest=Math.hypot(px+vx*t,py+vy*t);
+          pass=`passes ${closest<0.15?'right by you':`${awayText(closest).replace(' away','')} away`} in ${t<60?'under a minute':`~${Math.round(t/60)} min`}`;
+          passIn=t;
+        } else pass='moving away';
+      }
+      const freight=v.type==='train'&&Boolean(v.freight);
+      const where=v.destination?humanTransitLabel(v.destination):'';
+      const code=v.headcode||v.name;
+      return {id:v.id,type:v.type,icon:freight?'freight':v.type,
+        title:v.type==='train'?(where?`${freight?'Freight to':'To'} ${where}`:(freight?'Freight train':code)):v.name,
+        journey:v.type==='train'?[code,humanTransitLabel(v.operator||'')].filter(Boolean).join(' · '):(where?`to ${where}`:'Live vehicle'),
+        facts:[pass&&approaching?pass:null,late||onTime,pass&&!approaching?pass:null].filter(Boolean),distance:awayText(km),approaching,passIn,
+        km,bearing:bearingBetween(fix.lat,fix.lon,lat,lon),up:0};
     }).filter(row=>Number.isFinite(row.km)&&row.km>=0.03);
     // Only what was asked for: opened from Trains, it shows trains.
     return [...sky,...ground].filter(row=>cameraView.kinds.has(row.type));
@@ -1095,14 +1119,16 @@
 
   function arrangeCameraLabels(rows,width,height) {
     const placed=[];
-    const minX=Math.min(width/2,132),maxX=Math.max(width/2,width-132);
+    // Keep every label wholly on screen: half its width in from each side.
+    const half=Math.min(270,width-28)/2+6;
+    const minX=Math.min(width/2,half),maxX=Math.max(width/2,width-half);
     const minY=104,maxY=Math.max(minY,height-178);
     for(const object of rows){
       const x=Math.max(minX,Math.min(maxX,object.x));
       const baseY=Math.max(minY,Math.min(maxY,object.y));
       const candidates=[baseY];
-      for(let step=1;step<=5;step++){candidates.push(baseY+step*62,baseY-step*62);}
-      const y=candidates.map(value=>Math.max(minY,Math.min(maxY,value))).find(value=>!placed.some(prior=>Math.abs(prior.x-x)<248&&Math.abs(prior.y-value)<58)) ?? baseY;
+      for(let step=1;step<=5;step++){candidates.push(baseY+step*76,baseY-step*76);}
+      const y=candidates.map(value=>Math.max(minY,Math.min(maxY,value))).find(value=>!placed.some(prior=>Math.abs(prior.x-x)<262&&Math.abs(prior.y-value)<72)) ?? baseY;
       const arranged={...object,x,y};placed.push(arranged);
     }
     return placed;
@@ -1117,14 +1143,19 @@
     if(direction&&!(cameraView.fix==null&&/location/.test(direction.textContent)))direction.textContent=!cameraView.fix?'Finding your location…':ready?`Looking ${compassPoint(cameraView.heading)}, ${Math.round(cameraView.elevation)}° ${cameraView.elevation>=0?'up':'down'}`:'Waiting for your phone’s compass…';
     if(!ready){layer.querySelectorAll('[data-ar-id]').forEach(node=>node.remove());return;}
     const halfV=AR_VERTICAL_FOV/2*Math.PI/180,tanV=Math.tan(halfV),tanH=tanV*width/height;
-    const shown=[];
-    for(const object of cameraObjects()){
-      const dx=(((object.bearing-cameraView.heading+540)%360)-180)*Math.PI/180,dy=(object.up-cameraView.elevation)*Math.PI/180;
-      if(Math.abs(dx)>=Math.PI/2||Math.abs(dy)>=Math.PI/2)continue;
-      const x=width/2+Math.tan(dx)/tanH*width/2,y=height/2-Math.tan(dy)/tanV*height/2;
-      if(x<-40||x>width+40||y<40||y>height-40)continue;
+    const shown=[],offLeft=[],offRight=[];
+    const objects=cameraObjects();
+    for(const object of objects){
+      const turn=(((object.bearing-cameraView.heading+540)%360)-180);
+      const dx=turn*Math.PI/180,dy=(object.up-cameraView.elevation)*Math.PI/180;
+      const x=Math.abs(dx)<Math.PI/2?width/2+Math.tan(dx)/tanH*width/2:(turn<0?-1e4:1e4);
+      if(x<-40||x>width+40){(turn<0?offLeft:offRight).push({...object,turn});continue;}
+      if(Math.abs(dy)>=Math.PI/2)continue;
+      const y=height/2-Math.tan(dy)/tanV*height/2;
+      if(y<40||y>height-40)continue;
       shown.push({...object,x,y});
     }
+    drawCameraEdges(offLeft,offRight);
     // Nearest first, and no more than a readable handful.
     shown.sort((a,b)=>a.km-b.km);
     // Labels are moved, not rebuilt: rebuilding them every frame swallowed
@@ -1135,21 +1166,46 @@
       let node=layer.querySelector(`[data-ar-id="${CSS.escape(object.id)}"]`);
       const text=`${object.title}|${object.journey}|${object.facts.filter(Boolean).join(' · ')}|${object.distance}`;
       if(!node){
-        node=document.createElement('button');node.type='button';node.className=`ar-label ar-${object.type}`;node.dataset.arId=object.id;
+        node=document.createElement('button');node.type='button';node.className=`ar-label ar-${object.type}${object.icon==='freight'?' ar-freight':''}`;node.dataset.arId=object.id;
         layer.appendChild(node);
       }
       if(node.dataset.text!==text){
         node.dataset.text=text;
         node.setAttribute('aria-label',`${object.title}, ${object.journey}, ${object.distance}`);
-        node.innerHTML=`<i aria-hidden="true">${icons[object.type]||''}</i><span><strong>${esc(object.title)}</strong><small>${esc(object.journey)}</small>${object.facts.filter(Boolean).length?`<em>${esc(object.facts.filter(Boolean).join(' · '))}</em>`:''}</span><b>${esc(object.distance)}</b>`;
+        node.innerHTML=`<i aria-hidden="true">${icons[object.icon||object.type]||''}</i><span><strong>${esc(object.title)}</strong><small>${esc(object.journey)}</small>${object.facts.filter(Boolean).length?`<em>${esc(object.facts.filter(Boolean).join(' · '))}</em>`:''}</span><b>${esc(object.distance)}</b>`;
       }
       node.style.left=`${object.x.toFixed(0)}px`;node.style.top=`${object.y.toFixed(0)}px`;
+      node.classList.toggle('is-approaching',Boolean(object.approaching));
     }
     layer.dataset.shown=String(wanted.length);
     const hint=$('ar-hint');
-    if(hint)hint.textContent=wanted.length
+    // The next train to pass you, wherever it is: the thing worth waiting for.
+    const next=objects.filter(o=>o.type==='train'&&o.approaching&&o.passIn!=null).sort((a,b)=>a.passIn-b.passIn)[0];
+    if(hint)hint.textContent=next
+      ? `Next past you: ${next.title.replace(/^To /,'')} train ${next.passIn<60?'in under a minute':`in ~${Math.round(next.passIn/60)} min`}${(()=>{const turn=(((next.bearing-cameraView.heading+540)%360)-180);return Math.abs(turn)<25?', ahead':turn<0?', to your left':', to your right';})()}.`
+      : wanted.length
       ? `${wanted.length} live ${wanted.length===1?'vehicle':'vehicles'} in view · Tap a label to follow it on the map.`
-      : 'Slowly look left, right, up and down. Live labels appear when you face them.';
+      : (offLeft.length||offRight.length)?'Turn towards the arrows to find them.':'Slowly look left, right, up and down. Live labels appear when you face them.';
+  }
+  // Vehicles out of shot: an arrow at the edge of the screen on the side to
+  // turn, nearest two each side, so nothing behind you goes unnoticed.
+  function drawCameraEdges(left,right){
+    const layer=$('ar-labels');if(!layer)return;
+    const wanted=[...left.sort((a,b)=>a.km-b.km).slice(0,2).map(o=>({...o,side:'left'})),...right.sort((a,b)=>a.km-b.km).slice(0,2).map(o=>({...o,side:'right'}))];
+    const keep=new Set(wanted.map(o=>`edge:${o.id}`));
+    layer.querySelectorAll('[data-ar-edge]').forEach(node=>{if(!keep.has(node.dataset.arEdge))node.remove();});
+    const counts={left:0,right:0};
+    for(const object of wanted){
+      const key=`edge:${object.id}`;
+      let node=layer.querySelector(`[data-ar-edge="${CSS.escape(key)}"]`);
+      if(!node){node=document.createElement('span');node.dataset.arEdge=key;layer.appendChild(node);}
+      node.className=`ar-edge ar-edge-${object.side}${object.approaching?' is-approaching':''}`;
+      const text=`${object.title} · ${object.distance.replace(' away','')}`;
+      // The arrow is its own element so a long name never cuts it off.
+      if(node.dataset.text!==text){node.dataset.text=text;node.innerHTML=`${object.side==='left'?'<b aria-hidden="true">←</b>':''}<span>${esc(text)}</span>${object.side==='right'?'<b aria-hidden="true">→</b>':''}`;}
+      // Under the compass line, clear of the labels along the horizon.
+      node.style.top=`calc(env(safe-area-inset-top, 0px) + ${92+counts[object.side]*40}px)`;counts[object.side]+=1;
+    }
   }
   function onCameraOrientation(event) {
     if(!cameraView.active)return;
@@ -1174,7 +1230,7 @@
     if(!cameraView.active||!cameraView.fix)return;
     try {
       const response=await fetch(`/api/around?lat=${encodeURIComponent(cameraView.fix.lat)}&lon=${encodeURIComponent(cameraView.fix.lon)}`,{cache:'no-store'});
-      if(response.ok&&cameraView.active){cameraView.ground=(await response.json()).vehicles||[];if(!cameraView.frame)cameraView.frame=requestAnimationFrame(drawCameraView);}
+      if(response.ok&&cameraView.active){cameraView.ground=(await response.json()).vehicles||[];cameraView.groundAt=Date.now();if(!cameraView.frame)cameraView.frame=requestAnimationFrame(drawCameraView);}
     } catch {}
   }
   function stopCameraView() {
@@ -1183,6 +1239,7 @@
     cameraView.stream?.getTracks?.().forEach(track=>track.stop());cameraView.stream=null;
     const video=$('ar-video');if(video)video.srcObject=null;
     clearInterval(cameraView.refresh);cameraView.refresh=null;
+    clearInterval(cameraView.tick);cameraView.tick=null;
     if(cameraView.watch!=null){navigator.geolocation?.clearWatch?.(cameraView.watch);cameraView.watch=null;}
     clearTimeout(cameraView.pending);cameraView.pending=null;
     window.removeEventListener('deviceorientation',onCameraOrientation);
@@ -1237,7 +1294,10 @@
     window.addEventListener('deviceorientationabsolute',onCameraOrientation);
     syncCameraKinds();
     refreshCameraGround();
-    cameraView.refresh=setInterval(refreshCameraGround,15000);
+    // Every 5 seconds, and labels glide in between (see cameraObjects).
+    cameraView.refresh=setInterval(refreshCameraGround,5000);
+    // Moving trains need redrawing even when the phone is held still.
+    cameraView.tick=setInterval(()=>{if(cameraView.active&&!cameraView.frame)cameraView.frame=requestAnimationFrame(drawCameraView);},250);
     trackProduct('camera_view_opened','ar');
   }
   // Close on the first touch, without waiting for a full click.

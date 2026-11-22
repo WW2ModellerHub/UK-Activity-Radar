@@ -1308,14 +1308,14 @@ p.leave-plan.is-set small { color: #2f5e49; }
 .ar-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px 12px; color: #fff; font-weight: 700; font-size: 17px; background: linear-gradient(rgba(0,0,0,.55), transparent); }
 #ar-close { width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-size: 26px; line-height: 1; }
 .ar-hint { position: absolute; left: 14px; right: 14px; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); margin: 0; padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,.55); color: #fff; font-size: 13px; text-align: center; }
-.ar-label { position: absolute; transform: translate(-50%, -50%); display: grid; grid-template-columns: 30px minmax(0,1fr) auto; align-items: center; gap: 8px; width: min(300px, calc(100vw - 28px)); min-height: 50px; padding: 7px 10px 7px 7px; border: 2px solid rgba(255,255,255,.94); border-radius: 18px; background: rgba(15,20,28,.88); box-shadow: 0 6px 20px rgba(0,0,0,.32); color: #fff; text-align: left; font: inherit; backdrop-filter: blur(8px); }
+.ar-label { position: absolute; transform: translate(-50%, -50%); display: grid; grid-template-columns: 30px minmax(0,1fr) auto; align-items: center; gap: 8px; width: min(270px, calc(100vw - 28px)); min-height: 50px; padding: 7px 10px 7px 7px; border: 2px solid rgba(255,255,255,.94); border-radius: 18px; background: rgba(15,20,28,.88); box-shadow: 0 6px 20px rgba(0,0,0,.32); color: #fff; text-align: left; font: inherit; backdrop-filter: blur(8px); }
 .ar-label i { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 50%; background: #0b63ce; }
 .ar-label.ar-train i { background: #7b2d70; } .ar-label.ar-bus i { background: #0f7a55; }
 .ar-label i svg { width: 18px; height: 18px; stroke: #fff; }
 .ar-label span { display: grid; min-width: 0; }
 .ar-label strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ar-label small { font-size: 12px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ar-label span em { overflow: hidden; color: rgba(255,255,255,.72); font-size: 11px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.ar-label span em { color: rgba(255,255,255,.72); font-size: 11px; font-style: normal; white-space: normal; line-height: 1.25; }
 .ar-label > b { padding: 5px 7px; border-radius: 9px; background: rgba(255,255,255,.14); font-size: 12px; line-height: 1; white-space: nowrap; }
 body.ar-open { overflow: hidden; }
 
@@ -1469,3 +1469,14 @@ strong[data-plus].needs-plus::after,
 
 .fleet-link { margin: 10px 0 0; font-size: 14px; }
 .fleet-link a { font-weight: 600; }
+
+/* Camera view: freight in rust, trains heading your way ringed in yellow,
+   and arrows at the screen edge for anything out of shot. */
+.ar-label.ar-freight i { background: #b4531a; }
+.ar-label.is-approaching { border-color: #ffd34e; box-shadow: 0 0 0 3px rgba(255,211,78,.35), 0 6px 20px rgba(0,0,0,.32); }
+.ar-label em { color: #ffe28a; }
+.ar-edge { position: absolute; display: flex; align-items: center; gap: 6px; max-width: 44vw; padding: 6px 10px; border-radius: 999px; background: rgba(15,20,28,.82); color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap; pointer-events: none; }
+.ar-edge span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ar-edge b { flex: none; font-size: 14px; }
+.ar-edge-left { left: 8px; } .ar-edge-right { right: 8px; }
+.ar-edge.is-approaching { background: rgba(122,84,0,.9); }

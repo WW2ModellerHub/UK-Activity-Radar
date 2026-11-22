@@ -1896,7 +1896,7 @@ test('the camera view labels the aircraft, train and bus in the direction the ph
   // Facing north at the horizon: the train, not the plane or the bus behind you.
   await face(0, 90);
   await expect(page.locator('.ar-label.ar-train')).toContainText('1A23');
-  await expect(page.locator('.ar-label.ar-train')).toContainText('to Leeds');
+  await expect(page.locator('.ar-label.ar-train')).toContainText('To Leeds');
   await expect(page.locator('.ar-label.ar-train')).toContainText('6 min late');
   await expect(page.locator('.ar-label.ar-train')).toContainText('Northern');
   await expect(page.locator('.ar-label.ar-train').locator('b')).toContainText('away');
@@ -2057,7 +2057,7 @@ test('the camera view opens straight away and finds your location while it runs'
   await page.evaluate(() => { for (let i = 0; i < 25; i += 1) { const e = new Event('deviceorientation'); e.webkitCompassHeading = 0; e.beta = 90; window.dispatchEvent(e); } });
   await expect(page.locator('#ar-direction')).toHaveText('Looking N, 0° up');
   await expect(page.locator('.ar-label.ar-train')).toContainText('1A23');
-  await expect(page.locator('.ar-label.ar-train')).toContainText('to Leeds');
+  await expect(page.locator('.ar-label.ar-train')).toContainText('To Leeds');
 });
 
 test('the Weather layer shows the rain radar with its time, scale and credit, and can play back', async ({ page }) => {
@@ -2488,4 +2488,37 @@ test('a station board warns when buses replace trains for engineering works', as
   await expect(notice).toContainText('Today');
   await expect(notice).toContainText('24 replacement buses');
   await expect(notice).toContainText('08:10–22:40');
+});
+
+
+test('the camera view says when a train will pass you, and points to trains out of shot', async ({ page }) => {
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
+  // 2 km north, heading straight for you at about 30 m/s; a freight 1 km east with no movement estimate.
+  await page.route('**/api/around**', route => route.fulfill({ json:{ vehicles:[
+    { id:'nr:coming', type:'train', name:'1A23', headcode:'1A23', destination:'LEEDS', operator:'Northern', delay_minutes:0, lat:54.128, lon:-2.45, v_lat:-0.00027, v_lon:0 },
+    { id:'nr:freight', type:'train', name:'6M87', headcode:'6M87', destination:'BASFORD HALL YARD', freight:true, lat:54.11, lon:-2.4346, v_lat:0, v_lon:0 },
+  ] } }));
+  await page.evaluate(() => {
+    window.DeviceOrientationEvent = class extends Event {};
+    const stream = document.createElement('canvas').captureStream();
+    Object.defineProperty(navigator, 'mediaDevices', { configurable:true, value:{ getUserMedia: async () => stream } });
+  });
+  const face = (heading, beta) => page.evaluate(([h, b]) => { for (let i = 0; i < 25; i += 1) { const e = new Event('deviceorientation'); e.webkitCompassHeading = h; e.beta = b; window.dispatchEvent(e); } }, [heading, beta]);
+  await page.locator('[data-layer-chip="train"]').click();
+  await page.locator('[data-sub-action="camera"]:visible').click();
+  await face(0, 90);
+  const coming = page.locator('.ar-label[data-ar-id="nr:coming"]');
+  await expect(coming).toContainText('To Leeds');
+  await expect(coming).toContainText('1A23 · Northern');
+  await expect(coming).toContainText(/passes right by you in ~1 min/);
+  await expect(coming).toHaveClass(/is-approaching/);
+  await expect(page.locator('#ar-hint')).toContainText('Next past you: Leeds train in ~1 min, ahead.');
+  // The freight is off to the right: an arrow says so.
+  await expect(page.locator('.ar-edge-right')).toContainText('Freight to Basford Hall Yard');
+  // Turn to face it: labelled as freight, and nothing claimed about its movement.
+  await face(90, 90);
+  const freight = page.locator('.ar-label[data-ar-id="nr:freight"]');
+  await expect(freight).toHaveClass(/ar-freight/);
+  await expect(freight).not.toHaveClass(/is-approaching/);
+  await expect(page.locator('.ar-edge-left')).toContainText('To Leeds');
 });
