@@ -19,6 +19,11 @@
   knots"). Helicopters are left out unless their transponder says on
   ground, because they fly low and slow away from airports; below 100 ft
   the label reads "Low" rather than a negative or zero altitude.
+- The in-app airport list uses the same words ("on the runway at 122 kt",
+  "landing at 135 kt", "parked") and files a plane landing or taking off
+  under Arriving or Leaving, not "On the ground". Checked against live
+  Heathrow traffic before release (BAW613 on the runway at 122 kt, TAP1361
+  taking off at 150 kt).
 - Test fixture: the Leaflet stub's markers now have `getElement()`, as
   Leaflet's do, so tests exercise the in-place label update that runs on
   every report.

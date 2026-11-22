@@ -6487,9 +6487,13 @@
       const alt=a.altitude_ft==null?null:Number(a.altitude_ft), rate=Number(a.vertical_rate_fpm)||0;
       const route=flightRouteById.get(a.id);
       const to=String(a.destination||route?.destination?.iata||'').toUpperCase(), from=String(a.origin||route?.origin?.iata||'').toUpperCase();
-      const ground=/on ground/i.test(String(a.status||''))||(alt!=null&&alt<100&&km<3);
+      // Landing or taking off counts as arriving or leaving, not on the ground.
+      const phase=km<5?aircraftGroundPhase(a)?.short:null;
+      const ground=phase?['Parked','Taxiing','On runway'].includes(phase):(/on ground/i.test(String(a.status||''))||(alt!=null&&alt<100&&km<3));
       const row={a,km};
       if(ground&&km<5)groups.ground.push(row);
+      else if(phase==='Landing')groups.arriving.push(row);
+      else if(phase==='Taking off')groups.departing.push(row);
       else if(to===airport.iata||(!to&&alt!=null&&alt<6000&&rate<-300&&km<24))groups.arriving.push(row);
       else if(from===airport.iata||(!from&&alt!=null&&alt<6000&&rate>300&&km<24))groups.departing.push(row);
       else groups.overhead.push(row);
@@ -6501,7 +6505,11 @@
     if(!overheadActive||nearbyState.source!=='airport'||nearbyState.label!==airport.iata)return;
     const g=airportGroups(airport);
     const row=({a,km})=>{
-      const alt=a.altitude_ft!=null&&Number(a.altitude_ft)>=100?`${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} ft`:'on the ground';
+      // The same words as the map label: "landing at 122 kt", not "0 ft".
+      const phase=aircraftGroundPhase(a);
+      const alt=phase?(phase.short==='Parked'?'parked':`${phase.short==='On runway'?'on the runway':phase.short.toLowerCase()} at ${Math.round(aircraftSpeedKt(a))} kt`)
+        :a.altitude_ft==null?(/on ground/i.test(String(a.status||''))?'on the ground':'')
+        :Number(a.altitude_ft)>=100?`${Math.round(Number(a.altitude_ft)).toLocaleString('en-GB')} ft`:'low';
       const route=[a.origin,a.destination].filter(Boolean).join(' → ');
       const facts=[route,a.aircraft_model||a.aircraft_type_code,alt,awayText(km)].filter(Boolean).join(' · ');
       return `<button type="button" class="line-train" data-job-plane="${esc(a.id)}"><i class="line-dot" aria-hidden="true"></i><span><strong>${esc(a.name)}</strong><small>${esc(facts)}</small></span><b>›</b></button>`;

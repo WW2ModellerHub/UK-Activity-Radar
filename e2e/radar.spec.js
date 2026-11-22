@@ -2354,6 +2354,26 @@ test('tapping an airport shows its planes in the app, grouped, each one tappable
   await expect(page.locator('#detail-title')).toContainText('RYR12');
 });
 
+test('the airport list says a plane is landing or on the runway, not "0 ft" or "on the ground" at 122 kt', async ({ page }) => {
+  // East Midlands is 306 ft up: on its runway a plane reports about 300 ft.
+  await page.route('**/api/airports*', route => route.fulfill({ json:[{ name:'East Midlands', iata:'EMA', lat:52.8311, lon:-1.3281, elevation_ft:306, path:'/airport/east-midlands-ema' }] }));
+  const plane = extra => ({ kind:'vehicle', type:'aircraft', aircraft_type_code:'A320', speed_unit:'kt', status:'Airborne', source:'test', last_updated:new Date().toISOString(), ...extra });
+  await page.route('**/api/aircraft/nearby**', route => route.fulfill({ json:{ source:'test', checked:3, radius_miles:50, activities:[
+    plane({ id:'aircraft:roll1', name:'EZY72GD', lat:52.829, lon:-1.320, altitude_ft:300, vertical_rate_fpm:0, speed:122 }),
+    plane({ id:'aircraft:final1', name:'BAW1', lat:52.835, lon:-1.360, altitude_ft:500, vertical_rate_fpm:-700, speed:135 }),
+    plane({ id:'aircraft:park1', name:'TOM9', lat:52.832, lon:-1.330, altitude_ft:null, vertical_rate_fpm:null, speed:0, status:'On ground' }),
+  ] } }));
+  await page.locator('[data-layer-chip="aircraft"]').click();
+  await expect(page.locator('.airport-marker')).toHaveText('EMA');
+  await page.locator('.airport-marker').evaluate(el => el.closest('.leaflet-marker-icon, .airport-marker-wrap')?.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-subtitle')).toHaveText('1 arriving · 0 leaving · 2 on the ground · 0 overhead');
+  const row = id => page.locator(`#detail-insight [data-job-plane="${id}"]`);
+  await expect(row('aircraft:roll1')).toContainText('on the runway at 122 kt');
+  await expect(row('aircraft:final1')).toContainText('landing at 135 kt');
+  await expect(row('aircraft:park1')).toContainText('parked');
+  await expect(page.locator('#detail-insight')).not.toContainText(/\b(300|500) ft\b/);
+});
+
 test('an airport page link opens that airport in the app, not the default map', async ({ page }) => {
   await page.route('**/api/airports*', route => route.fulfill({ json:[{ name:'East Midlands', iata:'EMA', lat:52.83, lon:-1.33, path:'/airport/east-midlands-ema' }] }));
   await page.goto('/?airport=EMA');
