@@ -1606,7 +1606,8 @@ def discover_day_page(day: str, request: Request):
 def airports_api():
     """The airports with pages, for markers on the map."""
     from .airport_pages import AIRPORTS, airport_path
-    return JSONResponse([{"name": a["name"], "iata": a["iata"], "lat": a["lat"], "lon": a["lon"], "path": airport_path(a)}
+    return JSONResponse([{"name": a["name"], "iata": a["iata"], "lat": a["lat"], "lon": a["lon"],
+                          "elevation_ft": a["elevation_ft"], "path": airport_path(a)}
                          for a in AIRPORTS], headers={"Cache-Control": "public, max-age=86400"})
 
 

@@ -14,20 +14,22 @@ from .seo_pages import _breadcrumbs, _now_clock, _shell, slug
 
 RADIUS_NM = 12
 
+# elevation_ft is the published aerodrome elevation: a plane on the runway at
+# Birmingham reports about 341 ft, not 0.
 AIRPORTS: tuple[dict, ...] = (
-    {"name": "London Heathrow", "iata": "LHR", "icao": "EGLL", "lat": 51.4700, "lon": -0.4543, "runways": "09L/27R and 09R/27L", "area": "west London"},
-    {"name": "London Gatwick", "iata": "LGW", "icao": "EGKK", "lat": 51.1537, "lon": -0.1821, "runways": "08R/26L (main) and 08L/26R", "area": "West Sussex"},
-    {"name": "Manchester", "iata": "MAN", "icao": "EGCC", "lat": 53.3537, "lon": -2.2750, "runways": "05L/23R and 05R/23L", "area": "Greater Manchester"},
-    {"name": "London Stansted", "iata": "STN", "icao": "EGSS", "lat": 51.8860, "lon": 0.2389, "runways": "04/22", "area": "Essex"},
-    {"name": "London Luton", "iata": "LTN", "icao": "EGGW", "lat": 51.8747, "lon": -0.3683, "runways": "07/25", "area": "Bedfordshire"},
-    {"name": "Birmingham", "iata": "BHX", "icao": "EGBB", "lat": 52.4539, "lon": -1.7480, "runways": "15/33", "area": "the West Midlands"},
-    {"name": "East Midlands", "iata": "EMA", "icao": "EGNX", "lat": 52.8311, "lon": -1.3281, "runways": "09/27", "area": "Leicestershire"},
-    {"name": "Bristol", "iata": "BRS", "icao": "EGGD", "lat": 51.3827, "lon": -2.7191, "runways": "09/27", "area": "North Somerset"},
-    {"name": "Edinburgh", "iata": "EDI", "icao": "EGPH", "lat": 55.9500, "lon": -3.3725, "runways": "06/24", "area": "Edinburgh"},
-    {"name": "Glasgow", "iata": "GLA", "icao": "EGPF", "lat": 55.8719, "lon": -4.4331, "runways": "05/23", "area": "Renfrewshire"},
-    {"name": "Newcastle", "iata": "NCL", "icao": "EGNT", "lat": 55.0375, "lon": -1.6917, "runways": "07/25", "area": "Tyne and Wear"},
-    {"name": "Liverpool John Lennon", "iata": "LPL", "icao": "EGGP", "lat": 53.3336, "lon": -2.8497, "runways": "09/27", "area": "Merseyside"},
-    {"name": "Leeds Bradford", "iata": "LBA", "icao": "EGNM", "lat": 53.8659, "lon": -1.6606, "runways": "14/32", "area": "West Yorkshire"},
+    {"name": "London Heathrow", "iata": "LHR", "icao": "EGLL", "lat": 51.4700, "lon": -0.4543, "elevation_ft": 83, "runways": "09L/27R and 09R/27L", "area": "west London"},
+    {"name": "London Gatwick", "iata": "LGW", "icao": "EGKK", "lat": 51.1537, "lon": -0.1821, "elevation_ft": 202, "runways": "08R/26L (main) and 08L/26R", "area": "West Sussex"},
+    {"name": "Manchester", "iata": "MAN", "icao": "EGCC", "lat": 53.3537, "lon": -2.2750, "elevation_ft": 257, "runways": "05L/23R and 05R/23L", "area": "Greater Manchester"},
+    {"name": "London Stansted", "iata": "STN", "icao": "EGSS", "lat": 51.8860, "lon": 0.2389, "elevation_ft": 348, "runways": "04/22", "area": "Essex"},
+    {"name": "London Luton", "iata": "LTN", "icao": "EGGW", "lat": 51.8747, "lon": -0.3683, "elevation_ft": 526, "runways": "07/25", "area": "Bedfordshire"},
+    {"name": "Birmingham", "iata": "BHX", "icao": "EGBB", "lat": 52.4539, "lon": -1.7480, "elevation_ft": 341, "runways": "15/33", "area": "the West Midlands"},
+    {"name": "East Midlands", "iata": "EMA", "icao": "EGNX", "lat": 52.8311, "lon": -1.3281, "elevation_ft": 306, "runways": "09/27", "area": "Leicestershire"},
+    {"name": "Bristol", "iata": "BRS", "icao": "EGGD", "lat": 51.3827, "lon": -2.7191, "elevation_ft": 622, "runways": "09/27", "area": "North Somerset"},
+    {"name": "Edinburgh", "iata": "EDI", "icao": "EGPH", "lat": 55.9500, "lon": -3.3725, "elevation_ft": 135, "runways": "06/24", "area": "Edinburgh"},
+    {"name": "Glasgow", "iata": "GLA", "icao": "EGPF", "lat": 55.8719, "lon": -4.4331, "elevation_ft": 26, "runways": "05/23", "area": "Renfrewshire"},
+    {"name": "Newcastle", "iata": "NCL", "icao": "EGNT", "lat": 55.0375, "lon": -1.6917, "elevation_ft": 266, "runways": "07/25", "area": "Tyne and Wear"},
+    {"name": "Liverpool John Lennon", "iata": "LPL", "icao": "EGGP", "lat": 53.3336, "lon": -2.8497, "elevation_ft": 80, "runways": "09/27", "area": "Merseyside"},
+    {"name": "Leeds Bradford", "iata": "LBA", "icao": "EGNM", "lat": 53.8659, "lon": -1.6606, "elevation_ft": 681, "runways": "14/32", "area": "West Yorkshire"},
 )
 
 

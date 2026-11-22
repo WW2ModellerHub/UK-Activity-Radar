@@ -1,5 +1,33 @@
 # Codex stabilization changelog
 
+## 2026-11-22 — aircraft: "Landing", "Taking off", "On runway", never "0ft 122kt"
+
+- A plane on the runway at Birmingham showed "0ft 122kt" (EZY72GD, user
+  screenshot). Aircraft report barometric altitude, so on the ground it
+  reads about the airport's height, 0 ft or below, depending on the
+  weather, and some transponders still say airborne during the take-off or
+  landing roll. The label now says what the plane is doing: Parked (under
+  2 kt; live Heathrow reports show taxiing and pushback from 3 kt),
+  Taxiing 15kt, On runway 122kt, Landing 138kt or Taking off 131kt. Landing
+  or taking off is read from the vertical rate or the change since the
+  plane's last report (slowing and coming down, or speeding up and
+  climbing).
+- `/api/airports` carries each airport's published elevation, so near one
+  of the 13 airports the height above the airfield is used: a plane on
+  Birmingham's runway (341 ft) reads "On runway", not "300ft". The panel
+  names the airport ("is taking off from Birmingham Airport at 131
+  knots"). Helicopters are left out unless their transponder says on
+  ground, because they fly low and slow away from airports; below 100 ft
+  the label reads "Low" rather than a negative or zero altitude.
+- The in-app airport list uses the same words ("on the runway at 122 kt",
+  "landing at 135 kt", "parked") and files a plane landing or taking off
+  under Arriving or Leaving, not "On the ground". Checked against live
+  Heathrow traffic before release (BAW613 on the runway at 122 kt, TAP1361
+  taking off at 150 kt).
+- Test fixture: the Leaflet stub's markers now have `getElement()`, as
+  Leaflet's do, so tests exercise the in-place label update that runs on
+  every report.
+
 ## 2026-11-22 — aircraft: ATC-style data blocks, larger silhouettes
 
 - With the WebGL layer on, aircraft were plain circles with a small plane
