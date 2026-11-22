@@ -220,13 +220,13 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
     assert "/static/app.css?v=16374" in index
-    assert "/static/map-markers.css?v=16366" in index
-    assert "/static/app.js?v=16373" in index
+    assert "/static/map-markers.css?v=16377" in index
+    assert "/static/app.js?v=16377" in index
     assert "/static/motion-engine.js?v=15162" in index
     # The renderer loads through a file, not an inline script (blocked by CSP).
-    assert "/static/renderer-loader.js?v=16376" in index
+    assert "/static/renderer-loader.js?v=16377" in index
     loader = (ROOT / "app" / "static" / "renderer-loader.js").read_text(encoding="utf-8")
-    assert "/static/live-object-renderer.js?v=16376" in loader
+    assert "/static/live-object-renderer.js?v=16377" in loader
     # The v1.5 stylesheets were replaced by the flat redesign.
     for retired in ("styles.css", "refinements.css", "movement-history.css"):
         assert f"/static/{retired}" not in index
@@ -234,11 +234,11 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
         assert not (ROOT / "app" / "static" / retired).exists()
     assert "NETWORK_FIRST_ASSETS" in worker
     assert "/static/app.css?v=16374" in worker
-    assert "/static/map-markers.css?v=16366" in worker
-    assert "/static/app.js?v=16373" in worker
+    assert "/static/map-markers.css?v=16377" in worker
+    assert "/static/app.js?v=16377" in worker
     assert "/static/motion-engine.js?v=15162" in worker
-    assert "/static/live-object-renderer.js?v=16376" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r153" in worker
+    assert "/static/live-object-renderer.js?v=16377" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r154" in worker
 
 
 def test_sparse_reporting_interval_does_not_grey_live_trains():
