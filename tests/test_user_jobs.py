@@ -85,3 +85,28 @@ def test_camera_view_trains_carry_movement_and_freight(monkeypatch):
     assert set(rows) == {"nr:f", "nr:p"}                 # 4.4 km: within the camera view's 5 km
     assert rows["nr:f"]["freight"] is True and rows["nr:p"]["freight"] is False
     assert rows["nr:p"]["headcode"] == "1A23" and {"v_lat", "v_lon"} <= set(rows["nr:p"])
+
+
+def test_one_bad_train_record_does_not_fail_the_whole_list(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from fastapi.testclient import TestClient
+
+    import app.main as main
+    from app.models import Vehicle
+    from app.state import LiveState
+
+    state = LiveState()
+    now = datetime.now(timezone.utc)
+    state.upsert(Vehicle(id="nr:good", type="train", name="1A23", lat=52.01, lon=-1.0, source="Network Rail TRUST", last_updated=now))
+    bad = Vehicle(id="nr:bad", type="train", name="2B00", lat=52.02, lon=-1.0, source="Network Rail TRUST", last_updated=now,
+                  estimate_path=[[52.02, -1.0], [52.03, -1.0]], estimate_due_at=now + timedelta(minutes=2),
+                  estimate_started_at=(now - timedelta(minutes=1)).replace(tzinfo=None))   # naive: cannot be compared
+    state.upsert(bad)
+    monkeypatch.setattr(main, "state", state)
+    client = TestClient(main.app)
+    for path in ("/api/around", "/api/trains/near"):
+        response = client.get(path, params={"lat": 52.0, "lon": -1.0})
+        assert response.status_code == 200
+    assert [r["id"] for r in client.get("/api/trains/near", params={"lat": 52.0, "lon": -1.0}).json()["trains"]] == ["nr:good"]
+    assert "nr:bad" in client.get("/api/health/runtime", params={"detail": "true"}).json()["estimate_errors"]["last"]

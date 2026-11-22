@@ -814,6 +814,8 @@ def runtime_report(detail: bool = False) -> dict:
     }
     if detail:
         report["memory"] = _memory_breakdown()
+        if _runtime.get("estimate_errors"):
+            report["estimate_errors"] = {"count": _runtime["estimate_errors"], "last": _runtime.get("estimate_error")}
     return report
 
 
@@ -3073,6 +3075,21 @@ def _passenger_stations() -> list[dict]:
     return _passenger_stations_cache[1]
 
 
+def _train_position_now(vehicle, now: datetime) -> tuple[float, float] | None:
+    """Where a train is now, or None if its record cannot say.
+
+    One malformed record (a restored snapshot, a half-built estimate) must
+    not fail a whole request listing every train; the error is kept for
+    /api/health/runtime?detail=true so it can be fixed at the source.
+    """
+    try:
+        return _estimated_train_position(vehicle, now) or (float(vehicle.lat), float(vehicle.lon))
+    except Exception as error:  # noqa: BLE001 - reported, never raised
+        _runtime["estimate_errors"] = _runtime.get("estimate_errors", 0) + 1
+        _runtime["estimate_error"] = f"{type(error).__name__}: {error} ({getattr(vehicle, 'id', '?')})"[:300]
+        return None
+
+
 def _live_trains() -> list:
     return [row for row in state.all(include_buses=False, include_vessels=False, train_limit=None) if row.type == "train"]
 
@@ -3204,7 +3221,9 @@ def trains_near(request: Request, lat: float, lon: float, km: float = 5.0):
     now = datetime.now(timezone.utc)
     rows = []
     for vehicle in _live_trains():
-        position = _estimated_train_position(vehicle, now) or (float(vehicle.lat), float(vehicle.lon))
+        position = _train_position_now(vehicle, now)
+        if position is None:
+            continue
         distance = _haversine_km(lat, lon, position[0], position[1])
         if distance <= radius:
             rows.append({
@@ -3269,12 +3288,17 @@ def vehicles_around(request: Request, lat: float, lon: float):
     for vehicle in _live_trains():
         if vehicle.cancelled_at or vehicle.terminated_at:
             continue
-        position = _estimated_train_position(vehicle, now) or (float(vehicle.lat), float(vehicle.lon))
+        position = _train_position_now(vehicle, now)
+        if position is None:
+            continue
         distance = _haversine_km(lat, lon, position[0], position[1])
         if distance <= AROUND_TRAIN_KM:
             # Where the estimate puts it ten seconds on: the phone moves the
             # label along that line between refreshes instead of freezing it.
-            ahead = _estimated_train_position(vehicle, now + timedelta(seconds=10))
+            try:
+                ahead = _estimated_train_position(vehicle, now + timedelta(seconds=10))
+            except Exception:
+                ahead = None
             moving = ahead is not None and ahead != position
             head = str(vehicle.headcode or vehicle.name or "")
             rows.append({"id": vehicle.id, "type": "train", "name": vehicle.name, "headcode": vehicle.headcode,
