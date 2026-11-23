@@ -132,9 +132,11 @@ def runways_in_use(airport: dict, planes: list, wind: dict | None = None) -> dic
     elif wind and wind.get("direction") is not None and wind["speed_kt"] >= 5 and ends:
         # Into the wind: the runway whose heading is closest to where it blows from.
         best = min(ends, key=lambda end: (_angle(end["heading"], wind["direction"]), end["name"]))
-        heading = best["heading"]
-        names = sorted(end["name"] for end in ends if end["heading"] == heading)
-        result.update(landing="/".join(names), departing="/".join(names), basis="wind")
+        # Nearly across the runway, either direction is possible: say nothing.
+        if _angle(best["heading"], wind["direction"]) <= 60:
+            heading = best["heading"]
+            names = sorted(end["name"] for end in ends if end["heading"] == heading)
+            result.update(landing="/".join(names), departing="/".join(names), basis="wind")
     return result
 
 

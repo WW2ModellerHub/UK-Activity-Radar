@@ -79,3 +79,10 @@ def test_runways_api_and_airport_page_show_the_runways(monkeypatch):
     main._seo_page_cache.clear() if hasattr(main, "_seo_page_cache") else None
     page = client.get("/airport/birmingham-bhx").text
     assert "Runways now:" in page and "Using runway 15" in page
+
+
+def test_a_crosswind_does_not_guess_a_runway():
+    man = next(a for a in AIRPORTS if a["iata"] == "MAN")
+    # Live 23 Nov: wind from 150° at 7 kt, nearly across 05/23.
+    state = runways_in_use(man, [], parse_wind("EGCC 231920Z 15007KT"))
+    assert state["basis"] is None and summary(state) == "Wind from 150° at 7 kt"

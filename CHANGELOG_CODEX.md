@@ -8,7 +8,9 @@
   airport, at 60-220 kt, climbing or descending at 300 ft/min or more and
   within 25° of a runway heading; on parallel runways, the side of the
   centre the plane is on gives L or R. With no traffic to go on it says
-  which runway to expect from the wind (planes land into it). Wind comes
+  which runway to expect from the wind (planes land into it), but only
+  when the wind is within 60° of a runway: nearly across it (Manchester,
+  live, wind 150° on 05/23) either way is possible, so it says nothing. Wind comes
   from the latest METAR (aviationweather.gov), fetched for all 13 airports
   in one request every 10 minutes; a failed fetch keeps the last report.
 - New `/api/airports/{iata}/runways`. Tests never fetch METARs (conftest).
