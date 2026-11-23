@@ -195,3 +195,62 @@ test('a slightly late report holds the train instead of reversing it along the t
   expect(result.stillHeld.lon).toBeCloseTo(result.shown.lon, 6);
   expect(result.resumed.lon).toBeGreaterThan(result.shown.lon);
 });
+
+test('aircraft are shown between their two latest reports, a report-gap behind, never ahead', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const t0 = Date.now() - 20000;
+    const plane = (seconds, lon) => ({ id:'air-i', type:'aircraft', lat:52, lon, bearing:90, speed:360,
+      last_updated:new Date(t0 + seconds * 1000).toISOString() });
+    engine.present(plane(0, -1.0), t0 + 1000, false);
+    // Second report 10 s later, 0.1° east, seen as it arrives (the map runs
+    // every frame). Shown 8 s behind (the gap, capped at 8 s): at t0+17.5 s
+    // it is at t0+9.5 s, 95% of the way to the second report.
+    engine.present(plane(10, -0.9), t0 + 10500, false);
+    const halfway = engine.present(plane(10, -0.9), t0 + 17500, false);
+    const atNewest = engine.present(plane(10, -0.9), t0 + 20000 + 2500, false);
+    return { halfway: halfway.lon, atNewest: atNewest.lon };
+  });
+  expect(result.halfway).toBeCloseTo(-0.905, 4);
+  expect(result.atNewest).toBeGreaterThan(-0.91);       // reaching the newest report, plus a little projection
+  expect(result.atNewest).toBeLessThan(-0.85);
+});
+
+test('a new aircraft report is blended in over a few seconds instead of snapping', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const t0 = Date.now() - 60000;
+    const first = { id:'air-b', type:'aircraft', lat:52, lon:-1, bearing:90, speed:360, last_updated:new Date(t0).toISOString() };
+    const before = engine.present(first, t0 + 20000, false);              // projected 20 s east
+    // The next report shows it turned: it is well short of the projection.
+    const second = { ...first, lon:-0.99, bearing:0, last_updated:new Date(t0 + 20000).toISOString() };
+    const justAfter = engine.present(second, t0 + 20000, false);
+    const later = engine.present(second, t0 + 20000 + 3000, false);
+    const raw = engine.present(second, t0 + 20000 + 60000, false);
+    return { before: before.lon, justAfter: justAfter.lon, later: later.lon, rawLon: raw.lon };
+  });
+  expect(result.justAfter).toBeCloseTo(result.before, 4);             // no snap
+  // Settled: shown 8 s behind (the cap), between the two reports.
+  expect(result.later).toBeCloseTo(-1 + 0.01 * (15 / 20), 4);
+});
+
+test('a bus pulling in at a stop eases back to its report rather than snapping', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const t0 = Date.now() - 60000;
+    const moving = { id:'bus-s', type:'bus', lat:52, lon:-1, bearing:90, speed:10, last_updated:new Date(t0).toISOString() };
+    const before = engine.present(moving, t0 + 15000, false);             // projected 150 m east
+    const stopped = { ...moving, lon:-0.9995, speed:0, last_updated:new Date(t0 + 15000).toISOString() };
+    const justAfter = engine.present(stopped, t0 + 15000, false);
+    const settled = engine.present(stopped, t0 + 15000 + 3500, false);
+    return { before: before.lon, justAfter: justAfter.lon, settled: settled.lon };
+  });
+  expect(result.justAfter).toBeCloseTo(result.before, 5);
+  expect(result.settled).toBeCloseTo(-0.9995, 6);
+});

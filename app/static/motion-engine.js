@@ -192,64 +192,98 @@
       position_method:'estimated',position_label:`Estimated along the published railway path between confirmed reports • ${activity.position_label||''}`};
   }
 
+  // When a new report moves a vehicle's position, the jump is not shown:
+  // the difference is blended away over a few seconds, so nothing snaps back.
+  // A jump too big to be a correction (a reconnect) is taken at once.
+  const BLEND_MS={aircraft:2500,bus:3000};
+  const BLEND_MAX_KM={aircraft:8,bus:1};
+  function startBlend(state,raw,now,kind){
+    const from=state.displayed;
+    if(!from||!raw)return;
+    const gap=distanceKm(from.lat,from.lon,raw.lat,raw.lon);
+    if(gap<.001||gap>BLEND_MAX_KM[kind]){delete state.offset;return;}
+    state.offset={lat:from.lat-raw.lat,lon:from.lon-raw.lon};state.offsetStarted=now;
+  }
+  function blended(state,raw,now,kind){
+    if(!state.offset)return raw;
+    const progress=clamp((now-state.offsetStarted)/BLEND_MS[kind]);
+    if(progress>=1){delete state.offset;delete state.offsetStarted;return raw;}
+    const left=1-ease(progress);
+    return {lat:raw.lat+state.offset.lat*left,lon:raw.lon+state.offset.lon*left};
+  }
+
+  // Aircraft are shown a few seconds behind real time and moved between their
+  // two latest real reports, so they never overshoot and get pulled back:
+  // the "entity interpolation" games use, and what FlightAware's maps do. The
+  // delay is the plane's usual gap between reports, at most 8 s. Past its
+  // newest report a plane carries on along its track and speed for up to 22 s.
+  const AIRCRAFT_DELAY_MAX_MS=8000;
+  function aircraftReport(activity){
+    return {t:Date.parse(activity.last_updated||''),lat:Number(activity.lat),lon:Number(activity.lon),
+      speed:Number(activity.speed),bearing:Number(activity.bearing)};
+  }
+  function aircraftRaw(reports,serverNow){
+    const newest=reports[reports.length-1];
+    let delay=0;
+    if(reports.length>1){
+      const gaps=[];
+      for(let index=1;index<reports.length;index+=1)gaps.push(reports[index].t-reports[index-1].t);
+      gaps.sort((a,b)=>a-b);
+      delay=Math.min(AIRCRAFT_DELAY_MAX_MS,Math.max(0,gaps[Math.floor(gaps.length/2)]));
+    }
+    const at=serverNow-delay;
+    for(let index=reports.length-1;index>0;index-=1){
+      const a=reports[index-1],b=reports[index];
+      if(at>=a.t&&at<=b.t&&b.t>a.t){
+        const share=(at-a.t)/(b.t-a.t);
+        return {lat:a.lat+(b.lat-a.lat)*share,lon:a.lon+(b.lon-a.lon)*share};
+      }
+    }
+    if(at<reports[0].t)return {lat:reports[0].lat,lon:reports[0].lon};
+    const age=Math.min(22,(at-newest.t)/1000);
+    if(age>0&&Number.isFinite(newest.speed)&&Number.isFinite(newest.bearing)&&newest.speed>=5&&newest.speed<=800){
+      return projectPosition(newest.lat,newest.lon,newest.bearing,newest.speed*1.852*age/3600);
+    }
+    return {lat:newest.lat,lon:newest.lon};
+  }
   function aircraftPresentation(activity,now,reducedMotion){
     if(reducedMotion)return activity;
-    const updated=Date.parse(activity.last_updated||''),speed=Number(activity.speed),bearing=Number(activity.bearing);
-    const rawAge=(now+clockOffsetMs-updated)/1000;
-    if(!Number.isFinite(updated)||!Number.isFinite(speed)||!Number.isFinite(bearing)||rawAge<=0||speed<5||speed>800)return activity;
-    // Freeze at the end of the safe dead-reckoning window. The previous code
-    // jumped back to the old ADS-B coordinate as soon as 22 seconds elapsed.
-    const age=Math.min(22,rawAge);
-    const target=projectPosition(Number(activity.lat),Number(activity.lon),bearing,speed*1.852*age/3600);
-    const key=stateKey(activity);
-    const signature=`${activity.last_updated||''}|${activity.lat}|${activity.lon}|${bearing}|${speed}`;
+    const report=aircraftReport(activity);
+    if(!Number.isFinite(report.t)||!Number.isFinite(report.lat)||!Number.isFinite(report.lon))return activity;
+    const key=stateKey(activity),serverNow=now+clockOffsetMs;
     let state=motionStates.get(key);
-    if(!state||state.kind!=='aircraft'){
-      state=remember(key,{kind:'aircraft',signature,displayed:target},now);
-    }else if(state.signature!==signature){
-      const from=state.displayed||target;
-      state={kind:'aircraft',signature,displayed:from,from,
-        correctionStarted:now,correctionMs:Math.max(180,Math.min(900,180+distanceKm(from.lat,from.lon,target.lat,target.lon)*180))};
-      remember(key,state,now);
+    if(!state||state.kind!=='aircraft')state={kind:'aircraft',reports:[]};
+    const newest=state.reports[state.reports.length-1];
+    if(!newest||report.t>newest.t||(report.t===newest.t&&(report.lat!==newest.lat||report.lon!==newest.lon))){
+      if(newest&&report.t===newest.t)state.reports.pop();
+      state.reports.push(report);
+      if(state.reports.length>6)state.reports.shift();
+      startBlend(state,aircraftRaw(state.reports,serverNow),now,'aircraft');
     }
-    let displayed=target;
-    if(Number.isFinite(state.correctionStarted)){
-      const progress=clamp((now-state.correctionStarted)/state.correctionMs),amount=ease(progress);
-      displayed={lat:state.from.lat+(target.lat-state.from.lat)*amount,lon:state.from.lon+(target.lon-state.from.lon)*amount};
-      if(progress>=1){delete state.correctionStarted;delete state.correctionMs;delete state.from;}
-    }
+    const displayed=blended(state,aircraftRaw(state.reports,serverNow),now,'aircraft');
     state.displayed=displayed;remember(key,state,now);
-    return {...activity,...displayed,position_method:'estimated',position_label:`Live estimate from the latest ADS-B report • ${activity.position_label||''}`};
+    return {...activity,...displayed,position_method:'estimated',position_label:`Live estimate between ADS-B reports • ${activity.position_label||''}`};
   }
 
   function busPresentation(activity,now,reducedMotion){
     if(reducedMotion)return activity;
     const updated=Date.parse(activity.last_updated||''),speed=Number(activity.speed),bearing=Number(activity.bearing);
     const rawAge=(now+clockOffsetMs-updated)/1000;
-    // BODS publishes metres/second. Extrapolate only one short reporting
-    // interval, then hold: this removes the stop/jump effect without allowing
-    // a stale bus to wander indefinitely away from its reported road.
-    if(!Number.isFinite(updated)||!Number.isFinite(speed)||!Number.isFinite(bearing)||rawAge<=0||speed<.7||speed>45)return activity;
-    const age=Math.min(18,rawAge);
-    const target=projectPosition(Number(activity.lat),Number(activity.lon),bearing,speed*age/1000);
+    // BODS publishes metres/second. Buses report only every 10-30 s, too far
+    // apart to show them that far behind, so they carry on along their last
+    // heading for one reporting interval (18 s) and then hold.
+    if(!Number.isFinite(updated)||!Number.isFinite(Number(activity.lat))||!Number.isFinite(Number(activity.lon)))return activity;
+    // A bus stopped (at a stop, in traffic) stays at its report, but still
+    // through the blend: it eases back rather than snapping there.
+    const moving=Number.isFinite(speed)&&Number.isFinite(bearing)&&rawAge>0&&speed>=.7&&speed<=45;
+    const raw=moving?projectPosition(Number(activity.lat),Number(activity.lon),bearing,speed*Math.min(18,rawAge)/1000)
+      :{lat:Number(activity.lat),lon:Number(activity.lon)};
     const key=stateKey(activity);
     const signature=`${activity.last_updated||''}|${activity.lat}|${activity.lon}|${bearing}|${speed}`;
     let state=motionStates.get(key);
-    if(!state||state.kind!=='bus'){
-      state=remember(key,{kind:'bus',signature,displayed:target},now);
-    }else if(state.signature!==signature){
-      const from=state.displayed||target;
-      const gap=distanceKm(from.lat,from.lon,target.lat,target.lon);
-      state={kind:'bus',signature,displayed:gap>1?target:from,from:gap>1?null:from,
-        correctionStarted:gap>1?null:now,correctionMs:Math.max(300,Math.min(1400,300+gap*1200))};
-      remember(key,state,now);
-    }
-    let displayed=target;
-    if(state.from&&Number.isFinite(state.correctionStarted)){
-      const progress=clamp((now-state.correctionStarted)/state.correctionMs),amount=ease(progress);
-      displayed={lat:state.from.lat+(target.lat-state.from.lat)*amount,lon:state.from.lon+(target.lon-state.from.lon)*amount};
-      if(progress>=1){delete state.correctionStarted;delete state.correctionMs;delete state.from;}
-    }
+    if(!state||state.kind!=='bus')state={kind:'bus',signature};
+    else if(state.signature!==signature){state.signature=signature;startBlend(state,raw,now,'bus');}
+    const displayed=blended(state,raw,now,'bus');
     state.displayed=displayed;remember(key,state,now);
     return {...activity,...displayed,position_method:'estimated',position_label:`Live estimate from the latest BODS GPS report • ${activity.position_label||''}`};
   }

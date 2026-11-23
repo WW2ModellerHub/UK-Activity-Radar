@@ -417,7 +417,7 @@
     ['locomotive-move','rail','Special locomotive move','A special locomotive movement.','◆'],
   ].map(([subtype,category,title,explanation,icon])=>({id:`${category}-${subtype}`,key:subtype,category,subtype,title,explanation,icon,badge:title.toUpperCase(),safety_note:null}));
   let deferredInstallPrompt = null;
-  let pendingSocketPayload = null;
+  let pendingSocketPayloads = [];
   let socketRenderFrame = null;
   let secondaryRenderTimer = null;
   let secondaryRenderIdle = null;
@@ -2996,8 +2996,10 @@
     return filteredCacheRows;
   }
 
+  // To about a centimetre: at 60 frames a second a taxiing plane moves less
+  // than 10 cm a frame, and coarser rounding froze it for frames at a time.
   function markerPositionSignature(a) {
-    return `${Number(a.lat).toFixed(6)}|${Number(a.lon).toFixed(6)}`;
+    return `${Number(a.lat).toFixed(7)}|${Number(a.lon).toFixed(7)}`;
   }
 
   function trainCoincidentLayouts(rows) {
@@ -3193,22 +3195,94 @@
     element.querySelector('.aerial-map-marker')?.classList.toggle('is-stale',aircraftIsStale(activity));
   }
 
-  // Move a marker, gliding for normal steps but jumping straight there after
-  // a long gap (a reconnect or a return to the tab) rather than sliding a
-  // train across fields for a second.
+  // Place a moving marker. Markers are re-placed every animation frame (see
+  // animateLiveMarkers), so there is no CSS glide to start or cancel. Trains
+  // and buses live in a cluster group, which re-files a marker on every move
+  // (remove and re-add). From zoom 10 nothing clusters, so frames move the
+  // icon alone and the group is told once, when the map zooms back out.
+  const CLUSTER_FREE_ZOOM=10;
   function moveMarker(marker,lat,lon) {
+    placeMarker(marker,lat,lon);
+    // Leaflet rounds marker positions to whole pixels, so a slow plane ticked
+    // across the screen a pixel at a time. Place it exactly instead.
+    // (latLngToLayerPoint rounds too, so project without it.)
     const element=marker.getElement?.();
-    const from=marker.getLatLng?.();
-    if(element&&from&&typeof map.latLngToContainerPoint==='function'){
-      const a=map.latLngToContainerPoint(from),b=map.latLngToContainerPoint([lat,lon]);
-      if(a&&b&&Math.hypot(a.x-b.x,a.y-b.y)>160){
-        element.classList.add('no-glide');
-        marker.setLatLng([lat,lon]);
-        requestAnimationFrame(()=>requestAnimationFrame(()=>element.classList.remove('no-glide')));
-        return;
-      }
+    if(element&&typeof map.project==='function'&&typeof map.getPixelOrigin==='function'&&L.DomUtil?.setPosition){
+      L.DomUtil.setPosition(element,map.project(L.latLng(lat,lon)).subtract(map.getPixelOrigin()));
+    }
+  }
+  function placeMarker(marker,lat,lon) {
+    const group=marker.__activityGroup;
+    const clustered=group&&typeof group._moveChild==='function';
+    if(clustered&&(map.getZoom?.()??0)>=CLUSTER_FREE_ZOOM){
+      if(!marker.__treeLatLng)marker.__treeLatLng=marker.getLatLng?.();
+      group._ignoreMove=true;
+      try{marker.setLatLng([lat,lon]);}finally{group._ignoreMove=false;}
+      return;
+    }
+    if(clustered&&marker.__treeLatLng){
+      const from=marker.__treeLatLng;delete marker.__treeLatLng;
+      group._ignoreMove=true;
+      try{marker.setLatLng([lat,lon]);}finally{group._ignoreMove=false;}
+      group._moveChild(marker,from,L.latLng(lat,lon));
+      return;
     }
     marker.setLatLng([lat,lon]);
+  }
+  // Back below zoom 10: file the markers moved frame by frame under their
+  // real positions so clusters are right.
+  function resyncClusteredMarkers() {
+    if((map.getZoom?.()??0)>=CLUSTER_FREE_ZOOM)return;
+    for(const marker of markers.values()){
+      if(!marker.__treeLatLng)continue;
+      const here=marker.getLatLng();
+      moveMarker(marker,here.lat,here.lng);
+    }
+  }
+
+  // Trains, buses and aircraft are re-placed about 30 times a second (15 when
+  // there are very many), only those on screen, and only when they moved.
+  // This replaces a once-a-second step plus a one-second CSS slide.
+  const LIVE_MOTION_TYPES=new Set(['train','bus','aircraft','sar']);
+  // The loop stops when nothing moved for about a third of a second (or the
+  // tab is hidden), so an idle map costs no battery; the once-a-second tick
+  // starts it again.
+  let liveMotionLast=0,liveMotionLayouts=new Map(),liveMotionZooming=false,liveMotionRun=0,liveMotionIdle=0;
+  function startLiveMotion() {
+    if(liveMotionRun||document.hidden||reduceLiveMotion?.matches)return;
+    const run=liveMotionRun=performance.now()||1;liveMotionIdle=0;
+    requestAnimationFrame(timestamp=>animateLiveMarkers(timestamp,run));
+  }
+  function animateLiveMarkers(timestamp,run) {
+    if(run!==liveMotionRun)return;   // a stopped (or replaced) run
+    if(document.hidden||reduceLiveMotion?.matches){liveMotionRun=0;return;}
+    requestAnimationFrame(next=>animateLiveMarkers(next,run));
+    if(liveMotionZooming)return;
+    // Every frame for a normal map; fewer when there are very many markers.
+    if(timestamp-liveMotionLast<(markers.size>800?60:markers.size>250?30:0))return;
+    liveMotionLast=timestamp;
+    let moved=0;
+    const now=Date.now();
+    const bounds=typeof map.getBounds==='function'?map.getBounds()?.pad?.(0.2):null;
+    const clusterFree=(map.getZoom?.()??0)>=CLUSTER_FREE_ZOOM;
+    for(const [id,marker] of markers){
+      if(!LIVE_MOTION_TYPES.has(marker.__activityType))continue;
+      // Clustered trains and buses (zoomed out) keep the once-a-second step.
+      if(!clusterFree&&marker.__activityGroup===markerGroup)continue;
+      const here=marker.getLatLng?.();
+      if(bounds&&here&&!bounds.contains(here))continue;
+      const a=activityById(id);
+      if(!a)continue;
+      const display=withTrainCoincidentLayout(activityMapPresentation(a,now),liveMotionLayouts.get(id));
+      const signature=markerPositionSignature(display);
+      if(signature===marker.__positionSignature)continue;
+      moveMarker(marker,display.lat,display.lon);
+      marker.__positionSignature=signature;
+      diagnostics.markerMoves+=1;
+      moved+=1;
+    }
+    liveMotionIdle=moved?0:liveMotionIdle+1;
+    if(liveMotionIdle>10)liveMotionRun=0;
   }
 
   function syncMarkerVisual(marker,activity,visualSignature,force=false) {
@@ -3331,6 +3405,7 @@
     renderHeatmap();
     diagnostics.lastRenderMs = Math.round((performance.now() - startedAt) * 10) / 10;
     $('map').dataset.activityCount = String(rows.length);
+    startLiveMotion();
     $('map').dataset.lastRenderMs = String(diagnostics.lastRenderMs);
     if (selectedId && markers.has(selectedId) && focusMarker) {
       map.removeLayer(focusMarker); focusMarker=null;
@@ -3343,9 +3418,10 @@
     const rows=filteredActivities();
     const presentations=rows.map(row=>activityMapPresentation(row,now));
     const coincidentLayouts=trainCoincidentLayouts(presentations);
+    liveMotionLayouts=coincidentLayouts;
     for(let index=0;index<rows.length;index+=1){
       const a=rows[index];
-      if(!['train','bus'].includes(a.type)&&!(overheadActive&&['aircraft','sar'].includes(a.type)))continue;
+      if(!LIVE_MOTION_TYPES.has(a.type))continue;
       const display=withTrainCoincidentLayout(presentations[index],coincidentLayouts.get(a.id));
       if(selectedId===a.id&&a.type==='train')updateSelectedTrainRouteProgress(a,now);
       // Follow with a one-second linear pan that matches the marker's glide,
@@ -6035,13 +6111,17 @@
 
   function queueSocketPayload(payload) {
     diagnostics.receivedSnapshots += 1;
-    pendingSocketPayload = payload;
+    // A full snapshot replaces everything queued before it, but a delta only
+    // says what changed since the last message: dropping one lost a bus's
+    // move. Deltas are applied in order.
+    if (payload && payload.activity_delta) pendingSocketPayloads.push(payload);
+    else pendingSocketPayloads = [payload];
     if (socketRenderFrame !== null) return;
     const applyLatest = () => {
       socketRenderFrame = null;
-      const latest = pendingSocketPayload;
-      pendingSocketPayload = null;
-      if (latest) applySocketPayload(latest);
+      const batch = pendingSocketPayloads;
+      pendingSocketPayloads = [];
+      for (const latest of batch) if (latest) applySocketPayload(latest);
     };
     // requestAnimationFrame naturally drops intermediate snapshots when the
     // main thread is busy. A background tab uses a short timer because rAF is
@@ -7090,8 +7170,12 @@
   // UK overview remains visible when location is unavailable or declined.
   centreMapOnDeviceLocation({silent:true,startup:true});
   connect();
-  setInterval(refreshLiveMarkerPositions,1000);
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshLiveMarkerPositions();});
+  setInterval(()=>{refreshLiveMarkerPositions();startLiveMotion();},1000);
+  startLiveMotion();
+  // Leaflet animates the zoom itself; re-placing markers mid-zoom fights it.
+  map.on('zoomstart',()=>{liveMotionZooming=true;});
+  map.on('zoomend',()=>{liveMotionZooming=false;resyncClusteredMarkers();startLiveMotion();});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden){refreshLiveMarkerPositions();startLiveMotion();}});
 
   // These account/editorial requests do not affect the first map paint or
   // websocket connection. Start them in the browser's first idle slice.
