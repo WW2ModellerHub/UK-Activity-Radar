@@ -2581,6 +2581,39 @@ test('each aircraft carries an ATC-style data block: callsign, type, level, tren
   await expect(block('BAW123').locator('.aerial-map-marker')).not.toHaveClass(/is-stale/);
 });
 
+test('aircraft filter chips: all, military, helicopters, big and rare, low', async ({ page }) => {
+  await expect(page.locator('#aircraft-filter')).toBeHidden();
+  await page.locator('[data-layer-toggle="aircraft"]').click();
+  await expect(page.locator('#aircraft-filter')).toBeVisible();
+  await waitForViewportRequestsToSettle(page);
+  await page.evaluate(() => {
+    const first = window.__fixtureSnapshot.activities.find(row => row.id === 'aircraft-live-1');
+    const air = extra => ({ ...first, cool_category:null, cool_subtype:null, cool_score:0, cool_candidate:false, cool_badge:null, cool_theme:null, last_updated:new Date(Date.now()-3000).toISOString(), ...extra });
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[
+      air({ id:'f-typhoon', name:'TYPHOON1', aircraft_model:'Eurofighter Typhoon', aircraft_type_code:'EUFI', altitude_ft:18000, speed:420,
+            cool_category:'air', cool_subtype:'combat-aircraft', cool_score:100, cool_candidate:true, cool_badge:'FAST JET', cool_theme:'air' }),
+      air({ id:'f-a380', name:'BAW11', aircraft_model:'Airbus A380-800', aircraft_type_code:'A388', altitude_ft:36000, speed:480, lat:52.2,
+            cool_category:'air', cool_subtype:'rare-airliner', cool_score:82, cool_candidate:true, cool_badge:'SUPERJUMBO', cool_theme:'air' }),
+      air({ id:'f-heli', name:'HELI1', aircraft_model:'Airbus H135', aircraft_type_code:'EC35', altitude_ft:1500, speed:110, lat:52.4 }),
+      air({ id:'f-a320', name:'EZY1', aircraft_model:'Airbus A320', aircraft_type_code:'A320', altitude_ft:35000, speed:450, lat:52.6 }),
+    ] }) });
+  });
+  const shown = () => page.locator('.aerial-marker-wrap .ac-callsign');
+  await expect(shown()).toHaveCount(4);
+  const pick = async (label, names) => {
+    await page.locator('#aircraft-filter button', { hasText:label }).click();
+    await expect(page.locator('#aircraft-filter button', { hasText:label })).toHaveAttribute('aria-pressed', 'true');
+    await expect(shown()).toHaveText(names);
+  };
+  await pick('Military', ['TYPHOON1']);           // not the A380
+  await pick('Big and rare', ['BAW11']);
+  await pick('Helicopters', ['HELI1']);
+  await pick('Below 10,000 ft', ['HELI1']);
+  await page.locator('#aircraft-filter button', { hasText:'All' }).click();
+  await expect(shown()).toHaveCount(4);
+  expect((await shown().allTextContents()).sort()).toEqual(['BAW11', 'EZY1', 'HELI1', 'TYPHOON1']);
+});
+
 test('a plane on the runway says landing, taking off or on runway, never "0ft"', async ({ page }) => {
   await page.locator('[data-layer-toggle="aircraft"]').click();
   await waitForViewportRequestsToSettle(page);

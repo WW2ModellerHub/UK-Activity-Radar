@@ -1,5 +1,13 @@
 # Codex stabilization changelog
 
+## 2026-11-23 — aircraft filter chips
+
+- With the Aircraft layer on, chips under its toggle choose which aircraft
+  the map shows: All, Military, Helicopters, Big and rare, Below 10,000 ft.
+  Only planes are filtered; the choice is remembered on the device. The
+  old link-only views (?view=helicopters and so on) still work, and
+  "military" no longer includes the new big and rare airliners.
+
 ## 2026-11-23 — big and rare airliners: finds and spotter alerts
 
 - The background feed kept only military aircraft. It now also keeps the

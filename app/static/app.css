@@ -1484,3 +1484,5 @@ strong[data-plus].needs-plus::after,
 
 .brand-mark { background: none; overflow: hidden; }
 .brand-mark img { width: 34px; height: 34px; display: block; }
+
+.aircraft-filter{display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 10px 46px}.aircraft-filter[hidden]{display:none}.aircraft-filter button{min-height:32px;padding:4px 12px;border-radius:999px;border:1px solid var(--line,#d6dde6);background:var(--surface,#fff);color:inherit;font:inherit;font-size:13px;cursor:pointer}.aircraft-filter button[aria-pressed="true"]{background:var(--accent,#1463d8);border-color:var(--accent,#1463d8);color:#fff}
