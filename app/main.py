@@ -1806,8 +1806,50 @@ def airport_page_route(name: str, request: Request):
                 planes = adsb_sar_collector.fetch_nearby(airport["lat"], airport["lon"], RADIUS_NM)[0]
             except Exception:
                 planes = []
-        return airport_page(origin, airport, planes)
+        return airport_page(origin, airport, planes, _runway_summary(airport, planes))
     return _cached_page(f"airport:{airport['iata']}", 60, build)
+
+
+_metar_feed = None
+
+
+def _airport_runways(airport: dict, planes: list) -> dict:
+    """Runways in use from live planes, else from the wind in the latest METAR."""
+    global _metar_feed
+    from .airport_pages import AIRPORTS
+    from .airport_runways import MetarFeed, runways_in_use
+    if _metar_feed is None:
+        _metar_feed = MetarFeed()
+    report = _metar_feed.report(airport["icao"], [a["icao"] for a in AIRPORTS])
+    state = runways_in_use(airport, planes, report["wind"] if report else None)
+    state["metar"] = report["raw"] if report else None
+    return state
+
+
+def _runway_summary(airport: dict, planes: list) -> str | None:
+    from .airport_runways import summary
+    try:
+        return summary(_airport_runways(airport, planes))
+    except Exception:
+        return None
+
+
+@app.get("/api/airports/{iata}/runways")
+def airport_runways_api(iata: str):
+    """Runways in use and the wind at one airport, for the app's airport panel."""
+    from .airport_pages import AIRPORTS, RADIUS_NM
+    from .airport_runways import summary
+    airport = next((a for a in AIRPORTS if a["iata"] == iata.upper()), None)
+    if airport is None:
+        raise HTTPException(status_code=404, detail="Airport not found")
+    planes = []
+    if adsb_sar_collector is not None:
+        try:
+            planes = adsb_sar_collector.fetch_nearby(airport["lat"], airport["lon"], RADIUS_NM)[0]
+        except Exception:
+            planes = []
+    state = _airport_runways(airport, planes)
+    return JSONResponse({**state, "summary": summary(state)}, headers={"Cache-Control": "public, max-age=60"})
 
 
 @app.get("/railway-lines", include_in_schema=False)

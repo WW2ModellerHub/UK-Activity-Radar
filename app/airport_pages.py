@@ -89,7 +89,7 @@ def _row(row: dict, airport: dict) -> str:
         escape(route or "Route not published"), escape(height), row["miles"]))
 
 
-def airport_page(origin: str, airport: dict, planes: list) -> str:
+def airport_page(origin: str, airport: dict, planes: list, runways: str | None = None) -> str:
     groups = classify(airport, planes)
     name, code = airport["name"], airport["iata"]
     counts = {key: len(rows) for key, rows in groups.items()}
@@ -111,6 +111,7 @@ def airport_page(origin: str, airport: dict, planes: list) -> str:
     body = f"""<p class="eyebrow">Airport · {escape(code)} / {escape(airport['icao'])}</p>
 <h1>{escape(name)} Airport live aircraft</h1>
 <p class="lede">{escape(summary)}</p>
+{f'<p class="runways-now"><strong>Runways now:</strong> {escape(runways)}</p>' if runways else ''}
 <p><a class="button" href="/?airport={escape(code)}">See planes around {escape(name)} on the live map</a></p>
 {''.join(sections) if sections else '<p>No aircraft are being tracked near the airport right now.</p>'}
 {f'<p>Aircraft types seen now: {common}.</p>' if common else ''}

@@ -1426,6 +1426,7 @@ strong[data-plus].needs-plus::after,
 .airport-group{display:flex;justify-content:space-between;margin:12px 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted,#5f6b7a)}
 .airport-group span{font-weight:700;color:var(--text,#111)}
 .airport-panel-note{margin-top:10px;font-size:12px;color:var(--muted,#5f6b7a)}
+.airport-runways{margin:4px 0 12px;padding:10px 12px;border-radius:10px;background:var(--surface-2,#eef3f8);font-size:14px;line-height:1.4}.airport-runways strong{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted,#5f6b7a);margin-bottom:2px}
 
 /* Station board footer: one sentence, destinations, then Save + Station page. */
 .station-headline { margin: 0; font-weight: 700; font-size: 15px; }

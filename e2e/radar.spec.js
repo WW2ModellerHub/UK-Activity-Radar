@@ -2377,6 +2377,16 @@ test('the airport list says a plane is landing or on the runway, not "0 ft" or "
   await expect(page.locator('#detail-insight')).not.toContainText(/\b(300|500) ft\b/);
 });
 
+test('the airport panel says which runways are in use and the wind', async ({ page }) => {
+  await page.route('**/api/airports*', route => route.fulfill({ json:[{ name:'East Midlands', iata:'EMA', lat:52.8311, lon:-1.3281, elevation_ft:306, path:'/airport/east-midlands-ema' }] }));
+  await page.route('**/api/airports/EMA/runways', route => route.fulfill({ json:{ landing:'27', departing:'27', basis:'traffic', summary:'Using runway 27 · Wind from 250° at 12 kt' } }));
+  await page.route('**/api/aircraft/nearby**', route => route.fulfill({ json:{ source:'test', checked:0, radius_miles:50, activities:[] } }));
+  await page.locator('[data-layer-chip="aircraft"]').click();
+  await expect(page.locator('.airport-marker')).toHaveText('EMA');
+  await page.locator('.airport-marker').evaluate(el => el.closest('.leaflet-marker-icon, .airport-marker-wrap')?.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-insight .airport-runways')).toContainText('Using runway 27 · Wind from 250° at 12 kt');
+});
+
 test('an airport page link opens that airport in the app, not the default map', async ({ page }) => {
   await page.route('**/api/airports*', route => route.fulfill({ json:[{ name:'East Midlands', iata:'EMA', lat:52.83, lon:-1.33, path:'/airport/east-midlands-ema' }] }));
   await page.goto('/?airport=EMA');
