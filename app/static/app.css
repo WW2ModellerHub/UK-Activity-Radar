@@ -1485,4 +1485,15 @@ strong[data-plus].needs-plus::after,
 .brand-mark { background: none; overflow: hidden; }
 .brand-mark img { width: 34px; height: 34px; display: block; }
 
-.aircraft-filter{display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 10px 46px}.aircraft-filter[hidden]{display:none}.aircraft-filter button{min-height:32px;padding:4px 12px;border-radius:999px;border:1px solid var(--line,#d6dde6);background:var(--surface,#fff);color:inherit;font:inherit;font-size:13px;cursor:pointer}.aircraft-filter button[aria-pressed="true"]{background:var(--accent,#1463d8);border-color:var(--accent,#1463d8);color:#fff}
+.aircraft-drawer{position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:650;display:flex;align-items:center}
+.aircraft-drawer[hidden]{display:none}
+.aircraft-drawer-tab{writing-mode:vertical-rl;display:flex;align-items:center;gap:6px;padding:14px 8px;border:1px solid var(--line,#d6dde6);border-right:0;border-radius:12px 0 0 12px;background:var(--surface,#fff);color:inherit;font:inherit;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:pointer}
+.aircraft-drawer-tab .ico{width:16px;height:16px;transform:rotate(90deg)}
+.aircraft-drawer.is-filtering .aircraft-drawer-tab{background:var(--accent);border-color:var(--accent);color:var(--accent-ink,#fff)}
+.aircraft-drawer-body{width:0;overflow:hidden;transition:width .2s ease;background:var(--surface,#fff);box-shadow:0 2px 12px rgba(0,0,0,.16);border-radius:12px 0 0 12px}
+.aircraft-drawer.open .aircraft-drawer-body{width:190px}
+.aircraft-drawer-inner{width:190px;box-sizing:border-box;padding:12px;display:flex;flex-direction:column;gap:6px}
+.aircraft-drawer-inner strong{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted,#5f6b7a)}
+.aircraft-drawer-inner button{min-height:40px;padding:0 12px;text-align:left;border-radius:10px;border:1px solid var(--line,#d6dde6);background:var(--surface,#fff);color:inherit;font:inherit;font-size:14px;cursor:pointer}
+.aircraft-drawer-inner button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink,#fff)}
+@media (prefers-reduced-motion:reduce){.aircraft-drawer-body{transition:none}}

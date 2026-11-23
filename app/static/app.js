@@ -1380,14 +1380,26 @@
     else if(job==='camera')startCameraView('all');
   }));
 
-  function updateAircraftFilterUi() {
-    const box=$('aircraft-filter');
-    if(!box)return;
-    box.hidden=!enabledActivityTypes.has('aircraft');
-    box.querySelectorAll('[data-aircraft-filter]').forEach(chip=>chip.setAttribute('aria-pressed',String(chip.dataset.aircraftFilter===aircraftFilter)));
+  // A pull-out drawer on the right of the map: which aircraft to show.
+  const AIRCRAFT_FILTER_NAMES={military:'Military',helicopters:'Helicopters','big-rare':'Big and rare',low:'Below 10,000 ft'};
+  function setAircraftDrawer(open) {
+    $('aircraft-drawer')?.classList.toggle('open',open);
+    $('aircraft-drawer-tab')?.setAttribute('aria-expanded',String(open));
   }
-  document.querySelectorAll('[data-aircraft-filter]').forEach(chip=>chip.addEventListener('click',()=>{
-    aircraftFilter=chip.dataset.aircraftFilter||'';
+  function updateAircraftFilterUi() {
+    const drawer=$('aircraft-drawer');
+    if(!drawer)return;
+    drawer.hidden=!enabledActivityTypes.has('aircraft');
+    if(drawer.hidden)setAircraftDrawer(false);
+    drawer.classList.toggle('is-filtering',Boolean(aircraftFilter));
+    drawer.querySelectorAll('[data-aircraft-filter]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.aircraftFilter===aircraftFilter)));
+    const label=$('aircraft-drawer-label');
+    if(label)label.textContent=AIRCRAFT_FILTER_NAMES[aircraftFilter]||'Filter';
+  }
+  $('aircraft-drawer-tab')?.addEventListener('click',()=>setAircraftDrawer(!$('aircraft-drawer').classList.contains('open')));
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('aircraft-drawer')?.classList.contains('open'))setAircraftDrawer(false);});
+  document.querySelectorAll('[data-aircraft-filter]').forEach(button=>button.addEventListener('click',()=>{
+    aircraftFilter=button.dataset.aircraftFilter||'';
     try{localStorage.setItem('uk-radar-aircraft-filter',aircraftFilter);}catch{}
     updateAircraftFilterUi();
     renderMap();renderStats();renderRanking();
