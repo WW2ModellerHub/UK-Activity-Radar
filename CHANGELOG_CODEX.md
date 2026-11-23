@@ -1,5 +1,18 @@
 # Codex stabilization changelog
 
+## 2026-11-23 — airports: runways in use and the wind
+
+- Each airport (in-app panel and airport page) shows which runways are in
+  use, for example "Landing 27L, departing 27R · Wind from 250° at 12 kt".
+  It is read from live planes within 8 km, below 2,500 ft above the
+  airport, at 60-220 kt, climbing or descending at 300 ft/min or more and
+  within 25° of a runway heading; on parallel runways, the side of the
+  centre the plane is on gives L or R. With no traffic to go on it says
+  which runway to expect from the wind (planes land into it). Wind comes
+  from the latest METAR (aviationweather.gov), fetched for all 13 airports
+  in one request every 10 minutes; a failed fetch keeps the last report.
+- New `/api/airports/{iata}/runways`. Tests never fetch METARs (conftest).
+
 ## 2026-11-22 — aircraft: parked planes and tower transmitters left out
 
 - At a busy airport, parked planes (under 2 kt) and airport transmitters

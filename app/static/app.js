@@ -6569,9 +6569,24 @@
     Object.values(groups).forEach(rows=>rows.sort((x,y)=>x.km-y.km));
     return groups;
   }
+  // "Landing 27L, departing 27R · Wind from 250° at 12 kt", refreshed each minute.
+  const airportRunways=new Map();
+  function airportRunwayLine(airport){
+    const cached=airportRunways.get(airport.iata);
+    if(!cached||Date.now()-cached.at>60000){
+      airportRunways.set(airport.iata,{at:Date.now(),summary:cached?.summary||null});
+      fetch(`/api/airports/${encodeURIComponent(airport.iata)}/runways`).then(r=>r.ok?r.json():null).then(state=>{
+        if(!state)return;
+        airportRunways.set(airport.iata,{at:Date.now(),summary:state.summary||null});
+        if(airportOpen?.iata===airport.iata)renderAirportPanel(airport);
+      }).catch(()=>{});
+    }
+    return airportRunways.get(airport.iata)?.summary||null;
+  }
   function renderAirportPanel(airport){
     if(!overheadActive||nearbyState.source!=='airport'||nearbyState.label!==airport.iata)return;
     const g=airportGroups(airport);
+    const runwayLine=airportRunwayLine(airport);
     const row=({a,km})=>{
       // The same words as the map label: "landing at 122 kt", not "0 ft".
       const phase=aircraftGroundPhase(a);
@@ -6588,7 +6603,7 @@
     const html=[section('Arriving',g.arriving),section('Leaving',g.departing),section('On the ground',g.ground),section('Passing overhead',g.overhead)].join('')
       ||'<p class="transport-empty">No aircraft are being tracked near the airport right now. It refreshes every few seconds.</p>';
     const box=openInfoPanel(`${airport.name} Airport`,`${g.arriving.length} arriving · ${g.departing.length} leaving · ${g.ground.length} on the ground · ${g.overhead.length} overhead`,
-      `${html}<p class="airport-panel-note">From live aircraft tracking within ${AIRPORT_RADIUS_MILES} miles, not an official arrivals board. <a href="${esc(airport.path)}">Airport page</a></p>`);
+      `${runwayLine?`<p class="airport-runways"><strong>Runways now</strong> ${esc(runwayLine)}</p>`:''}${html}<p class="airport-panel-note">From live aircraft tracking within ${AIRPORT_RADIUS_MILES} miles, not an official arrivals board. <a href="${esc(airport.path)}">Airport page</a></p>`);
     box.querySelectorAll('[data-job-plane]').forEach(button=>button.addEventListener('click',()=>focusActivityById(button.dataset.jobPlane,map.getZoom())));
   }
   let airportOpen=null;
