@@ -1394,8 +1394,7 @@ test('a second row under the chips offers options for the layer switched on last
   await expect(page.locator('[data-bus-disruption="bods-sx:fixture-closure"]')).toContainText('Bus stop closed');
   await expect(page.locator('[data-bus-disruption="bods-sx:fixture-closure"]')).toContainText('Queens Road · Until 18:00');
   await page.locator('[data-layer-chip="aircraft"]').click();
-  await expect(row.locator('button.sub-chip:visible')).toHaveText(['Above me','Point at sky','Camera view']);
-  await expect(row.locator('#aircraft-filter')).toBeVisible();
+  await expect(row.locator('.sub-chip:visible')).toHaveText(['Above me','Point at sky','Camera view']);
   await page.locator('[data-layer-chip="incident"]').click();
   await expect(row.locator('.sub-chip:visible')).toHaveText(['My journey','Live traffic','Traffic cameras']);
   // Turning the latest layer off falls back to another one that is still on.
@@ -2582,10 +2581,13 @@ test('each aircraft carries an ATC-style data block: callsign, type, level, tren
   await expect(block('BAW123').locator('.aerial-map-marker')).not.toHaveClass(/is-stale/);
 });
 
-test('aircraft filter menu: all, military, helicopters, big and rare, low', async ({ page }) => {
-  await expect(page.locator('#aircraft-filter')).toBeHidden();
+test('aircraft filter drawer on the right: pulls out, filters, goes back in', async ({ page }) => {
+  await expect(page.locator('#aircraft-drawer')).toBeHidden();
   await page.locator('[data-layer-chip="aircraft"]').click();
-  await expect(page.locator('#aircraft-filter')).toBeVisible();
+  await expect(page.locator('#aircraft-drawer-tab')).toBeVisible();
+  await expect(page.locator('#aircraft-drawer-tab')).toHaveAttribute('aria-expanded', 'false');
+  await page.locator('#aircraft-drawer-tab').click();
+  await expect(page.locator('#aircraft-drawer-tab')).toHaveAttribute('aria-expanded', 'true');
   await waitForViewportRequestsToSettle(page);
   await page.evaluate(() => {
     const first = window.__fixtureSnapshot.activities.find(row => row.id === 'aircraft-live-1');
@@ -2602,16 +2604,21 @@ test('aircraft filter menu: all, military, helicopters, big and rare, low', asyn
   const shown = () => page.locator('.aerial-marker-wrap .ac-callsign');
   await expect(shown()).toHaveCount(4);
   const pick = async (label, names) => {
-    await page.locator('#aircraft-filter').selectOption({ label });
+    await page.locator('#aircraft-drawer button[data-aircraft-filter]', { hasText:label }).click();
     await expect(shown()).toHaveText(names);
   };
   await pick('Military', ['TYPHOON1']);           // not the A380
   await pick('Big and rare', ['BAW11']);
   await pick('Helicopters', ['HELI1']);
   await pick('Below 10,000 ft', ['HELI1']);
-  await page.locator('#aircraft-filter').selectOption({ label:'All aircraft' });
+  await expect(page.locator('#aircraft-drawer-label')).toHaveText('Below 10,000 ft');
+  await page.locator('#aircraft-drawer button[data-aircraft-filter]', { hasText:'All aircraft' }).click();
+  await expect(page.locator('#aircraft-drawer-label')).toHaveText('Filter');
   await expect(shown()).toHaveCount(4);
   expect((await shown().allTextContents()).sort()).toEqual(['BAW11', 'EZY1', 'HELI1', 'TYPHOON1']);
+  // It goes back in.
+  await page.locator('#aircraft-drawer-tab').click();
+  await expect(page.locator('#aircraft-drawer-tab')).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('a plane on the runway says landing, taking off or on runway, never "0ft"', async ({ page }) => {

@@ -1380,17 +1380,30 @@
     else if(job==='camera')startCameraView('all');
   }));
 
-  function updateAircraftFilterUi() {
-    const select=$('aircraft-filter');
-    if(select&&select.value!==aircraftFilter)select.value=aircraftFilter;
-    select?.classList.toggle('is-filtering',Boolean(aircraftFilter));
+  // A pull-out drawer on the right of the map: which aircraft to show.
+  const AIRCRAFT_FILTER_NAMES={military:'Military',helicopters:'Helicopters','big-rare':'Big and rare',low:'Below 10,000 ft'};
+  function setAircraftDrawer(open) {
+    $('aircraft-drawer')?.classList.toggle('open',open);
+    $('aircraft-drawer-tab')?.setAttribute('aria-expanded',String(open));
   }
-  $('aircraft-filter')?.addEventListener('change',event=>{
-    aircraftFilter=event.target.value||'';
+  function updateAircraftFilterUi() {
+    const drawer=$('aircraft-drawer');
+    if(!drawer)return;
+    drawer.hidden=!enabledActivityTypes.has('aircraft');
+    if(drawer.hidden)setAircraftDrawer(false);
+    drawer.classList.toggle('is-filtering',Boolean(aircraftFilter));
+    drawer.querySelectorAll('[data-aircraft-filter]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.aircraftFilter===aircraftFilter)));
+    const label=$('aircraft-drawer-label');
+    if(label)label.textContent=AIRCRAFT_FILTER_NAMES[aircraftFilter]||'Filter';
+  }
+  $('aircraft-drawer-tab')?.addEventListener('click',()=>setAircraftDrawer(!$('aircraft-drawer').classList.contains('open')));
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('aircraft-drawer')?.classList.contains('open'))setAircraftDrawer(false);});
+  document.querySelectorAll('[data-aircraft-filter]').forEach(button=>button.addEventListener('click',()=>{
+    aircraftFilter=button.dataset.aircraftFilter||'';
     try{localStorage.setItem('uk-radar-aircraft-filter',aircraftFilter);}catch{}
     updateAircraftFilterUi();
     renderMap();renderStats();renderRanking();
-  });
+  }));
 
   function updateLayerToggleUi() {
     updateAircraftFilterUi();
