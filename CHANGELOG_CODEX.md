@@ -1,5 +1,13 @@
 # Codex stabilization changelog
 
+## 2026-11-23 — aircraft filter moved to the map's aircraft row
+
+- The filter chips sat under the Aircraft switch in the side menu, which a
+  phone never shows. The filter is now a menu, first in the row of aircraft
+  buttons under the Aircraft chip (All aircraft, Military, Helicopters, Big
+  and rare, Below 10,000 ft), visible on phone and desktop; it turns blue
+  and names the filter while one is on.
+
 ## 2026-11-23 — aircraft filter chips
 
 - With the Aircraft layer on, chips under its toggle choose which aircraft

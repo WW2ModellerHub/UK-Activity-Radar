@@ -1381,17 +1381,16 @@
   }));
 
   function updateAircraftFilterUi() {
-    const box=$('aircraft-filter');
-    if(!box)return;
-    box.hidden=!enabledActivityTypes.has('aircraft');
-    box.querySelectorAll('[data-aircraft-filter]').forEach(chip=>chip.setAttribute('aria-pressed',String(chip.dataset.aircraftFilter===aircraftFilter)));
+    const select=$('aircraft-filter');
+    if(select&&select.value!==aircraftFilter)select.value=aircraftFilter;
+    select?.classList.toggle('is-filtering',Boolean(aircraftFilter));
   }
-  document.querySelectorAll('[data-aircraft-filter]').forEach(chip=>chip.addEventListener('click',()=>{
-    aircraftFilter=chip.dataset.aircraftFilter||'';
+  $('aircraft-filter')?.addEventListener('change',event=>{
+    aircraftFilter=event.target.value||'';
     try{localStorage.setItem('uk-radar-aircraft-filter',aircraftFilter);}catch{}
     updateAircraftFilterUi();
     renderMap();renderStats();renderRanking();
-  }));
+  });
 
   function updateLayerToggleUi() {
     updateAircraftFilterUi();
