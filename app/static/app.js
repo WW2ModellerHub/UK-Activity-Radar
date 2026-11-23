@@ -324,6 +324,10 @@
   // planes are filtered; trains, buses and the rest are untouched.
   let aircraftFilter = '';
   try { aircraftFilter = localStorage.getItem('uk-radar-aircraft-filter') || ''; } catch {}
+  // The rest of the Filter drawer: trains, buses, roads. Remembered per device.
+  let trainFilter = '', busFilter = '', roadFilter = '';
+  try { ({train:trainFilter='',bus:busFilter='',road:roadFilter=''} = JSON.parse(localStorage.getItem('uk-radar-map-filters') || '{}')); } catch {}
+  if (trainFilter === 'late') lateTrainsOnly = true;
   let operatorOptionsSignature = '';
   let trackedActivityId = null;
   const usefulActivityTypeOrder = ['train','bus','aircraft','road','roadfeature','incident','weather','flood'];
@@ -1380,30 +1384,69 @@
     else if(job==='camera')startCameraView('all');
   }));
 
-  // A pull-out drawer on the right of the map: which aircraft to show.
-  const AIRCRAFT_FILTER_NAMES={military:'Military',helicopters:'Helicopters','big-rare':'Big and rare',low:'Below 10,000 ft'};
+  // A pull-out Filter drawer on the right of the map, with a section for
+  // each layer that is on.
+  const FILTER_NAMES={military:'Military',helicopters:'Helicopters','big-rare':'Big and rare',low:'Below 10,000 ft',
+    passenger:'Passenger trains',freight:'Freight',late:'Late trains',cancelled:'Cancelled',coaches:'Coaches',now:'Closures now'};
   function setAircraftDrawer(open) {
     $('aircraft-drawer')?.classList.toggle('open',open);
     $('aircraft-drawer-tab')?.setAttribute('aria-expanded',String(open));
   }
+  function saveMapFilters() {
+    try{
+      localStorage.setItem('uk-radar-aircraft-filter',aircraftFilter);
+      localStorage.setItem('uk-radar-map-filters',JSON.stringify({train:trainFilter,bus:busFilter,road:roadFilter}));
+    }catch{}
+  }
   function updateAircraftFilterUi() {
     const drawer=$('aircraft-drawer');
     if(!drawer)return;
-    drawer.hidden=!enabledActivityTypes.has('aircraft');
+    const on=type=>enabledActivityTypes.has(type);
+    const sections={train:on('train'),bus:on('bus'),operator:on('train')||on('bus'),road:on('road')||on('incident'),aircraft:on('aircraft')};
+    drawer.hidden=!Object.values(sections).some(Boolean);
     if(drawer.hidden)setAircraftDrawer(false);
-    drawer.classList.toggle('is-filtering',Boolean(aircraftFilter));
+    if(sections.operator)fillDrawerOperators();
+    drawer.querySelectorAll('[data-filter-section]').forEach(section=>{section.hidden=!sections[section.dataset.filterSection];});
+    const value={train:trainFilter,bus:busFilter,road:roadFilter};
+    drawer.querySelectorAll('[data-map-filter]').forEach(button=>{
+      const [group,choice]=button.dataset.mapFilter.split(':');
+      button.setAttribute('aria-pressed',String(value[group]===choice));
+    });
     drawer.querySelectorAll('[data-aircraft-filter]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.aircraftFilter===aircraftFilter)));
+    // Only filters on a visible layer count.
+    const active=[sections.aircraft&&aircraftFilter,sections.train&&trainFilter,sections.bus&&busFilter,sections.road&&roadFilter].filter(Boolean);
+    const operator=sections.operator&&selectedOperator!=='all'?selectedOperator:null;
+    const count=active.length+(operator?1:0);
+    drawer.classList.toggle('is-filtering',count>0);
     const label=$('aircraft-drawer-label');
-    if(label)label.textContent=AIRCRAFT_FILTER_NAMES[aircraftFilter]||'Filter';
+    if(label)label.textContent=count===0?'Filter':count>1?`${count} filters`:(operator||FILTER_NAMES[active[0]]||'Filter');
+  }
+  function applyMapFilters() {
+    filteredCacheKey='';
+    saveMapFilters();
+    updateAircraftFilterUi();
+    updateSubChips();
+    renderMap();renderStats();renderRanking();
   }
   $('aircraft-drawer-tab')?.addEventListener('click',()=>setAircraftDrawer(!$('aircraft-drawer').classList.contains('open')));
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('aircraft-drawer')?.classList.contains('open'))setAircraftDrawer(false);});
   document.querySelectorAll('[data-aircraft-filter]').forEach(button=>button.addEventListener('click',()=>{
     aircraftFilter=button.dataset.aircraftFilter||'';
-    try{localStorage.setItem('uk-radar-aircraft-filter',aircraftFilter);}catch{}
-    updateAircraftFilterUi();
-    renderMap();renderStats();renderRanking();
+    applyMapFilters();
   }));
+  document.querySelectorAll('[data-map-filter]').forEach(button=>button.addEventListener('click',()=>{
+    const [group,choice]=button.dataset.mapFilter.split(':');
+    if(group==='train'){trainFilter=choice;lateTrainsOnly=choice==='late';}
+    if(group==='bus')busFilter=choice;
+    if(group==='road')roadFilter=choice;
+    applyMapFilters();
+  }));
+  $('drawer-operator')?.addEventListener('change',event=>{
+    const main=$('operator-filter');
+    if(main){main.value=event.target.value;main.dispatchEvent(new Event('change'));}
+    else{selectedOperator=event.target.value||'all';filteredCacheKey='';renderMap();}
+    updateAircraftFilterUi();
+  });
 
   function updateLayerToggleUi() {
     updateAircraftFilterUi();
@@ -1423,7 +1466,7 @@
     const wantRailLines = enabledActivityTypes.has('train');
     if (wantRailLines !== railLines.wanted) { railLines.wanted = wantRailLines; updateRailLines(); }
     if (!wantRailLines && railView.delaysOn) setDelayHotspots(false);
-    if (!wantRailLines && lateTrainsOnly) lateTrainsOnly = false;
+    if (!wantRailLines && lateTrainsOnly) { lateTrainsOnly = false; if (trainFilter === 'late') { trainFilter = ''; saveMapFilters(); } }
     updateSubChips();
     if((enabledActivityTypes.has('weather')&&rainRadar.wanted)!==Boolean(rainRadar.refresh))syncRainRadar();
     syncBaseMap();
@@ -1750,6 +1793,21 @@
     if(signature===operatorOptionsSignature)return;
     operatorOptionsSignature=signature;
     select.innerHTML='<option value="all">All operators</option>'+names.map(name=>`<option value="${esc(name)}">${esc(name)}</option>`).join('');
+    select.value=selectedOperator;
+  }
+
+  // The drawer lists operators of the trains and buses switched on.
+  let drawerOperatorSignature='';
+  function fillDrawerOperators() {
+    const select=$('drawer-operator');
+    if(!select)return;
+    const shown=[...new Set(activities.filter(a=>['train','bus'].includes(a.type)&&enabledActivityTypes.has(a.type)).map(activityOperatorName).filter(Boolean))]
+      .sort((a,b)=>a.localeCompare(b,'en-GB',{sensitivity:'base'}));
+    if(selectedOperator!=='all'&&!shown.includes(selectedOperator))shown.unshift(selectedOperator);
+    const signature=`${selectedOperator}|${shown.join('|')}`;
+    if(signature===drawerOperatorSignature)return;
+    drawerOperatorSignature=signature;
+    select.innerHTML='<option value="all">All operators</option>'+shown.map(name=>`<option value="${esc(name)}">${esc(name)}</option>`).join('');
     select.value=selectedOperator;
   }
 
@@ -2752,6 +2810,22 @@
     return true;
   }
 
+  function matchesMapFilters(a) {
+    if(!matchesAircraftFilter(a))return false;
+    if(a?.type==='train'){
+      if(trainFilter==='passenger'&&isFreightTrain(a))return false;
+      if(trainFilter==='freight'&&!isFreightTrain(a))return false;
+      if(trainFilter==='cancelled'&&!a.cancelled_at)return false;
+    }
+    // Coaches arrive named for their operator ("National Express 420"), buses as "Bus 7".
+    if(a?.type==='bus'&&busFilter==='coaches'&&/^bus\b/i.test(String(a.name||'')))return false;
+    if(['road','incident'].includes(a?.type)&&roadFilter==='now'){
+      const impact=a.impact||{};
+      if(!(impact.active&&(impact.rank||0)>=2))return false;
+    }
+    return true;
+  }
+
   function matchesAircraftLandingView(a) {
     if(!aircraftLandingView)return true;
     if(!['aircraft','sar'].includes(a?.type))return false;
@@ -2833,6 +2907,7 @@
     activityRevision += 1;
     filteredCacheKey = '';
     updateOperatorFilterOptions();
+    if (!$('aircraft-drawer')?.hidden) fillDrawerOperators();
   }
 
   function activityById(id) {
@@ -2901,6 +2976,7 @@
       selectedOperator,
       aircraftLandingView,
       aircraftFilter,
+      trainFilter, busFilter, roadFilter,
       [...enabledActivityTypes].sort().join(','),
       lateTrainsOnly,
     ].join('|');
@@ -2908,7 +2984,7 @@
     const source=currentWorkspace==='cool'&&globalCoolActivities.length ? globalCoolRows() : activities;
     filteredCacheRows = source.filter(a => {
       if (aircraftNotWorthShowing(a)) return false;
-      if (!matchesAircraftFilter(a)) return false;
+      if (!matchesMapFilters(a)) return false;
       if (!layerTypeMatch(a, selectedType)) return false;
       if (!operatorMatches(a)) return false;
       if (!inNearby(a)) return false;
@@ -6781,6 +6857,8 @@
   }));
   document.querySelectorAll('[data-late-only]').forEach(chip=>chip.addEventListener('click',()=>{
     lateTrainsOnly=!lateTrainsOnly;
+    trainFilter=lateTrainsOnly?'late':(trainFilter==='late'?'':trainFilter);
+    saveMapFilters();updateAircraftFilterUi();
     trackProduct('sub_chip',lateTrainsOnly?'late-only-on':'late-only-off');
     updateSubChips();
     renderMap(); renderStats(); renderRanking();

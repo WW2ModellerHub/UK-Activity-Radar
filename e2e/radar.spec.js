@@ -2621,6 +2621,54 @@ test('aircraft filter drawer on the right: pulls out, filters, goes back in', as
   await expect(page.locator('#aircraft-drawer-tab')).toHaveAttribute('aria-expanded', 'false');
 });
 
+test('the Filter drawer also filters trains, buses, roads and operators', async ({ page }) => {
+  for (const layer of ['train', 'bus', 'road']) {
+    const chip = page.locator(`[data-layer-chip="${layer}"]`);
+    if ((await chip.getAttribute('aria-pressed')) !== 'true') await chip.click();
+  }
+  await waitForViewportRequestsToSettle(page);
+  await page.evaluate(() => {
+    const base = window.__fixtureSnapshot.activities;
+    const train = base.find(row => row.id === 'train-live-1'), bus = base.find(row => row.id === 'bus-live-7');
+    const now = new Date(Date.now() - 3000).toISOString();
+    const t = extra => ({ ...train, cool_subtype:null, cancelled_at:null, delay_minutes:0, last_updated:now, ...extra });
+    const b = extra => ({ ...bus, last_updated:now, ...extra });
+    const road = extra => ({ kind:'event', type:'road', name:'Roadworks', lat:52.1, lon:-0.8, last_updated:now, ...extra });
+    window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[
+      t({ id:'tr-pass', name:'1A23', headcode:'1A23', operator:'Avanti West Coast', lat:52.05 }),
+      t({ id:'tr-late', name:'1B45', headcode:'1B45', operator:'CrossCountry', delay_minutes:12, lat:52.10 }),
+      t({ id:'tr-cxl', name:'2C67', headcode:'2C67', operator:'CrossCountry', cancelled_at:now, lat:52.15 }),
+      t({ id:'tr-frt', name:'6M87', headcode:'6M87', operator:'Freightliner', cool_subtype:'freight', lat:52.20 }),
+      b({ id:'bus-1', name:'Bus 7', operator:'Arriva Midlands', lat:52.03 }),
+      b({ id:'coach-1', name:'National Express 420', operator:'National Express', lat:52.07 }),
+      road({ id:'rd-closed', impact:{ active:true, rank:3, what:'closure' } }),
+      road({ id:'rd-later', impact:{ active:false, rank:1, what:'roadworks' }, lat:52.2 }),
+    ] }) });
+  });
+  const count = () => page.locator('#map').getAttribute('data-activity-count');
+  await expect.poll(count).toBe('8');
+  await page.locator('#aircraft-drawer-tab').click();
+  const pick = async (label, expected) => {
+    await page.locator('#aircraft-drawer button[data-map-filter]', { hasText:label }).click();
+    await expect.poll(count).toBe(expected);
+  };
+  await pick('Freight', '5');                       // 1 freight + 2 buses + 2 roads
+  await expect(page.locator('#aircraft-drawer-label')).toHaveText('Freight');
+  await pick('Cancelled', '5');
+  await pick('Late (5 min or more)', '6');          // late and cancelled
+  await expect(page.locator('[data-late-only]')).toHaveAttribute('aria-pressed', 'true');
+  await pick('Passenger', '7');                     // three passenger trains
+  await pick('Coaches only', '6');
+  await pick('Closures and delays now', '5');
+  await expect(page.locator('#aircraft-drawer-label')).toHaveText('3 filters');
+  await page.locator('#drawer-operator').selectOption('CrossCountry');
+  await expect.poll(count).toBe('2');               // operator applies to everything
+  await page.locator('#drawer-operator').selectOption('all');
+  for (const label of ['All trains', 'All buses', 'All roadworks and incidents']) await page.locator('#aircraft-drawer button[data-map-filter]', { hasText:label }).click();
+  await expect.poll(count).toBe('8');
+  await expect(page.locator('#aircraft-drawer-label')).toHaveText('Filter');
+});
+
 test('a plane on the runway says landing, taking off or on runway, never "0ft"', async ({ page }) => {
   await page.locator('[data-layer-toggle="aircraft"]').click();
   await waitForViewportRequestsToSettle(page);
