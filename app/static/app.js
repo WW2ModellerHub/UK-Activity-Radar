@@ -320,6 +320,10 @@
   let selectedRailSubtype = 'all';
   let selectedOperator = 'all';
   let aircraftLandingView = '';
+  // Which aircraft to show, from the chips under the Aircraft toggle. Only
+  // planes are filtered; trains, buses and the rest are untouched.
+  let aircraftFilter = '';
+  try { aircraftFilter = localStorage.getItem('uk-radar-aircraft-filter') || ''; } catch {}
   let operatorOptionsSignature = '';
   let trackedActivityId = null;
   const usefulActivityTypeOrder = ['train','bus','aircraft','road','roadfeature','incident','weather','flood'];
@@ -1376,7 +1380,21 @@
     else if(job==='camera')startCameraView('all');
   }));
 
+  function updateAircraftFilterUi() {
+    const box=$('aircraft-filter');
+    if(!box)return;
+    box.hidden=!enabledActivityTypes.has('aircraft');
+    box.querySelectorAll('[data-aircraft-filter]').forEach(chip=>chip.setAttribute('aria-pressed',String(chip.dataset.aircraftFilter===aircraftFilter)));
+  }
+  document.querySelectorAll('[data-aircraft-filter]').forEach(chip=>chip.addEventListener('click',()=>{
+    aircraftFilter=chip.dataset.aircraftFilter||'';
+    try{localStorage.setItem('uk-radar-aircraft-filter',aircraftFilter);}catch{}
+    updateAircraftFilterUi();
+    renderMap();renderStats();renderRanking();
+  }));
+
   function updateLayerToggleUi() {
+    updateAircraftFilterUi();
     document.querySelectorAll('[data-layer-chip]').forEach(chip => {
       chip.setAttribute('aria-pressed', String(enabledActivityTypes.has(chip.dataset.layerChip)));
     });
@@ -2706,6 +2724,22 @@
       || /(?:rescue|lifeboat|coastguard|ambulance|hems)/i.test(`${subtype} ${badge}`);
   }
 
+  function aircraftIsMilitary(a) {
+    const classified=coolInfo(a);
+    return a.type==='aircraft'&&classified.candidate&&classified.theme==='air'&&classified.subtype!=='rare-airliner';
+  }
+  function matchesAircraftFilter(a) {
+    if(!aircraftFilter||!['aircraft','sar'].includes(a?.type))return true;
+    if(aircraftFilter==='military')return aircraftIsMilitary(a);
+    if(aircraftFilter==='helicopters')return aircraftMapShape(a).rotorcraft;
+    if(aircraftFilter==='big-rare')return coolInfo(a).subtype==='rare-airliner';
+    if(aircraftFilter==='low'){
+      const alt=aircraftNumber(a.altitude_ft);
+      return /on ground/i.test(String(a.status||''))||(Number.isFinite(alt)&&alt<10000);
+    }
+    return true;
+  }
+
   function matchesAircraftLandingView(a) {
     if(!aircraftLandingView)return true;
     if(!['aircraft','sar'].includes(a?.type))return false;
@@ -2715,10 +2749,7 @@
     if(aircraftLandingView==='helicopters')return helicopter;
     if(aircraftLandingView==='police-helicopters')return helicopter&&/(?:\bNPAS\b|POLICE|POLICE AIR|UKP\d|G-POL)/.test(text);
     if(aircraftLandingView==='air-ambulances')return helicopter&&/(?:HELIMED|AIR ?AMB|AMBULANCE|\bHEMS\b|MEDIC)/.test(text);
-    if(aircraftLandingView==='military-aircraft'){
-      const classified=coolInfo(a);
-      return a.type==='aircraft'&&classified.candidate&&classified.theme==='air';
-    }
+    if(aircraftLandingView==='military-aircraft')return aircraftIsMilitary(a);
     return true;
   }
 
@@ -2857,6 +2888,7 @@
       nearbyKey,
       selectedOperator,
       aircraftLandingView,
+      aircraftFilter,
       [...enabledActivityTypes].sort().join(','),
       lateTrainsOnly,
     ].join('|');
@@ -2864,6 +2896,7 @@
     const source=currentWorkspace==='cool'&&globalCoolActivities.length ? globalCoolRows() : activities;
     filteredCacheRows = source.filter(a => {
       if (aircraftNotWorthShowing(a)) return false;
+      if (!matchesAircraftFilter(a)) return false;
       if (!layerTypeMatch(a, selectedType)) return false;
       if (!operatorMatches(a)) return false;
       if (!inNearby(a)) return false;
