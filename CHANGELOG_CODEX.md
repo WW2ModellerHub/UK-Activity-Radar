@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## 2026-11-23 — the Filter drawer covers trains, buses, roads and operators
+
+- The right-hand Filter drawer now has a section for each layer that is on:
+  Trains (all, passenger, freight, late 5 min or more, cancelled), Buses
+  (all, coaches only), Operator (the operators of the trains and buses on
+  the map), Roads (all, or closures and delays now) and Aircraft. The tab
+  names the filter, or says "3 filters". "Late" is the same as the Late
+  only chip. The operator filter was only in the side menu, which a phone
+  never shows. The drawer sits under the chip rows and scrolls when long.
+  Checked on a phone against live data: 140 items, Freight 39, 13
+  operators.
+
 ## 2026-11-23 — aircraft filter: a pull-out drawer on the right of the map
 
 - The filter chips sat under the Aircraft switch in the side menu, which a
