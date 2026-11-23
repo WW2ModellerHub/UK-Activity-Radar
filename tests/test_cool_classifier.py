@@ -170,3 +170,32 @@ def test_discover_shows_each_unusual_train_once_even_when_several_feeds_report_i
     rows = [train("td:NE:3Q56", 12), plane, train("td:NM:3Q56", 3), train("nr:573Q56CZ16", 1), train("td:MZ:1Q15", 2, "1Q15")]
     # The main feed's record is kept, in its place in the order; other trains and planes untouched.
     assert [row.id for row in one_per_train(rows)] == [plane.id, "nr:573Q56CZ16", "td:MZ:1Q15"]
+
+
+def test_big_and_rare_airliners_are_finds_and_spotter_alerts():
+    from datetime import datetime, timezone
+    from app.commute_alerts import normalise_spotter, spotter_alert
+    from app.models import Vehicle
+    from app.cool_classifier import classify_activity
+    from app.collectors.adsb_lol import _is_interesting_aircraft
+
+    def plane(code, model, name="UAE1"):
+        return Vehicle(id=f"aircraft:{code}", type="aircraft", name=name, lat=51.47, lon=-0.45,
+                       aircraft_type_code=code, aircraft_model=model, interesting=True, source="test")
+
+    a380 = classify_activity(plane("A388", "Airbus A380-800"))
+    assert (a380.subtype, a380.badge, a380.candidate) == ("rare-airliner", "SUPERJUMBO", True)
+    assert classify_activity(plane("A3ST", "Airbus Beluga")).badge == "BELUGA"
+    assert classify_activity(plane("B748", "Boeing 747-8")).badge == "JUMBO"
+    # The feed keeps them; an ordinary A320 is still left out.
+    assert _is_interesting_aircraft({"t": "A388", "flight": "UAE1"})
+    assert not _is_interesting_aircraft({"t": "A320", "flight": "EZY1"})
+    # An opt-in spotter alert, not part of "military".
+    item = plane("A388", "Airbus A380-800")
+    found = classify_activity(item)
+    item.cool_candidate, item.cool_category, item.cool_subtype, item.cool_explanation = True, "air", found.subtype, found.explanation
+    noon = datetime(2026, 11, 23, 12, 0, tzinfo=timezone.utc)
+    heavy = normalise_spotter({"lat": 51.47, "lon": -0.45, "radius_miles": 10, "kinds": ["heavy"]})
+    military = normalise_spotter({"lat": 51.47, "lon": -0.45, "radius_miles": 10, "kinds": ["military"]})
+    assert spotter_alert(item, heavy, now=noon)["title"].startswith("Airbus A380-800")
+    assert spotter_alert(item, military, now=noon) is None

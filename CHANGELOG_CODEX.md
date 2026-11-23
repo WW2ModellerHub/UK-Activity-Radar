@@ -1,5 +1,16 @@
 # Codex stabilization changelog
 
+## 2026-11-23 — big and rare airliners: finds and spotter alerts
+
+- The background feed kept only military aircraft. It now also keeps the
+  big and rare airliners spotters travel for: A380, 747s, Dreamlifter,
+  An-124, Belugas, Il-76, 777-9, A340s and MD-11 (by ICAO designator).
+  They are classified as "Big or rare airliner" with a line on what each
+  is ("Airbus A380 superjumbo, the world's largest airliner."), appear in
+  Discover and the Field Guide, and are a new spotter alert choice, "Big
+  and rare planes". It is off unless ticked: near Heathrow an A380 passes
+  every hour.
+
 ## 2026-11-23 — airports: runways in use and the wind
 
 - Each airport (in-app panel and airport page) shows which runways are in

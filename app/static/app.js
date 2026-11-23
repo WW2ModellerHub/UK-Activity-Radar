@@ -400,6 +400,7 @@
     ['military-helicopter','air','Military helicopter','Identified operational military helicopter.','▲'],
     ['military-transport','air','Military airlifter','Identified military transport aircraft.','▲'],
     ['jet-trainer','air','Jet trainer','Identified fast-jet trainer, such as the RAF Hawk.','▲'],
+    ['rare-airliner','air','Big or rare airliner','An A380, 747, Beluga, An-124 or another big or rare airliner.','▲'],
     ['steam','rail','Steam movement','A live steam-hauled railway movement.','♨'],
     ['railtour-special','rail','Railtour','A charter or special passenger movement.','◆'],
     ['test-measurement','rail','Measurement train','A railway test or measurement movement.','◇'],

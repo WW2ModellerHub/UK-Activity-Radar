@@ -56,6 +56,19 @@ _TRAINER = re.compile(
 # Fast-jet trainers (the RAF Hawk, also the Red Arrows' aircraft) are worth
 # seeing; small propeller trainers (Tutor, Prefect, Juno) are everyday.
 _JET_TRAINER = re.compile(r"\b(?:HAWK|GOSHAWK|T[- ]?45|M[- ]?346|ALPHA\s*JET)\b")
+# Big and rare airliners, by ICAO designator or name: what each one is.
+_RARE_AIRLINERS = (
+    (re.compile(r"\b(?:A388|A380)\b"), "Airbus A380 superjumbo, the world's largest airliner.", "SUPERJUMBO"),
+    (re.compile(r"\b(?:BLCF|DREAMLIFTER)\b"), "Boeing Dreamlifter, the swollen 747 that carries 787 wings.", "DREAMLIFTER"),
+    (re.compile(r"\b(?:A3ST|A337|BELUGA)\b"), "Airbus Beluga, the whale-shaped transporter that carries aircraft parts.", "BELUGA"),
+    (re.compile(r"\b(?:B74[1-8S]|747)\b"), "Boeing 747 jumbo jet, now rare in UK skies.", "JUMBO"),
+    (re.compile(r"\b(?:A124|AN-?124|RUSLAN)\b"), "Antonov An-124, one of the largest cargo planes flying.", "GIANT CARGO"),
+    (re.compile(r"\b(?:IL76|IL-?76)\b"), "Ilyushin Il-76, a four-engined Soviet-era freighter.", "IL-76"),
+    (re.compile(r"\b(?:B779|777-?9)\b"), "Boeing 777-9, the newest and longest 777.", "777-9"),
+    (re.compile(r"\b(?:A34[2356]|A340)\b"), "Airbus A340, a four-engined airliner now being retired.", "A340"),
+    (re.compile(r"\b(?:MD11|MD-11)\b"), "McDonnell Douglas MD-11, a three-engined freighter from the 1990s.", "MD-11"),
+)
+
 _MILITARY_IDENTITY = re.compile(r"\b(?:RRR|RFR|ASCOT|RCH|CNV|BAF|IAM|MMF|VAMP|OBI|VYT)\w*\b")
 
 _STEAM = re.compile(
@@ -213,6 +226,11 @@ def classify_activity(activity: Activity, *, now: datetime | None = None) -> Coo
             return _classified(category="air", subtype="jet-trainer", score=80,
                                explanation="RAF fast-jet trainer, the same Hawk the Red Arrows fly.", badge="JET TRAINER",
                                theme="air", icon="▲", activity=activity, now=now)
+        for pattern, explanation, badge in _RARE_AIRLINERS:
+            if pattern.search(text):
+                return _classified(category="air", subtype="rare-airliner", score=82,
+                                   explanation=explanation, badge=badge,
+                                   theme="air", icon="▲", activity=activity, now=now)
         if _TRAINER.search(text):
             return _classified(category="air", subtype="military-trainer", score=18,
                                explanation="Military training aircraft.", badge="TRAINER",
