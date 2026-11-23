@@ -56,11 +56,11 @@ def normalise_spotter(raw) -> dict | None:
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return None
     asked = set()
-    for kind in raw.get("kinds") or SPOTTER_KINDS:
+    for kind in raw.get("kinds") or SPOTTER_KINDS - SPOTTER_OPT_IN:
         asked.update(_LEGACY_SPOTTER_KINDS.get(str(kind).lower(), {str(kind).lower()}))
     kinds = sorted(asked & SPOTTER_KINDS)
     return {"lat": round(lat, 4), "lon": round(lon, 4), "radius_miles": max(2.0, min(radius, 50.0)),
-            "kinds": kinds or sorted(SPOTTER_KINDS)}
+            "kinds": kinds or sorted(SPOTTER_KINDS - SPOTTER_OPT_IN)}
 
 
 def normalise_preferences(raw: dict) -> dict:
@@ -279,7 +279,7 @@ def road_key_prefix(now: datetime | None = None) -> str:
 
 # ---- Spotter alerts -----------------------------------------------------
 # "Tell me when something unusual is near me": the same finds Discover lists
-# (steam, charters, military and rescue aircraft), within a chosen distance.
+# (steam, charters, military and big or rare airliners), within a chosen distance.
 # What can be ticked, and which Discover kinds each covers. Ordinary freight
 # is left out (it would alert all day), and live rescues always are.
 SPOTTER_KIND_SUBTYPES = {
@@ -288,8 +288,11 @@ SPOTTER_KIND_SUBTYPES = {
     "loco": {"locomotive-move", "engineering"},
     "military": {"combat-aircraft", "military-transport", "military-tanker", "military-helicopter", "bomber",
                  "airborne-surveillance", "intelligence-aircraft", "maritime-patrol", "display-aircraft", "jet-trainer"},
+    "heavy": {"rare-airliner"},
 }
 SPOTTER_KINDS = set(SPOTTER_KIND_SUBTYPES)
+# Only when ticked: near Heathrow an A380 passes every hour.
+SPOTTER_OPT_IN = {"heavy"}
 _SUBTYPE_KIND = {subtype: kind for kind, subtypes in SPOTTER_KIND_SUBTYPES.items() for subtype in subtypes}
 # Saved before the tick boxes: "rail" and "air".
 _LEGACY_SPOTTER_KINDS = {"rail": {"steam", "test", "loco"}, "air": {"military"}}

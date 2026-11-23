@@ -221,7 +221,17 @@ def _aircraft_status(row: dict, details: dict) -> str:
         return "On ground"
     return "Airborne"
 
+# Big and rare airliners spotters travel for (ICAO designators): A380, 747s,
+# Dreamlifter, An-124, Belugas, Il-76, 777-9, four-engined A340s, MD-11.
+RARE_AIRLINER_TYPES = frozenset({
+    "A388", "B741", "B742", "B743", "B744", "B748", "B74S", "BLCF", "A124", "A3ST", "A337",
+    "IL76", "B779", "A342", "A343", "A345", "A346", "MD11",
+})
+
+
 def _is_interesting_aircraft(row: dict) -> bool:
+    if str(row.get("t") or "").strip().upper() in RARE_AIRLINER_TYPES:
+        return True
     call = str(row.get("flight") or row.get("callsign") or "").strip().upper().replace(" ", "")
     dbflags = _num(row.get("dbFlags")) or 0
     # ADSB.lol/readsb convention: bit 0 marks military. Callsign fallback catches
