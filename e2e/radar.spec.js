@@ -1455,12 +1455,17 @@ test('a cancelled train is drawn struck through and says so', async ({ page }) =
 test('a moving aircraft glides to its new position instead of being redrawn', async ({ page }) => {
   await page.locator('[data-layer-toggle="aircraft"]').click();
   await waitForViewportRequestsToSettle(page);
+  // The fixture clock is frozen; planes now move between reports as time
+  // passes, so each report comes 10 s after the last and time then moves on.
   const move = step => page.evaluate(step => {
+    const base = Date.parse('2026-10-05T10:01:00Z') + step * 10000;
+    Date.now = () => base;
     const next = structuredClone(window.__fixtureSnapshot);
     for (const row of next.activities.filter(item => ['aircraft','sar'].includes(item.type))) {
-      row.lat += 0.05 * step; row.lon += 0.05 * step; row.last_updated = new Date().toISOString();
+      row.lat += 0.05 * step; row.lon += 0.05 * step; row.last_updated = new Date(base).toISOString();
     }
     window.__fixtureSocket.onmessage({ data: JSON.stringify(next) });
+    setTimeout(() => { Date.now = () => base + 6000; }, 50);
   }, step);
   await move(1);
   await expect.poll(() => page.evaluate(() => window.__leafletStats.markerMoves)).toBeGreaterThan(0);
@@ -1515,6 +1520,8 @@ test('a train status sits in one compact row of chips', async ({ page }) => {
     const first = window.__fixtureSnapshot.activities.find(row => row.id === 'train-live-1');
     window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[{ ...first, delay_minutes:12, next_location:'Rugby' }] }) });
   });
+  // The update is drawn on the next animation frame: wait for it.
+  await expect(page.locator('.marker-bubble.marker-train')).toHaveCount(1);
   await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   const status = page.locator('#detail-fields [data-field="Status"]');
   await expect(status).toHaveText(/12 min late/);
@@ -1597,6 +1604,8 @@ test('an incident says what it means for a driver, not the feed wording', async 
         when:'Started 25 min ago', why:null, note:'Two vehicles involved. Recovery on scene.', active:true, rank:4 } };
     window.__fixtureSocket.onmessage({ data: JSON.stringify({ ...window.__fixtureSnapshot, activities:[crash], stream:{ ...window.__fixtureSnapshot.stream, selected_types:['incident'] } }) });
   });
+  // The update is drawn on the next animation frame: wait for it.
+  await expect(page.locator('#map')).toHaveAttribute('data-activity-count', '1');
   await page.locator('.marker-bubble.marker-incident').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-title')).toHaveText('Crash · M1');
   await expect(page.locator('#detail-subtitle')).toHaveText('M1 northbound between J14 and J15');

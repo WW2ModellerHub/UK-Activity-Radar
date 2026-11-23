@@ -1,5 +1,30 @@
 # Codex stabilization changelog
 
+## 2026-11-23 — smoother trains, buses and aircraft
+
+- Moving markers were re-placed once a second and slid there with a
+  one-second CSS transition; aircraft on the ordinary map were not in that
+  loop at all and hopped on each report. Trains, buses and aircraft on
+  screen are now re-placed every animation frame (every frame for a normal
+  map, 30 or 17 a second with very many markers), at their exact position:
+  Leaflet rounds markers to whole pixels, which made slow planes tick a
+  pixel at a time. The loop stops when nothing moves or the tab is hidden.
+  From zoom 10 (no clustering) frames move the icon without re-filing it in
+  the cluster group; it is re-filed when the map zooms back out.
+- Aircraft are shown a report-gap (at most 8 s) behind real time and moved
+  between their two latest reports, as FlightAware's maps and online games
+  do, so they no longer overshoot and get pulled back; past the newest
+  report they carry on along their track for up to 22 s.
+- A new report never snaps a plane or bus: the difference is blended away
+  over 2.5 s (aircraft) or 3 s (buses), including a bus pulling in at a
+  stop. Jumps too big to be corrections (8 km, 1 km) are taken at once.
+- Fixed: incremental live updates (deltas) arriving within one frame were
+  dropped except the last, losing a bus's move; they are now applied in
+  order, and a full snapshot still replaces anything queued before it.
+- Measured on live Heathrow traffic at the same zoom: frames in which a
+  moving plane did not move fell from about half to 0-33%, with no jumps
+  or backward steps.
+
 ## 2026-11-23 — the Filter drawer covers trains, buses, roads and operators
 
 - The right-hand Filter drawer now has a section for each layer that is on:
