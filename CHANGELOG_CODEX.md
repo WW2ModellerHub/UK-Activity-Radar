@@ -1,5 +1,14 @@
 # Codex stabilization changelog
 
+## 2026-11-24 — trains catch up gently instead of leaping
+
+- User screenshots at South Wigston: a train sat at the junction for two
+  frames, then leapt about 1.5 km when its new leg arrived. Catch-ups after
+  a late report or a new leg glided there in about a second. They now run
+  along the track at about 135 mph above the train's own pace (1.2-25 s,
+  smoothstep), so a 1.5 km catch-up takes ~25 s with no step over ~12 m a
+  tenth of a second; only gaps over 30 km (a reconnect) still jump.
+
 ## 2026-11-24 — bus route lines: retry soon while a timetable is indexing
 
 - Live, after the morning restarts the West Midlands bus timetable was
