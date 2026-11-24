@@ -62,15 +62,20 @@ test('aircraft freeze at their safe projection instead of jumping backwards', as
       id: 'air-1', type: 'aircraft', lat: 52, lon: -1, bearing: 90, speed: 360,
       last_updated: new Date(now - 30000).toISOString(),
     };
+    // One report so far: carried on for up to 90 s (the background feed
+    // reports each plane about every 60 s), then it waits there.
     return {
       atThirtySeconds: engine.present(aircraft, now, false),
       atFortySeconds: engine.present(aircraft, now + 10000, false),
+      atHundredSeconds: engine.present(aircraft, now + 70000, false),
+      atTwoMinutes: engine.present(aircraft, now + 90000, false),
       reduced: engine.present(aircraft, now, true),
     };
   });
 
   expect(result.atThirtySeconds.lon).toBeGreaterThan(-0.99);
-  expect(result.atFortySeconds.lon).toBeCloseTo(result.atThirtySeconds.lon, 6);
+  expect(result.atFortySeconds.lon).toBeGreaterThan(result.atThirtySeconds.lon);       // still moving
+  expect(result.atTwoMinutes.lon).toBeCloseTo(result.atHundredSeconds.lon, 6);         // frozen after 90 s
   expect(result.reduced.lon).toBe(-1);
 });
 
@@ -230,13 +235,13 @@ test('a new aircraft report is blended in over a few seconds instead of snapping
     // The next report shows it turned: it is well short of the projection.
     const second = { ...first, lon:-0.99, bearing:0, last_updated:new Date(t0 + 20000).toISOString() };
     const justAfter = engine.present(second, t0 + 20000, false);
-    const later = engine.present(second, t0 + 20000 + 3000, false);
+    const later = engine.present(second, t0 + 20000 + 9000, false);   // a ~3 km correction eases over ~4.5 s
     const raw = engine.present(second, t0 + 20000 + 60000, false);
     return { before: before.lon, justAfter: justAfter.lon, later: later.lon, rawLon: raw.lon };
   });
   expect(result.justAfter).toBeCloseTo(result.before, 4);             // no snap
-  // Settled: shown 8 s behind (the cap), between the two reports.
-  expect(result.later).toBeCloseTo(-1 + 0.01 * (15 / 20), 4);
+  // Settled: shown 8 s behind, just past the newest report and heading north, so on its longitude.
+  expect(result.later).toBeCloseTo(-0.99, 4);
 });
 
 test('a bus pulling in at a stop eases back to its report rather than snapping', async ({ page }) => {
@@ -324,4 +329,26 @@ test('a train held at a junction catches up with its new leg gradually, not in o
   expect((result.oneSecond - result.start) * 111320).toBeLessThan(200);   // not a 1.5 km leap
   expect(result.biggestStepM).toBeLessThan(20);                           // at most ~20 m per 0.1 s
   expect(result.end).toBeCloseTo(result.target, 4);                       // caught up within 30 s
+});
+
+
+test('a plane reported every 60 seconds keeps moving through the gap instead of freezing', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const t0 = Date.now() - 600000;
+    // An Apache at 96 kt heading east, reported at 0, 60 and 120 s (as the live background feed does).
+    const report = (seconds, lon) => ({ id:'aac311', type:'aircraft', lat:52.29, lon, bearing:90, speed:96,
+      last_updated:new Date(t0 + seconds * 1000).toISOString() });
+    const step = 96 * 1.852 / 3600 * 60 / (111.32 * Math.cos(52.29 * Math.PI / 180));   // 60 s of travel, in degrees
+    engine.present(report(0, 0), t0, false);
+    engine.present(report(60, step), t0 + 60000, false);
+    engine.present(report(120, 2 * step), t0 + 120000, false);
+    const samples = [];
+    for (let s = 125; s <= 175; s += 10) samples.push(engine.present(report(120, 2 * step), t0 + s * 1000, false).lon);
+    return { samples };
+  });
+  // Every 10 s of the gap it is further east: moving, not frozen.
+  for (let i = 1; i < result.samples.length; i++) expect(result.samples[i]).toBeGreaterThan(result.samples[i - 1]);
 });

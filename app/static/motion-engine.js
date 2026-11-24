@@ -213,10 +213,12 @@
     const gap=distanceKm(from.lat,from.lon,raw.lat,raw.lon);
     if(gap<.001||gap>BLEND_MAX_KM[kind]){delete state.offset;return;}
     state.offset={lat:from.lat-raw.lat,lon:from.lon-raw.lon};state.offsetStarted=now;
+    // A bigger correction (a plane that turned during a long gap) eases over longer, up to 8 s.
+    state.offsetMs=Math.max(BLEND_MS[kind],Math.min(8000,gap*1500));
   }
   function blended(state,raw,now,kind){
     if(!state.offset)return raw;
-    const progress=clamp((now-state.offsetStarted)/BLEND_MS[kind]);
+    const progress=clamp((now-state.offsetStarted)/(state.offsetMs||BLEND_MS[kind]));
     if(progress>=1){delete state.offset;delete state.offsetStarted;return raw;}
     const left=1-ease(progress);
     return {lat:raw.lat+state.offset.lat*left,lon:raw.lon+state.offset.lon*left};
@@ -231,6 +233,14 @@
   function aircraftReport(activity){
     return {t:Date.parse(activity.last_updated||''),lat:Number(activity.lat),lon:Number(activity.lon),
       speed:Number(activity.speed),bearing:Number(activity.bearing)};
+  }
+  // 1.5x the plane's usual gap between reports, 22-150 s; 90 s before there is a gap to go on.
+  function aircraftProjectionLimitS(reports){
+    if(reports.length<2)return 90;
+    const gaps=[];
+    for(let index=1;index<reports.length;index+=1)gaps.push((reports[index].t-reports[index-1].t)/1000);
+    gaps.sort((a,b)=>a-b);
+    return Math.max(22,Math.min(150,1.5*gaps[Math.floor(gaps.length/2)]));
   }
   function aircraftRaw(reports,serverNow){
     const newest=reports[reports.length-1];
@@ -250,7 +260,10 @@
       }
     }
     if(at<reports[0].t)return {lat:reports[0].lat,lon:reports[0].lon};
-    const age=Math.min(22,(at-newest.t)/1000);
+    // Carry on along the track for as long as this plane's reports are apart:
+    // the background feed reports each plane about every 60 s (up to 180 s),
+    // and a 22 s limit left them frozen for most of each gap, then jumping.
+    const age=Math.min(aircraftProjectionLimitS(reports),(at-newest.t)/1000);
     if(age>0&&Number.isFinite(newest.speed)&&Number.isFinite(newest.bearing)&&newest.speed>=5&&newest.speed<=800){
       return projectPosition(newest.lat,newest.lon,newest.bearing,newest.speed*1.852*age/3600);
     }

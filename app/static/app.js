@@ -2105,10 +2105,12 @@
     const pace=Number.isFinite(speed)&&speed>=1?`${Math.round(speed)}kt`:'';
     return [level&&trend?`${level} ${trend}`:level,pace].filter(Boolean).join(' ');
   }
-  // Not heard from for 90 seconds: its last known position, drawn faded.
+  // Not heard from for 4 minutes: its last known position, drawn faded.
+  // (The background feed reports each plane every 60-180 s, so 90 s faded
+  // ordinary planes between reports.)
   function aircraftIsStale(v) {
     const updated=Date.parse(v.last_updated||'');
-    return Number.isFinite(updated)&&(Date.now()-updated)/1000>90;
+    return Number.isFinite(updated)&&(Date.now()-updated)/1000>240;
   }
 
   function aircraftMapIdentity(v) {
