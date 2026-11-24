@@ -91,8 +91,14 @@ class TDCollector(StompFeed):
             rows = rows if isinstance(rows, list) else []
         except Exception:
             rows = []
-        # The newer berth steps (Rail Data Marketplace) come last, so they win.
-        rows = rows + load_berth_steps()
+        # The newer berth steps (Rail Data Marketplace) replace the older SMART
+        # copy outright for every area they cover: steps Network Rail has since
+        # deleted (re-signalled areas) must not linger. Areas they do not cover
+        # keep the older rows.
+        newer = load_berth_steps()
+        covered = {str(row.get("TD") or "").strip().upper() for row in newer}
+        rows = [row for row in rows if isinstance(row, dict)
+                and str(row.get("TD") or row.get("td") or "").strip().upper() not in covered] + newer
         self.exact.clear(); self.by_from.clear(); self.by_to.clear()
         for row in rows:
             if not isinstance(row, dict):

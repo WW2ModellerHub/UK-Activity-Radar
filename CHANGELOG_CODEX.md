@@ -1,5 +1,10 @@
 # Codex stabilization changelog
 
+## Newer berth steps replace old SMART rows per area
+
+- The bundled Rail Data Marketplace berth steps now replace `smart.json` rows outright for every TD area they cover, so steps Network Rail has deleted (re-signalled areas) stop mapping trains. Areas the bundled file does not cover keep their old rows.
+- Checked the SMARTExtract (JSON and CSV) and NLC files: the bundled steps (24 Nov 2026) are newer than the extract; NLC would add coordinates for only 2 of 90 unmapped STANOX, so neither is bundled.
+
 ## Realistic train acceleration and newer berth steps (Rail Data Marketplace data)
 
 - `scripts/build_running_allowances.py` reduces the Network Rail Planning Infrastructure File's 1.17 m sectional running times to the seconds each traction loses starting from a stand and stopping (`app/reference/running_allowances.json`, 195 tractions; the PIF itself is not stored).

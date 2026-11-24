@@ -68,3 +68,25 @@ def test_newer_berth_steps_are_bundled_including_leicester():
     leicester = [r for r in rows if r["TD"] == "LR" and r.get("STANME") == "LEICESTER"]
     assert leicester and all(r["STANOX"] == "59241" for r in leicester)
     assert any(r["TD"] == "TD" for r in rows)            # an area really named TD is kept
+
+
+def test_newer_berth_steps_replace_old_smart_rows_in_the_areas_they_cover(tmp_path, monkeypatch):
+    import gzip
+    import json as _json
+    from app.collectors import td
+    from app.collectors.td import TDCollector
+    from app.config import Settings
+    from app.state import LiveState
+    newer = tmp_path / "steps.csv.gz"
+    with gzip.open(newer, "wt") as handle:
+        handle.write("LR,B,0426,0412,59241,LEICESTER,A,1,,50,,,28/06/2026\n")
+    monkeypatch.setattr(td, "BERTH_STEPS_FILE", newer)
+    (tmp_path / "stations.json").write_text("{}")
+    (tmp_path / "smart.json").write_text(_json.dumps([
+        {"TD": "LR", "FROMBERTH": "0999", "TOBERTH": "0998", "STANOX": "59241"},   # deleted since
+        {"TD": "ZZ", "FROMBERTH": "0001", "TOBERTH": "0002", "STANOX": "12345"},   # area not covered
+    ]))
+    collector = TDCollector(Settings(), LiveState(), tmp_path / "stations.json", tmp_path / "smart.json")
+    assert ("LR", "0426", "0412") in collector.exact
+    assert ("LR", "0999", "0998") not in collector.exact
+    assert ("ZZ", "0001", "0002") in collector.exact
