@@ -4420,7 +4420,36 @@
   // from National Rail (Darwin) when published, else its class's usual length
   // with a note saying so. Replaces the photo: Commons rarely has the right unit.
   const WHEELCHAIR_ICON='<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="4" r="1.8"/><path d="M11 7v6h5l2 5M11 10h4M8.5 11.5A5 5 0 1 0 15 18"/></svg>';
-  function trainCoachSvg(index,count,theme){
+  // Generated, transparent broadside assets. The timetable/API chooses the
+  // class; the browser never guesses from an operator name or headcode.
+  const TRAIN_PROFILE_IMAGES={
+    '390':'/static/assets/train-profiles/class-390-pendolino.png',
+  };
+  function pendolinoCoachSvg(index,count){
+    const first=index===0,last=index===count-1;
+    // Class 390: low, continuously curved bodyside, dark window ribbon,
+    // orange-red driving noses and the distinctive Avanti green sweep.
+    const body=first
+      ? 'M18 7 Q7 9 3 20 L3 29 Q3 34 10 35 L118 35 L118 8 Z'
+      : last
+        ? 'M2 8 L2 35 L110 35 Q117 34 117 29 L117 20 Q113 9 102 7 Z'
+        : 'M2 8 Q60 4 118 8 L118 35 L2 35 Z';
+    const windowStart=first?25:8, windowEnd=last?95:112;
+    const windows=[];
+    for(let x=windowStart;x<windowEnd;x+=12) windows.push(`<rect x="${x}" y="13" width="8" height="8" rx="2"/>`);
+    const cab=first
+      ? '<path d="M5 21 Q8 12 18 10 L21 21 Z" fill="#17233f"/><path d="M3 23 Q9 18 20 18 L20 35 L9 35 Q3 33 3 29 Z" fill="#ef6548"/>'
+      : last
+        ? '<path d="M115 21 Q112 12 102 10 L99 21 Z" fill="#17233f"/><path d="M117 23 Q111 18 100 18 L100 35 L111 35 Q117 33 117 29 Z" fill="#ef6548"/>'
+        : '';
+    const doorX=first?91:last?23:(index%2?88:24);
+    const pantograph=(index===Math.floor(count*.36)||index===Math.floor(count*.72))
+      ? '<path d="M45 7 L55 1 L65 7 M48 1 H62" fill="none" stroke="#353b42" stroke-width="1.5"/>' : '';
+    return `<svg class="coach-svg pendolino-svg" viewBox="0 0 120 44" preserveAspectRatio="none" aria-hidden="true">${pantograph}<path d="${body}" fill="#e9ecee" stroke="#aeb5ba" stroke-width=".8"/><path d="M${first?12:2} 10 Q60 6 ${last?108:118} 10" fill="none" stroke="#c7ccd0" stroke-width="2"/><rect x="${first?18:2}" y="11" width="${120-(first?18:2)-(last?18:2)}" height="13" rx="3" fill="#27313b"/><g fill="#111922">${windows.join('')}</g><rect x="${doorX}" y="11" width="7" height="23" rx="2" fill="#ef6548"/><path d="M${first?20:2} 28 Q60 22 ${last?100:118} 27" fill="none" stroke="#72bf44" stroke-width="2.6"/>${cab}<rect x="${first?9:2}" y="34" width="${120-(first?9:2)-(last?9:2)}" height="2" fill="#58616a"/><g fill="#30363c"><circle cx="${first?27:18}" cy="39" r="3.2"/><circle cx="${last?93:102}" cy="39" r="3.2"/></g></svg>`;
+  }
+
+  function trainCoachSvg(index,count,theme,trainClass){
+    if(String(trainClass||'')==='390')return pendolinoCoachSvg(index,count);
     const first=index===0,last=index===count-1;
     // Body with a sloped cab at each end of the train.
     const left=first?'M14 6 Q4 8 2 20 L2 30 Q2 34 6 34':'M3 6 L3 34';
@@ -4485,15 +4514,22 @@
     const coaches=known?[...formation.coaches].reverse():Array.from({length:count},()=>({}));
     const title=[formation.class?`Class ${formation.class}`:null,formation.name].filter(Boolean).join(' ')||(formation.traction==='diesel'?'Diesel train':formation.traction==='electric'?'Electric train':'Passenger train');
     const length=known?`${count} coach${count===1?'':'es'}`:!usual.length?'':usual.length>1?`usually ${usual.slice(0,-1).join(', ')} or ${usual[usual.length-1]} coaches`:`usually ${usual[0]} coach${usual[0]===1?'':'es'}`;
+    const profileImage=TRAIN_PROFILE_IMAGES[String(formation.class||'')];
+    if(profileImage){
+      const note=known
+        ? 'Train class from the timetable; coach information from National Rail for this service.'
+        : 'Train class from the timetable. The operator has not published this service’s exact coach formation.';
+      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="train-profile-stage"><img src="${profileImage}" alt="" loading="lazy" decoding="async"></div><p>${esc(note)}</p></section>`;
+    }
     if(formation.hauled&&!known)coaches.push({loco:true});
     const cells=coaches.map((coach,i)=>{
       if(coach.loco)return `<div class="coach"><small></small>${locoSvg(theme,formation.traction==='electric')}<div class="coach-marks"></div></div>`;
       const marks=[coach.first?'<b class="coach-first" title="First class">1st</b>':'',
         coach.toilet==='accessible'?`<span title="Accessible toilet">${WHEELCHAIR_ICON}</span>`:coach.toilet==='standard'?'<b class="coach-wc" title="Toilet">WC</b>':''].join('');
-      return `<div class="coach"><small>${coach.letter?`Coach ${esc(coach.letter)}`:''}</small>${trainCoachSvg(i,coaches.length,theme)}<div class="coach-marks">${marks}</div></div>`;
+      return `<div class="coach"><small>${coach.letter?`Coach ${esc(coach.letter)}`:''}</small>${trainCoachSvg(i,coaches.length,theme,formation.class)}<div class="coach-marks">${marks}</div></div>`;
     }).join('');
     const note=known?'Coaches as published by National Rail for this train.':formation.generic?"Illustration: this train's class and coaches are not in its timetable.":"This train's coaches are not published; drawn at its class's usual length.";
-    return `<section class="train-formation${known?'':' is-typical is-plain'}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="formation-row" style="--coaches:${coaches.length}">${cells}</div><p>${esc(note)}</p></section>`;
+    return `<section class="train-formation${known?'':' is-typical is-plain'}${formation.class?` profile-class-${esc(formation.class)}`:''}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="formation-row" style="--coaches:${coaches.length}">${cells}</div><p>${esc(note)}</p></section>`;
   }
 
   function renderRailIntelligence(detail) {
