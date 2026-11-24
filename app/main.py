@@ -3289,7 +3289,9 @@ def bus_shapes(ids: str = ""):
             continue
         key = f"{activity_id}|{item.route or ''}|{item.destination or ''}|{item.journey_ref or ''}"
         cached = _bus_shape_cache.get(key)
-        if cached and now - cached[0] < BUS_SHAPE_TTL_S:
+        # A bus with no line yet (its region's timetable still indexing, say)
+        # is asked about again after a minute, not after 15.
+        if cached and now - cached[0] < (BUS_SHAPE_TTL_S if cached[1] else 60):
             if cached[1]:
                 shapes[activity_id] = cached[1]
             continue
