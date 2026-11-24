@@ -127,6 +127,7 @@ class DarwinKafkaFeed:
         self.enriched = 0
         self.malformed = 0
         self.error: str | None = None
+        self.broker_error: str | None = None
         self.sample: dict | None = None
         # Coaches per Darwin service (RID), and which timetable train each RID is.
         self._formations: dict[str, list[dict]] = {}
@@ -152,7 +153,7 @@ class DarwinKafkaFeed:
 
     def report(self) -> dict:
         return {
-            "live": self.live, "messages": self.messages, "services": self.services,
+            "broker_error": self.broker_error, "live": self.live, "messages": self.messages, "services": self.services,
             "formations": len(self._formations), "formation_messages": self.formation_messages,
             "trains_enriched": self.enriched, "malformed": self.malformed,
             "error": self.error,
@@ -180,7 +181,12 @@ class DarwinKafkaFeed:
         if self._factory:
             return self._factory()
         from confluent_kafka import Consumer
-        return Consumer(self._config())
+        # librdkafka's own errors say why a connection failed (DNS, TLS, refused,
+        # SASL authentication); "Broker transport failure" alone does not.
+        return Consumer({**self._config(), "error_cb": self._broker_error})
+
+    def _broker_error(self, error) -> None:
+        self.broker_error = str(error)[:300]
 
     def handle(self, value) -> None:
         try:

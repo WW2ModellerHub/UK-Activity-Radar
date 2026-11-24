@@ -102,3 +102,9 @@ def test_kafka_is_only_used_when_every_setting_is_present(monkeypatch):
     assert not Settings(raildata_td_kafka_group="g", raildata_td_kafka_username="u").raildata_td_kafka_ready
     assert Settings(raildata_td_kafka_group="g", raildata_td_kafka_username="u",
                     raildata_td_kafka_password="p").raildata_td_kafka_ready
+
+
+def test_the_brokers_own_error_is_reported():
+    feed = TDKafkaFeed(Settings(), None, _TD())
+    feed._broker_error("sasl_ssl://broker:9092/bootstrap: SASL authentication error: Authentication failed")
+    assert "SASL authentication error" in feed.report()["broker_error"]
