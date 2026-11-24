@@ -38,6 +38,23 @@ def decode(value) -> str | None:
     return str(value)
 
 
+
+def _broker_logger(name: str):
+    """A logger for librdkafka that keeps its last few warnings and errors (no credentials are logged)."""
+    import logging
+    from collections import deque
+    lines: deque = deque(maxlen=5)
+
+    class _Keep(logging.Handler):
+        def emit(self, record):
+            lines.append(record.getMessage()[:300])
+
+    log = logging.getLogger(f"radar.kafka.{name}")
+    log.setLevel(logging.WARNING)
+    log.propagate = False
+    log.handlers = [_Keep()]
+    return log, lines
+
 class TDKafkaFeed:
     def __init__(self, settings, state, td, hub=None, consumer_factory=None) -> None:
         self.settings = settings
@@ -51,6 +68,7 @@ class TDKafkaFeed:
         self.messages = 0
         self.error: str | None = None
         self.broker_error: str | None = None
+        self._log, self.broker_log = _broker_logger(type(self).__name__)
         self.sample: str | None = None
 
     @property
@@ -70,7 +88,8 @@ class TDKafkaFeed:
             self._thread.join(timeout=5)
 
     def report(self) -> dict:
-        return {"broker_error": self.broker_error, "live": self.live, "messages": self.messages, "error": self.error,
+        return {"broker_error": self.broker_error, "broker_log": list(self.broker_log),
+            "server": self.settings.raildata_td_kafka_bootstrap, "live": self.live, "messages": self.messages, "error": self.error,
                 "seconds_since_message": round(time.monotonic() - self.last_message_at) if self.messages else None,
                 "sample": self.sample}
 
@@ -100,7 +119,7 @@ class TDKafkaFeed:
         from confluent_kafka import Consumer
         # librdkafka's own errors say why a connection failed (DNS, TLS, refused,
         # SASL authentication); "Broker transport failure" alone does not.
-        return Consumer({**self._config(), "error_cb": self._broker_error})
+        return Consumer({**self._config(), "error_cb": self._broker_error, "logger": self._log})
 
     def _broker_error(self, error) -> None:
         self.broker_error = str(error)[:300]
@@ -163,6 +182,8 @@ class TDKafkaFeed:
             finally:
                 try:
                     if consumer is not None:
+                        if self.error:
+                            consumer.poll(0.5)   # delivers librdkafka's log lines: why it failed
                         consumer.close()
                 except Exception:
                     pass
