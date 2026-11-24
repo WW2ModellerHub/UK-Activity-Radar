@@ -1,5 +1,15 @@
 # Codex stabilization changelog
 
+## 2026-11-24 — planes keep moving between 60-second reports
+
+- User screenshots: an Apache (AAC311, 96 kt) frozen on the map. Measured
+  live: the background aircraft feed reports each plane about every 60 s
+  (median; up to 180 s), and planes were carried on for at most 22 s, so
+  they froze for most of each gap and then jumped. They are now carried
+  along their track for 1.5x their own gap between reports (22-150 s; 90 s
+  before there is a gap), a bigger correction eases over up to 8 s, and a
+  plane is drawn as "old" after 4 minutes without a report, not 90 s.
+
 ## 2026-11-24 — where rail replacement buses leave from
 
 - New Rail Data Marketplace feed (Rail Replacement Location Data, key in
