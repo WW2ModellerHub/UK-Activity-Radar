@@ -50,6 +50,7 @@ class TDKafkaFeed:
         self.last_message_at = float("-inf")   # never: not live until a record arrives
         self.messages = 0
         self.error: str | None = None
+        self.broker_error: str | None = None
         self.sample: str | None = None
 
     @property
@@ -69,7 +70,7 @@ class TDKafkaFeed:
             self._thread.join(timeout=5)
 
     def report(self) -> dict:
-        return {"live": self.live, "messages": self.messages, "error": self.error,
+        return {"broker_error": self.broker_error, "live": self.live, "messages": self.messages, "error": self.error,
                 "seconds_since_message": round(time.monotonic() - self.last_message_at) if self.messages else None,
                 "sample": self.sample}
 
@@ -97,7 +98,12 @@ class TDKafkaFeed:
         if self._factory:
             return self._factory()
         from confluent_kafka import Consumer
-        return Consumer(self._config())
+        # librdkafka's own errors say why a connection failed (DNS, TLS, refused,
+        # SASL authentication); "Broker transport failure" alone does not.
+        return Consumer({**self._config(), "error_cb": self._broker_error})
+
+    def _broker_error(self, error) -> None:
+        self.broker_error = str(error)[:300]
 
     def _assign(self, consumer) -> int:
         from confluent_kafka import TopicPartition
