@@ -116,3 +116,20 @@ def test_bus_route_lines_are_matched_cached_and_limited(monkeypatch):
     second = client.get(f"/api/buses/shapes?ids={ids}").json()["shapes"]
     assert len(second) == 12 and len(calls) == 12              # the first 8 from the cache
     assert client.get("/api/buses/shapes?ids=nope").json()["shapes"] == {}
+
+
+def test_one_broken_train_estimate_does_not_break_the_live_stream():
+    from datetime import timedelta
+    live = LiveState()
+    now = datetime.now(timezone.utc)
+    good = Vehicle(id="tr:good", type="train", name="1A01", lat=52.48, lon=-1.9, last_updated=now)
+    # A naive datetime in the estimate: comparing it with "now" raises TypeError.
+    bad = Vehicle(id="tr:bad", type="train", name="1A02", lat=50.0, lon=-5.0, last_updated=now,
+                  estimate_path=[[52.4, -1.9], [52.5, -1.9]], estimate_started_at=now - timedelta(minutes=1),
+                  estimate_due_at=now + timedelta(minutes=5))
+    bad.estimate_started_at = bad.estimate_started_at.replace(tzinfo=None)
+    live.upsert(good); live.upsert(bad)
+    rows = live.all(bbox=(-2.2, 52.3, -1.6, 52.7), train_bbox=(-2.2, 52.3, -1.6, 52.7), include_trains=True,
+                    train_limit=100, include_buses=False, include_vessels=False)
+    assert [row.id for row in rows] == ["tr:good"]
+    assert live.estimate_errors == 1 and "tr:bad" in live.estimate_error
