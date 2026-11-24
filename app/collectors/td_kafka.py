@@ -45,7 +45,7 @@ class TDKafkaFeed:
         self._factory = consumer_factory
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self.last_message_at = 0.0
+        self.last_message_at = float("-inf")   # never: not live until a record arrives
         self.messages = 0
         self.error: str | None = None
         self.sample: str | None = None
