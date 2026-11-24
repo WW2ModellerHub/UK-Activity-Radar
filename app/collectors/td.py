@@ -15,20 +15,6 @@ from ..train_identity import operator_name
 from .stomp_client import StompFeed
 from .network_rail import _km
 
-# A matched train reported this recently, with no leg, is placed on its timetable.
-NO_LEG_MINUTES = 30
-
-
-def _near_path(lat: float, lon: float, path, km: float) -> bool:
-    """Whether a point is within ``km`` of any point of a railway path."""
-    for point in path or []:
-        try:
-            if _km({"lat": lat, "lon": lon}, {"lat": float(point[0]), "lon": float(point[1])}) <= km:
-                return True
-        except (IndexError, TypeError, ValueError):
-            continue
-    return False
-
 
 class TDCollector(StompFeed):
     # Train Describer steps are positional: when processing falls behind, the
@@ -37,7 +23,6 @@ class TDCollector(StompFeed):
     backlog_dropped = 0
     PATH_REFRESH_SECONDS = 300.0
     ROLLOVER_RETRY_SECONDS = 30.0
-    PLACE_PER_PASS = 25
 
     def __init__(self, settings: Settings, state: LiveState, station_file: Path, smart_file: Path, schedules: ScheduleStore | None = None) -> None:
         super().__init__(settings, state, name="td", topic=settings.td_topic)
@@ -223,17 +208,6 @@ class TDCollector(StompFeed):
             )
             existing.lat = lat; existing.lon = lon
             existing.reported_lat = lat; existing.reported_lon = lon
-            # A berth step at a location the timetable leg cannot start from
-            # (a junction with no booked time, an unmatched berth) used to wipe
-            # a perfectly good leg and park the train there until the next
-            # station. Keep the current leg, if it is still running and this
-            # report is on it, until a report gives a better one.
-            kept_leg = None
-            if (not preserve_leg and existing.estimate_path and existing.estimate_due_at
-                    and existing.estimate_due_at > event_time - timedelta(minutes=2)):
-                kept_leg = {field: getattr(existing, field) for field in (
-                    "next_lat", "next_lon", "estimate_path", "estimate_started_at", "estimate_due_at",
-                    "next_location", "next_tiploc")}
             if not preserve_leg:
                 existing.next_lat = existing.next_lon = None
                 existing.estimate_path = None
@@ -281,10 +255,6 @@ class TDCollector(StompFeed):
                     # A berth step at a timetabled location is a real report:
                     # its offset from the booked time is the train's lateness.
                     existing.delay_minutes = leg["delay_minutes"]
-            if kept_leg and existing.estimate_due_at is None and _near_path(lat, lon, kept_leg["estimate_path"], 5.0):
-                for field, value in kept_leg.items():
-                    setattr(existing, field, value)
-                existing.position_method = "estimated"
             if self._reached_destination(schedule, station):
                 existing.terminated_at = existing.terminated_at or event_time
             self.state.upsert(existing)
@@ -408,28 +378,6 @@ class TDCollector(StompFeed):
         vehicle.estimate_started_at = leg["started_at"]
         vehicle.estimate_due_at = leg["due_at"]
 
-    def _place_on_timetable(self, vehicle: Vehicle, now: datetime) -> bool:
-        """Give a matched train with no leg the one its timetable and lateness put it on.
-
-        Only when that leg is near where the train was last reported (30 km),
-        so a wrong match or a long-stopped train is not sent across the map.
-        """
-        if not self.schedules or not self.schedules.ready():
-            return False
-        try:
-            service_day = datetime.fromisoformat(str(vehicle.service_date)).date()
-        except (TypeError, ValueError):
-            return False
-        leg = self.schedules.estimate_leg_at(vehicle.schedule_id, service_day, now, vehicle.delay_minutes or 0)
-        if not leg or len(leg.get("path") or []) < 2:
-            return False
-        here_lat = vehicle.reported_lat if vehicle.reported_lat is not None else vehicle.lat
-        here_lon = vehicle.reported_lon if vehicle.reported_lon is not None else vehicle.lon
-        if not _near_path(here_lat, here_lon, leg["path"], 30.0):
-            return False
-        self._apply_estimate_leg(vehicle, leg)
-        return True
-
     def _advance_schedule_estimate(self, vehicle: Vehicle, observed_at: datetime) -> bool:
         """Bridge SMART gaps using the already matched service timetable.
 
@@ -488,9 +436,6 @@ class TDCollector(StompFeed):
             ):
                 return False
             due_at = vehicle.estimate_due_at
-            if not due_at and vehicle.service_date and vehicle.last_updated >= now - timedelta(minutes=NO_LEG_MINUTES):
-                held = retry_at.get(vehicle.id)
-                return not (held and held[0] is None and held[1] > tick)
             if due_at and vehicle.service_date and now > due_at:
                 # A leg with no onward timetable leg is retried sparingly.
                 held = retry_at.get(vehicle.id)
@@ -504,7 +449,6 @@ class TDCollector(StompFeed):
         if len(retry_at) > 20000:
             retry_at.clear()
         advanced = 0
-        placed_attempts = 0
         for vehicle in trains:
             # A deploy can introduce better geometry while a train is already
             # midway through its current leg. Replace that leg immediately;
@@ -524,25 +468,6 @@ class TDCollector(StompFeed):
                     vehicle.estimate_path = refreshed_path
                     self.state.upsert(vehicle)
                     advanced += 1
-            if (vehicle.type == "train" and vehicle.schedule_id and vehicle.service_date
-                    and not vehicle.estimate_due_at):
-                # At most 25 timetable look-ups a pass (one a second): after a
-                # restart a thousand leg-less trains are spread over ~40 s.
-                if placed_attempts >= self.PLACE_PER_PASS:
-                    continue
-                placed_attempts += 1
-                if self._place_on_timetable(vehicle, now):
-                    vehicle.position_method = "estimated"
-                    vehicle.position_label = (
-                        "Estimated from its timetable and current lateness after the last confirmed "
-                        f"{vehicle.source or 'railway'} report"
-                    )
-                    self.state.upsert(vehicle)
-                    retry_at.pop(vehicle.id, None)
-                    advanced += 1
-                else:
-                    retry_at[vehicle.id] = (None, tick + self.ROLLOVER_RETRY_SECONDS)
-                continue
             if (
                 vehicle.type != "train"
                 or not vehicle.schedule_id
