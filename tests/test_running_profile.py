@@ -1,0 +1,70 @@
+"""Trains speed up from a stand and brake to a stop along a leg (Network Rail running times)."""
+from datetime import datetime, timedelta
+
+import pytest
+
+from app import running_profile
+from app.collectors.td import load_berth_steps
+from app.models import Vehicle
+from app.running_profile import allowances, distance_fraction, ramps
+from app.state import _estimated_train_position
+from app.timeutils import london_tz
+from tests.test_train_continuity import _store
+
+
+def test_steady_leg_is_unchanged():
+    assert distance_fraction(30, 120) == pytest.approx(0.25)
+
+
+def test_leaving_a_platform_starts_slowly_and_arriving_slows_to_a_stop():
+    total, accel, brake = 300, 80, 60
+    early = distance_fraction(20, total, accel, brake)
+    assert early < 20 / total / 2                     # well behind a constant-speed train
+    assert distance_fraction(total - 10, total, accel, brake) > 0.99   # creeping in at the end
+    # Continuous, never goes backwards, and ends exactly at the end.
+    samples = [distance_fraction(t, total, accel, brake) for t in range(0, total + 1)]
+    assert samples[0] == 0 and samples[-1] == pytest.approx(1.0)
+    assert all(b >= a for a, b in zip(samples, samples[1:]))
+    assert max(b - a for a, b in zip(samples, samples[1:])) < 2.5 / total * 1.2
+
+
+def test_ramps_follow_the_running_time_allowances_and_never_fill_a_short_leg():
+    assert ramps(600, True, True, (40, 30)) == (80, 60)
+    assert ramps(600, False, True, (40, 30)) == (0, 60)
+    accel, brake = ramps(60, True, True, (40, 30))      # a one-minute hop between stations
+    assert accel + brake <= 0.8 * 60 + 0.1 and accel > brake
+
+
+def test_allowances_come_from_the_planning_data_by_train_class():
+    running_profile._table.cache_clear()
+    assert allowances("EMU", "390") == tuple(running_profile._table()["traction:390"])
+    assert allowances("DMU", "S") == tuple(running_profile._table()["traction:150"])   # CIF letter code
+    assert allowances("D", "1600") == tuple(running_profile._table()["load:1600"])     # loco + 1600 t
+    assert allowances("EMU", "NOPE") == running_profile.PASSENGER
+
+
+def test_legs_carry_their_shape_and_the_server_position_uses_it(tmp_path):
+    now = datetime.now(london_tz()).replace(second=0, microsecond=0)
+    store, schedule_id = _store(tmp_path, now)
+    leg = store.estimate_leg_at(schedule_id, now.date(), now + timedelta(minutes=1))
+    assert (leg["tiploc"], leg["next_tiploc"]) == ("CHFD", "CLAYX")
+    assert leg["accel_s"] > 0 and leg["brake_s"] == 0     # departs Chesterfield, passes the junction
+    leg = store.estimate_leg_at(schedule_id, now.date(), now + timedelta(minutes=10))
+    assert leg["accel_s"] == 0 and leg["brake_s"] > 0     # passes the junction, stops at Leicester
+
+    start = now - timedelta(seconds=20)
+    train = Vehicle(id="t", type="train", name="t", lat=0, lon=0, last_updated=now,
+                    estimate_path=[[0.0, 0.0], [0.0, 1.0]], estimate_started_at=start,
+                    estimate_due_at=start + timedelta(seconds=300))
+    steady = _estimated_train_position(train, now)[1]
+    train.estimate_accel_s = 80
+    assert _estimated_train_position(train, now)[1] < steady / 2
+
+
+def test_newer_berth_steps_are_bundled_including_leicester():
+    from app.collectors import td
+    rows = load_berth_steps(td.Path(td.__file__).resolve().parents[1] / "reference" / "berth_steps.csv.gz")
+    assert len(rows) > 30000
+    leicester = [r for r in rows if r["TD"] == "LR" and r.get("STANME") == "LEICESTER"]
+    assert leicester and all(r["STANOX"] == "59241" for r in leicester)
+    assert any(r["TD"] == "TD" for r in rows)            # an area really named TD is kept

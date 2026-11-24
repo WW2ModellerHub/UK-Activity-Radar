@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## Realistic train acceleration and newer berth steps (Rail Data Marketplace data)
+
+- `scripts/build_running_allowances.py` reduces the Network Rail Planning Infrastructure File's 1.17 m sectional running times to the seconds each traction loses starting from a stand and stopping (`app/reference/running_allowances.json`, 195 tractions; the PIF itself is not stored).
+- `app/running_profile.py`: legs now carry `accel_s`/`brake_s`; position along a leg follows speed-up / cruise / brake instead of a constant speed. Same sum in `state._estimated_train_position` and `motion-engine.js legFraction` (used by app.js too).
+- `app/reference/berth_steps.csv.gz`: 34,308 SMART berth steps (about 12,000 dated after 2023, e.g. Leicester LR re-dated June 2026), loaded after `smart.json` so newer rows win. Tests keep the bundled file out via conftest.
+- PIF coordinates were checked and not used (rounded to 100 m, median 545 m from the current set).
+
 ## Darwin real-time service information from Rail Data Marketplace
 
 - Added a dedicated consumer for the Darwin v18 JSON Kafka topic. Darwin now

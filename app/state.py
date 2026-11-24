@@ -7,6 +7,7 @@ from math import asin, cos, radians, sin, sqrt
 from threading import RLock
 
 from .cool_classifier import apply_cool_classification
+from .running_profile import distance_fraction
 from .models import Event, SourceStatus, Vehicle
 from .rail_service_notes import RailServiceNotes
 from .road_impact import describe as describe_road_event
@@ -124,7 +125,8 @@ def _estimated_train_position(vehicle: Vehicle, now: datetime) -> tuple[float, f
     if len(points) < 2:
         return None
     total_seconds = (vehicle.estimate_due_at - vehicle.estimate_started_at).total_seconds()
-    fraction = max(0.0, min(1.0, (now - vehicle.estimate_started_at).total_seconds() / total_seconds))
+    fraction = distance_fraction((now - vehicle.estimate_started_at).total_seconds(), total_seconds,
+                                 vehicle.estimate_accel_s, vehicle.estimate_brake_s)
     legs: list[tuple[tuple[float, float], tuple[float, float], float, float]] = []
     total_distance = 0.0
     for first, second in zip(points, points[1:]):
