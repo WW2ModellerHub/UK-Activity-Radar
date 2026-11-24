@@ -2796,9 +2796,9 @@ test('a train is drawn coach by coach in its operator colours instead of a photo
   const drawn = page.locator('#detail-intelligence .train-formation');
   await expect(drawn).toContainText('Class 170 Turbostar');
   await expect(drawn).toContainText('3 coaches');
-  await expect(drawn.locator('.coach')).toHaveCount(3);
+  await expect(drawn.locator('.profile-coach')).toHaveCount(3);
   // Coach A leads, on the right; first class and both toilets are marked.
-  await expect(drawn.locator('.coach small').last()).toHaveText('Coach A');
+  await expect(drawn.locator('.profile-coach small').last()).toHaveText('A');
   await expect(drawn.locator('.coach-first')).toHaveCount(1);
   await expect(drawn.locator('.coach-wc')).toHaveCount(1);
   await expect(drawn.locator('[title="Accessible toilet"]')).toHaveCount(1);
@@ -2815,8 +2815,8 @@ test('without a published formation a train is drawn at its class length and say
   await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   const drawn = page.locator('#detail-intelligence .train-formation');
   await expect(drawn).toContainText('usually 9 or 11 coaches');
-  await expect(drawn).toContainText('not published');
-  await expect(drawn).toHaveClass(/is-typical/);
+  await expect(drawn).toContainText('Not published');
+  await expect(drawn.locator('.profile-coach')).toHaveCount(11);
 });
 
 test('each kind of freight gets its own wagons', async ({ page }) => {
@@ -2830,4 +2830,42 @@ test('each kind of freight gets its own wagons', async ({ page }) => {
     await expect(drawn).toContainText(`${cargo} train`);
     await page.locator('#detail-panel .train-formation').screenshot({ path: process.env.FREIGHT_DIR ? `${process.env.FREIGHT_DIR}/freight-${category}.png` : '/dev/null' }).catch(() => {});
   }
+});
+
+test('a generated profile is built coach by coach with facilities under each coach', async ({ page }) => {
+  await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { activity:'train-live-1', detail:{ available:true,
+    runs:[{ headcode:'1M23', operator:'CrossCountry', status:'On time', calling_points:[] }],
+    formation:{ class:'170', name:'Turbostar', traction:'diesel', operator:'CrossCountry', coaches_known:true, usual:[2,3], units:['170636','170518'],
+      coaches:[{letter:'A',first:true,toilet:null},{letter:'B',toilet:'standard'},{letter:'C',toilet:'accessible'},
+               {letter:'D'},{letter:'E',toilet:'standard'},{letter:'F',toilet:'accessible'}] } } } }));
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  const drawn = page.locator('#detail-intelligence .train-profile-image');
+  await expect(drawn.locator('.profile-coach')).toHaveCount(6);
+  // Two 3-coach units: cab, middle, cab, then again. Coach A leads on the right.
+  const pieces = await drawn.locator('.profile-coach img').evaluateAll(imgs => imgs.map(img => img.getAttribute('src').match(/(\d)\.webp$/)[1]).join(''));
+  expect(pieces).toBe('012012');
+  await expect(drawn.locator('.profile-coach small').last()).toHaveText('A');
+  await expect(drawn.locator('.profile-coach').last().locator('.coach-first')).toHaveCount(1);
+  await expect(drawn.locator('.profile-coach').nth(3).locator('.coach-accessible')).toHaveCount(1);   // coach C
+  await expect(drawn.locator('.formation-units b')).toHaveText(['170636','170518']);
+  // Each coach's label sits over its own image.
+  const aligned = await drawn.locator('.profile-coach').evaluateAll(cells => cells.every(cell => {
+    const img = cell.querySelector('img').getBoundingClientRect(), label = cell.querySelector('small').getBoundingClientRect();
+    return Math.abs((label.left + label.right) / 2 - (img.left + img.right) / 2) < 2;
+  }));
+  expect(aligned).toBe(true);
+  await drawn.screenshot({ path: process.env.PROFILE_SHOT || '/dev/null' }).catch(() => {});
+});
+
+test('an unpublished Pendolino is drawn at a length the class runs at', async ({ page }) => {
+  await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { activity:'train-live-1', detail:{ available:true,
+    runs:[{ headcode:'1A23', operator:'Avanti West Coast', status:'On time', calling_points:[] }],
+    formation:{ class:'390', name:'Pendolino', traction:'electric', operator:'Avanti West Coast', coaches_known:false, usual:[9,11], coaches:[] } } } }));
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  const drawn = page.locator('#detail-intelligence .train-profile-image');
+  await expect(drawn.locator('.profile-coach')).toHaveCount(11);
+  await expect(drawn).toContainText('Not published for this train');
+  await drawn.screenshot({ path: process.env.PROFILE_SHOT2 || '/dev/null' }).catch(() => {});
 });

@@ -4420,24 +4420,52 @@
   // from National Rail (Darwin) when published, else its class's usual length
   // with a note saying so. Replaces the photo: Commons rarely has the right unit.
   const WHEELCHAIR_ICON='<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="4" r="1.8"/><path d="M11 7v6h5l2 5M11 10h4M8.5 11.5A5 5 0 1 0 15 18"/></svg>';
-  // Generated, transparent broadside assets. The timetable/API chooses the
-  // class; the browser never guesses from an operator name or headcode.
-  const TRAIN_PROFILE_IMAGES={
-    '390':{default:'/static/assets/train-profiles/class-390-pendolino.png'},
-    '170':{crosscountry:'/static/assets/train-profiles/class-170-crosscountry-turbostar.png'},
-    '195':{northern:'/static/assets/train-profiles/class-195-northern-civity.png'},
-    '220':{crosscountry:'/static/assets/train-profiles/class-220-crosscountry-voyager.png'},
-    '221':{crosscountry:'/static/assets/train-profiles/class-220-crosscountry-voyager.png'},
-    '350':{'london-northwestern':'/static/assets/train-profiles/class-350-lnwr-desiro.png','west-midlands':'/static/assets/train-profiles/class-350-lnwr-desiro.png'},
-    '800':{lner:'/static/assets/train-profiles/class-800-lner-azuma.png',gwr:'/static/assets/train-profiles/class-800-gwr-iet.png'},
-    '801':{lner:'/static/assets/train-profiles/class-800-lner-azuma.png'},
-    '802':{gwr:'/static/assets/train-profiles/class-800-gwr-iet.png'},
+  // Generated broadside profiles, cut into one image per coach
+  // (scripts/build_train_profiles.py): [folder, width of each coach image at
+  // 96 px high]. The timetable chooses the class; the operator the livery.
+  const TRAIN_PROFILE_SETS={
+    '390':{default:['class-390-pendolino',[292,165,161,154,147,162,283]]},
+    '170':{crosscountry:['class-170-crosscountry-turbostar',[268,254,278]]},
+    '195':{northern:['class-195-northern-civity',[354,319,354]]},
+    '220':{crosscountry:['class-220-crosscountry-voyager',[453,314,432]]},
+    '221':{crosscountry:['class-220-crosscountry-voyager',[453,314,432]]},
+    '350':{'london-northwestern':['class-350-lnwr-desiro',[252,194,205,252]],'west-midlands':['class-350-lnwr-desiro',[252,194,205,252]]},
+    '800':{lner:['class-800-lner-azuma',[215,187,176,171,206]],gwr:['class-800-gwr-iet',[292,216,263,196,281]]},
+    '801':{lner:['class-800-lner-azuma',[215,187,176,171,206]]},
+    '802':{gwr:['class-800-gwr-iet',[292,216,263,196,281]]},
   };
-  function trainProfileImage(formation,operator){
-    const choices=TRAIN_PROFILE_IMAGES[String(formation?.class||'')];
+  function trainProfileSet(formation,operator){
+    const choices=TRAIN_PROFILE_SETS[String(formation?.class||'')];
     if(!choices)return null;
     const livery=trainLiveryTheme(null,formation?.operator||operator).key;
     return choices[livery]||choices.default||null;
+  }
+  // Which cut coach image draws each of `count` coaches, left to right: whole
+  // units when the train is a multiple of the drawn unit (two cab ends meet in
+  // the middle, as when units couple), else the drawn unit's ends with its
+  // middle coaches repeated to the right length.
+  function profilePieces(pieces,count){
+    if(count<=1)return [0];
+    if(count%pieces===0)return Array.from({length:count},(_,i)=>i%pieces);
+    const middles=pieces>2?Array.from({length:pieces-2},(_,i)=>i+1):[0];
+    return [0,...Array.from({length:count-2},(_,i)=>middles[i%middles.length]),pieces-1];
+  }
+  function coachMarksHtml(coach){
+    return [coach.first?'<b class="coach-first" title="First class">1st</b>':'',
+      coach.toilet==='accessible'?`<span class="coach-accessible" title="Accessible toilet">${WHEELCHAIR_ICON}</span>`:coach.toilet==='standard'?'<b class="coach-wc" title="Toilet">WC</b>':''].join('');
+  }
+  function profileTrainHtml(set,coaches){
+    const [folder,widths]=set;
+    const pieces=profilePieces(widths.length,coaches.length);
+    const labelled=coaches.some(coach=>coach.letter||coach.first||coach.toilet);
+    const cells=coaches.map((coach,i)=>{
+      const piece=pieces[i];
+      const label=coach.letter?`Coach ${coach.letter}${coach.first?', first class':''}${coach.toilet==='accessible'?', accessible toilet':coach.toilet==='standard'?', toilet':''}`:'';
+      return `<figure class="profile-coach" style="flex:${widths[piece]} 1 0"${label?` aria-label="${esc(label)}"`:''}>${labelled?`<small>${esc(coach.letter||'')}</small>`:''}<img src="/static/assets/train-profiles/${folder}/${piece}.webp" width="${widths[piece]}" height="96" alt="" decoding="async">${labelled?`<span class="coach-marks">${coachMarksHtml(coach)}</span>`:''}</figure>`;
+    }).join('');
+    // Long trains scroll sideways rather than shrink to a sliver.
+    const total=pieces.reduce((sum,piece)=>sum+widths[piece],0);
+    return `<div class="profile-scroll"><div class="profile-train${labelled?' is-labelled':''}" style="min-width:${Math.round(total*18/96)}px">${cells}</div></div>`;
   }
   function pendolinoCoachSvg(index,count){
     const first=index===0,last=index===count-1;
@@ -4504,18 +4532,18 @@
     J2:'van',J3:'containers',J4:'aggregate',J5:'chemical',J6:'aggregate',J8:'van',J9:'containers',
     DD:'ballast',DH:'ballast',DI:'ballast',DQ:'ballast',DY:'ballast',PP:'van',PM:'van',JJ:'van',PV:'van'};
   const FREIGHT_PROFILE_IMAGES={
-    containers:'/static/assets/train-profiles/freight-wagon-intermodal.png',
-    tank:'/static/assets/train-profiles/freight-wagon-tank.png',
-    chemical:'/static/assets/train-profiles/freight-wagon-tank.png',
-    aggregate:'/static/assets/train-profiles/freight-wagon-aggregate.png',
-    coal:'/static/assets/train-profiles/freight-wagon-aggregate.png',
-    ballast:'/static/assets/train-profiles/freight-wagon-aggregate.png',
-    metals:'/static/assets/train-profiles/freight-wagon-steel.png',
-    cars:'/static/assets/train-profiles/freight-wagon-automotive.png',
+    containers:'/static/assets/train-profiles/freight-wagon-intermodal.webp',
+    tank:'/static/assets/train-profiles/freight-wagon-tank.webp',
+    chemical:'/static/assets/train-profiles/freight-wagon-tank.webp',
+    aggregate:'/static/assets/train-profiles/freight-wagon-aggregate.webp',
+    coal:'/static/assets/train-profiles/freight-wagon-aggregate.webp',
+    ballast:'/static/assets/train-profiles/freight-wagon-aggregate.webp',
+    metals:'/static/assets/train-profiles/freight-wagon-steel.webp',
+    cars:'/static/assets/train-profiles/freight-wagon-automotive.webp',
   };
   function freightVehicleHtml(kind,index,theme,electric,isLoco=false,exactClass=null){
     const image=isLoco&&exactClass==='66'&&theme.key==='db-cargo'
-      ?'/static/assets/train-profiles/freight-class-66-db-cargo.png'
+      ?'/static/assets/train-profiles/freight-class-66-db-cargo.webp'
       :FREIGHT_PROFILE_IMAGES[kind];
     const visual=image?`<img class="freight-profile-asset" src="${image}" alt="" loading="lazy" decoding="async">`
       :isLoco?locoSvg(theme,electric):wagonSvg(kind,index);
@@ -4547,18 +4575,17 @@
     const coaches=known?[...formation.coaches].reverse():Array.from({length:count},()=>({}));
     const title=[formation.class?`Class ${formation.class}`:null,formation.name].filter(Boolean).join(' ')||(formation.traction==='diesel'?'Diesel train':formation.traction==='electric'?'Electric train':'Passenger train');
     const length=known?`${count} coach${count===1?'':'es'}`:!usual.length?'':usual.length>1?`usually ${usual.slice(0,-1).join(', ')} or ${usual[usual.length-1]} coaches`:`usually ${usual[0]} coach${usual[0]===1?'':'es'}`;
-    const profileImage=trainProfileImage(formation,operator);
-    if(profileImage){
-      const coachData=known?coaches.map(coach=>{
-        const facilities=[coach.first?'<b class="coach-first">First class</b>':'<span>Standard</span>',
-          coach.toilet==='accessible'?`<span class="coach-facility">${WHEELCHAIR_ICON} Accessible toilet</span>`:
-          coach.toilet==='standard'?'<span class="coach-facility">WC Toilet</span>':''].filter(Boolean).join('');
-        return `<li><strong>${coach.letter?`Coach ${esc(coach.letter)}`:'Coach'}</strong><div>${facilities}</div></li>`;
-      }).join(''):'';
+    const profile=trainProfileSet(formation,operator);
+    const units=(formation.units||[]).filter(Boolean);
+    const unitsHtml=units.length?`<p class="formation-units">${units.map(unit=>`<b>${esc(unit)}</b>`).join('')}</p>`:'';
+    if(profile){
+      // Without published coaches: the drawn unit's own length if that is one
+      // the class runs at, else its usual length.
+      const drawn=known?coaches:Array.from({length:usual.includes(profile[1].length)?profile[1].length:count},()=>({}));
       const note=known
-        ? 'Train class from the timetable; coach information from National Rail for this service.'
-        : 'Train class from the timetable. The operator has not published this service’s exact coach formation.';
-      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="train-profile-stage"><img src="${profileImage}" alt="" loading="lazy" decoding="async"></div>${coachData?`<div class="formation-data"><strong>${count} published coaches</strong><ul>${coachData}</ul></div>`:''}<p>${esc(note)}</p></section>`;
+        ? 'Coaches, first class and toilets as published by National Rail for this train.'
+        : 'Not published for this train: drawn at its class’s usual length. Coaches, first class and toilets appear here when National Rail publishes them.';
+      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header>${profileTrainHtml(profile,drawn)}${unitsHtml}<p>${esc(note)}</p></section>`;
     }
     if(formation.hauled&&!known)coaches.push({loco:true});
     const cells=coaches.map((coach,i)=>{

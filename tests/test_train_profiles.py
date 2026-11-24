@@ -1,42 +1,28 @@
+"""Generated train profiles: cut per coach, small, and every image the page asks for exists."""
+import re
 from pathlib import Path
 
+STATIC = Path(__file__).parents[1] / "app" / "static"
 
-def test_passenger_consists_and_cargo_aware_freight_profiles_are_shipped():
-    static = Path(__file__).parents[1] / "app" / "static"
-    js = (static / "app.js").read_text(encoding="utf-8")
-    css = (static / "app.css").read_text(encoding="utf-8")
-    assert "function trainCoachSvg" in js
-    assert "function pendolinoCoachSvg" in js
-    assert "pendolino-svg" in js
-    assert "profile-class-390" in css
-    assert "TRAIN_PROFILE_IMAGES" in js
-    assert "class-390-pendolino.png" in js
-    for asset in (
-        "class-170-crosscountry-turbostar.png",
-        "class-195-northern-civity.png",
-        "class-220-crosscountry-voyager.png",
-        "class-350-lnwr-desiro.png",
-        "class-800-gwr-iet.png",
-        "class-800-lner-azuma.png",
-        "freight-class-66-db-cargo.png",
-        "freight-wagon-aggregate.png",
-        "freight-wagon-automotive.png",
-        "freight-wagon-intermodal.png",
-        "freight-wagon-steel.png",
-        "freight-wagon-tank.png",
-    ):
-        assert asset in js
-        image = static / "assets" / "train-profiles" / asset
-        assert image.is_file() and image.stat().st_size > 10_000
-        assert image.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
-    assert "function trainProfileImage" in js
-    assert "const FREIGHT_PROFILE_IMAGES" in js
-    assert "exactClass==='66'&&theme.key==='db-cargo'" in js
-    assert "published coaches" in js
-    assert "Accessible toilet" in js
-    assert "function trainFormationHtml" in js
-    assert "function freightProfileHtml" in js
-    assert "function locoSvg" in js
-    for kind in ("coal", "aggregate", "containers", "cars", "tank", "chemical", "metals", "ballast", "brake"):
-        assert f"{kind}:" in js or f"'{kind}'" in js
-    assert "formation=freight?freightProfileHtml" in js
+
+def test_every_profile_image_the_page_uses_exists_and_is_small():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    sets = re.findall(r"\['(class-[\w-]+)',\[([\d,]+)\]\]", js)
+    assert len(sets) >= 7
+    for folder, widths in sets:
+        for index in range(len(widths.split(","))):
+            image = STATIC / "assets" / "train-profiles" / folder / f"{index}.webp"
+            assert image.is_file(), image
+            assert image.stat().st_size < 40_000            # was 0.5-2.3 MB per PNG
+    for path in re.findall(r"/static/assets/train-profiles/(freight-[\w-]+\.webp)", js):
+        assert (STATIC / "assets" / "train-profiles" / path).stat().st_size < 60_000
+    assert ".png" not in "".join(re.findall(r"train-profiles/[^'\"`]+", js))
+
+
+def test_coach_widths_in_the_page_match_the_cut_images():
+    from PIL import Image
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    for folder, widths in re.findall(r"\['(class-[\w-]+)',\[([\d,]+)\]\]", js):
+        for index, width in enumerate(int(w) for w in widths.split(",")):
+            with Image.open(STATIC / "assets" / "train-profiles" / folder / f"{index}.webp") as image:
+                assert image.size == (width, 96)
