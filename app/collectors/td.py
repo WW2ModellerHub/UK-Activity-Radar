@@ -30,6 +30,32 @@ def _near_path(lat: float, lon: float, path, km: float) -> bool:
     return False
 
 
+BERTH_STEPS_FILE = Path(__file__).resolve().parents[1] / "reference" / "berth_steps.csv.gz"
+# Column order of the Rail Data Marketplace berth steps file (SMART fields).
+BERTH_STEP_COLUMNS = ("TD", "STEPTYPE", "FROMBERTH", "TOBERTH", "STANOX", "STANME", "EVENT",
+                      "PLATFORM", "FROMLINE", "BERTHOFFSET", "ROUTE", "TOLINE", "VALIDFROM")
+_BERTH_STEP_KEEP = ("TD", "STEPTYPE", "FROMBERTH", "TOBERTH", "STANOX", "STANME", "EVENT", "PLATFORM", "BERTHOFFSET")
+
+
+def load_berth_steps(path: Path | None = None) -> list[dict]:
+    """Berth steps from the bundled file, as SMART-style rows; [] if absent."""
+    import csv
+    import gzip
+    path = path or BERTH_STEPS_FILE
+    try:
+        with gzip.open(path, "rt", encoding="utf-8-sig", newline="") as handle:
+            rows = []
+            for values in csv.reader(handle):
+                if len(values) < 10 or not values[0].strip() or values[2].strip().upper() == "FROMBERTH":
+                    continue
+                row = {name: value.strip() for name, value in zip(BERTH_STEP_COLUMNS, values)}
+                # Only what TD reads, to keep memory down on the 2 GB server.
+                rows.append({name: row[name] for name in _BERTH_STEP_KEEP if row.get(name)})
+            return rows
+    except (OSError, EOFError, ValueError, UnicodeDecodeError):
+        return []
+
+
 class TDCollector(StompFeed):
     # Train Describer steps are positional: when processing falls behind, the
     # newest steps matter and a stale backlog may be discarded.
@@ -65,6 +91,8 @@ class TDCollector(StompFeed):
             rows = rows if isinstance(rows, list) else []
         except Exception:
             rows = []
+        # The newer berth steps (Rail Data Marketplace) come last, so they win.
+        rows = rows + load_berth_steps()
         self.exact.clear(); self.by_from.clear(); self.by_to.clear()
         for row in rows:
             if not isinstance(row, dict):
@@ -233,12 +261,13 @@ class TDCollector(StompFeed):
                     and existing.estimate_due_at > event_time - timedelta(minutes=2)):
                 kept_leg = {field: getattr(existing, field) for field in (
                     "next_lat", "next_lon", "estimate_path", "estimate_started_at", "estimate_due_at",
-                    "next_location", "next_tiploc")}
+                    "estimate_accel_s", "estimate_brake_s", "next_location", "next_tiploc")}
             if not preserve_leg:
                 existing.next_lat = existing.next_lon = None
                 existing.estimate_path = None
                 existing.estimate_due_at = None
                 existing.estimate_started_at = None
+                existing.estimate_accel_s = existing.estimate_brake_s = 0.0
                 existing.next_location = None
                 existing.next_tiploc = None
             existing.last_updated = event_time
@@ -277,6 +306,8 @@ class TDCollector(StompFeed):
                     existing.estimate_path = leg["path"]
                     existing.estimate_started_at = leg["started_at"]
                     existing.estimate_due_at = leg["due_at"]
+                    existing.estimate_accel_s = float(leg.get("accel_s") or 0)
+                    existing.estimate_brake_s = float(leg.get("brake_s") or 0)
                 if leg and leg.get("delay_minutes") is not None and not fallback:
                     # A berth step at a timetabled location is a real report:
                     # its offset from the booked time is the train's lateness.
@@ -334,6 +365,8 @@ class TDCollector(StompFeed):
                 estimate_path=leg["path"] if leg else None,
                 estimate_started_at=leg["started_at"] if leg else None,
                 estimate_due_at=leg["due_at"] if leg else None,
+                estimate_accel_s=float(leg.get("accel_s") or 0) if leg else 0.0,
+                estimate_brake_s=float(leg.get("brake_s") or 0) if leg else 0.0,
                 terminated_at=event_time if self._reached_destination(schedule, station) else None,
                 delay_minutes=leg.get("delay_minutes") if leg and not fallback else None,
             ))
@@ -407,6 +440,8 @@ class TDCollector(StompFeed):
         vehicle.estimate_path = leg["path"]
         vehicle.estimate_started_at = leg["started_at"]
         vehicle.estimate_due_at = leg["due_at"]
+        vehicle.estimate_accel_s = float(leg.get("accel_s") or 0)
+        vehicle.estimate_brake_s = float(leg.get("brake_s") or 0)
 
     def _place_on_timetable(self, vehicle: Vehicle, now: datetime) -> bool:
         """Give a matched train with no leg the one its timetable and lateness put it on.

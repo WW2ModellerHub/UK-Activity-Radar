@@ -133,11 +133,25 @@
   // The drawn marker counts as "on" a new path within this distance.
   const TRAIN_ON_PATH_KM=.35;
 
+  // Distance along a leg after `elapsed` of `total` seconds: speeding up from
+  // a stand over `accel` s, braking to a stop over `brake` s, steady between
+  // (Network Rail running times; app/running_profile.py does the same sum).
+  function legFraction(elapsed,total,accel,brake){
+    if(!(total>0))return 1;
+    const t=Math.max(0,Math.min(total,elapsed));
+    let a=Math.max(0,Number(accel)||0),b=Math.max(0,Number(brake)||0);
+    if(a+b>=total)a=b=0;
+    const speed=1/(total-a/2-b/2);
+    if(a&&t<a)return speed*t*t/(2*a);
+    if(b&&t>total-b){const left=total-t;return 1-speed*left*left/(2*b);}
+    return speed*(t-a/2);
+  }
+
   function trainTarget(activity,serverNow){
     const started=Date.parse(activity.estimate_started_at||''),due=Date.parse(activity.estimate_due_at||'');
     const path=usablePath(activity.estimate_path);
     if(path.length>=2&&Number.isFinite(started)&&Number.isFinite(due)&&due>started&&serverNow>=started){
-      const fraction=clamp((serverNow-started)/(due-started));
+      const fraction=clamp(legFraction((serverNow-started)/1000,(due-started)/1000,activity.estimate_accel_s,activity.estimate_brake_s));
       const sample=samplePath(path,fraction);
       if(sample)return {mode:'path',path,fraction,sample,
         key:`path|${activity.estimate_started_at||''}|${activity.estimate_due_at||''}|${JSON.stringify(path)}`};
@@ -412,5 +426,5 @@
 
   function reset(){motionStates.clear();busShapes.clear();lastPrune=0;clockOffsetMs=0;}
 
-  root.UKActivityMotionEngine={distanceKm,samplePath,nearestPathFraction,projectPosition,present,reset,setServerTime,clockOffset,setBusShape,hasBusShape:id=>busShapes.has(`bus:${id}`)};
+  root.UKActivityMotionEngine={distanceKm,samplePath,legFraction,nearestPathFraction,projectPosition,present,reset,setServerTime,clockOffset,setBusShape,hasBusShape:id=>busShapes.has(`bus:${id}`)};
 })(window);

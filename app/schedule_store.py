@@ -67,6 +67,19 @@ def _mapped(point) -> bool:
     return bool(point) and isinstance(point.get("lat"), (int, float)) and isinstance(point.get("lon"), (int, float))
 
 
+def _leg_shape(row, start_location: dict, end_location: dict, runtime: timedelta) -> dict:
+    """Seconds spent accelerating and braking on a leg (running_profile)."""
+    from .running_profile import allowances, ramps
+    try:
+        allowance = allowances(row["power_type"], row["timing_load"], row["train_category"])
+    except (IndexError, KeyError, TypeError):
+        allowance = allowances(None, None)
+    starts = bool(start_location.get("_departure_at")) and not start_location.get("_pass_at")
+    stops = bool(end_location.get("_arrival_at")) and not end_location.get("_pass_at")
+    accel, brake = ramps(runtime.total_seconds(), starts, stops, allowance)
+    return {"accel_s": accel, "brake_s": brake}
+
+
 def _call_time(location: dict) -> datetime | None:
     """When a train is booked at a location: its public time, else its working time.
 
@@ -893,6 +906,7 @@ class ScheduleStore:
                 "next_name": second_point["name"], "next_tiploc": second_code, "path": path,
                 "started_at": started_at, "due_at": due_at,
                 "tiploc": first_code,
+                **_leg_shape(row, first_location, second_location, due_at - started_at),
             }
         return None
 
@@ -1004,6 +1018,7 @@ class ScheduleStore:
                     "tiploc": previous_code, "report_tiploc": start_code,
                     "event_kind": event_kind, "berth_offset_seconds": offset,
                     "delay_minutes": _lateness_minutes(recorded_at, start_time),
+                    **_leg_shape(row, previous_location, start_location, runtime),
                 }
             return None
 
@@ -1031,6 +1046,7 @@ class ScheduleStore:
                 "tiploc": start_code, "report_tiploc": start_code,
                 "event_kind": event_kind or None, "berth_offset_seconds": offset,
                 "delay_minutes": _lateness_minutes(recorded_at, start_time),
+                **_leg_shape(row, start_location, next_location, runtime),
             }
         return None
 
@@ -1068,8 +1084,8 @@ class ScheduleStore:
             code = str(location.get("tiploc_code") or "").strip().upper()
             booked = _call_time(location)
             if _mapped(geo.get(code)) and isinstance(booked, datetime):
-                timed.append((code, booked + shift))
-        for (start_code, start_time), (next_code, next_time) in zip(timed, timed[1:]):
+                timed.append((code, booked + shift, location))
+        for (start_code, start_time, start_location), (next_code, next_time, next_location) in zip(timed, timed[1:]):
             if not (start_time <= at_time < next_time):
                 continue
             runtime = next_time - start_time
@@ -1090,6 +1106,7 @@ class ScheduleStore:
                 "started_at": start_time, "due_at": next_time,
                 "tiploc": start_code, "report_tiploc": start_code,
                 "event_kind": None, "berth_offset_seconds": 0, "delay_minutes": None,
+                **_leg_shape(row, start_location, next_location, runtime),
             }
         return None
 

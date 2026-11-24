@@ -352,3 +352,27 @@ test('a plane reported every 60 seconds keeps moving through the gap instead of 
   // Every 10 s of the gap it is further east: moving, not frozen.
   for (let i = 1; i < result.samples.length; i++) expect(result.samples[i]).toBeGreaterThan(result.samples[i - 1]);
 });
+
+test('a train speeds up from a stand and brakes to a stop, matching the server sum', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const now = Date.now();
+    const path = [[52, -1], [52, 0]];
+    const train = accel => engine.present({
+      id: `train-${accel}`, type: 'train', lat: 52, lon: -1, estimate_path: path,
+      estimate_started_at: new Date(now - 20000).toISOString(),
+      estimate_due_at: new Date(now + 280000).toISOString(),
+      estimate_accel_s: accel, estimate_brake_s: 60,
+    }, now, false);
+    return {
+      steady: train(0).lon + 1, starting: train(80).lon + 1,
+      // app/running_profile.py distance_fraction(20, 300, 80, 60) = 0.01087
+      sum: engine.legFraction(20, 300, 80, 60), end: engine.legFraction(300, 300, 80, 60),
+    };
+  });
+  expect(result.starting).toBeLessThan(result.steady / 2);
+  expect(result.sum).toBeCloseTo(0.01087, 4);
+  expect(result.end).toBeCloseTo(1, 6);
+});

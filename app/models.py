@@ -121,6 +121,9 @@ class Vehicle(BaseModel):
     estimate_path: list[list[float]] | None = None
     estimate_started_at: datetime | None = None
     estimate_due_at: datetime | None = None
+    # Seconds of the leg spent speeding up from a stand and braking to a stop (running_profile).
+    estimate_accel_s: float = 0.0
+    estimate_brake_s: float = 0.0
 
 
 class Event(BaseModel):

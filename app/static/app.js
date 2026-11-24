@@ -3116,7 +3116,8 @@
     const started=Date.parse(a?.estimate_started_at||''),due=Date.parse(a?.estimate_due_at||'');
     if(!Number.isFinite(started)||!Number.isFinite(due)||due<=started)return 0;
     const serverNow=now+(Number(window.UKActivityMotionEngine?.clockOffset?.())||0);
-    return Math.max(0,Math.min(1,(serverNow-started)/(due-started)));
+    const shaped=window.UKActivityMotionEngine?.legFraction?.((serverNow-started)/1000,(due-started)/1000,a.estimate_accel_s,a.estimate_brake_s);
+    return Math.max(0,Math.min(1,Number.isFinite(shaped)?shaped:(serverNow-started)/(due-started)));
   }
 
   function projectPosition(lat,lon,bearing,distance) {

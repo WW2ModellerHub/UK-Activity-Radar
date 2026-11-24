@@ -185,6 +185,7 @@ class TrustCollector(StompFeed):
                     reported_lat=leg["lat"], reported_lon=leg["lon"],
                     next_lat=leg["next_lat"], next_lon=leg["next_lon"],
                     estimate_path=leg["path"], estimate_started_at=leg["started_at"], estimate_due_at=leg["due_at"],
+                    estimate_accel_s=float(leg.get("accel_s") or 0), estimate_brake_s=float(leg.get("brake_s") or 0),
                     rail_tiploc=leg["tiploc"],
                 ))
 
@@ -422,6 +423,8 @@ class TrustCollector(StompFeed):
             estimate_path=estimate_path,
             estimate_started_at=(leg["started_at"] if event_type == "Arrival" and leg else event_time) if due_at else None,
             estimate_due_at=due_at,
+            estimate_accel_s=float(leg.get("accel_s") or 0) if due_at and event_type == "Arrival" and leg else 0.0,
+            estimate_brake_s=float(leg.get("brake_s") or 0) if due_at and event_type == "Arrival" and leg else 0.0,
         )
         self.state.upsert(vehicle)
         if platform:
@@ -491,6 +494,7 @@ class TrustCollector(StompFeed):
             existing.estimate_path = None
             existing.estimate_started_at = None
             existing.estimate_due_at = None
+            existing.estimate_accel_s = existing.estimate_brake_s = 0.0
             self.state.upsert(existing)
 
     def _reinstatement(self, body: dict) -> None:
