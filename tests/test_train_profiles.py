@@ -11,6 +11,8 @@ def test_passenger_consists_and_cargo_aware_freight_profiles_are_shipped():
     assert "profile-class-390" in css
     assert "TRAIN_PROFILE_IMAGES" in js
     assert "class-390-pendolino.png" in js
+    assert "published coaches" in js
+    assert "Accessible toilet" in js
     assert "function trainFormationHtml" in js
     assert "function freightProfileHtml" in js
     assert "function locoSvg" in js

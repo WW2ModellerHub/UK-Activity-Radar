@@ -1525,3 +1525,12 @@ strong[data-plus].needs-plus::after,
 .train-formation.profile-class-390 .formation-row .coach { grid-template-rows: 36px; }
 .train-profile-stage { min-height: 58px; display: flex; align-items: center; overflow: hidden; }
 .train-profile-stage img { display: block; width: 100%; height: auto; max-height: 92px; object-fit: contain; object-position: center; }
+.formation-data { display: grid; gap: 6px; }
+.formation-data > strong { font-size: 12px; color: var(--muted); }
+.formation-data ul { display: flex; gap: 6px; margin: 0; padding: 0 0 3px; list-style: none; overflow-x: auto; scrollbar-width: thin; }
+.formation-data li { flex: 0 0 auto; min-width: 88px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-alt,#f6f8f9); }
+.formation-data li > strong { display: block; font-size: 11px; margin-bottom: 4px; }
+.formation-data li > div { display: grid; gap: 3px; font-size: 10px; color: var(--muted); }
+.formation-data .coach-first { width: max-content; padding: 2px 4px; border-radius: 3px; background: #f3d36b; color: #3a2d00; }
+.formation-data .coach-facility { display: inline-flex; align-items: center; gap: 3px; }
+.formation-data .ico { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; }

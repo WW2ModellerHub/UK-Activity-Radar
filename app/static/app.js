@@ -4516,10 +4516,16 @@
     const length=known?`${count} coach${count===1?'':'es'}`:!usual.length?'':usual.length>1?`usually ${usual.slice(0,-1).join(', ')} or ${usual[usual.length-1]} coaches`:`usually ${usual[0]} coach${usual[0]===1?'':'es'}`;
     const profileImage=TRAIN_PROFILE_IMAGES[String(formation.class||'')];
     if(profileImage){
+      const coachData=known?coaches.map(coach=>{
+        const facilities=[coach.first?'<b class="coach-first">First class</b>':'<span>Standard</span>',
+          coach.toilet==='accessible'?`<span class="coach-facility">${WHEELCHAIR_ICON} Accessible toilet</span>`:
+          coach.toilet==='standard'?'<span class="coach-facility">WC Toilet</span>':''].filter(Boolean).join('');
+        return `<li><strong>${coach.letter?`Coach ${esc(coach.letter)}`:'Coach'}</strong><div>${facilities}</div></li>`;
+      }).join(''):'';
       const note=known
         ? 'Train class from the timetable; coach information from National Rail for this service.'
         : 'Train class from the timetable. The operator has not published this service’s exact coach formation.';
-      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="train-profile-stage"><img src="${profileImage}" alt="" loading="lazy" decoding="async"></div><p>${esc(note)}</p></section>`;
+      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="train-profile-stage"><img src="${profileImage}" alt="" loading="lazy" decoding="async"></div>${coachData?`<div class="formation-data"><strong>${count} published coaches</strong><ul>${coachData}</ul></div>`:''}<p>${esc(note)}</p></section>`;
     }
     if(formation.hauled&&!known)coaches.push({loco:true});
     const cells=coaches.map((coach,i)=>{
