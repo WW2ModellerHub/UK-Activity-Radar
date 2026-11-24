@@ -4416,6 +4416,42 @@
     return `<section class="delay-repay" aria-label="Delay Repay"><strong>${cancelled?'Cancelled':`Running ${esc(delay)} min late`}: you may be owed money back</strong><span>${esc(band)} Claims go to ${esc(operator)} through Delay Repay, usually within 28 days; keep your ticket.</span><a class="secondary-button" href="/go/delay-repay" target="_blank" rel="nofollow noopener">How to claim Delay Repay</a></section>`;
   }
 
+  // A drawn side view of the train, in its operator's colours: its coaches
+  // from National Rail (Darwin) when published, else its class's usual length
+  // with a note saying so. Replaces the photo: Commons rarely has the right unit.
+  const WHEELCHAIR_ICON='<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="4" r="1.8"/><path d="M11 7v6h5l2 5M11 10h4M8.5 11.5A5 5 0 1 0 15 18"/></svg>';
+  function trainCoachSvg(index,count,theme){
+    const first=index===0,last=index===count-1;
+    // Body with a sloped cab at each end of the train.
+    const left=first?'M14 6 Q4 8 2 20 L2 30 Q2 34 6 34':'M3 6 L3 34';
+    const right=last?'L94 34 Q98 34 98 30 L98 20 Q96 8 86 6 Z':'L97 34 L97 6 Z';
+    const body=`${left} ${right}`;
+    const windows=[];
+    for(let x=first?20:10;x<(last?78:88);x+=14)windows.push(`<rect x="${x}" y="11" width="10" height="8" rx="1.5"/>`);
+    const doors=[22,72].map(x=>`<rect x="${x}" y="10" width="6" height="22" rx="1" fill="${theme.accent}"/>`).join('');
+    const cab=(first?`<path d="M5 19 Q7 11 13 10 L13 19 Z" fill="#1f2a33"/>`:'')+(last?`<path d="M95 19 Q93 11 87 10 L87 19 Z" fill="#1f2a33"/>`:'');
+    return `<svg class="coach-svg" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><path d="${body}" fill="${theme.primary}"/><rect x="${first?4:3}" y="22" width="${100-(first?4:3)-(last?4:3)}" height="3" fill="${theme.secondary}"/><g fill="#1f2a33">${windows.join('')}</g>${cab}${doors}<rect x="${first?6:3}" y="31" width="${100-(first?6:3)-(last?6:3)}" height="3" fill="rgba(0,0,0,.35)"/><circle cx="22" cy="37" r="2.6" fill="#3a3f45"/><circle cx="78" cy="37" r="2.6" fill="#3a3f45"/></svg>`;
+  }
+  function trainFormationHtml(formation, operator) {
+    if(!formation)return '';
+    const theme=trainLiveryTheme(null, formation.operator||operator);
+    const known=formation.coaches_known&&Array.isArray(formation.coaches)&&formation.coaches.length;
+    const usual=(formation.usual||[]).filter(n=>Number(n)>0);
+    const count=known?formation.coaches.length:(usual[usual.length-1]||usual[0]||0);
+    if(!count)return '';
+    // Coach A is at the front: drawn on the right, as the train heads right.
+    const coaches=known?[...formation.coaches].reverse():Array.from({length:count},()=>({}));
+    const title=[formation.class?`Class ${formation.class}`:null,formation.name].filter(Boolean).join(' ')||(formation.traction==='diesel'?'Diesel train':'Train');
+    const length=known?`${count} coach${count===1?'':'es'}`:usual.length>1?`usually ${usual.slice(0,-1).join(', ')} or ${usual[usual.length-1]} coaches`:`usually ${usual[0]} coach${usual[0]===1?'':'es'}`;
+    const cells=coaches.map((coach,i)=>{
+      const marks=[coach.first?'<b class="coach-first" title="First class">1st</b>':'',
+        coach.toilet==='accessible'?`<span title="Accessible toilet">${WHEELCHAIR_ICON}</span>`:coach.toilet==='standard'?'<b class="coach-wc" title="Toilet">WC</b>':''].join('');
+      return `<div class="coach"><small>${coach.letter?`Coach ${esc(coach.letter)}`:''}</small>${trainCoachSvg(i,coaches.length,theme)}<div class="coach-marks">${marks}</div></div>`;
+    }).join('');
+    const note=known?'Coaches as published by National Rail for this train.':"This train's coaches are not published; drawn at its class's usual length.";
+    return `<section class="train-formation${known?'':' is-typical'}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong><span>${esc(length)}</span></header><div class="formation-row" style="--coaches:${coaches.length}">${cells}</div><p>${esc(note)}</p></section>`;
+  }
+
   function renderRailIntelligence(detail) {
     const runs=Array.isArray(detail?.runs) ? detail.runs : [];
     const terms=detail?.terms_url ? safeUrl(detail.terms_url) : null;
@@ -4441,7 +4477,8 @@
     ].filter(Boolean):[];
     const repay=delayRepayHtml(runs[0]);
     const freightCard=freight?`<section class="freight-card" aria-label="What this train is carrying"><b class="freight-cargo">${esc(freight.cargo)}</b>${freightFacts.length?`<dl>${freightFacts.map(([value,label])=>`<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`:''}</section>`:'';
-    return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}>${liveState}${repay}${freightCard}${cards || `<div class="transport-unavailable"><strong>Stops not published</strong><span>${esc(message)}</span></div>`}${stockCard}${terms?`<p class="transport-source"><a target="_blank" rel="noopener" href="${esc(terms)}">Data terms ↗</a></p>`:''}</div>`;
+    const formation=freight?'':trainFormationHtml(detail?.formation, runs[0]?.operator);
+    return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}>${formation}${liveState}${repay}${freightCard}${cards || `<div class="transport-unavailable"><strong>Stops not published</strong><span>${esc(message)}</span></div>`}${stockCard}${terms?`<p class="transport-source"><a target="_blank" rel="noopener" href="${esc(terms)}">Data terms ↗</a></p>`:''}</div>`;
   }
 
   function busLatenessLabel(detail) {
@@ -4611,7 +4648,8 @@
     if (selectionChanged) { clearPhoto(); clearActivityIntelligence(); }
     if (['sar','aircraft'].includes(a.type)) { loadAircraftInfo(a); if (!flightRouteById.has(a.id)) loadFlightRoute(a); }
     // No bus photos: Commons rarely has the right bus, and a wrong one misleads.
-    else if (['train','vessel'].includes(a.type)) loadPhoto(a);
+    // Trains are drawn (trainFormationHtml); only a special locomotive gets a photo search.
+    else if (a.type==='vessel'||(a.type==='train'&&coolInfo(a).candidate)) loadPhoto(a);
     else if (['road','incident'].includes(a.type)) loadNearestCamera(a);
     renderRelated(a);
     loadEnvironmentContext(a);

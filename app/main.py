@@ -3194,6 +3194,9 @@ def activity_rail(request: Request, activity_id: str):
         raise HTTPException(status_code=503, detail="Rail intelligence is not ready")
     detail = smart_places.train_vehicle_detail(item)
     detail["rolling_stock"] = train_reference.lookup(item.vehicle_ref)
+    from .train_formation import describe
+    coaches = darwin_collector.formation_for(item.train_uid, item.service_date) if darwin_collector is not None else []
+    detail["formation"] = describe(item, coaches)
     return {"activity": activity_id, "detail": detail}
 
 
