@@ -108,3 +108,11 @@ def test_the_brokers_own_error_is_reported():
     feed = TDKafkaFeed(Settings(), None, _TD())
     feed._broker_error("sasl_ssl://broker:9092/bootstrap: SASL authentication error: Authentication failed")
     assert "SASL authentication error" in feed.report()["broker_error"]
+
+
+def test_librdkafka_log_lines_are_kept_for_the_health_report():
+    feed = TDKafkaFeed(Settings(), None, _TD())
+    feed._log.warning("FAIL sasl_ssl://broker:9092/bootstrap: Connect to ipv4#1.2.3.4:9092 failed: Connection refused")
+    report = feed.report()
+    assert "Connection refused" in report["broker_log"][-1]
+    assert report["server"].endswith(":9092")

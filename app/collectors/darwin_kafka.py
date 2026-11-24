@@ -114,6 +114,23 @@ def _formation_coaches(formation: dict) -> list[dict]:
 MAX_FORMATIONS = 30000
 
 
+
+def _broker_logger(name: str):
+    """A logger for librdkafka that keeps its last few warnings and errors (no credentials are logged)."""
+    import logging
+    from collections import deque
+    lines: deque = deque(maxlen=5)
+
+    class _Keep(logging.Handler):
+        def emit(self, record):
+            lines.append(record.getMessage()[:300])
+
+    log = logging.getLogger(f"radar.kafka.{name}")
+    log.setLevel(logging.WARNING)
+    log.propagate = False
+    log.handlers = [_Keep()]
+    return log, lines
+
 class DarwinKafkaFeed:
     def __init__(self, settings, state, consumer_factory=None) -> None:
         self.settings = settings
@@ -128,6 +145,7 @@ class DarwinKafkaFeed:
         self.malformed = 0
         self.error: str | None = None
         self.broker_error: str | None = None
+        self._log, self.broker_log = _broker_logger(type(self).__name__)
         self.sample: dict | None = None
         # Coaches per Darwin service (RID), and which timetable train each RID is.
         self._formations: dict[str, list[dict]] = {}
@@ -153,7 +171,8 @@ class DarwinKafkaFeed:
 
     def report(self) -> dict:
         return {
-            "broker_error": self.broker_error, "live": self.live, "messages": self.messages, "services": self.services,
+            "broker_error": self.broker_error, "broker_log": list(self.broker_log),
+            "server": self.settings.raildata_darwin_kafka_bootstrap, "live": self.live, "messages": self.messages, "services": self.services,
             "formations": len(self._formations), "formation_messages": self.formation_messages,
             "trains_enriched": self.enriched, "malformed": self.malformed,
             "error": self.error,
@@ -183,7 +202,7 @@ class DarwinKafkaFeed:
         from confluent_kafka import Consumer
         # librdkafka's own errors say why a connection failed (DNS, TLS, refused,
         # SASL authentication); "Broker transport failure" alone does not.
-        return Consumer({**self._config(), "error_cb": self._broker_error})
+        return Consumer({**self._config(), "error_cb": self._broker_error, "logger": self._log})
 
     def _broker_error(self, error) -> None:
         self.broker_error = str(error)[:300]
@@ -314,6 +333,8 @@ class DarwinKafkaFeed:
             finally:
                 try:
                     if consumer is not None:
+                        if self.error:
+                            consumer.poll(0.5)   # delivers librdkafka's log lines: why it failed
                         consumer.close()
                 except Exception:
                     pass
