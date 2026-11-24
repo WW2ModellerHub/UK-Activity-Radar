@@ -3,6 +3,8 @@ import json
 import time
 from types import SimpleNamespace
 
+import certifi
+
 from app.collectors import td_kafka
 from app.collectors.stomp_client import MultiplexStompFeed
 from app.collectors.td_kafka import TDKafkaFeed
@@ -22,6 +24,12 @@ class _TD:
 
 
 STEP = json.dumps([{"CA_MSG": {"area_id": "LS", "from": "0101", "to": "0103", "descr": "1A23", "time": "1700000000000"}}])
+
+
+def test_kafka_config_uses_the_packaged_trust_bundle():
+    config = TDKafkaFeed(Settings(), None, _TD())._config()
+    assert config["security.protocol"] == "SASL_SSL"
+    assert config["ssl.ca.location"] == certifi.where()
 
 
 def test_kafka_records_reach_the_td_handler_marked_as_kafka():

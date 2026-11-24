@@ -18,6 +18,8 @@ from __future__ import annotations
 import threading
 import time
 
+import certifi
+
 from ..models import SourceStatus
 
 WARM_START_S = 5 * 60      # how far back to start after a restart
@@ -71,16 +73,17 @@ class TDKafkaFeed:
                 "seconds_since_message": round(time.monotonic() - self.last_message_at) if self.messages else None,
                 "sample": self.sample}
 
-    def _consumer(self):
-        if self._factory:
-            return self._factory()
-        from confluent_kafka import Consumer
-        return Consumer({
+    def _config(self) -> dict:
+        return {
             "bootstrap.servers": self.settings.raildata_td_kafka_bootstrap,
             "security.protocol": "SASL_SSL",
             "sasl.mechanisms": "PLAIN",
             "sasl.username": self.settings.raildata_td_kafka_username,
             "sasl.password": self.settings.raildata_td_kafka_password,
+            # RDM requires a valid certificate bundle. Supplying certifi
+            # explicitly avoids platform-dependent CA discovery failures in
+            # slim Linux containers such as Render's runtime.
+            "ssl.ca.location": certifi.where(),
             "group.id": self.settings.raildata_td_kafka_group,
             "enable.auto.commit": False,
             "auto.offset.reset": "latest",
@@ -88,7 +91,13 @@ class TDKafkaFeed:
             "queued.max.messages.kbytes": 8192,
             "fetch.max.bytes": 4 * 1024 * 1024,
             "client.id": "uk-activity-radar",
-        })
+        }
+
+    def _consumer(self):
+        if self._factory:
+            return self._factory()
+        from confluent_kafka import Consumer
+        return Consumer(self._config())
 
     def _assign(self, consumer) -> int:
         from confluent_kafka import TopicPartition
