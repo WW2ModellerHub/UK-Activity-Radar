@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## Trains drawn coach by coach instead of photos
+
+- `app/train_formation.py`: the class from the timetable (an EMU's timing load is its class; DMU letters only where the operator settles it) with its name and usual unit lengths. Freight and unknown classes are not drawn.
+- Darwin consumer now reads `scheduleFormations` (coach letters, first class, toilets in service) and maps RID to train UID/date; `/api/activity/{id}/rail` returns `formation`.
+- The train panel draws a side view in the operator's colours: Darwin's coaches when published, else the class's usual length, labelled as such. Everyday trains no longer search for photos; special locomotives still do.
+
 ## Newer berth steps replace old SMART rows per area
 
 - The bundled Rail Data Marketplace berth steps now replace `smart.json` rows outright for every TD area they cover, so steps Network Rail has deleted (re-signalled areas) stop mapping trains. Areas the bundled file does not cover keep their old rows.

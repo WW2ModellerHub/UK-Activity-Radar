@@ -1650,13 +1650,15 @@ test('common civil helicopters such as the Robinson R44 get the helicopter icon'
   await expect(page.locator('.aircraft-shape-helicopter')).toHaveCount(3);
 });
 
-test('an everyday train shows an example photo in its operator colours, clearly labelled', async ({ page }) => {
-  await page.route('**/api/activity/train-live-1/media', route => route.fulfill({ json:{ ok:true, title:'GWR 800 004 at Reading.jpg', thumbnail_url:'https://upload.wikimedia.org/fixture-gwr.jpg', page_url:'https://commons.wikimedia.org/?curid=2', artist:'A Photographer', license:'CC BY-SA 4.0', source:'Wikimedia Commons', match_kind:'type_reference', reference_label:'Great Western Railway — example of their trains, not this exact one' } }));
+test('an everyday train is drawn, not shown in an example photo', async ({ page }) => {
+  let mediaCalls = 0;
+  await page.route('**/api/activity/train-live-1/media', route => { mediaCalls += 1; return route.fulfill({ json:{ ok:true, title:'GWR 800 004 at Reading.jpg', thumbnail_url:'https://upload.wikimedia.org/fixture-gwr.jpg' } }); });
   await page.locator('[data-layer-toggle="train"]').click();
   await page.locator('.marker-wrap-train .marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
-  const photo = page.locator('#detail-photo');
-  await expect(photo.locator('img')).toBeVisible();
-  await expect(photo.locator('.image-truth')).toHaveText('Great Western Railway — example of their trains, not this exact one');
+  await expect(page.locator('#detail-title')).not.toHaveText('Nothing selected');
+  await page.waitForTimeout(800);
+  await expect(page.locator('#detail-photo img')).toHaveCount(0);
+  expect(mediaCalls).toBe(0);
 });
 
 test('an aircraft gets one stable exact Planespotters photo in one request', async ({ page }) => {
@@ -2778,4 +2780,39 @@ test('at Birmingham a plane on the runway reads the airport height, not flying a
     .evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-panel')).toContainText('13 kt (from its movement; the feed said 118)');
   await expect(page.locator('#detail-panel')).toContainText('is taxiing at Birmingham Airport at 13 knots');
+});
+
+test('a train is drawn coach by coach in its operator colours instead of a photo', async ({ page }) => {
+  let mediaCalls = 0;
+  page.on('request', request => { if (request.url().includes('/api/activity/train-live-1/media')) mediaCalls += 1; });
+  await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { activity:'train-live-1', detail:{ available:true,
+    runs:[{ headcode:'1A23', operator:'CrossCountry', origin:'Cardiff Central', destination:'Nottingham', status:'On time', calling_points:[] }],
+    formation:{ class:'170', name:'Turbostar', traction:'diesel', operator:'CrossCountry', coaches_known:true, usual:[2,3], source:'Darwin (National Rail)',
+      coaches:[{letter:'A',first:true,toilet:null},{letter:'B',first:false,toilet:'standard'},{letter:'C',first:false,toilet:'accessible'}] } } } }));
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  const drawn = page.locator('#detail-intelligence .train-formation');
+  await expect(drawn).toContainText('Class 170 Turbostar');
+  await expect(drawn).toContainText('3 coaches');
+  await expect(drawn.locator('.coach')).toHaveCount(3);
+  // Coach A leads, on the right; first class and both toilets are marked.
+  await expect(drawn.locator('.coach small').last()).toHaveText('Coach A');
+  await expect(drawn.locator('.coach-first')).toHaveCount(1);
+  await expect(drawn.locator('.coach-wc')).toHaveCount(1);
+  await expect(drawn.locator('[title="Accessible toilet"]')).toHaveCount(1);
+  await expect(drawn).toContainText('published by National Rail');
+  await page.locator('#detail-panel').screenshot({ path: process.env.FORMATION_SHOT || '/dev/null' }).catch(() => {});
+  expect(mediaCalls).toBe(0);
+});
+
+test('without a published formation a train is drawn at its class length and says so', async ({ page }) => {
+  await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { activity:'train-live-1', detail:{ available:true,
+    runs:[{ headcode:'1A23', operator:'Avanti West Coast', status:'On time', calling_points:[] }],
+    formation:{ class:'390', name:'Pendolino', traction:'electric', operator:'Avanti West Coast', coaches_known:false, usual:[9,11], coaches:[] } } } }));
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  const drawn = page.locator('#detail-intelligence .train-formation');
+  await expect(drawn).toContainText('usually 9 or 11 coaches');
+  await expect(drawn).toContainText('not published');
+  await expect(drawn).toHaveClass(/is-typical/);
 });

@@ -85,6 +85,35 @@ def _updates(payload: dict) -> list[dict]:
     return out
 
 
+def _update_blocks(payload: dict) -> list[dict]:
+    root = payload.get("Pport") if isinstance(payload.get("Pport"), dict) else payload
+    blocks = []
+    for key in ("uR", "sR"):
+        blocks += [item for item in _list(root.get(key) if isinstance(root, dict) else None) if isinstance(item, dict)]
+    return blocks
+
+
+def _formation_coaches(formation: dict) -> list[dict]:
+    """Darwin <formation><coaches><coach coachNumber coachClass><toilet>…"""
+    holder = formation.get("coaches")
+    raw = holder.get("coach") if isinstance(holder, dict) else holder
+    coaches = []
+    for coach in _list(raw):
+        if not isinstance(coach, dict):
+            continue
+        toilet = coach.get("toilet")
+        coaches.append({
+            "letter": _text(coach.get("coachNumber")),
+            "class": _text(coach.get("coachClass")),
+            # The toilet's type is the element text; its status an attribute.
+            "toilet": _text(toilet) if not isinstance(toilet, dict) or str(toilet.get("status") or "InService") != "NotInService" else None,
+        })
+    return coaches
+
+
+MAX_FORMATIONS = 30000
+
+
 class DarwinKafkaFeed:
     def __init__(self, settings, state, consumer_factory=None) -> None:
         self.settings = settings
@@ -99,6 +128,11 @@ class DarwinKafkaFeed:
         self.malformed = 0
         self.error: str | None = None
         self.sample: dict | None = None
+        # Coaches per Darwin service (RID), and which timetable train each RID is.
+        self._formations: dict[str, list[dict]] = {}
+        self._rid_for: dict[tuple[str, str], str] = {}
+        self._lock = threading.Lock()
+        self.formation_messages = 0
 
     @property
     def live(self) -> bool:
@@ -119,6 +153,7 @@ class DarwinKafkaFeed:
     def report(self) -> dict:
         return {
             "live": self.live, "messages": self.messages, "services": self.services,
+            "formations": len(self._formations), "formation_messages": self.formation_messages,
             "trains_enriched": self.enriched, "malformed": self.malformed,
             "error": self.error,
             "seconds_since_message": round(time.monotonic() - self.last_message_at) if self.messages else None,
@@ -168,7 +203,46 @@ class DarwinKafkaFeed:
                 "received_at": datetime.now(timezone.utc).isoformat(),
             }
         for service in services:
+            self._remember_rid(service)
             self._service(service)
+        for block in _update_blocks(payload):
+            for schedule in _list(block.get("schedule")):
+                if isinstance(schedule, dict):
+                    self._remember_rid(schedule)
+            for item in _list(block.get("scheduleFormations")):
+                if isinstance(item, dict):
+                    self._formation(item)
+
+    def _remember_rid(self, service: dict) -> None:
+        rid, uid = _text(service.get("rid")), _text(service.get("uid"))
+        day = (_text(service.get("ssd")) or "")[:10]
+        if rid and uid and day:
+            with self._lock:
+                self._rid_for[(uid, day)] = rid
+                if len(self._rid_for) > MAX_FORMATIONS:
+                    self._rid_for.pop(next(iter(self._rid_for)))
+
+    def _formation(self, item: dict) -> None:
+        rid = _text(item.get("rid"))
+        formations = [f for f in _list(item.get("formation")) if isinstance(f, dict)]
+        if not rid or not formations:
+            return
+        # A service that divides has one formation per part; the longest is the one that runs throughout.
+        coaches = max((_formation_coaches(f) for f in formations), key=len)
+        if not coaches:
+            return
+        self.formation_messages += 1
+        with self._lock:
+            self._formations.pop(rid, None)
+            self._formations[rid] = coaches
+            if len(self._formations) > MAX_FORMATIONS:
+                self._formations.pop(next(iter(self._formations)))
+
+    def formation_for(self, uid: str | None, service_date: str | None) -> list[dict]:
+        """The coaches Darwin last published for this train, or []."""
+        with self._lock:
+            rid = self._rid_for.get((str(uid or "").strip(), str(service_date or "")[:10]))
+            return [dict(row) for row in self._formations.get(rid, [])] if rid else []
 
     def _service(self, service: dict) -> None:
         uid = _text(service.get("uid"))
