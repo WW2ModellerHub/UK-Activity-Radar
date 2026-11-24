@@ -288,6 +288,8 @@ class Settings:
         "FLYITALYADSB_BASE_URL", "https://api.flyitalyadsb.com/v2"
     ).rstrip("/")
     flyitaly_adsb_api_key: str = os.getenv("FLYITALYADSB_API_KEY", "").strip()
+    # Rail Data Marketplace: rail replacement bus stop locations (product 1018).
+    raildata_replacement_api_key: str = os.getenv("RAILDATA_REPLACEMENT_API_KEY", "").strip()
     # One regional request per interval. The default adapts to provider quota;
     # operators with a contracted allowance can still override it explicitly.
     adsb_sar_poll_seconds: int = _adsb_poll_seconds()

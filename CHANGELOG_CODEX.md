@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## 2026-11-24 — where rail replacement buses leave from
+
+- New Rail Data Marketplace feed (Rail Replacement Location Data, key in
+  RAILDATA_REPLACEMENT_API_KEY): 3,499 stops at 2,436 stations, each with
+  a description such as "depart from the station car park" and a position.
+  Fetched once a day (the API gives a one-hour download link; the key is
+  sent only to the API), reduced to ~850 KB and saved in DATA_DIR; a failed
+  fetch keeps the last copy and is shown on the health page.
+- Station pages have a "Rail replacement buses at …" section (each place
+  once, with a map link); the in-app board's "Buses replace some trains"
+  notice says where they leave from, with "Show on map".
+
 ## 2026-11-24 — trains catch up gently instead of leaping
 
 - User screenshots at South Wigston: a train sat at the junction for two

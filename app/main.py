@@ -181,6 +181,9 @@ billing_store: BillingStore | None = None
 billing_service: StripeBillingService | None = None
 commute_alert_store: CommuteAlertStore | None = None
 rail_position_snapshot = RailPositionSnapshot(RAIL_POSITION_SNAPSHOT)
+# Where rail replacement buses stop at each station (Rail Data Marketplace).
+from .rail_replacement import RailReplacementStops
+rail_replacement = RailReplacementStops(DATA_DIR, settings.raildata_replacement_api_key)
 rail_line_layer = RailLineLayer(Path(__file__).parent / "assets" / "rail_track_geometry.geojson")
 world_collectors: list = []
 media_lookup = WikimediaLookup(settings.wikimedia_api_url, enabled=settings.wikimedia_enabled)
@@ -604,6 +607,18 @@ async def _line_track_warm() -> None:
         pass
 
 
+async def _rail_replacement_loop() -> None:
+    """Rail replacement bus stops: fetched once a day; the last good copy is kept."""
+    await asyncio.sleep(120)
+    while True:
+        if rail_replacement.due():
+            try:
+                await asyncio.to_thread(rail_replacement.refresh)
+            except Exception as error:  # noqa: BLE001 - keep the saved copy
+                _runtime["rail_replacement_error"] = f"{type(error).__name__}: {error}"[:300]
+        await asyncio.sleep(3600)
+
+
 async def _orr_refresh_loop() -> None:
     """Official ORR figures: punctuality weekly, station usage monthly."""
     from .orr import refresh
@@ -818,6 +833,8 @@ def runtime_report(detail: bool = False) -> dict:
             report["estimate_errors"] = {"count": _runtime["estimate_errors"], "last": _runtime.get("estimate_error")}
         if getattr(state, "estimate_errors", 0):
             report["stream_estimate_errors"] = {"count": state.estimate_errors, "last": state.estimate_error}
+        if _runtime.get("rail_replacement_error"):
+            report["rail_replacement_error"] = _runtime["rail_replacement_error"]
         if _runtime.get("stream_errors"):
             report["stream_errors"] = {"count": _runtime["stream_errors"], "last": _runtime.get("stream_error")}
     return report
@@ -883,6 +900,8 @@ async def lifespan(app: FastAPI):
         pass
     if not settings.demo_mode:
         tasks.append(asyncio.create_task(_orr_refresh_loop()))
+        if rail_replacement.configured:
+            tasks.append(asyncio.create_task(_rail_replacement_loop()))
 
     if billing_configuration.enabled:
         billing_store = BillingStore(
@@ -1513,6 +1532,7 @@ def station_page_route(name: str, request: Request):
             facts["engineering"] = schedules.replacements_at(crs) or []
         except Exception:
             pass
+        facts["replacement_stops"] = rail_replacement.at(crs)
         # Each direct destination links to its route page ("Hinckley to Leicester trains").
         from .route_pages import route_path
         paths = {row["crs"]: route_path(station, row) for row in _stations() if row["crs"] != crs}
@@ -2631,7 +2651,10 @@ def place_board(place_id: str, request: Request, limit: int = 10):
         raise HTTPException(status_code=404, detail="Place not found")
     limit=max(1,min(25,int(limit)))
     typ=place.get("place_type")
-    if typ == "rail_station": payload=smart_places.rail_board(place.get("crs") or "", limit)
+    if typ == "rail_station":
+        payload=smart_places.rail_board(place.get("crs") or "", limit)
+        if isinstance(payload, dict):
+            payload["replacement_stops"]=rail_replacement.at(place.get("crs") or "")
     elif typ == "bus_stop": payload=smart_places.bus_board(place, limit)
     elif typ == "ferry_terminal": payload=smart_places.ferry_board(place, limit)
     elif typ == "rain_gauge": payload=smart_places.rain_board(place)
