@@ -1,5 +1,17 @@
 # Codex stabilization changelog
 
+## Darwin real-time service information from Rail Data Marketplace
+
+- Added a dedicated consumer for the Darwin v18 JSON Kafka topic. Darwin now
+  enriches matched live trains and station boards with forecast delay and
+  platform information by train UID and service date.
+- Darwin is deliberately isolated from Train Describer: it cannot change a
+  marker's coordinates or refresh the timestamp of its last physical railway
+  report, preventing service updates from creating floating or immortal trains.
+- Added separate server-side Darwin credentials, bounded Kafka buffering,
+  reconnect backoff, malformed-message isolation and runtime health metrics.
+- Added deterministic JSON fixtures and train-lifecycle regression coverage.
+
 ## Train Describer from Rail Data Marketplace Kafka
 
 - New `app/collectors/td_kafka.py`: reads TD_ALL_SIG_AREA from RDM's Confluent Kafka when `RAILDATA_TD_KAFKA_GROUP`, `_USERNAME` and `_PASSWORD` are set (Render only, never committed).

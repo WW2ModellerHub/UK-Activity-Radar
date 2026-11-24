@@ -84,6 +84,14 @@ class Settings:
     raildata_td_kafka_group: str = os.getenv("RAILDATA_TD_KAFKA_GROUP", "").strip()
     raildata_td_kafka_username: str = os.getenv("RAILDATA_TD_KAFKA_USERNAME", "").strip()
     raildata_td_kafka_password: str = os.getenv("RAILDATA_TD_KAFKA_PASSWORD", "").strip()
+    # Darwin real-time service forecasts from Rail Data Marketplace. These
+    # credentials belong to the Darwin subscription and are deliberately not
+    # shared with the separate Train Describer product.
+    raildata_darwin_kafka_bootstrap: str = os.getenv("RAILDATA_DARWIN_KAFKA_BOOTSTRAP", "pkc-z3p1v0.europe-west2.gcp.confluent.cloud:9092").strip()
+    raildata_darwin_kafka_topic: str = os.getenv("RAILDATA_DARWIN_KAFKA_TOPIC", "prod-1010-Darwin-Train-Information-Push-Port-IIII2_0-JSON").strip()
+    raildata_darwin_kafka_group: str = os.getenv("RAILDATA_DARWIN_KAFKA_GROUP", "").strip()
+    raildata_darwin_kafka_username: str = os.getenv("RAILDATA_DARWIN_KAFKA_USERNAME", "").strip()
+    raildata_darwin_kafka_password: str = os.getenv("RAILDATA_DARWIN_KAFKA_PASSWORD", "").strip()
     vstp_enabled: bool = _bool("VSTP_ENABLED", True)
     demo_mode: bool = _bool("DEMO_MODE", False)
     public_deployment: bool = _bool("PUBLIC_DEPLOYMENT", False)
@@ -435,6 +443,14 @@ class Settings:
     def raildata_td_kafka_ready(self) -> bool:
         return bool(self.raildata_td_kafka_bootstrap and self.raildata_td_kafka_topic and self.raildata_td_kafka_group
                     and self.raildata_td_kafka_username and self.raildata_td_kafka_password)
+
+    @property
+    def raildata_darwin_kafka_ready(self) -> bool:
+        return bool(
+            self.raildata_darwin_kafka_bootstrap and self.raildata_darwin_kafka_topic
+            and self.raildata_darwin_kafka_group and self.raildata_darwin_kafka_username
+            and self.raildata_darwin_kafka_password
+        )
 
     @property
     def network_rail_enabled(self) -> bool:

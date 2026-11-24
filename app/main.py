@@ -158,6 +158,7 @@ trust_collector: TrustCollector | None = None
 td_collector: TDCollector | None = None
 vstp_collector: VSTPCollector | None = None
 rail_feed_hub: MultiplexStompFeed | None = None
+darwin_collector = None
 bods_collector: BODSCollector | None = None
 bods_sx_collector: BODSSXCollector | None = None
 roads_collector: NationalHighwaysCollector | None = None
@@ -837,6 +838,8 @@ def runtime_report(detail: bool = False) -> dict:
             report["stream_estimate_errors"] = {"count": state.estimate_errors, "last": state.estimate_error}
         if td_collector is not None and td_collector.kafka is not None:
             report["td_kafka"] = td_collector.kafka.report()
+        if darwin_collector is not None:
+            report["darwin_kafka"] = darwin_collector.report()
         if _runtime.get("rail_replacement_error"):
             report["rail_replacement_error"] = _runtime["rail_replacement_error"]
         if _runtime.get("stream_errors"):
@@ -874,7 +877,7 @@ async def _runtime_monitor_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global trust_collector, td_collector, vstp_collector, rail_feed_hub, bods_collector, bods_sx_collector, roads_collector, vms_collector, speed_collector, features_collector, floods_collector, ais_collector, rnli_collector, adsb_sar_collector, london_fire_collector, met_office_collector, traffic_flow_service, world_collectors, smart_places, street_manager_store, billing_store, billing_service, commute_alert_store
+    global trust_collector, td_collector, vstp_collector, rail_feed_hub, darwin_collector, bods_collector, bods_sx_collector, roads_collector, vms_collector, speed_collector, features_collector, floods_collector, ais_collector, rnli_collector, adsb_sar_collector, london_fire_collector, met_office_collector, traffic_flow_service, world_collectors, smart_places, street_manager_store, billing_store, billing_service, commute_alert_store
     tasks: list[asyncio.Task] = []
     tasks.append(asyncio.create_task(_state_maintenance_loop()))
     tasks.append(asyncio.create_task(_runtime_monitor_loop()))
@@ -954,6 +957,10 @@ async def lifespan(app: FastAPI):
             from .collectors.td_kafka import TDKafkaFeed
             td_collector.kafka = TDKafkaFeed(settings, state, td_collector, hub=rail_feed_hub)
             td_collector.kafka.start()
+        if settings.raildata_darwin_kafka_ready:
+            from .collectors.darwin_kafka import DarwinKafkaFeed
+            darwin_collector = DarwinKafkaFeed(settings, state)
+            darwin_collector.start()
 
         if schedules.ready():
             state.set_source(SourceStatus(
@@ -1124,6 +1131,9 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    if darwin_collector is not None:
+        darwin_collector.stop()
+        darwin_collector = None
     if rail_feed_hub:
         if td_collector is not None and td_collector.kafka is not None:
             td_collector.kafka.stop()
