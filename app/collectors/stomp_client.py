@@ -236,6 +236,9 @@ class MultiplexStompFeed:
         self._worker: threading.Thread | None = None
 
     def enqueue(self, feed, body) -> None:
+        # A STOMP frame for a feed now served by Kafka is not even queued.
+        if not isinstance(body, tuple) and getattr(feed, "stomp_superseded", lambda: False)():
+            return
         self._frames.put(feed, body)
 
     def backlog(self) -> int:

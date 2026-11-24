@@ -65,6 +65,12 @@ class Settings:
 
     network_rail_enabled_flag: bool = _bool("NETWORK_RAIL_ENABLED", True)
     td_enabled: bool = _bool("TD_ENABLED", True)
+    # Rail Data Marketplace copy of TD over Kafka (Confluent Cloud); used when all are set.
+    raildata_td_kafka_bootstrap: str = os.getenv("RAILDATA_TD_KAFKA_BOOTSTRAP", "pkc-z3p1v0.europe-west2.gcp.confluent.cloud:9092").strip()
+    raildata_td_kafka_topic: str = os.getenv("RAILDATA_TD_KAFKA_TOPIC", "TD_ALL_SIG_AREA").strip()
+    raildata_td_kafka_group: str = os.getenv("RAILDATA_TD_KAFKA_GROUP", "").strip()
+    raildata_td_kafka_username: str = os.getenv("RAILDATA_TD_KAFKA_USERNAME", "").strip()
+    raildata_td_kafka_password: str = os.getenv("RAILDATA_TD_KAFKA_PASSWORD", "").strip()
     vstp_enabled: bool = _bool("VSTP_ENABLED", True)
     demo_mode: bool = _bool("DEMO_MODE", False)
     public_deployment: bool = _bool("PUBLIC_DEPLOYMENT", False)
@@ -411,6 +417,11 @@ class Settings:
     @property
     def credentials_present(self) -> bool:
         return bool(self.network_rail_username and self.network_rail_password)
+
+    @property
+    def raildata_td_kafka_ready(self) -> bool:
+        return bool(self.raildata_td_kafka_bootstrap and self.raildata_td_kafka_topic and self.raildata_td_kafka_group
+                    and self.raildata_td_kafka_username and self.raildata_td_kafka_password)
 
     @property
     def network_rail_enabled(self) -> bool:

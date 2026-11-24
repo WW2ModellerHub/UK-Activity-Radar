@@ -584,10 +584,22 @@ class TDCollector(StompFeed):
         status.message = f"TD live • {status.messages_seen:,} messages • {status.movements_mapped:,} SMART-mapped steps • {status.movements_unmapped:,} unresolved"
         self.state.set_source(status)
 
-    def handle_message(self, payload: str) -> None:
+    # The Rail Data Marketplace Kafka copy of this feed (td_kafka.TDKafkaFeed).
+    kafka = None
+
+    def stomp_superseded(self) -> bool:
+        """True while the Kafka copy is delivering: the STOMP copy is then ignored."""
+        return bool(self.kafka is not None and self.kafka.live)
+
+    def handle_message(self, payload) -> None:
+        via = "Network Rail"
+        if isinstance(payload, tuple):
+            via, payload = "Rail Data Marketplace", payload[1]
+        elif self.stomp_superseded():
+            return
         try:
             decoded = json.loads(payload)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             return
         messages = decoded if isinstance(decoded, list) else [decoded]
         status = self.state.source(self.name) or SourceStatus(name=self.name, enabled=True, connected=True, mode="live")
@@ -596,14 +608,17 @@ class TDCollector(StompFeed):
                 continue
             status.messages_seen += 1
             key = next((k for k in ("CA_MSG", "CB_MSG", "CC_MSG") if isinstance(wrapper.get(k), dict)), None)
-            if not key:
+            if key:
+                msg = dict(wrapper[key])
+                msg.setdefault("msg_type", key[:2])
+            elif str(wrapper.get("msg_type") or "") in {"CA", "CB", "CC"}:
+                msg = dict(wrapper)   # an unwrapped step
+            else:
                 continue
-            msg = dict(wrapper[key])
-            msg.setdefault("msg_type", key[:2])
             self._process_msg(msg, status)
         status.last_message_at = datetime.now(timezone.utc)
         status.connected = True
-        status.message = f"TD live • {status.messages_seen:,} messages • {status.movements_mapped:,} SMART-mapped steps • {status.movements_unmapped:,} unresolved"
+        status.message = f"TD live via {via} • {status.messages_seen:,} messages • {status.movements_mapped:,} SMART-mapped steps • {status.movements_unmapped:,} unresolved"
         if self.backlog_dropped:
             status.message += f" • {self.backlog_dropped:,} stale frames skipped under load"
         self.state.set_source(status)

@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## Train Describer from Rail Data Marketplace Kafka
+
+- New `app/collectors/td_kafka.py`: reads TD_ALL_SIG_AREA from RDM's Confluent Kafka when `RAILDATA_TD_KAFKA_GROUP`, `_USERNAME` and `_PASSWORD` are set (Render only, never committed).
+- Starts five minutes back after a restart so trains reappear at their berths at once; assigns all partitions itself (no consumer-group sharing between overlapping deploys).
+- While Kafka delivers, the Network Rail STOMP copy of TD is not queued; if Kafka is quiet for two minutes STOMP takes over again.
+- Health detail shows `td_kafka` (live, messages, error, first-record sample).
+
 ## 2026-11-24 — planes keep moving between 60-second reports
 
 - User screenshots: an Apache (AAC311, 96 kt) frozen on the map. Measured
