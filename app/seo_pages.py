@@ -266,10 +266,48 @@ def station_facts_html(crs: str, name: str, facts: dict, paths: dict[str, str]) 
     return f'<ul class="station-facts" aria-label="{escape(name)} at a glance">{chip_html}</ul>{works}', section
 
 
+_FOOTFALL: dict | None = None
+_WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
+def station_footfall_html(crs: str, name: str) -> str:
+    """Busiest days at Network Rail's managed stations: people entering the concourse, by day of the week."""
+    global _FOOTFALL
+    if _FOOTFALL is None:
+        import json
+        from pathlib import Path
+        try:
+            _FOOTFALL = json.loads((Path(__file__).resolve().parent / "assets" / "station_footfall.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _FOOTFALL = {"stations": {}}
+    row = (_FOOTFALL.get("stations") or {}).get(str(crs or "").upper())
+    if not row or len(row.get("weekday") or []) != 7:
+        return ""
+    week = row["weekday"]
+    top = max(week) or 1
+    busiest, quietest = _WEEKDAYS[week.index(max(week))], _WEEKDAYS[week.index(min(week))]
+    year = _FOOTFALL.get("year")
+    bars = "".join(
+        f'<li><span>{day[:3]}</span><i style="width:{max(2, round(value * 100 / top))}%"></i><b>{value:,}</b></li>'
+        for day, value in zip(_WEEKDAYS, week))
+    peak = ""
+    if row.get("busiest_day") and row.get("busiest"):
+        from datetime import date
+        try:
+            peak = f" Its busiest day of {year} was {date.fromisoformat(row['busiest_day']).strftime('%A %-d %B')}, with {row['busiest']:,} people."
+        except ValueError:
+            peak = ""
+    return f"""<h2>Busiest days at {escape(name)}</h2>
+<p>{escape(busiest)}s are busiest and {escape(quietest)}s quietest: on average {max(week):,} and {min(week):,} people came into the station each day in {year}.{escape(peak)}</p>
+<ul class="usage-bars" aria-label="People entering the station by day of the week">{bars}</ul>
+<p class="source">Source: Network Rail daily concourse footfall, {year} (Rail Data Marketplace). Counts people entering the concourse.</p>"""
+
+
 def station_usage_html(crs: str, name: str) -> str:
     row = station_usage(crs)
+    footfall = station_footfall_html(crs, name)
     if not row:
-        return ""
+        return footfall
     years = list(row["usage"].items())
     latest_year, latest = years[-1]
     lines = [f"About <strong>{_people(latest)}</strong> passenger entries and exits in {escape(latest_year)}"
@@ -290,7 +328,7 @@ def station_usage_html(crs: str, name: str) -> str:
     return f"""<h2>How busy is {escape(name)}?</h2>
 <p>{" ".join(lines)}{f" In {escape(where)}." if where else ""}</p>
 <ul class="usage-bars" aria-label="Passenger entries and exits by year">{bars}</ul>
-<p class="source">Source: Office of Rail and Road, Estimates of station usage (table 1415), financial years April to March. Open Government Licence v3.0.</p>"""
+<p class="source">Source: Office of Rail and Road, Estimates of station usage (table 1415), financial years April to March. Open Government Licence v3.0.</p>""" + footfall
 
 
 def _ordinal(n: int) -> str:
