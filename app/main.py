@@ -3253,6 +3253,50 @@ def activity_bus(request: Request, activity_id: str, limit: int = 30):
     return {"activity": activity_id, "detail": detail}
 
 
+# Route lines for live buses, so the map can move each bus along its road
+# instead of in straight lines between reports. Matching a bus to its trip is
+# the same work as opening its panel, so it is cached per bus for 15 minutes,
+# thinned to 150 points, and limited per request.
+_bus_shape_cache: dict[str, tuple[float, list]] = {}
+BUS_SHAPE_TTL_S = 900
+BUS_SHAPE_CACHE_MAX = 1500
+
+
+@app.get("/api/buses/shapes")
+def bus_shapes(ids: str = ""):
+    from .bus_timetable import _thin_shape
+    wanted = [item for item in dict.fromkeys(str(ids or "").split(",")) if item][:30]
+    shapes: dict[str, list] = {}
+    fresh = 0
+    now = time.monotonic()
+    service = getattr(smart_places, "bus_timetables", None) if smart_places is not None else None
+    for activity_id in wanted:
+        item = state.get(activity_id)
+        if item is None or item.type != "bus":
+            continue
+        key = f"{activity_id}|{item.route or ''}|{item.destination or ''}|{item.journey_ref or ''}"
+        cached = _bus_shape_cache.get(key)
+        if cached and now - cached[0] < BUS_SHAPE_TTL_S:
+            if cached[1]:
+                shapes[activity_id] = cached[1]
+            continue
+        if service is None or fresh >= 8:
+            continue
+        fresh += 1
+        try:
+            detail = service.journey_for_vehicle(item, limit=3) or {}
+            line = _thin_shape([[float(p[0]), float(p[1])] for p in (detail.get("shape") or [])], 150)
+        except Exception:
+            line = []
+        if len(_bus_shape_cache) >= BUS_SHAPE_CACHE_MAX:
+            for old in sorted(_bus_shape_cache, key=lambda k: _bus_shape_cache[k][0])[:BUS_SHAPE_CACHE_MAX // 4]:
+                _bus_shape_cache.pop(old, None)
+        _bus_shape_cache[key] = (now, line if len(line) >= 2 else [])
+        if len(line) >= 2:
+            shapes[activity_id] = line
+    return JSONResponse({"shapes": shapes}, headers={"Cache-Control": "no-store"})
+
+
 _incident_refresh_running = False
 
 

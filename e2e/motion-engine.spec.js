@@ -254,3 +254,49 @@ test('a bus pulling in at a stop eases back to its report rather than snapping',
   expect(result.justAfter).toBeCloseTo(result.before, 5);
   expect(result.settled).toBeCloseTo(-0.9995, 6);
 });
+
+test('a bus with its route line follows the road round a corner instead of cutting across', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    // East along a street for ~700 m, then north up another.
+    engine.setBusShape('bus-r', [[52, -1.01], [52, -1.0], [52.01, -1.0]]);
+    const t0 = Date.now() - 120000;
+    const bus = { id:'bus-r', type:'bus', lat:52, lon:-1.0015, bearing:90, speed:10, last_updated:new Date(t0).toISOString() };
+    const turned = engine.present(bus, t0 + 20000, false);         // 200 m on: round the corner
+    // No reported speed: worked out from two reports 20 s and 100 m apart.
+    const a = { ...bus, id:'bus-s', speed:null, lon:-1.009, last_updated:new Date(t0).toISOString() };
+    engine.setBusShape('bus-s', [[52, -1.01], [52, -1.0], [52.01, -1.0]]);
+    engine.present(a, t0, false);
+    const b = { ...a, lon:-1.009 + 0.001467, last_updated:new Date(t0 + 20000).toISOString() };   // ~100 m east
+    engine.present(b, t0 + 20000, false);
+    const coasting = engine.present(b, t0 + 30000, false);           // 10 s at ~5 m/s: ~50 m further
+    return { turned, coastingLon: coasting.lon, bLon: b.lon };
+  });
+  // Round the corner: on the north street (lon -1.0), past 52.
+  expect(result.turned.lon).toBeCloseTo(-1.0, 4);
+  expect(result.turned.lat).toBeGreaterThan(52.0003);
+  expect(result.turned.bearing).toBeLessThan(10);                    // heading north
+  expect(result.coastingLon - result.bLon).toBeGreaterThan(0.0005);   // ~50 m east
+  expect(result.coastingLon - result.bLon).toBeLessThan(0.0010);
+});
+
+test('a bus a little ahead of its next report waits on the road instead of reversing', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    engine.setBusShape('bus-h', [[52, -1.02], [52, -1.0]]);
+    const t0 = Date.now() - 120000;
+    const bus = { id:'bus-h', type:'bus', lat:52, lon:-1.019, bearing:90, speed:10, last_updated:new Date(t0).toISOString() };
+    const ahead = engine.present(bus, t0 + 20000, false);              // 200 m on
+    // It had stopped: the next report is only 100 m on.
+    const report = { ...bus, lon:-1.019 + 0.00147, speed:0, last_updated:new Date(t0 + 20000).toISOString() };
+    const after = engine.present(report, t0 + 20000, false);
+    const later = engine.present(report, t0 + 25000, false);
+    return { ahead: ahead.lon, after: after.lon, later: later.lon };
+  });
+  expect(result.after).toBeCloseTo(result.ahead, 6);    // no reverse
+  expect(result.later).toBeCloseTo(result.ahead, 6);    // waits there
+});

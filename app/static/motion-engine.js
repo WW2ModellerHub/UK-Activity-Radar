@@ -265,23 +265,114 @@
     return {...activity,...displayed,position_method:'estimated',position_label:`Live estimate between ADS-B reports • ${activity.position_label||''}`};
   }
 
+  // Bus route lines (from the bus's timetabled trip), by bus. With one, a
+  // bus is snapped onto its road and moved along it, as live bus maps do,
+  // rather than in a straight line that cuts corners.
+  const busShapes=new Map();
+  function setBusShape(id,points){
+    const usable=usablePath(points);
+    if(usable.length<2){busShapes.delete(`bus:${id}`);return;}
+    const cumulative=[0];
+    for(let index=1;index<usable.length;index+=1)cumulative.push(cumulative[index-1]+distanceKm(...usable[index-1],...usable[index]));
+    busShapes.set(`bus:${id}`,{points:usable,cumulative,total:cumulative[cumulative.length-1]});
+  }
+  // Distance along the line (km) of the point on it nearest to lat/lon, and how far off the line that is.
+  function alongShape(shape,lat,lon){
+    const scale=Math.cos(radians(lat));let best=null;
+    for(let index=1;index<shape.points.length;index+=1){
+      const [aLat,aLon]=shape.points[index-1],[bLat,bLon]=shape.points[index];
+      const ax=(aLon-lon)*scale,ay=aLat-lat,bx=(bLon-lon)*scale,by=bLat-lat;
+      const dx=bx-ax,dy=by-ay,length=dx*dx+dy*dy;
+      const share=length>0?clamp(-(ax*dx+ay*dy)/length):0;
+      const px=ax+dx*share,py=ay+dy*share,offDegrees=Math.sqrt(px*px+py*py);
+      if(!best||offDegrees<best.off)best={off:offDegrees,along:shape.cumulative[index-1]+(shape.cumulative[index]-shape.cumulative[index-1])*share};
+    }
+    return best?{along:best.along,offKm:best.off*111.32}:null;
+  }
+  function pointOnShape(shape,along){
+    const target=Math.max(0,Math.min(shape.total,along));
+    let index=1;
+    while(index<shape.cumulative.length-1&&shape.cumulative[index]<target)index+=1;
+    const from=shape.points[index-1],to=shape.points[index],span=shape.cumulative[index]-shape.cumulative[index-1];
+    const share=span>0?(target-shape.cumulative[index-1])/span:0;
+    const dLon=radians(to[1]-from[1]),y=Math.sin(dLon)*Math.cos(radians(to[0]));
+    const x=Math.cos(radians(from[0]))*Math.sin(radians(to[0]))-Math.sin(radians(from[0]))*Math.cos(radians(to[0]))*Math.cos(dLon);
+    return {lat:from[0]+(to[0]-from[0])*share,lon:from[1]+(to[1]-from[1])*share,bearing:(Math.atan2(y,x)*180/Math.PI+360)%360};
+  }
+
+  function busOnShape(activity,shape,now,state){
+    const report=alongShape(shape,Number(activity.lat),Number(activity.lon));
+    if(!report||report.offKm>.08){
+      // Not on this line: a new trip, a diversion or a wrong match. Drop it;
+      // the map asks for the current one again later.
+      busShapes.delete(stateKey(activity));
+      return null;
+    }
+    const updated=Date.parse(activity.last_updated||''),rawAge=Math.max(0,(now+clockOffsetMs-updated)/1000);
+    const signature=`${activity.last_updated||''}|${activity.lat}|${activity.lon}`;
+    if(state.shapeSignature!==signature){
+      // Speed along the road: the reported one, else from the last two reports.
+      const previous=state.shapeReport;
+      state.shapeReport={t:updated,along:report.along};
+      if(previous&&updated>previous.t){
+        const seconds=(updated-previous.t)/1000,metresPerSecond=(report.along-previous.along)*1000/seconds;
+        if(seconds>=5&&seconds<=180&&metresPerSecond>=0&&metresPerSecond<=25)state.shapeSpeed=metresPerSecond;
+      }
+      const reported=Number(activity.speed);
+      if(Number.isFinite(reported)&&activity.speed!=null)state.shapeSpeed=reported<.7?0:Math.min(25,reported);
+      state.shapeSignature=signature;
+      state.shapeNew=true;
+    }
+    const speed=Number.isFinite(state.shapeSpeed)?state.shapeSpeed:0;
+    // Carry on along the road for up to 30 s (about one report), then wait.
+    const raw=Math.min(shape.total,report.along+speed*Math.min(30,rawAge)/1000);
+    if(state.shapeNew){
+      state.shapeNew=false;
+      const shown=state.shapeShown;
+      delete state.shapeHold;delete state.shapeOffset;
+      if(Number.isFinite(shown)){
+        const gap=shown-raw;
+        // Ahead of the new report by a little: wait there rather than reverse.
+        if(gap>0&&gap<.3)state.shapeHold=shown;
+        else if(Math.abs(gap)<1){state.shapeOffset=gap;state.shapeOffsetStarted=now;}
+      }
+    }
+    let along=raw;
+    if(Number.isFinite(state.shapeHold)){
+      if(raw>=state.shapeHold)delete state.shapeHold;else along=state.shapeHold;
+    }else if(Number.isFinite(state.shapeOffset)){
+      const progress=clamp((now-state.shapeOffsetStarted)/BLEND_MS.bus);
+      if(progress>=1)delete state.shapeOffset;else along=raw+state.shapeOffset*(1-ease(progress));
+    }
+    state.shapeShown=along;
+    return pointOnShape(shape,along);
+  }
+
   function busPresentation(activity,now,reducedMotion){
     if(reducedMotion)return activity;
     const updated=Date.parse(activity.last_updated||''),speed=Number(activity.speed),bearing=Number(activity.bearing);
     const rawAge=(now+clockOffsetMs-updated)/1000;
-    // BODS publishes metres/second. Buses report only every 10-30 s, too far
-    // apart to show them that far behind, so they carry on along their last
-    // heading for one reporting interval (18 s) and then hold.
     if(!Number.isFinite(updated)||!Number.isFinite(Number(activity.lat))||!Number.isFinite(Number(activity.lon)))return activity;
+    const key=stateKey(activity);
+    let state=motionStates.get(key);
+    if(!state||state.kind!=='bus')state={kind:'bus'};
+    const shape=busShapes.get(key);
+    const onRoad=shape?busOnShape(activity,shape,now,state):null;
+    if(onRoad){
+      state.displayed={lat:onRoad.lat,lon:onRoad.lon};remember(key,state,now);
+      return {...activity,lat:onRoad.lat,lon:onRoad.lon,bearing:onRoad.bearing,position_method:'estimated',
+        position_label:`Live estimate along its route from the latest BODS GPS report • ${activity.position_label||''}`};
+    }
+    // No route line: BODS publishes metres/second. Buses report only every
+    // 10-30 s, too far apart to show them that far behind, so they carry on
+    // along their last heading for one reporting interval (18 s) and hold.
     // A bus stopped (at a stop, in traffic) stays at its report, but still
     // through the blend: it eases back rather than snapping there.
     const moving=Number.isFinite(speed)&&Number.isFinite(bearing)&&rawAge>0&&speed>=.7&&speed<=45;
     const raw=moving?projectPosition(Number(activity.lat),Number(activity.lon),bearing,speed*Math.min(18,rawAge)/1000)
       :{lat:Number(activity.lat),lon:Number(activity.lon)};
-    const key=stateKey(activity);
     const signature=`${activity.last_updated||''}|${activity.lat}|${activity.lon}|${bearing}|${speed}`;
-    let state=motionStates.get(key);
-    if(!state||state.kind!=='bus')state={kind:'bus',signature};
+    if(state.signature===undefined)state.signature=signature;
     else if(state.signature!==signature){state.signature=signature;startBlend(state,raw,now,'bus');}
     const displayed=blended(state,raw,now,'bus');
     state.displayed=displayed;remember(key,state,now);
@@ -296,7 +387,7 @@
     return activity;
   }
 
-  function reset(){motionStates.clear();lastPrune=0;clockOffsetMs=0;}
+  function reset(){motionStates.clear();busShapes.clear();lastPrune=0;clockOffsetMs=0;}
 
-  root.UKActivityMotionEngine={distanceKm,samplePath,nearestPathFraction,projectPosition,present,reset,setServerTime,clockOffset};
+  root.UKActivityMotionEngine={distanceKm,samplePath,nearestPathFraction,projectPosition,present,reset,setServerTime,clockOffset,setBusShape,hasBusShape:id=>busShapes.has(`bus:${id}`)};
 })(window);

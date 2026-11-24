@@ -1,5 +1,22 @@
 # Codex stabilization changelog
 
+## 2026-11-24 — buses follow their road
+
+- Bus maps that feel live (Transit, Moovit) snap each GPS report onto the
+  route and move the bus along it; bustimes.org refreshes positions without
+  animating. Ours moved buses in straight lines from each report, cutting
+  corners, and many reports carry no speed, so buses sat still and jumped.
+- New `/api/buses/shapes?ids=...`: the route line of each bus's matched
+  trip (the same match its panel uses), thinned to 150 points, cached 15
+  minutes per bus (1,500 kept), at most 30 buses and 8 fresh matches a
+  request. At street level (zoom 13+) the map asks for the lines of buses
+  on screen every 15 s.
+- With a line, a bus is snapped onto it and carried along the road at its
+  reported speed, else the speed from its last two reports, for up to 30 s;
+  a correction is blended along the road; a bus a little ahead of its next
+  report waits rather than reversing. A bus more than 80 m off its line (new
+  trip, diversion) drops it and falls back to the straight-line estimate.
+
 ## 2026-11-24 — trains keep moving along the track between reports
 
 - Measured on the live map around Birmingham: trains stood still 98-100% of
