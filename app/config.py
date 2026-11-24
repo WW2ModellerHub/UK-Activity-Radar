@@ -63,6 +63,19 @@ class Settings:
     td_topic: str = os.getenv("NETWORK_RAIL_TD_TOPIC", "/topic/TD_ALL_SIG_AREA").strip()
     vstp_topic: str = os.getenv("NETWORK_RAIL_VSTP_TOPIC", "/topic/VSTP_ALL").strip()
 
+    # Rail Data Marketplace experience APIs. Each subscription issues its own
+    # server-side x-apikey value; none of these values is ever sent to the
+    # browser. The existing Network Rail live feeds remain the movement source
+    # while RDM adds authoritative station, disruption and performance context.
+    rdm_stations_api_key: str = os.getenv("RDM_STATIONS_API_KEY", "").strip()
+    rdm_disruptions_api_key: str = os.getenv("RDM_DISRUPTIONS_API_KEY", "").strip()
+    rdm_query_api_key: str = os.getenv("RDM_QUERY_API_KEY", "").strip()
+    rdm_hsp_api_key: str = os.getenv("RDM_HSP_API_KEY", "").strip()
+    rdm_performance_api_key: str = os.getenv("RDM_PERFORMANCE_API_KEY", "").strip()
+    rdm_performance_reference_api_key: str = os.getenv("RDM_PERFORMANCE_REFERENCE_API_KEY", "").strip()
+    rdm_reference_api_key: str = os.getenv("RDM_REFERENCE_API_KEY", "").strip()
+    rdm_timeout_seconds: float = max(2.0, min(float(os.getenv("RDM_TIMEOUT_SECONDS", "8")), 20.0))
+
     network_rail_enabled_flag: bool = _bool("NETWORK_RAIL_ENABLED", True)
     td_enabled: bool = _bool("TD_ENABLED", True)
     # Rail Data Marketplace copy of TD over Kafka (Confluent Cloud); used when all are set.

@@ -616,6 +616,20 @@
   Station names are matched to the real directory (all 128 checked against
   the live site); unknown names are left out, never guessed. Added to the
   sitemap and the page header.
+## 2026-11-24 — Rail Data Marketplace foundation
+
+- Added a server-only Rail Data Marketplace client for the subscribed station,
+  disruption, service-query, historical-performance, realtime-performance,
+  reference and rail-replacement experience APIs.
+- Station taps can now add official station knowledge and station-specific
+  disruption context to the existing live Network Rail board. Each product is
+  independent: a missing key or provider outage does not break the board.
+- Upstream operations are allow-listed, successful replies are cached with a
+  last-good fallback, and API keys are never included in browser URLs,
+  responses or logs.
+- Added secret placeholders for Render and protected local credential
+  migration. Live TRUST/TD/VSTP movement remains unchanged until the subscribed
+  Kafka products have been individually validated.
 
 ## 2026-11-17 — aircraft overhead provider and quota repair
 

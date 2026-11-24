@@ -147,6 +147,22 @@ services:
         sync: false
       - key: NETWORK_RAIL_PASSWORD
         sync: false
+      - key: RDM_STATIONS_API_KEY
+        sync: false
+      - key: RDM_DISRUPTIONS_API_KEY
+        sync: false
+      - key: RDM_QUERY_API_KEY
+        sync: false
+      - key: RDM_HSP_API_KEY
+        sync: false
+      - key: RDM_PERFORMANCE_API_KEY
+        sync: false
+      - key: RDM_PERFORMANCE_REFERENCE_API_KEY
+        sync: false
+      - key: RDM_REFERENCE_API_KEY
+        sync: false
+      - key: RDM_TIMEOUT_SECONDS
+        value: "8"
       - key: BODS_API_KEY
         sync: false
       - key: FLYITALYADSB_API_KEY

@@ -50,6 +50,17 @@ Render references: [Blueprints](https://render.com/docs/blueprint-spec),
 | --- | --- |
 | `NETWORK_RAIL_USERNAME` | Network Rail Open Data login |
 | `NETWORK_RAIL_PASSWORD` | Network Rail Open Data password |
+| `RDM_STATIONS_API_KEY` | RDM station knowledge experience API |
+| `RDM_DISRUPTIONS_API_KEY` | RDM National Rail disruption experience API |
+| `RDM_QUERY_API_KEY` | RDM service-query and service-detail API |
+| `RDM_HSP_API_KEY` | RDM historical service performance API |
+| `RDM_PERFORMANCE_API_KEY` | RDM realtime performance data API |
+| `RDM_PERFORMANCE_REFERENCE_API_KEY` | RDM realtime performance reference API |
+| `RDM_REFERENCE_API_KEY` | RDM live-departure reference API |
+| `RAILDATA_REPLACEMENT_API_KEY` | RDM rail-replacement locations API |
+| `RAILDATA_TD_KAFKA_GROUP` | RDM Train Describer Kafka consumer group |
+| `RAILDATA_TD_KAFKA_USERNAME` | RDM Train Describer Kafka username |
+| `RAILDATA_TD_KAFKA_PASSWORD` | RDM Train Describer Kafka password |
 | `BODS_API_KEY` | DfT Bus Open Data Service |
 | `NATIONAL_HIGHWAYS_API_KEY` | National Highways road feed |
 | `TOMTOM_TRAFFIC_API_KEY` | TomTom maps, traffic and search |

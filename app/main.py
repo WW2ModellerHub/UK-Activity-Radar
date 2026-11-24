@@ -85,6 +85,7 @@ from .rail_snapshot import RailPositionSnapshot
 from .rail_lines import RailLineLayer
 from .flight_routes import FlightRouteLookup
 from .rail_sections import delay_hotspots, line_at
+from .rdm import RailDataMarketplace
 from .traffic_incidents import TrafficIncidentService
 from .tomtom_routing import TomTomRoutingClient
 from .billing import (
@@ -151,6 +152,7 @@ CHECKOUT_COOKIE = "__Host-radar_checkout"
 PREVIEW_COOKIE = "__Host-radar_preview"
 
 schedules = ScheduleStore(SCHEDULE_DB)
+rdm = RailDataMarketplace(settings)
 train_reference = UKTrainReference(UK_TRAIN_DATASET)
 trust_collector: TrustCollector | None = None
 td_collector: TDCollector | None = None
@@ -2660,14 +2662,64 @@ def place_board(place_id: str, request: Request, limit: int = 10):
     limit=max(1,min(25,int(limit)))
     typ=place.get("place_type")
     if typ == "rail_station":
-        payload=smart_places.rail_board(place.get("crs") or "", limit)
+        crs = place.get("crs") or ""
+        payload=smart_places.rail_board(crs, limit)
         if isinstance(payload, dict):
-            payload["replacement_stops"]=rail_replacement.at(place.get("crs") or "")
+            payload["replacement_stops"]=rail_replacement.at(crs)
+        # Official RDM context is additive: a slow or temporarily unavailable
+        # product must never make the working local/live station board fail.
+        if rdm.status().get("stations"):
+            try:
+                payload["station_knowledge"] = rdm.station(crs)
+            except (ValueError, RuntimeError, requests.RequestException):
+                payload["station_knowledge_unavailable"] = True
+        if rdm.status().get("disruptions"):
+            try:
+                payload["official_disruptions"] = rdm.station_disruptions(crs)
+            except (ValueError, RuntimeError, requests.RequestException):
+                payload["official_disruptions_unavailable"] = True
     elif typ == "bus_stop": payload=smart_places.bus_board(place, limit)
     elif typ == "ferry_terminal": payload=smart_places.ferry_board(place, limit)
     elif typ == "rain_gauge": payload=smart_places.rain_board(place)
     else: payload={"rows": []}
     return {"place": place, "board": payload}
+
+
+@app.get("/api/rail-data/status")
+def rail_data_status():
+    """Report configured RDM products without exposing credentials."""
+    configured = rdm.status()
+    return {
+        "provider": "Rail Data Marketplace",
+        "configured": configured,
+        "configured_count": sum(configured.values()),
+    }
+
+
+@app.get("/api/rail-data/stations/{crs}")
+def rail_data_station(crs: str, request: Request):
+    _enforce_public_budget(request, lookup_request_budget)
+    try:
+        return {"station": rdm.station(crs)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=503, detail="Rail Data Marketplace is temporarily unavailable") from exc
+
+
+@app.get("/api/rail-data/stations/{crs}/disruptions")
+def rail_data_station_disruptions(crs: str, request: Request):
+    _enforce_public_budget(request, lookup_request_budget)
+    try:
+        return rdm.station_disruptions(crs)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=503, detail="Rail Data Marketplace is temporarily unavailable") from exc
 
 
 @app.get("/api/journeys/status")
