@@ -833,6 +833,8 @@ def runtime_report(detail: bool = False) -> dict:
             report["estimate_errors"] = {"count": _runtime["estimate_errors"], "last": _runtime.get("estimate_error")}
         if getattr(state, "estimate_errors", 0):
             report["stream_estimate_errors"] = {"count": state.estimate_errors, "last": state.estimate_error}
+        if td_collector is not None and td_collector.kafka is not None:
+            report["td_kafka"] = td_collector.kafka.report()
         if _runtime.get("rail_replacement_error"):
             report["rail_replacement_error"] = _runtime["rail_replacement_error"]
         if _runtime.get("stream_errors"):
@@ -946,6 +948,10 @@ async def lifespan(app: FastAPI):
 
         rail_feed_hub = MultiplexStompFeed(settings, rail_feeds)
         rail_feed_hub.start()
+        if td_collector is not None and settings.raildata_td_kafka_ready:
+            from .collectors.td_kafka import TDKafkaFeed
+            td_collector.kafka = TDKafkaFeed(settings, state, td_collector, hub=rail_feed_hub)
+            td_collector.kafka.start()
 
         if schedules.ready():
             state.set_source(SourceStatus(
@@ -1117,6 +1123,8 @@ async def lifespan(app: FastAPI):
     yield
 
     if rail_feed_hub:
+        if td_collector is not None and td_collector.kafka is not None:
+            td_collector.kafka.stop()
         rail_feed_hub.stop()
         rail_feed_hub = None
     for collector in (trust_collector, td_collector, vstp_collector, bods_collector, bods_sx_collector, roads_collector, vms_collector, speed_collector, features_collector, floods_collector, ais_collector, rnli_collector, adsb_sar_collector, london_fire_collector, met_office_collector):

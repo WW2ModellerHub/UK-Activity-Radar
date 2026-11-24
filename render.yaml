@@ -153,6 +153,12 @@ services:
         sync: false
       - key: RAILDATA_REPLACEMENT_API_KEY
         sync: false
+      - key: RAILDATA_TD_KAFKA_GROUP
+        sync: false
+      - key: RAILDATA_TD_KAFKA_USERNAME
+        sync: false
+      - key: RAILDATA_TD_KAFKA_PASSWORD
+        sync: false
       - key: ADSB_LOL_API_KEY
         sync: false
       - key: NATIONAL_HIGHWAYS_API_KEY

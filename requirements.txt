@@ -13,3 +13,4 @@ pywebpush==2.5.0
 h5py>=3.11,<4.0
 numpy>=1.26
 Pillow>=10.0
+confluent-kafka>=2.6,<3.0
