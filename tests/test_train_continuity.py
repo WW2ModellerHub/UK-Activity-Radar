@@ -112,3 +112,31 @@ def test_a_berth_report_the_timetable_cannot_start_from_keeps_the_running_leg(tm
     assert train.estimate_path == path, "the leg was wiped and the train parked at the junction"
     assert train.estimate_due_at == now + timedelta(minutes=20)
     assert train.next_location == "Leicester"
+
+
+def test_a_junction_known_by_name_only_never_gives_a_train_no_position(tmp_path):
+    # Live, 24 Nov: such a junction gave trains lat=None, and listing trains for
+    # the map failed ("'<=' not supported between float and NoneType").
+    now = datetime.now(london_tz()).replace(second=0, microsecond=0)
+    store, schedule_id = _store(tmp_path, now)
+    with store._connect() as conn:
+        conn.execute("UPDATE tiplocs SET lat=NULL, lon=NULL WHERE tiploc='CLAYX'")
+    store.location_geography = (lambda original: lambda codes: {
+        code: ({**row, "lat": None, "lon": None} if code == "CLAYX" else row) for code, row in original(codes).items()
+    })(store.location_geography)
+    leg = store.estimate_leg_at(schedule_id, now.date(), now + timedelta(minutes=3))
+    assert leg is not None and (leg["tiploc"], leg["next_tiploc"]) == ("CHFD", "LESTER")
+    assert leg["lat"] is not None and leg["next_lat"] is not None
+    assert store.estimate_leg_from(schedule_id, now.date(), "CLAYX", now + timedelta(minutes=8)) is None
+
+
+def test_a_train_with_no_position_does_not_fail_the_map_list():
+    state = LiveState()
+    now = datetime.now(london_tz())
+    state.upsert(Vehicle(id="ok", type="train", name="1A01", lat=52.48, lon=-1.9, last_updated=now))
+    broken = Vehicle(id="broken", type="train", name="1A02", lat=52.0, lon=-1.0, last_updated=now)
+    broken.lat = None
+    state.upsert(broken)
+    rows = state.all(bbox=(-2.2, 52.3, -1.6, 52.7), train_bbox=(-2.2, 52.3, -1.6, 52.7), include_trains=True,
+                     train_limit=100, include_buses=False, include_vessels=False)
+    assert [row.id for row in rows] == ["ok"]

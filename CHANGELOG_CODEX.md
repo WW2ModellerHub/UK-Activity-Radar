@@ -1,5 +1,14 @@
 # Codex stabilization changelog
 
+## 2026-11-24 — hotfix: trains placed at a junction with no coordinates
+
+- The protected stream named the cause of the #107 outage: "'<=' not
+  supported between float and NoneType" at state.py `_inside`. Junctions
+  and passing points can be known by name only; with working times, legs
+  could start or end there and trains got lat=None, so listing trains
+  failed. Leg builders now skip locations without real coordinates, and a
+  vehicle with no position counts as off-screen instead of failing the list.
+
 ## 2026-11-24 — trains keep moving along the track (again, with the stream protected)
 
 - Re-applies the reverted change (working times where there is no public
