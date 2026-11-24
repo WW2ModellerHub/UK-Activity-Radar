@@ -85,6 +85,34 @@ def _updates(payload: dict) -> list[dict]:
     return out
 
 
+def _plain_keys(value):
+    """Drop XML namespace prefixes ("ns5:schedule" -> "schedule", "@rid" -> "rid")."""
+    if isinstance(value, dict):
+        return {str(key).split(":")[-1].lstrip("@$"): _plain_keys(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_plain_keys(item) for item in value]
+    return value
+
+
+def _unwrap(payload):
+    """Rail Data Marketplace wraps each Push Port message in a JMS-style envelope:
+    {"messageID": ..., "bytes": "<the Darwin message as a JSON string>", ...}."""
+    for _ in range(3):
+        if not isinstance(payload, dict):
+            break
+        inner = next((payload.get(key) for key in ("bytes", "body", "message", "payload", "value")
+                      if isinstance(payload.get(key), (str, dict))), None)
+        if inner is None or any(key in payload for key in ("uR", "sR", "Pport")):
+            break
+        if isinstance(inner, str):
+            try:
+                inner = json.loads(inner)
+            except ValueError:
+                break
+        payload = inner
+    return _plain_keys(payload)
+
+
 def _update_blocks(payload: dict) -> list[dict]:
     root = payload.get("Pport") if isinstance(payload.get("Pport"), dict) else payload
     blocks = []
@@ -145,6 +173,7 @@ class DarwinKafkaFeed:
         self.malformed = 0
         self.error: str | None = None
         self.broker_error: str | None = None
+        self.raw_sample: str | None = None
         self._log, self.broker_log = _broker_logger(type(self).__name__)
         self.sample: dict | None = None
         # Coaches per Darwin service (RID), and which timetable train each RID is.
@@ -174,6 +203,7 @@ class DarwinKafkaFeed:
             "broker_error": self.broker_error, "broker_log": list(self.broker_log),
             "server": self.settings.raildata_darwin_kafka_bootstrap, "live": self.live, "messages": self.messages, "services": self.services,
             "formations": len(self._formations), "formation_messages": self.formation_messages,
+            "raw_sample": self.raw_sample,
             "trains_enriched": self.enriched, "malformed": self.malformed,
             "error": self.error,
             "seconds_since_message": round(time.monotonic() - self.last_message_at) if self.messages else None,
@@ -210,7 +240,9 @@ class DarwinKafkaFeed:
     def handle(self, value) -> None:
         try:
             raw = value.decode("utf-8") if isinstance(value, bytes) else str(value)
-            payload = json.loads(raw)
+            if self.raw_sample is None:
+                self.raw_sample = raw[:700]   # public timetable data: lets the format be checked live
+            payload = _unwrap(json.loads(raw))
             if not isinstance(payload, dict):
                 raise ValueError("Darwin payload is not an object")
         except (UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError):

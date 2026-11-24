@@ -60,3 +60,15 @@ def test_darwin_formation_messages_give_this_trains_coaches():
 def test_no_train_photos_are_fetched_in_the_background():
     from app import main
     assert not any(kind == "train" for kind, _, _ in main._common_photo_plans())
+
+
+def test_rail_data_marketplace_envelope_and_namespaced_keys_are_read():
+    feed = DarwinKafkaFeed(Settings(), LiveState())
+    inner = {"ts": "2026-11-24T22:00:00", "version": "18.0", "uR": {
+        "ns3:TS": {"@rid": "R1", "@uid": "P19489", "@ssd": "2026-11-24", "ns3:Location": []},
+        "ns5:scheduleFormations": {"@rid": "R1", "ns5:formation": {"@fid": "f", "ns5:coaches": {"ns5:coach": [
+            {"@coachNumber": "A", "@coachClass": "First"}, {"@coachNumber": "B", "@coachClass": "Standard", "ns5:toilet": "Accessible"}]}}}}}
+    feed.handle(json.dumps({"messageID": "ID:1", "type": "TextMessage", "bytes": json.dumps(inner)}).encode())
+    assert feed.services == 1 and feed.malformed == 0
+    assert [c["letter"] for c in feed.formation_for("P19489", "2026-11-24")] == ["A", "B"]
+    assert feed.report()["raw_sample"].startswith('{"messageID"')
