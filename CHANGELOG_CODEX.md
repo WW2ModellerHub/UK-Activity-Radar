@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## No train photos: every train drawn, freight by cargo
+
+- Trains are never photographed now (special locomotives included), and train fleets are no longer pre-fetched from Wikimedia.
+- Freight trains are drawn as an illustrative locomotive (operator colours, pantograph when electric) and five wagons chosen from the CIF category: coal hoppers, aggregate boxes, container flats, car carriers, oil/chemical tanks, steel coils, yellow engineering hoppers, vans; light engines alone, loco and brake van. Labelled as an illustration.
+- Passenger trains whose class the timetable does not settle are drawn generically by traction; loco-hauled ones with a locomotive.
+
 ## Trains drawn coach by coach instead of photos
 
 - `app/train_formation.py`: the class from the timetable (an EMU's timing load is its class; DMU letters only where the operator settles it) with its name and usual unit lengths. Freight and unknown classes are not drawn.

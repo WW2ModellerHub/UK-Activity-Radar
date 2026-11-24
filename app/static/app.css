@@ -1516,3 +1516,6 @@ strong[data-plus].needs-plus::after,
 .coach-marks .ico { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 .train-formation > p { margin: 0; font-size: 12px; color: var(--muted); }
 .train-formation.is-typical .coach-svg { opacity: .85; }
+.train-formation.is-freight .formation-row .coach { grid-template-rows: 32px; }
+.train-formation.is-freight .formation-row .coach > small, .train-formation.is-freight .coach-marks { display: none; }
+.train-formation.is-freight .coach-svg { height: 32px; }

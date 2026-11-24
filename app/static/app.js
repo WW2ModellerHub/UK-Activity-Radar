@@ -4432,24 +4432,68 @@
     const cab=(first?`<path d="M5 19 Q7 11 13 10 L13 19 Z" fill="#1f2a33"/>`:'')+(last?`<path d="M95 19 Q93 11 87 10 L87 19 Z" fill="#1f2a33"/>`:'');
     return `<svg class="coach-svg" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><path d="${body}" fill="${theme.primary}"/><rect x="${first?4:3}" y="22" width="${100-(first?4:3)-(last?4:3)}" height="3" fill="${theme.secondary}"/><g fill="#1f2a33">${windows.join('')}</g>${cab}${doors}<rect x="${first?6:3}" y="31" width="${100-(first?6:3)-(last?6:3)}" height="3" fill="rgba(0,0,0,.35)"/><circle cx="22" cy="37" r="2.6" fill="#3a3f45"/><circle cx="78" cy="37" r="2.6" fill="#3a3f45"/></svg>`;
   }
+  // Freight: an illustrative locomotive and wagons for what the train is
+  // timetabled to carry (CIF train category). Generic drawings, not this train.
+  const WAGON_UNDER='<rect x="5" y="30" width="90" height="3" fill="#2d3238"/><circle cx="20" cy="36" r="3.2" fill="#2d3238"/><circle cx="80" cy="36" r="3.2" fill="#2d3238"/>';
+  const CONTAINER_COLOURS=['#2f5d8a','#a83b32','#2f6b4a','#d9822b','#e4e2db','#5b6168'];
+  function wagonSvg(kind,index){
+    const box=(x,w,fill)=>`<rect x="${x}" y="11" width="${w}" height="16" rx="1" fill="${fill}"/>`+Array.from({length:Math.floor(w/6)},(_,i)=>`<line x1="${x+3+i*6}" y1="12" x2="${x+3+i*6}" y2="26" stroke="rgba(0,0,0,.18)" stroke-width="1"/>`).join('');
+    const shapes={
+      coal:'<path d="M6 11 L94 11 L88 30 L12 30 Z" fill="#5b6067"/><path d="M7 11 Q50 1 93 11 Z" fill="#141618"/><rect x="6" y="11" width="88" height="2" fill="#41464c"/>',
+      aggregate:'<rect x="6" y="12" width="88" height="18" rx="1" fill="#6f7c88"/><path d="M8 12 Q50 3 92 12 Z" fill="#b5ab97"/><g stroke="rgba(0,0,0,.2)"><line x1="30" y1="13" x2="30" y2="29"/><line x1="50" y1="13" x2="50" y2="29"/><line x1="70" y1="13" x2="70" y2="29"/></g>',
+      containers:`<rect x="4" y="27" width="92" height="3" fill="#41464c"/>${box(6,42,CONTAINER_COLOURS[(index*2)%6])}${box(52,42,CONTAINER_COLOURS[(index*2+1)%6])}`,
+      cars:'<rect x="5" y="4" width="90" height="26" rx="3" fill="#c3c9cf"/><rect x="9" y="8" width="82" height="6" rx="1" fill="#8d959d"/><rect x="9" y="18" width="82" height="6" rx="1" fill="#8d959d"/><g fill="#d24a3a"><rect x="14" y="10" width="14" height="4" rx="2"/><rect x="58" y="20" width="14" height="4" rx="2"/></g><g fill="#3f6fa3"><rect x="40" y="10" width="14" height="4" rx="2"/><rect x="20" y="20" width="14" height="4" rx="2"/></g>',
+      tank:'<rect x="6" y="11" width="88" height="17" rx="8.5" fill="#25292d"/><rect x="45" y="7" width="10" height="5" rx="1" fill="#25292d"/><rect x="6" y="18" width="88" height="2" fill="#f2c84b"/>',
+      chemical:'<rect x="6" y="11" width="88" height="17" rx="8.5" fill="#e6e6e1"/><rect x="45" y="7" width="10" height="5" rx="1" fill="#c9c9c3"/><rect x="6" y="18" width="88" height="2" fill="#d9822b"/>',
+      metals:'<rect x="4" y="25" width="92" height="5" fill="#41464c"/><g fill="#9aa3ab" stroke="#6d757d" stroke-width="1.5"><circle cx="24" cy="18" r="7"/><circle cx="50" cy="18" r="7"/><circle cx="76" cy="18" r="7"/></g>',
+      ballast:'<path d="M6 12 L94 12 L88 30 L12 30 Z" fill="#e5c928"/><path d="M8 12 Q50 4 92 12 Z" fill="#8f8c86"/>',
+      van:'<rect x="5" y="8" width="90" height="22" rx="3" fill="#7d8894"/><rect x="40" y="11" width="20" height="17" fill="#6c7782"/>',
+      brake:'<rect x="22" y="12" width="56" height="18" rx="2" fill="#7a3b2e"/><rect x="14" y="27" width="72" height="3" fill="#2d3238"/><rect x="30" y="15" width="8" height="6" fill="#1f2a33"/><rect x="62" y="15" width="8" height="6" fill="#1f2a33"/>',
+    };
+    return `<svg class="coach-svg" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">${shapes[kind]||shapes.van}${WAGON_UNDER}</svg>`;
+  }
+  function locoSvg(theme,electric){
+    const pantograph=electric?'<path d="M40 5 L50 1 L60 5" fill="none" stroke="#2d3238" stroke-width="1.6"/><rect x="38" y="5" width="24" height="1.5" fill="#2d3238"/>':'';
+    return `<svg class="coach-svg" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">${pantograph}<path d="M8 7 L92 7 Q97 8 97 14 L97 30 L3 30 L3 14 Q3 8 8 7 Z" fill="${theme.primary}"/><rect x="3" y="21" width="94" height="3" fill="${theme.secondary}"/><path d="M5 10 L14 10 L14 18 L4 18 Z" fill="#1f2a33"/><path d="M95 10 L86 10 L86 18 L96 18 Z" fill="#1f2a33"/><g stroke="rgba(0,0,0,.28)" stroke-width="1">${[26,29,32,35,62,65,68,71].map(x=>`<line x1="${x}" y1="11" x2="${x}" y2="18"/>`).join('')}</g><rect x="44" y="10" width="12" height="9" rx="1" fill="rgba(0,0,0,.15)"/><rect x="3" y="30" width="94" height="3" fill="#2d3238"/><g fill="#2d3238"><circle cx="13" cy="36" r="3"/><circle cx="23" cy="36" r="3"/><circle cx="77" cy="36" r="3"/><circle cx="87" cy="36" r="3"/></g></svg>`;
+  }
+  const FREIGHT_WAGONS={A0:'coal',E0:'coal',B0:'coal',B1:'metals',B4:'aggregate',B5:'containers',B6:'aggregate',B7:'tank',
+    H0:'containers',H1:'containers',H2:'cars',H3:'cars',H4:'van',H5:'van',H6:'van',H8:'containers',H9:'containers',
+    J2:'van',J3:'containers',J4:'aggregate',J5:'chemical',J6:'aggregate',J8:'van',J9:'containers',
+    DD:'ballast',DH:'ballast',DI:'ballast',DQ:'ballast',DY:'ballast',PP:'van',PM:'van',JJ:'van',PV:'van'};
+  function freightProfileHtml(freight, operator) {
+    if(!freight)return '';
+    const theme=trainLiveryTheme(null, operator);
+    const code=String(freight.category||'').toUpperCase();
+    const electric=/electric/i.test(String(freight.traction||''))&&!/diesel/i.test(String(freight.traction||''));
+    const kind=FREIGHT_WAGONS[code];
+    // Light engines run alone; a locomotive and brake van is just that.
+    const wagons=code==='ZZ'?[]:code==='ZB'?['brake']:Array.from({length:5},()=>kind||'van');
+    const vehicles=[...wagons.map((w,i)=>wagonSvg(w,i)).reverse(),locoSvg(theme,electric)];
+    const cells=vehicles.map(svg=>`<div class="coach"><small></small>${svg}<div class="coach-marks"></div></div>`).join('');
+    const title=code==='ZZ'?'Light locomotive':code==='ZB'?'Locomotive and brake van':`${freight.cargo||'Freight'} train`;
+    return `<section class="train-formation is-freight" aria-label="${esc(title)}"><header><strong>${esc(title)}</strong></header><div class="formation-row" style="--coaches:${vehicles.length}">${cells}</div><p>Illustration: ${wagons.length?'wagons drawn for what this train is timetabled to carry':'drawn from its timetable'}, not this exact train.</p></section>`;
+  }
+
   function trainFormationHtml(formation, operator) {
     if(!formation)return '';
     const theme=trainLiveryTheme(null, formation.operator||operator);
     const known=formation.coaches_known&&Array.isArray(formation.coaches)&&formation.coaches.length;
     const usual=(formation.usual||[]).filter(n=>Number(n)>0);
-    const count=known?formation.coaches.length:(usual[usual.length-1]||usual[0]||0);
+    const count=known?formation.coaches.length:(usual[usual.length-1]||usual[0]||(formation.generic?(formation.hauled?5:3):0));
     if(!count)return '';
     // Coach A is at the front: drawn on the right, as the train heads right.
     const coaches=known?[...formation.coaches].reverse():Array.from({length:count},()=>({}));
-    const title=[formation.class?`Class ${formation.class}`:null,formation.name].filter(Boolean).join(' ')||(formation.traction==='diesel'?'Diesel train':'Train');
-    const length=known?`${count} coach${count===1?'':'es'}`:usual.length>1?`usually ${usual.slice(0,-1).join(', ')} or ${usual[usual.length-1]} coaches`:`usually ${usual[0]} coach${usual[0]===1?'':'es'}`;
+    const title=[formation.class?`Class ${formation.class}`:null,formation.name].filter(Boolean).join(' ')||(formation.traction==='diesel'?'Diesel train':formation.traction==='electric'?'Electric train':'Passenger train');
+    const length=known?`${count} coach${count===1?'':'es'}`:!usual.length?'':usual.length>1?`usually ${usual.slice(0,-1).join(', ')} or ${usual[usual.length-1]} coaches`:`usually ${usual[0]} coach${usual[0]===1?'':'es'}`;
+    if(formation.hauled&&!known)coaches.push({loco:true});
     const cells=coaches.map((coach,i)=>{
+      if(coach.loco)return `<div class="coach"><small></small>${locoSvg(theme,formation.traction==='electric')}<div class="coach-marks"></div></div>`;
       const marks=[coach.first?'<b class="coach-first" title="First class">1st</b>':'',
         coach.toilet==='accessible'?`<span title="Accessible toilet">${WHEELCHAIR_ICON}</span>`:coach.toilet==='standard'?'<b class="coach-wc" title="Toilet">WC</b>':''].join('');
       return `<div class="coach"><small>${coach.letter?`Coach ${esc(coach.letter)}`:''}</small>${trainCoachSvg(i,coaches.length,theme)}<div class="coach-marks">${marks}</div></div>`;
     }).join('');
-    const note=known?'Coaches as published by National Rail for this train.':"This train's coaches are not published; drawn at its class's usual length.";
-    return `<section class="train-formation${known?'':' is-typical'}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong><span>${esc(length)}</span></header><div class="formation-row" style="--coaches:${coaches.length}">${cells}</div><p>${esc(note)}</p></section>`;
+    const note=known?'Coaches as published by National Rail for this train.':formation.generic?"Illustration: this train's class and coaches are not in its timetable.":"This train's coaches are not published; drawn at its class's usual length.";
+    return `<section class="train-formation${known?'':' is-typical'}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="formation-row" style="--coaches:${coaches.length}">${cells}</div><p>${esc(note)}</p></section>`;
   }
 
   function renderRailIntelligence(detail) {
@@ -4477,7 +4521,7 @@
     ].filter(Boolean):[];
     const repay=delayRepayHtml(runs[0]);
     const freightCard=freight?`<section class="freight-card" aria-label="What this train is carrying"><b class="freight-cargo">${esc(freight.cargo)}</b>${freightFacts.length?`<dl>${freightFacts.map(([value,label])=>`<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`:''}</section>`:'';
-    const formation=freight?'':trainFormationHtml(detail?.formation, runs[0]?.operator);
+    const formation=freight?freightProfileHtml(freight, runs[0]?.operator):trainFormationHtml(detail?.formation, runs[0]?.operator);
     return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}>${formation}${liveState}${repay}${freightCard}${cards || `<div class="transport-unavailable"><strong>Stops not published</strong><span>${esc(message)}</span></div>`}${stockCard}${terms?`<p class="transport-source"><a target="_blank" rel="noopener" href="${esc(terms)}">Data terms ↗</a></p>`:''}</div>`;
   }
 
@@ -4648,8 +4692,8 @@
     if (selectionChanged) { clearPhoto(); clearActivityIntelligence(); }
     if (['sar','aircraft'].includes(a.type)) { loadAircraftInfo(a); if (!flightRouteById.has(a.id)) loadFlightRoute(a); }
     // No bus photos: Commons rarely has the right bus, and a wrong one misleads.
-    // Trains are drawn (trainFormationHtml); only a special locomotive gets a photo search.
-    else if (a.type==='vessel'||(a.type==='train'&&coolInfo(a).candidate)) loadPhoto(a);
+    // Trains are drawn (trainFormationHtml, freightProfileHtml), never photographed.
+    else if (a.type==='vessel') loadPhoto(a);
     else if (['road','incident'].includes(a.type)) loadNearestCamera(a);
     renderRelated(a);
     loadEnvironmentContext(a);

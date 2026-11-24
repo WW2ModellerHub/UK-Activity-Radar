@@ -574,9 +574,8 @@ rain_radar = RainRadar()
 
 
 def _common_photo_plans() -> list[tuple[str, str | None, str | None]]:
-    from .media_reference import TRAIN_FLEETS
-    plans: list[tuple[str, str | None, str | None]] = [("train", name, None) for name in sorted(TRAIN_FLEETS)]
-    plans += [("aircraft", airline, model) for airline, model in (
+    # Trains are drawn, never photographed: only aircraft photos are warmed.
+    plans: list[tuple[str, str | None, str | None]] = [("aircraft", airline, model) for airline, model in (
         ("Ryanair", "Boeing 737-800"), ("easyJet", "Airbus A320"), ("easyJet", "Airbus A319"),
         ("easyJet", "Airbus A320neo"), ("British Airways", "Airbus A320"), ("British Airways", "Airbus A320neo"),
         ("Jet2", "Boeing 737-800"), ("TUI Airways", "Boeing 737-800"), ("Wizz Air", "Airbus A321neo"),
