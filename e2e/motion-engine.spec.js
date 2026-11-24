@@ -160,7 +160,8 @@ test('a train that loses its estimate glides to the confirmed report instead of 
     const confirmed = { id: 'train-glide', type: 'train', lat: 52, lon: -0.98, position_method: 'network_report' };
     const start = engine.present(confirmed, now + 100, false);
     const during = engine.present(confirmed, now + 500, false);
-    const settled = engine.present(confirmed, now + 5000, false);
+    // ~700 m at the catch-up pace (about 60 m/s): settled within 12 s.
+    const settled = engine.present(confirmed, now + 12500, false);
     return { before, start, during, settled };
   });
   expect(result.before.lon).toBeCloseTo(-0.99, 4);
@@ -299,4 +300,28 @@ test('a bus a little ahead of its next report waits on the road instead of rever
   });
   expect(result.after).toBeCloseTo(result.ahead, 6);    // no reverse
   expect(result.later).toBeCloseTo(result.ahead, 6);    // waits there
+});
+
+
+test('a train held at a junction catches up with its new leg gradually, not in one leap', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const now = Date.now();
+    // Held at South Wigston junction (no leg)...
+    const held = { id:'train-sw', type:'train', lat:52.580, lon:-1.130, position_method:'network_report' };
+    engine.present(held, now, false);
+    // ...then a leg arrives that already has it 1.5 km further north.
+    const leg = { ...held, estimate_path:[[52.580, -1.130], [52.640, -1.130]],
+      estimate_started_at:new Date(now - 60000).toISOString(), estimate_due_at:new Date(now + 180000).toISOString() };
+    const at = ms => engine.present(leg, now + ms, false).lat;
+    const steps = [];
+    let last = at(0);
+    for (let ms = 100; ms <= 30000; ms += 100) { const lat = at(ms); steps.push((lat - last) * 111320); last = lat; }
+    return { start: at(0), oneSecond: at(1000), end: at(30000), target: 52.580 + 0.06 * (90 / 240), biggestStepM: Math.max(...steps) };
+  });
+  expect((result.oneSecond - result.start) * 111320).toBeLessThan(200);   // not a 1.5 km leap
+  expect(result.biggestStepM).toBeLessThan(20);                           // at most ~20 m per 0.1 s
+  expect(result.end).toBeCloseTo(result.target, 4);                       // caught up within 30 s
 });

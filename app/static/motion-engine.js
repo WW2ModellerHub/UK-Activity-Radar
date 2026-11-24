@@ -84,6 +84,16 @@
   function correctionDuration(distance){
     return Math.max(280,Math.min(2600,280+Math.sqrt(Math.max(0,distance))*720));
   }
+  // A train catching up after a late report or a new timetable leg runs
+  // visibly faster along the track - about 135 mph above its own pace - for
+  // up to 25 s, instead of covering a kilometre or more in one second (user
+  // screenshots, South Wigston: two smooth frames, then a 1.5 km leap).
+  const TRAIN_CATCH_UP_KM_PER_S=.06;
+  // Smoothstep: eases in and out with half the peak speed of ease() above.
+  function gentle(value){const t=clamp(value);return t*t*(3-2*t);}
+  function trainCatchUpMs(distance){
+    return Math.max(1200,Math.min(25000,Math.max(0,distance)/TRAIN_CATCH_UP_KM_PER_S*1000));
+  }
 
   function stateKey(activity){return `${activity?.type||'object'}:${activity?.id||activity?.source_id||activity?.name||''}`;}
 
@@ -149,13 +159,13 @@
         const along=Math.abs(projected.fraction-target.fraction)*target.sample.total;
         if(projected.fraction>target.fraction&&along<=TRAIN_HOLD_MAX_KM){state.holdFraction=projected.fraction;return;}
         if(along>TRAIN_PATH_GLIDE_MAX_KM)return;
-        state.fromFraction=projected.fraction;state.correctionStarted=now;state.correctionMs=correctionDuration(along);
+        state.fromFraction=projected.fraction;state.correctionStarted=now;state.correctionMs=trainCatchUpMs(along);
         return;
       }
     }
     const gap=distanceKm(from.lat,from.lon,target.sample.lat,target.sample.lon);
     if(gap<.001||gap>TRAIN_GLIDE_MAX_KM)return;
-    state.from={lat:from.lat,lon:from.lon,bearing:from.bearing};state.correctionStarted=now;state.correctionMs=correctionDuration(gap);
+    state.from={lat:from.lat,lon:from.lon,bearing:from.bearing};state.correctionStarted=now;state.correctionMs=trainCatchUpMs(gap);
   }
 
   function trainPresentation(activity,now,reducedMotion){
@@ -174,7 +184,7 @@
       if(target.fraction>=state.holdFraction)delete state.holdFraction;
       else sample=samplePath(target.path,state.holdFraction)||sample;
     }else if(Number.isFinite(state.correctionStarted)){
-      const progress=clamp((now-state.correctionStarted)/state.correctionMs),amount=ease(progress);
+      const progress=clamp((now-state.correctionStarted)/state.correctionMs),amount=gentle(progress);
       if(target.mode==='path'&&Number.isFinite(state.fromFraction)){
         sample=samplePath(target.path,state.fromFraction+(target.fraction-state.fromFraction)*amount)||sample;
       }else if(state.from){
