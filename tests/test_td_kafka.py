@@ -116,3 +116,13 @@ def test_librdkafka_log_lines_are_kept_for_the_health_report():
     report = feed.report()
     assert "Connection refused" in report["broker_log"][-1]
     assert report["server"].endswith(":9092")
+
+
+def test_live_records_are_never_held_back_only_the_start_up_replay_is():
+    from types import SimpleNamespace
+    feed = TDKafkaFeed(Settings(), None, _TD())
+    assert feed.catching_up                                   # nothing read yet
+    feed._note_age(SimpleNamespace(timestamp=lambda: (1, (time.time() - 240) * 1000)))
+    assert feed.catching_up and feed.report()["behind_s"] >= 239
+    feed._note_age(SimpleNamespace(timestamp=lambda: (1, (time.time() - 2) * 1000)))
+    assert not feed.catching_up
