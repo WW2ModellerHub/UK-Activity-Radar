@@ -30,9 +30,11 @@ def test_without_darwin_the_class_usual_length_is_given_and_marked_as_such():
     assert drawn["coaches_known"] is False and drawn["coaches"] == []
 
 
-def test_freight_and_unknown_trains_are_not_drawn():
+def test_freight_is_drawn_elsewhere_and_unknown_classes_generically():
     assert describe(_train(headcode="6M23", train_category="EE"), []) is None
-    assert describe(_train(power_type="DMU", timing_load="E", operator="East Midlands Railway"), []) is None
+    generic = describe(_train(power_type="DMU", timing_load="E", operator="East Midlands Railway"), [])
+    assert generic["generic"] and generic["class"] is None and generic["traction"] == "diesel"   # drawn, not guessed
+    assert describe(_train(power_type="E", timing_load="450", operator="Caledonian Sleeper"), [])["hauled"]
 
 
 def test_darwin_formation_messages_give_this_trains_coaches():
@@ -53,3 +55,8 @@ def test_darwin_formation_messages_give_this_trains_coaches():
         ("A", True, None), ("B", False, "standard"), ("C", False, None)]   # an out-of-service toilet is not shown
     assert feed.report()["formations"] == 1
     assert feed.formation_for("P19489", "2026-11-25") == []
+
+
+def test_no_train_photos_are_fetched_in_the_background():
+    from app import main
+    assert not any(kind == "train" for kind, _, _ in main._common_photo_plans())

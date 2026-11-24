@@ -62,6 +62,10 @@ _DMU_BY_OPERATOR = {
 }
 
 
+_POWER_TRACTION = {"DMU": "diesel", "DEM": "diesel", "HST": "diesel", "D": "diesel",
+                   "EMU": "electric", "EML": "electric", "E": "electric", "ED": "electro-diesel"}
+
+
 def train_class(power_type: str | None, timing_load: str | None, operator: str | None) -> str | None:
     power = str(power_type or "").strip().upper()
     load = str(timing_load or "").strip().upper()
@@ -92,10 +96,15 @@ def describe(train, coaches: list[dict] | None) -> dict | None:
     name, usual, traction = CLASSES.get(code, (None, (), None)) if code else (None, (), None)
     name = _NAMES.get((code, operator), name)
     known = [_coach(row) for row in (coaches or []) if isinstance(row, dict)]
-    if not known and not code:
-        return None
+    power = str(getattr(train, "power_type", "") or "").strip().upper()
+    hauled = power in {"D", "E", "ED"}
+    if not code:
+        # Class not settled by the timetable: still drawn, as a generic train of its traction.
+        traction = _POWER_TRACTION.get(power)
+        name = "High Speed Train" if power == "HST" else None
     return {
         "class": code, "name": name, "traction": traction, "operator": operator,
+        "hauled": hauled, "generic": not code,
         "coaches": known,
         "coaches_known": bool(known),
         # Without Darwin: the class's usual unit lengths ("2 or 3"), never a claim about this train.

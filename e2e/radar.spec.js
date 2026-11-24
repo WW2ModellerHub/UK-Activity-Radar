@@ -497,7 +497,7 @@ test('Cool map can be switched completely off', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => window.__fixtureSocketMessages.at(-1)?.types)).toEqual([]);
 });
 
-test('Cool rail detail shows an attributed and honestly labelled reference image', async ({ page }) => {
+test('a special train is drawn, never photographed', async ({ page }) => {
   let mediaCalls = 0;
   page.on('request', request => {
     if (decodeURIComponent(new URL(request.url()).pathname).includes('/api/activity/steam-live-1/media')) mediaCalls += 1;
@@ -507,13 +507,9 @@ test('Cool rail detail shows an attributed and honestly labelled reference image
   await page.locator('[data-cool-rail-subtype="special"]').click();
   await page.locator('.cool-map-marker').evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-title')).toContainText('Flying Scotsman Railtour');
-  await expect(page.locator('#detail-photo img')).toHaveAttribute('src', 'https://upload.wikimedia.org/fixture-steam.jpg');
-  await expect(page.locator('#detail-photo .image-truth')).toContainText('Photo of this vehicle or class — not live');
-  await expect(page.locator('#detail-photo')).toContainText('Fixture Photographer');
-  await expect(page.locator('#detail-photo')).toContainText('CC BY-SA 4.0');
-  await page.evaluate(() => window.__fixtureSocket.onmessage({ data: JSON.stringify(window.__fixtureSnapshot) }));
-  await page.waitForTimeout(50);
-  expect(mediaCalls).toBe(1);
+  await page.waitForTimeout(800);
+  await expect(page.locator('#detail-photo img')).toHaveCount(0);
+  expect(mediaCalls).toBe(0);
 });
 
 test('Discover renders its live view and private Field Guide without an extra location request', async ({ page }) => {
@@ -2437,6 +2433,12 @@ test('a freight train says what it is carrying, how heavy it is and how fast it 
   await expect(card).toContainText('tonnes');
   await expect(card).toContainText('Diesel');
   await expect(card).toContainText('60 mph');
+  // Drawn as an oil train: tank wagons behind a locomotive, labelled as an illustration.
+  const drawn = page.locator('.train-formation.is-freight');
+  await expect(drawn).toContainText('Petroleum products train');
+  await expect(drawn.locator('.coach')).toHaveCount(6);
+  await expect(drawn).toContainText('Illustration');
+  await page.locator('#detail-panel').screenshot({ path: process.env.FREIGHT_SHOT || '/dev/null' }).catch(() => {});
   // Nobody boards a freight train.
   await expect(page.locator('.leave-plan')).toHaveCount(0);
 });
@@ -2815,4 +2817,17 @@ test('without a published formation a train is drawn at its class length and say
   await expect(drawn).toContainText('usually 9 or 11 coaches');
   await expect(drawn).toContainText('not published');
   await expect(drawn).toHaveClass(/is-typical/);
+});
+
+test('each kind of freight gets its own wagons', async ({ page }) => {
+  const kinds = { A0:'Coal', B4:'Aggregates', H9:'Containers', H2:'Cars and vans' };
+  for (const [category, cargo] of Object.entries(kinds)) {
+    await page.unroute('**/api/activity/train-live-1/rail');
+    await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json:{ activity:'train-live-1', detail:{ available:true,
+      runs:[{ headcode:'6M00', operator:'DB Cargo UK', status:'On time', freight:{ category, cargo, tonnes:1600, traction:'Diesel' }, calling_points:[] }] } } }));
+    await page.goto('/?open=train-live-1');
+    const drawn = page.locator('.train-formation.is-freight');
+    await expect(drawn).toContainText(`${cargo} train`);
+    await page.locator('#detail-panel .train-formation').screenshot({ path: process.env.FREIGHT_DIR ? `${process.env.FREIGHT_DIR}/freight-${category}.png` : '/dev/null' }).catch(() => {});
+  }
 });
