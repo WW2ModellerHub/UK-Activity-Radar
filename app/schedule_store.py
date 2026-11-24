@@ -61,6 +61,19 @@ class ScheduleInfo:
     schedule_id: int | None = None
 
 
+def _call_time(location: dict) -> datetime | None:
+    """When a train is booked at a location: its public time, else its working time.
+
+    Junctions and passing points have only working (signallers') times, and a
+    freight train has nothing else. Without them a train reported at a
+    junction got no onward estimate and was parked there until the next
+    station report.
+    """
+    return (location.get("_departure_at") or location.get("_pass_at") or location.get("_arrival_at")
+            or location.get("_working_departure_at") or location.get("_working_pass_at")
+            or location.get("_working_arrival_at"))
+
+
 def _lateness_minutes(reported_at: datetime, booked_at: datetime) -> int | None:
     """Minutes a live report is behind (positive) or ahead of its booked time."""
     try:
@@ -920,7 +933,7 @@ class ScheduleStore:
         geo = self.location_geography(codes)
 
         def call_time(location: dict) -> datetime | None:
-            return location.get("_departure_at") or location.get("_pass_at") or location.get("_arrival_at")
+            return _call_time(location)
 
         event = str(event_code or "").strip().upper()
         event_kind = "arrival" if event in {"A", "C"} else "departure" if event in {"B", "D"} else ""
@@ -939,9 +952,11 @@ class ScheduleStore:
         # report time instead of silently snapping to the first occurrence.
         def event_time_for(location: dict) -> datetime | None:
             if event_kind == "arrival":
-                return location.get("_arrival_at") or location.get("_pass_at") or call_time(location)
+                return (location.get("_arrival_at") or location.get("_pass_at")
+                        or location.get("_working_arrival_at") or location.get("_working_pass_at") or call_time(location))
             if event_kind == "departure":
-                return location.get("_departure_at") or location.get("_pass_at") or call_time(location)
+                return (location.get("_departure_at") or location.get("_pass_at")
+                        or location.get("_working_departure_at") or location.get("_working_pass_at") or call_time(location))
             return call_time(location)
 
         start_index = min(
@@ -1010,6 +1025,65 @@ class ScheduleStore:
                 "tiploc": start_code, "report_tiploc": start_code,
                 "event_kind": event_kind or None, "berth_offset_seconds": offset,
                 "delay_minutes": _lateness_minutes(recorded_at, start_time),
+            }
+        return None
+
+    def estimate_leg_at(
+        self, schedule_id: int | None, running_date: date, at_time: datetime, delay_minutes: int | None = 0,
+    ) -> dict | None:
+        """The timetable leg a matched train should be on at ``at_time``.
+
+        For a train with no current leg (it was last reported somewhere a leg
+        could not start from): its booked times, shifted by its known
+        lateness, say which two timing points it is between, so it keeps
+        moving along the track until the next report corrects it. This is the
+        "network model" approach live train maps such as Signalbox describe.
+        """
+        if not schedule_id:
+            return None
+        try:
+            with self._connect() as conn:
+                row = conn.execute("SELECT * FROM schedules WHERE id=?", (int(schedule_id),)).fetchone()
+                if row is None:
+                    return None
+                locations = self.timed_locations(row, running_date)
+        except (OSError, sqlite3.Error, TypeError, ValueError):
+            return None
+        codes = {str(item.get("tiploc_code") or "").strip().upper() for item in locations if isinstance(item, dict)} - {""}
+        if not codes:
+            return None
+        geo = self.location_geography(codes)
+        try:
+            shift = timedelta(minutes=max(-30, min(240, int(delay_minutes or 0))))
+        except (TypeError, ValueError):
+            shift = timedelta(0)
+        timed = []
+        for location in locations:
+            code = str(location.get("tiploc_code") or "").strip().upper()
+            booked = _call_time(location)
+            if code in geo and isinstance(booked, datetime):
+                timed.append((code, booked + shift))
+        for (start_code, start_time), (next_code, next_time) in zip(timed, timed[1:]):
+            if not (start_time <= at_time < next_time):
+                continue
+            runtime = next_time - start_time
+            if runtime < timedelta(seconds=30) or runtime > timedelta(hours=1):
+                return None
+            start_point, next_point = geo[start_code], geo[next_code]
+            path = self.route_points(schedule_id, start_code, next_code)
+            first = [start_point["lat"], start_point["lon"]]
+            last = [next_point["lat"], next_point["lon"]]
+            if path and path[0] != first:
+                path.insert(0, first)
+            if path and path[-1] != last:
+                path.append(last)
+            return {
+                "lat": start_point["lat"], "lon": start_point["lon"],
+                "next_lat": next_point["lat"], "next_lon": next_point["lon"],
+                "next_name": next_point["name"], "next_tiploc": next_code, "path": path,
+                "started_at": start_time, "due_at": next_time,
+                "tiploc": start_code, "report_tiploc": start_code,
+                "event_kind": None, "berth_offset_seconds": 0, "delay_minutes": None,
             }
         return None
 

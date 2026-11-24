@@ -1,5 +1,13 @@
 # Codex stabilization changelog
 
+## 2026-11-24 — trains keep moving along the track (again, with the stream protected)
+
+- Re-applies the reverted change (working times where there is no public
+  time; keep a running leg on a berth step the timetable cannot start
+  from; place a leg-less matched train on its timetable). The live stream
+  now leaves out and reports any train it cannot handle, so this can no
+  longer take trains off the map; the health page names the cause.
+
 ## 2026-11-24 — the live stream survives a bad train record
 
 - One train whose estimate cannot be worked out, or a record that cannot be
