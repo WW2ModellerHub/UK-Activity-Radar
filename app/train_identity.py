@@ -9,7 +9,7 @@ from typing import Any
 ATOC_OPERATOR_NAMES = {
     "AW": "Transport for Wales", "CC": "c2c", "CH": "Chiltern Railways",
     "CS": "Caledonian Sleeper", "EM": "East Midlands Railway", "ES": "Eurostar",
-    "GC": "Grand Central", "GN": "Great Northern", "GR": "LNER",
+    "GC": "Grand Central", "GN": "Great Northern", "GR": "LNER", "LD": "Lumo",
     "GW": "Great Western Railway", "GX": "Gatwick Express", "HT": "Hull Trains",
     "HX": "Heathrow Express", "IL": "Island Line", "LE": "Greater Anglia",
     "LM": "West Midlands Trains", "LO": "London Overground", "LT": "London Underground",

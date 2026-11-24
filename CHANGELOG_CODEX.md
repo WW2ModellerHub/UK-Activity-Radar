@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## Busiest days at managed stations; Lumo named
+
+- `scripts/build_station_footfall.py` reduces Network Rail's daily concourse footfall (2025) to average entries per weekday and the busiest day for its 18 managed stations (`app/assets/station_footfall.json`, 2 KB). Station pages show "Busiest days at …" with weekday bars.
+- Operator code LD is named Lumo (from the ServiceProviders reference data).
+- Not used: railcards and routeing guide (fares data, nothing to show on a live map).
+
 ## No train photos: every train drawn, freight by cargo
 
 - Trains are never photographed now (special locomotives included), and train fleets are no longer pre-fetched from Wikimedia.
