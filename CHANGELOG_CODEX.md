@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## 2026-11-24 — reverted: "trains keep moving along the track between reports"
+
+- After it went live, asking the live stream for trains dropped the
+  connection (close 1006) while buses and other layers worked: trains were
+  missing from the map. Reverted to restore them while the cause is found;
+  the change returns with a test that reproduces the failure.
+
 ## 2026-11-24 — buses follow their road
 
 - Bus maps that feel live (Transit, Moovit) snap each GPS report onto the
