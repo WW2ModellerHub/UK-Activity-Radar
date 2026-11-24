@@ -4493,7 +4493,7 @@
       return `<div class="coach"><small>${coach.letter?`Coach ${esc(coach.letter)}`:''}</small>${trainCoachSvg(i,coaches.length,theme)}<div class="coach-marks">${marks}</div></div>`;
     }).join('');
     const note=known?'Coaches as published by National Rail for this train.':formation.generic?"Illustration: this train's class and coaches are not in its timetable.":"This train's coaches are not published; drawn at its class's usual length.";
-    return `<section class="train-formation${known?'':' is-typical'}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="formation-row" style="--coaches:${coaches.length}">${cells}</div><p>${esc(note)}</p></section>`;
+    return `<section class="train-formation${known?'':' is-typical is-plain'}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="formation-row" style="--coaches:${coaches.length}">${cells}</div><p>${esc(note)}</p></section>`;
   }
 
   function renderRailIntelligence(detail) {
