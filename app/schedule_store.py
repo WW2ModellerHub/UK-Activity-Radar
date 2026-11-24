@@ -61,6 +61,12 @@ class ScheduleInfo:
     schedule_id: int | None = None
 
 
+def _mapped(point) -> bool:
+    """A timetable location with real coordinates. Junctions and passing points
+    can be known by name only; a train must never be placed at "None"."""
+    return bool(point) and isinstance(point.get("lat"), (int, float)) and isinstance(point.get("lon"), (int, float))
+
+
 def _call_time(location: dict) -> datetime | None:
     """When a train is booked at a location: its public time, else its working time.
 
@@ -970,7 +976,7 @@ class ScheduleStore:
         start_location = locations[start_index]
         start_point = geo.get(start_code)
         start_time = event_time_for(start_location)
-        if not start_point or not isinstance(start_time, datetime):
+        if not _mapped(start_point) or not isinstance(start_time, datetime):
             return None
 
         if event_kind == "arrival":
@@ -978,7 +984,7 @@ class ScheduleStore:
                 previous_code = str(previous_location.get("tiploc_code") or "").strip().upper()
                 previous_point = geo.get(previous_code)
                 previous_time = call_time(previous_location)
-                if not previous_point or not isinstance(previous_time, datetime) or previous_time >= start_time:
+                if not _mapped(previous_point) or not isinstance(previous_time, datetime) or previous_time >= start_time:
                     continue
                 runtime = start_time - previous_time
                 if runtime < timedelta(seconds=30) or runtime > timedelta(hours=1):
@@ -1005,7 +1011,7 @@ class ScheduleStore:
             next_code = str(next_location.get("tiploc_code") or "").strip().upper()
             next_point = geo.get(next_code)
             next_time = call_time(next_location)
-            if not next_point or not isinstance(next_time, datetime) or next_time <= start_time:
+            if not _mapped(next_point) or not isinstance(next_time, datetime) or next_time <= start_time:
                 continue
             runtime = next_time - start_time
             if runtime < timedelta(seconds=30) or runtime > timedelta(hours=1):
@@ -1061,7 +1067,7 @@ class ScheduleStore:
         for location in locations:
             code = str(location.get("tiploc_code") or "").strip().upper()
             booked = _call_time(location)
-            if code in geo and isinstance(booked, datetime):
+            if _mapped(geo.get(code)) and isinstance(booked, datetime):
                 timed.append((code, booked + shift))
         for (start_code, start_time), (next_code, next_time) in zip(timed, timed[1:]):
             if not (start_time <= at_time < next_time):

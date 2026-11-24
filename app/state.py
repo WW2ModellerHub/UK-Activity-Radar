@@ -92,6 +92,8 @@ def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def _inside(lat: float, lon: float, bbox: tuple[float, float, float, float] | None) -> bool:
     if not bbox:
         return True
+    if lat is None or lon is None:
+        return False   # never placeable: not on any screen (and must not fail the list)
     west, south, east, north = bbox
     return west <= lon <= east and south <= lat <= north
 
