@@ -24,7 +24,8 @@ from ..models import SourceStatus
 
 WARM_START_S = 5 * 60      # how far back to start after a restart
 FRESH_S = 120              # Kafka counts as live for this long after a message
-MAX_BACKLOG = 1000         # pause reading while the TD worker is this far behind
+MAX_BACKLOG = 1000         # during the start-up replay, pause while the TD worker is this far behind
+CATCH_UP_S = 60            # records older than this are the start-up replay
 
 
 def decode(value) -> str | None:
@@ -68,6 +69,7 @@ class TDKafkaFeed:
         self.messages = 0
         self.error: str | None = None
         self.broker_error: str | None = None
+        self.behind_s: float | None = None   # age of the newest record read
         self._log, self.broker_log = _broker_logger(type(self).__name__)
         self.sample: str | None = None
 
@@ -88,7 +90,9 @@ class TDKafkaFeed:
             self._thread.join(timeout=5)
 
     def report(self) -> dict:
-        return {"broker_error": self.broker_error, "broker_log": list(self.broker_log),
+        return {"behind_s": round(self.behind_s, 1) if self.behind_s is not None else None,
+                "worker_backlog": self.hub.backlog() if self.hub is not None else None,
+                "broker_error": self.broker_error, "broker_log": list(self.broker_log),
             "server": self.settings.raildata_td_kafka_bootstrap, "live": self.live, "messages": self.messages, "error": self.error,
                 "seconds_since_message": round(time.monotonic() - self.last_message_at) if self.messages else None,
                 "sample": self.sample}
@@ -142,6 +146,18 @@ class TDKafkaFeed:
         consumer.assign(starts)
         return len(partitions)
 
+    @property
+    def catching_up(self) -> bool:
+        return self.behind_s is None or self.behind_s > CATCH_UP_S
+
+    def _note_age(self, record) -> None:
+        try:
+            kind, stamp = record.timestamp()
+            if kind and stamp and stamp > 0:
+                self.behind_s = max(0.0, time.time() - stamp / 1000)
+        except Exception:
+            pass
+
     def handle(self, value) -> None:
         text = decode(value)
         if not text:
@@ -167,12 +183,16 @@ class TDKafkaFeed:
                 self._status(f"Rail Data Marketplace TD connected • {count} partitions")
                 delay = 15.0
                 while not self._stop.is_set():
-                    if self.hub is not None and self.hub.backlog() > MAX_BACKLOG:
+                    # Only the start-up replay waits for the worker; live steps
+                    # always go in and the queue drops its oldest, as for STOMP,
+                    # so the map never falls behind real time.
+                    if self.catching_up and self.hub is not None and self.hub.backlog() > MAX_BACKLOG:
                         self._stop.wait(0.2)
                         continue
                     for record in consumer.consume(num_messages=200, timeout=1.0) or []:
                         problem = record.error()
                         if problem is None:
+                            self._note_age(record)
                             self.handle(record.value())
                         elif getattr(problem, "fatal", lambda: False)():
                             raise RuntimeError(str(problem))
