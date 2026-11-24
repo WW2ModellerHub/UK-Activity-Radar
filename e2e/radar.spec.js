@@ -2523,13 +2523,22 @@ test('a passenger train 15+ minutes late says Delay Repay may be owed; on-time t
 test('a station board warns when buses replace trains for engineering works', async ({ page }) => {
   const today = await page.evaluate(() => { const d = new Date(Date.now()); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; });
   await page.route(/\/api\/places\/rail(%3A|:)MKC\/board/, route => route.fulfill({ json:{ board:{ mode:'network_rail', departures:[], arrivals:[],
-    engineering:[{ day:today, buses:24, first:'08:10', last:'22:40', between:['MILTON KEYNES CENTRAL','NORTHAMPTON'] }] } } }));
+    engineering:[{ day:today, buses:24, first:'08:10', last:'22:40', between:['MILTON KEYNES CENTRAL','NORTHAMPTON'] }],
+    replacement_stops:[
+      { description:'Rail replacement buses depart from stop K on Elder Gate.', lat:52.0345, lon:-0.7745 },
+      { description:'Rail replacement buses depart from stop K on Elder Gate.', lat:52.0346, lon:-0.7746 },
+    ] } } }));
   await page.locator('#station-boards').click();
   const notice = page.locator('.engineering-notice');
   await expect(notice).toContainText('Buses replace some trains');
   await expect(notice).toContainText('Today');
   await expect(notice).toContainText('24 replacement buses');
   await expect(notice).toContainText('08:10–22:40');
+  // Where they leave from (Rail Data Marketplace), each place once, with a way to see it.
+  await expect(notice.locator('.engineering-stops p')).toHaveCount(1);
+  await expect(notice).toContainText('stop K on Elder Gate');
+  await notice.locator('[data-replacement-stop]').click();
+  await expect(page.locator('#map')).toHaveAttribute('data-map-zoom', '18');
 });
 
 

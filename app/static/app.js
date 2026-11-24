@@ -2620,17 +2620,27 @@
   }
 
   // Engineering works: days in the next week when buses replace trains here.
-  function engineeringNoticeHtml(days){
+  function engineeringNoticeHtml(days,stops){
     const rows=(Array.isArray(days)?days:[]).slice(0,3);
     if(!rows.length)return '';
+    // Where the buses leave from (Rail Data Marketplace), each place once.
+    const seen=new Set();
+    const places=(Array.isArray(stops)?stops:[]).filter(stop=>stop?.description&&!seen.has(stop.description)&&seen.add(stop.description)).slice(0,3);
+    const where=places.length?`<div class="engineering-stops"><b>Buses leave from</b>${places.map(stop=>`<p>${esc(stop.description)} <button type="button" class="link-button" data-replacement-stop="${Number(stop.lat)},${Number(stop.lon)}">Show on map</button></p>`).join('')}</div>`:'';
     const today=new Date(Date.now());today.setHours(12,0,0,0);
     const label=day=>{
       const d=new Date(`${day}T12:00:00`);const diff=Math.round((d-today)/86400000);
       return diff===0?'Today':diff===1?'Tomorrow':d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
     };
     const items=rows.map(row=>`<li><b>${esc(label(row.day))}</b> ${esc(row.buses)} replacement bus${row.buses===1?'':'es'}${row.first&&row.last?` · ${esc(row.first)}–${esc(row.last)}`:''}${row.between?.length?` · ${esc(row.between.slice(0,3).map(humanTransitLabel).join(', '))}`:''}</li>`).join('');
-    return `<section class="engineering-notice" aria-label="Engineering works"><strong>Buses replace some trains</strong><ul>${items}</ul><small>Engineering works from the published timetable. Check before you travel.</small></section>`;
+    return `<section class="engineering-notice" aria-label="Engineering works"><strong>Buses replace some trains</strong><ul>${items}</ul>${where}<small>Engineering works from the published timetable. Check before you travel.</small></section>`;
   }
+  document.addEventListener('click',event=>{
+    const button=event.target.closest?.('[data-replacement-stop]');
+    if(!button)return;
+    const [lat,lon]=button.dataset.replacementStop.split(',').map(Number);
+    if(Number.isFinite(lat)&&Number.isFinite(lon)){map.setView([lat,lon],18);collapseWorkspaceOnPhone?.();}
+  });
 
   // Save and the station page, side by side under a station board.
   function stationActions(place){
@@ -2656,7 +2666,7 @@
       if(tab==='freight'&&!freight)tab='departures';
       const freightTab=freight?`<button type="button" role="tab" data-board-tab="freight" aria-selected="${tab==='freight'}">Freight <small>${freightRows.length}</small></button>`:'';
       const freightList=freight?`<div class="board-list" data-board-list="freight"${tab==='freight'?'':' hidden'}><p class="board-note">Freight and engineering trains due in the next two hours.</p>${freight}</div>`:'';
-      html=`${waiting}${engineeringNoticeHtml(board.engineering)}<div class="board-switch${freight?' has-three':''}" role="tablist" aria-label="Departures, arrivals or freight"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button>${freightTab}</div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>${freightList}${railBoardSnapshot(board)}${stationActions(place)}`;
+      html=`${waiting}${engineeringNoticeHtml(board.engineering,board.replacement_stops)}<div class="board-switch${freight?' has-three':''}" role="tablist" aria-label="Departures, arrivals or freight"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button>${freightTab}</div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>${freightList}${railBoardSnapshot(board)}${stationActions(place)}`;
     } else if(place.place_type==='bus_stop') {
       box.classList.add('bus-departure-board');
       const rows=(board.rows||[]).map(r=>boardRow(r,'bus')).join('');

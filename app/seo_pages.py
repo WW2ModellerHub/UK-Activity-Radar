@@ -198,10 +198,27 @@ def _day_label(day: str) -> str:
         return day
 
 
-def engineering_html(name: str, days: list[dict]) -> str:
+def replacement_stops_html(name: str, stops: list[dict]) -> str:
+    """Where rail replacement buses leave from (Rail Data Marketplace), each place once."""
+    seen, items = set(), []
+    for stop in stops or []:
+        text = stop.get("description") or ""
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        where = f"/?lat={stop['lat']}&lon={stop['lon']}&zoom=18"
+        items.append(f'<li>{escape(text)} <a href="{escape(where)}">Show on the map</a></li>')
+    if not items:
+        return ""
+    return (f'<section class="replacement-stops"><h2>Rail replacement buses at {escape(name)}</h2>'
+            f'<p>When buses replace trains, they leave from here:</p><ul>{"".join(items[:4])}</ul>'
+            '<p class="source">Rail replacement stop locations from the Rail Delivery Group (Rail Data Marketplace).</p></section>')
+
+
+def engineering_html(name: str, days: list[dict], stops: list[dict] | None = None) -> str:
     """Engineering works: the days this week when buses replace trains here."""
     if not days:
-        return ""
+        return replacement_stops_html(name, stops or [])
     items = "".join(
         "<li><strong>{}</strong>: {} replacement bus{}{}{}</li>".format(
             escape(_day_label(d["day"])), d["buses"], "es" if d["buses"] != 1 else "",
@@ -210,7 +227,8 @@ def engineering_html(name: str, days: list[dict]) -> str:
         for d in days[:7])
     return (f'<section class="engineering"><h2>Engineering works at {escape(name)}</h2>'
             f'<p>Buses replace some trains on these days, from the published timetable:</p><ul>{items}</ul>'
-            '<p class="source">Check with the train company before you travel; replacement buses usually leave from outside the station.</p></section>')
+            '<p class="source">Check with the train company before you travel.</p></section>'
+            + replacement_stops_html(name, stops or []))
 
 
 def station_facts_html(crs: str, name: str, facts: dict, paths: dict[str, str]) -> tuple[str, str]:
@@ -233,7 +251,7 @@ def station_facts_html(crs: str, name: str, facts: dict, paths: dict[str, str]) 
         chips.append(f"{usage['rank']:,}{_ordinal(usage['rank'])} busiest in Britain")
     if facts.get("bus_stops"):
         chips.append(f"{facts['bus_stops']} bus stop{'s' if facts['bus_stops'] != 1 else ''} within 400 m")
-    works = engineering_html(name, facts.get("engineering") or [])
+    works = engineering_html(name, facts.get("engineering") or [], facts.get("replacement_stops") or [])
     if not chips:
         return works, ""
     chip_html = "".join(f"<li>{escape(chip)}</li>" for chip in chips)

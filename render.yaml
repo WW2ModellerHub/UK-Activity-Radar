@@ -151,6 +151,8 @@ services:
         sync: false
       - key: FLYITALYADSB_API_KEY
         sync: false
+      - key: RAILDATA_REPLACEMENT_API_KEY
+        sync: false
       - key: ADSB_LOL_API_KEY
         sync: false
       - key: NATIONAL_HIGHWAYS_API_KEY

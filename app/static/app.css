@@ -1499,3 +1499,4 @@ strong[data-plus].needs-plus::after,
 .aircraft-drawer-inner button{min-height:40px;padding:0 12px;text-align:left;border-radius:10px;border:1px solid var(--line,#d6dde6);background:var(--surface,#fff);color:inherit;font:inherit;font-size:14px;cursor:pointer}
 .aircraft-drawer-inner button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink,#fff)}
 @media (prefers-reduced-motion:reduce){.aircraft-drawer-body{transition:none}}
+.engineering-stops{margin:6px 0 4px}.engineering-stops b{display:block;font-size:12px}.engineering-stops p{margin:2px 0;font-size:13px;line-height:1.4}.engineering-stops .link-button{border:0;background:none;padding:0;color:var(--accent,#1463d8);font:inherit;text-decoration:underline;cursor:pointer}
