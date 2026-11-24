@@ -106,6 +106,8 @@ def describe(train, coaches: list[dict] | None) -> dict | None:
         "class": code, "name": name, "traction": traction, "operator": operator,
         "hauled": hauled, "generic": not code,
         "coaches": known,
+        # Unit numbers from the allocation feed (e.g. "170636"), when it has them.
+        "units": [str(unit) for unit in (getattr(train, "formation", None) or []) if str(unit).strip()][:4],
         "coaches_known": bool(known),
         # Without Darwin: the class's usual unit lengths ("2 or 3"), never a claim about this train.
         "usual": list(usual),

@@ -1527,12 +1527,16 @@ strong[data-plus].needs-plus::after,
 .train-formation.profile-class-390 .formation-row .coach { grid-template-rows: 36px; }
 .train-profile-stage { min-height: 58px; display: flex; align-items: center; overflow: hidden; }
 .train-profile-stage img { display: block; width: 100%; height: auto; max-height: 92px; object-fit: contain; object-position: center; }
-.formation-data { display: grid; gap: 6px; }
-.formation-data > strong { font-size: 12px; color: var(--muted); }
-.formation-data ul { display: flex; gap: 6px; margin: 0; padding: 0 0 3px; list-style: none; overflow-x: auto; scrollbar-width: thin; }
-.formation-data li { flex: 0 0 auto; min-width: 88px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-alt,#f6f8f9); }
-.formation-data li > strong { display: block; font-size: 11px; margin-bottom: 4px; }
-.formation-data li > div { display: grid; gap: 3px; font-size: 10px; color: var(--muted); }
-.formation-data .coach-first { width: max-content; padding: 2px 4px; border-radius: 3px; background: #f3d36b; color: #3a2d00; }
-.formation-data .coach-facility { display: inline-flex; align-items: center; gap: 3px; }
-.formation-data .ico { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+
+/* Generated profiles, one image per coach, with that coach's data under it. */
+.profile-scroll { overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+.profile-train { display: flex; align-items: flex-end; gap: 0; }
+.profile-coach { margin: 0; display: grid; justify-items: center; min-width: 0; }
+.profile-coach img { display: block; width: 100%; height: auto; }
+.profile-train.is-labelled .profile-coach > small { font-size: 11px; font-weight: 600; color: var(--muted); line-height: 14px; min-height: 14px; }
+.profile-train.is-labelled .profile-coach .coach-marks { display: flex; gap: 2px; height: 18px; align-items: center; justify-content: center; }
+.profile-coach .coach-marks b { font-size: 9px; line-height: 1; padding: 2px 3px; border-radius: 3px; border: 1px solid var(--line); }
+.profile-coach .coach-first { background: #f3d36b; border-color: #d6b23d; color: #3a2d00; }
+.profile-coach .ico { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.formation-units { display: flex; gap: 6px; justify-content: center; margin: 0; }
+.formation-units b { font-size: 13px; padding: 3px 14px; border: 1px solid var(--accent, #2a7f9e); border-radius: 6px; font-variant-numeric: tabular-nums; }

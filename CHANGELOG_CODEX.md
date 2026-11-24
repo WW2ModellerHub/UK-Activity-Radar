@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## Generated train profiles built coach by coach, with each coach's data under it
+
+- `scripts/build_train_profiles.py` cuts each generated profile at its gangways (found as dips in bright bodyside) into one WebP per coach, and shrinks the freight images: 396 KB served instead of ~14 MB of PNG. The source PNGs move to `art/train-profiles/` (not served).
+- The panel builds the train to its real length: whole units when the coach count is a multiple of the drawn unit (two units coupled cab to cab), else the drawn unit's ends with its middle coaches repeated. Each coach's letter, first class and toilet sit under that coach; unit numbers from the allocation feed show beneath.
+- Fixes: the 390 image (7 coaches) and 220 image (3 coaches) no longer misstate train length; the facilities list that did not line up with the picture is gone; asset versions bumped so phones load the new code.
+- Tests check every image the page asks for exists, is small and matches its recorded width; the old string-matching test is replaced.
+
 ## Busiest days at managed stations; Lumo named
 
 - `scripts/build_station_footfall.py` reduces Network Rail's daily concourse footfall (2025) to average entries per weekday and the busiest day for its 18 managed stations (`app/assets/station_footfall.json`, 2 KB). Station pages show "Busiest days at …" with weekday bars.
