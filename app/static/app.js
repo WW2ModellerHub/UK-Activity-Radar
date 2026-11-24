@@ -3211,6 +3211,37 @@
       L.DomUtil.setPosition(element,map.project(L.latLng(lat,lon)).subtract(map.getPixelOrigin()));
     }
   }
+  // Route lines for buses on screen at street level (zoom 13+), so the
+  // motion engine moves each bus along its road. Up to 30 at a time, every
+  // 15 s; a bus with no line is asked about again after 5 minutes.
+  const busShapeTried=new Map();
+  let busShapeFetchAt=0,busShapeLoading=false;
+  function refreshBusShapes() {
+    const engine=window.UKActivityMotionEngine;
+    if(!engine?.setBusShape||busShapeLoading||!enabledActivityTypes.has('bus'))return;
+    const now=Date.now();
+    if((map.getZoom?.()??0)<13||now-busShapeFetchAt<15000)return;
+    const bounds=map.getBounds?.();
+    const ids=[];
+    for(const [id,marker] of markers){
+      if(marker.__activityType!=='bus'||engine.hasBusShape(id))continue;
+      if(bounds&&!bounds.contains(marker.getLatLng()))continue;
+      const tried=busShapeTried.get(id);
+      if(tried&&now-tried<300000)continue;
+      ids.push(id);
+      if(ids.length>=30)break;
+    }
+    if(!ids.length)return;
+    if(busShapeTried.size>5000)busShapeTried.clear();
+    ids.forEach(id=>busShapeTried.set(id,now));
+    busShapeFetchAt=now;busShapeLoading=true;
+    fetch(`/api/buses/shapes?ids=${encodeURIComponent(ids.join(','))}`).then(r=>r.ok?r.json():null).then(data=>{
+      const shapes=Object.entries(data?.shapes||{});
+      for(const [id,points] of shapes)engine.setBusShape(id,points);
+      if(shapes.length)startLiveMotion();
+    }).catch(()=>{}).finally(()=>{busShapeLoading=false;});
+  }
+
   function placeMarker(marker,lat,lon) {
     const group=marker.__activityGroup;
     const clustered=group&&typeof group._moveChild==='function';
@@ -7170,7 +7201,7 @@
   // UK overview remains visible when location is unavailable or declined.
   centreMapOnDeviceLocation({silent:true,startup:true});
   connect();
-  setInterval(()=>{refreshLiveMarkerPositions();startLiveMotion();},1000);
+  setInterval(()=>{refreshLiveMarkerPositions();startLiveMotion();refreshBusShapes();},1000);
   startLiveMotion();
   // Leaflet animates the zoom itself; re-placing markers mid-zoom fights it.
   map.on('zoomstart',()=>{liveMotionZooming=true;});

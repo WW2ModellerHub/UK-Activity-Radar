@@ -90,3 +90,29 @@ def test_a_zero_altitude_is_kept_and_ground_or_missing_is_none():
     assert by_hex["aaa002"].altitude_ft is None and by_hex["aaa002"].status == "On ground"
     assert by_hex["aaa003"].altitude_ft == 475
     assert by_hex["aaa004"].altitude_ft is None
+
+
+def test_bus_route_lines_are_matched_cached_and_limited(monkeypatch):
+    from types import SimpleNamespace
+    calls = []
+
+    class Timetables:
+        def journey_for_vehicle(self, vehicle, limit=3):
+            calls.append(vehicle.id)
+            return {"shape": [[52.0 + i / 1000, -1.0] for i in range(400)]}
+
+    monkeypatch.setattr(main, "smart_places", SimpleNamespace(bus_timetables=Timetables()))
+    main._bus_shape_cache.clear()
+    live = LiveState()
+    for index in range(12):
+        live.upsert(Vehicle(id=f"bus:X:{index}", type="bus", name="Bus 7", lat=52.0, lon=-1.0, route="7",
+                            destination="Town", last_updated=datetime.now(timezone.utc)))
+    monkeypatch.setattr(main, "state", live)
+    client = TestClient(main.app)
+    ids = ",".join(f"bus:X:{index}" for index in range(12))
+    first = client.get(f"/api/buses/shapes?ids={ids}").json()["shapes"]
+    assert len(first) == 8 and len(calls) == 8                 # at most 8 fresh matches a request
+    assert all(len(line) <= 150 for line in first.values())    # thinned
+    second = client.get(f"/api/buses/shapes?ids={ids}").json()["shapes"]
+    assert len(second) == 12 and len(calls) == 12              # the first 8 from the cache
+    assert client.get("/api/buses/shapes?ids=nope").json()["shapes"] == {}
