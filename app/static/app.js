@@ -4423,8 +4423,22 @@
   // Generated, transparent broadside assets. The timetable/API chooses the
   // class; the browser never guesses from an operator name or headcode.
   const TRAIN_PROFILE_IMAGES={
-    '390':'/static/assets/train-profiles/class-390-pendolino.png',
+    '390':{default:'/static/assets/train-profiles/class-390-pendolino.png'},
+    '170':{crosscountry:'/static/assets/train-profiles/class-170-crosscountry-turbostar.png'},
+    '195':{northern:'/static/assets/train-profiles/class-195-northern-civity.png'},
+    '220':{crosscountry:'/static/assets/train-profiles/class-220-crosscountry-voyager.png'},
+    '221':{crosscountry:'/static/assets/train-profiles/class-220-crosscountry-voyager.png'},
+    '350':{'london-northwestern':'/static/assets/train-profiles/class-350-lnwr-desiro.png','west-midlands':'/static/assets/train-profiles/class-350-lnwr-desiro.png'},
+    '800':{lner:'/static/assets/train-profiles/class-800-lner-azuma.png',gwr:'/static/assets/train-profiles/class-800-gwr-iet.png'},
+    '801':{lner:'/static/assets/train-profiles/class-800-lner-azuma.png'},
+    '802':{gwr:'/static/assets/train-profiles/class-800-gwr-iet.png'},
   };
+  function trainProfileImage(formation,operator){
+    const choices=TRAIN_PROFILE_IMAGES[String(formation?.class||'')];
+    if(!choices)return null;
+    const livery=trainLiveryTheme(null,formation?.operator||operator).key;
+    return choices[livery]||choices.default||null;
+  }
   function pendolinoCoachSvg(index,count){
     const first=index===0,last=index===count-1;
     // Class 390: low, continuously curved bodyside, dark window ribbon,
@@ -4489,7 +4503,25 @@
     H0:'containers',H1:'containers',H2:'cars',H3:'cars',H4:'van',H5:'van',H6:'van',H8:'containers',H9:'containers',
     J2:'van',J3:'containers',J4:'aggregate',J5:'chemical',J6:'aggregate',J8:'van',J9:'containers',
     DD:'ballast',DH:'ballast',DI:'ballast',DQ:'ballast',DY:'ballast',PP:'van',PM:'van',JJ:'van',PV:'van'};
-  function freightProfileHtml(freight, operator) {
+  const FREIGHT_PROFILE_IMAGES={
+    containers:'/static/assets/train-profiles/freight-wagon-intermodal.png',
+    tank:'/static/assets/train-profiles/freight-wagon-tank.png',
+    chemical:'/static/assets/train-profiles/freight-wagon-tank.png',
+    aggregate:'/static/assets/train-profiles/freight-wagon-aggregate.png',
+    coal:'/static/assets/train-profiles/freight-wagon-aggregate.png',
+    ballast:'/static/assets/train-profiles/freight-wagon-aggregate.png',
+    metals:'/static/assets/train-profiles/freight-wagon-steel.png',
+    cars:'/static/assets/train-profiles/freight-wagon-automotive.png',
+  };
+  function freightVehicleHtml(kind,index,theme,electric,isLoco=false,exactClass=null){
+    const image=isLoco&&exactClass==='66'&&theme.key==='db-cargo'
+      ?'/static/assets/train-profiles/freight-class-66-db-cargo.png'
+      :FREIGHT_PROFILE_IMAGES[kind];
+    const visual=image?`<img class="freight-profile-asset" src="${image}" alt="" loading="lazy" decoding="async">`
+      :isLoco?locoSvg(theme,electric):wagonSvg(kind,index);
+    return `<div class="coach"><small></small>${visual}<div class="coach-marks"></div></div>`;
+  }
+  function freightProfileHtml(freight, operator, vehicleRef) {
     if(!freight)return '';
     const theme=trainLiveryTheme(null, operator);
     const code=String(freight.category||'').toUpperCase();
@@ -4497,8 +4529,9 @@
     const kind=FREIGHT_WAGONS[code];
     // Light engines run alone; a locomotive and brake van is just that.
     const wagons=code==='ZZ'?[]:code==='ZB'?['brake']:Array.from({length:5},()=>kind||'van');
-    const vehicles=[...wagons.map((w,i)=>wagonSvg(w,i)).reverse(),locoSvg(theme,electric)];
-    const cells=vehicles.map(svg=>`<div class="coach"><small></small>${svg}<div class="coach-marks"></div></div>`).join('');
+    const exactClass=(String(vehicleRef||'').match(/(?:CLASS\s*)?(66)\d{3}\b/i)||[])[1]||null;
+    const vehicles=[...wagons.map((w,i)=>({kind:w,index:i})).reverse(),{loco:true}];
+    const cells=vehicles.map(item=>freightVehicleHtml(item.kind,item.index,theme,electric,item.loco,exactClass)).join('');
     const title=code==='ZZ'?'Light locomotive':code==='ZB'?'Locomotive and brake van':`${freight.cargo||'Freight'} train`;
     return `<section class="train-formation is-freight" aria-label="${esc(title)}"><header><strong>${esc(title)}</strong></header><div class="formation-row" style="--coaches:${vehicles.length}">${cells}</div><p>Illustration: ${wagons.length?'wagons drawn for what this train is timetabled to carry':'drawn from its timetable'}, not this exact train.</p></section>`;
   }
@@ -4514,7 +4547,7 @@
     const coaches=known?[...formation.coaches].reverse():Array.from({length:count},()=>({}));
     const title=[formation.class?`Class ${formation.class}`:null,formation.name].filter(Boolean).join(' ')||(formation.traction==='diesel'?'Diesel train':formation.traction==='electric'?'Electric train':'Passenger train');
     const length=known?`${count} coach${count===1?'':'es'}`:!usual.length?'':usual.length>1?`usually ${usual.slice(0,-1).join(', ')} or ${usual[usual.length-1]} coaches`:`usually ${usual[0]} coach${usual[0]===1?'':'es'}`;
-    const profileImage=TRAIN_PROFILE_IMAGES[String(formation.class||'')];
+    const profileImage=trainProfileImage(formation,operator);
     if(profileImage){
       const coachData=known?coaches.map(coach=>{
         const facilities=[coach.first?'<b class="coach-first">First class</b>':'<span>Standard</span>',
@@ -4563,7 +4596,8 @@
     ].filter(Boolean):[];
     const repay=delayRepayHtml(runs[0]);
     const freightCard=freight?`<section class="freight-card" aria-label="What this train is carrying"><b class="freight-cargo">${esc(freight.cargo)}</b>${freightFacts.length?`<dl>${freightFacts.map(([value,label])=>`<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`:''}</section>`:'';
-    const formation=freight?freightProfileHtml(freight, runs[0]?.operator):trainFormationHtml(detail?.formation, runs[0]?.operator);
+    const freightVehicle=runs[0]?.vehicle_ref||detail?.vehicle_ref||detail?.rolling_stock?.number||null;
+    const formation=freight?freightProfileHtml(freight, runs[0]?.operator,freightVehicle):trainFormationHtml(detail?.formation, runs[0]?.operator);
     return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}>${formation}${liveState}${repay}${freightCard}${cards || `<div class="transport-unavailable"><strong>Stops not published</strong><span>${esc(message)}</span></div>`}${stockCard}${terms?`<p class="transport-source"><a target="_blank" rel="noopener" href="${esc(terms)}">Data terms ↗</a></p>`:''}</div>`;
   }
 

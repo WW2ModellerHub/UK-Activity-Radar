@@ -1520,6 +1520,8 @@ strong[data-plus].needs-plus::after,
 .train-formation.is-freight .formation-row .coach > small, .train-formation.is-freight .coach-marks,
 .train-formation.is-plain .formation-row .coach > small, .train-formation.is-plain .coach-marks { display: none; }
 .train-formation.is-freight .coach-svg { height: 32px; }
+.train-formation.is-freight .freight-profile-asset { display: block; width: 100%; height: 42px; object-fit: contain; object-position: center bottom; }
+.train-formation.is-freight:has(.freight-profile-asset) .formation-row .coach { grid-template-rows: 42px; }
 .train-formation.profile-class-390 .formation-row { gap: 0; }
 .train-formation.profile-class-390 .coach-svg { height: 36px; }
 .train-formation.profile-class-390 .formation-row .coach { grid-template-rows: 36px; }
