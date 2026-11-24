@@ -816,6 +816,10 @@ def runtime_report(detail: bool = False) -> dict:
         report["memory"] = _memory_breakdown()
         if _runtime.get("estimate_errors"):
             report["estimate_errors"] = {"count": _runtime["estimate_errors"], "last": _runtime.get("estimate_error")}
+        if getattr(state, "estimate_errors", 0):
+            report["stream_estimate_errors"] = {"count": state.estimate_errors, "last": state.estimate_error}
+        if _runtime.get("stream_errors"):
+            report["stream_errors"] = {"count": _runtime["stream_errors"], "last": _runtime.get("stream_error")}
     return report
 
 
@@ -3167,6 +3171,15 @@ def _train_position_now(vehicle, now: datetime) -> tuple[float, float] | None:
         return None
 
 
+def _note_stream_error(error: Exception, row=None) -> None:
+    """Count a live-stream failure for /api/health/runtime?detail=true."""
+    import traceback
+    _runtime["stream_errors"] = _runtime.get("stream_errors", 0) + 1
+    frame = traceback.extract_tb(error.__traceback__)[-1] if error.__traceback__ else None
+    where = f" at {frame.filename.rsplit('/', 1)[-1]}:{frame.lineno}" if frame else ""
+    _runtime["stream_error"] = f"{type(error).__name__}: {error}{where} ({getattr(row, 'id', '-')})"[:400]
+
+
 def _live_trains() -> list:
     return [row for row in state.all(include_buses=False, include_vessels=False, train_limit=None) if row.type == "train"]
 
@@ -3795,7 +3808,7 @@ async def websocket_updates(websocket: WebSocket):
             lon_pad = max(0.01, abs(east - west) * 0.2)
             lat_pad = max(0.01, abs(north - south) * 0.2)
             train_bbox = (west - lon_pad, south - lat_pad, east + lon_pad, north + lat_pad)
-            streamed_vehicles = state.all(
+            selection = dict(
                 bbox=viewport["bbox"],
                 train_bbox=train_bbox,
                 include_trains=include_trains,
@@ -3807,6 +3820,11 @@ async def websocket_updates(websocket: WebSocket):
                 vessel_limit=vessel_limit,
                 train_priority_ids=streamed_train_ids | ({watched_id} if watched_id else set()),
             )
+            try:
+                streamed_vehicles = state.all(**selection)
+            except Exception as error:  # noqa: BLE001 - reported; keep the other layers
+                _note_stream_error(error)
+                streamed_vehicles = state.all(**{**selection, "include_trains": False})
             if not all_types:
                 streamed_vehicles = [row for row in streamed_vehicles if row.type in visible_types]
             dense_event_types: set[str] = set()
@@ -3855,7 +3873,14 @@ async def websocket_updates(websocket: WebSocket):
                 continue
             summary_payload = state.summary()
             live_counts = state.type_counts({"train": 45, "bus": 5, "vessel": 10, "sar": 10})
-            activity_rows = [x.model_dump(mode="json", exclude_none=True) for x in streamed]
+            activity_rows = []
+            for row in streamed:
+                # One record that cannot be serialised is left out, never
+                # the whole stream: a failure here used to drop the socket.
+                try:
+                    activity_rows.append(row.model_dump(mode="json", exclude_none=True))
+                except Exception as error:  # noqa: BLE001 - reported, never raised
+                    _note_stream_error(error, row)
             activity_payload = {str(row["id"]): row for row in activity_rows}
             force_full_snapshot = current_viewport_revision != last_viewport_revision or last_viewport_revision < 0
             if force_full_snapshot:
@@ -3911,6 +3936,9 @@ async def websocket_updates(websocket: WebSocket):
             await wait_for_refresh()
     except (WebSocketDisconnect, asyncio.CancelledError):
         return
+    except Exception as error:  # noqa: BLE001 - recorded for the health page, then the socket closes
+        _note_stream_error(error)
+        raise
     finally:
         await set_watching(None)
         receiver.cancel()

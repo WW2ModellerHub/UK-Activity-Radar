@@ -1,5 +1,13 @@
 # Codex stabilization changelog
 
+## 2026-11-24 — the live stream survives a bad train record
+
+- One train whose estimate cannot be worked out, or a record that cannot be
+  serialised, used to drop the whole websocket (the trains outage after
+  PR #107). It is now left out, counted, and shown with its id at
+  /api/health/runtime?detail=true (stream_estimate_errors, stream_errors);
+  if choosing trains fails, the stream carries on with the other layers.
+
 ## 2026-11-24 — reverted: "trains keep moving along the track between reports"
 
 - After it went live, asking the live stream for trains dropped the

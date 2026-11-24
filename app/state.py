@@ -210,6 +210,10 @@ class LiveState:
         # Cancellations and actual platforms by timetable identity.
         self.rail_notes = RailServiceNotes()
         self.platform_history = None  # set at startup; see platform_history.py
+        # One malformed train estimate must not fail a whole stream; counted
+        # here and shown at /api/health/runtime?detail=true.
+        self.estimate_errors = 0
+        self.estimate_error: str | None = None
         self._revision = 0
 
     @property
@@ -456,7 +460,12 @@ class LiveState:
                     # Only walk the estimate path when the confirmed point is
                     # off-screen; doing it for every train on every call was
                     # a fifth of this function's cost.
-                    visible_position = _estimated_train_position(stored, now) if stored.type == "train" else None
+                    try:
+                        visible_position = _estimated_train_position(stored, now) if stored.type == "train" else None
+                    except Exception as error:  # noqa: BLE001 - counted, never raised
+                        self.estimate_errors += 1
+                        self.estimate_error = f"{type(error).__name__}: {error} ({stored.id})"[:300]
+                        visible_position = None
                     if not (visible_position and _inside(visible_position[0], visible_position[1], effective_bbox)):
                         continue
 
