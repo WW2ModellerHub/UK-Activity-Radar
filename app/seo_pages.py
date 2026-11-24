@@ -231,6 +231,20 @@ def engineering_html(name: str, days: list[dict], stops: list[dict] | None = Non
             + replacement_stops_html(name, stops or []))
 
 
+def station_knowledge_html(name: str, knowledge) -> str:
+    """Facilities from the National Rail Knowledgebase: what a traveller asks before going."""
+    from .station_knowledge import facts, replacement_bus_note
+    station = knowledge.get("station") if isinstance(knowledge, dict) and "station" in knowledge else knowledge
+    rows = facts(station)
+    if not rows:
+        return ""
+    items = "".join(f"<div><dt>{escape(label)}</dt><dd>{escape(value)}</dd></div>" for label, value in rows)
+    bus = replacement_bus_note(station)
+    bus_html = f'<p><strong>Replacement buses:</strong> {escape(bus)}</p>' if bus else ""
+    return (f'<section class="station-knowledge"><h2>At {escape(name)} station</h2><dl class="station-kb">{items}</dl>{bus_html}'
+            '<p class="source">Station information from the National Rail Knowledgebase (Rail Data Marketplace).</p></section>')
+
+
 def station_facts_html(crs: str, name: str, facts: dict, paths: dict[str, str]) -> tuple[str, str]:
     """Quick facts as chips, then where the station's trains go direct today.
 
@@ -252,6 +266,7 @@ def station_facts_html(crs: str, name: str, facts: dict, paths: dict[str, str]) 
     if facts.get("bus_stops"):
         chips.append(f"{facts['bus_stops']} bus stop{'s' if facts['bus_stops'] != 1 else ''} within 400 m")
     works = engineering_html(name, facts.get("engineering") or [], facts.get("replacement_stops") or [])
+    works = station_knowledge_html(name, facts.get("knowledge")) + works
     if not chips:
         return works, ""
     chip_html = "".join(f"<li>{escape(chip)}</li>" for chip in chips)

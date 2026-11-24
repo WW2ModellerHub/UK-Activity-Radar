@@ -1568,6 +1568,13 @@ def station_page_route(name: str, request: Request):
         except Exception:
             pass
         facts["replacement_stops"] = rail_replacement.at(crs)
+        # National Rail Knowledgebase (Rail Data Marketplace): step-free access,
+        # staffing, ticket office, toilets... cached an hour; optional.
+        if rdm.status().get("stations"):
+            try:
+                facts["knowledge"] = rdm.station(crs)
+            except Exception:
+                pass
         # Each direct destination links to its route page ("Hinckley to Leicester trains").
         from .route_pages import route_path
         paths = {row["crs"]: route_path(station, row) for row in _stations() if row["crs"] != crs}
@@ -2731,7 +2738,7 @@ def rail_data_station(crs: str, request: Request):
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except requests.RequestException as exc:
-        raise HTTPException(status_code=503, detail="Rail Data Marketplace is temporarily unavailable") from exc
+        raise HTTPException(status_code=503, detail=_rdm_unavailable(exc)) from exc
 
 
 @app.get("/api/rail-data/stations/{crs}/disruptions")
@@ -2744,7 +2751,16 @@ def rail_data_station_disruptions(crs: str, request: Request):
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except requests.RequestException as exc:
-        raise HTTPException(status_code=503, detail="Rail Data Marketplace is temporarily unavailable") from exc
+        raise HTTPException(status_code=503, detail=_rdm_unavailable(exc)) from exc
+
+
+def _rdm_unavailable(exc: Exception) -> str:
+    """Say why the Marketplace refused (its HTTP status and path), never the key."""
+    response = getattr(exc, "response", None)
+    if response is not None:
+        path = str(getattr(getattr(response, "request", None), "path_url", "") or "").split("?")[0]
+        return f"Rail Data Marketplace answered {response.status_code} for {path}"
+    return f"Rail Data Marketplace is temporarily unavailable ({type(exc).__name__})"
 
 
 def _rdm_error(exc: Exception) -> HTTPException:
@@ -2752,7 +2768,7 @@ def _rdm_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=400, detail=str(exc))
     if isinstance(exc, RuntimeError):
         return HTTPException(status_code=503, detail=str(exc))
-    return HTTPException(status_code=503, detail="Rail Data Marketplace is temporarily unavailable")
+    return HTTPException(status_code=503, detail=_rdm_unavailable(exc))
 
 
 @app.get("/api/rail-data/services/rid/{rid}")
