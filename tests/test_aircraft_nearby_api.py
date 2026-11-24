@@ -133,3 +133,25 @@ def test_one_broken_train_estimate_does_not_break_the_live_stream():
                     train_limit=100, include_buses=False, include_vessels=False)
     assert [row.id for row in rows] == ["tr:good"]
     assert live.estimate_errors == 1 and "tr:bad" in live.estimate_error
+
+
+def test_a_bus_with_no_route_line_yet_is_asked_about_again_soon(monkeypatch):
+    from types import SimpleNamespace
+    answers = [{"mode": "timetable_sync", "shape": []}, {"shape": [[52.0, -1.0], [52.01, -1.0]]}]
+
+    class Timetables:
+        def journey_for_vehicle(self, vehicle, limit=3):
+            return answers.pop(0)
+
+    monkeypatch.setattr(main, "smart_places", SimpleNamespace(bus_timetables=Timetables()))
+    main._bus_shape_cache.clear()
+    live = LiveState()
+    live.upsert(Vehicle(id="bus:Y:1", type="bus", name="Bus 9", lat=52.0, lon=-1.0, route="9",
+                        destination="Town", last_updated=datetime.now(timezone.utc)))
+    monkeypatch.setattr(main, "state", live)
+    clock = [1000.0]
+    monkeypatch.setattr(main.time, "monotonic", lambda: clock[0])
+    client = TestClient(main.app)
+    assert client.get("/api/buses/shapes?ids=bus:Y:1").json()["shapes"] == {}     # timetable still indexing
+    clock[0] += 61
+    assert len(client.get("/api/buses/shapes?ids=bus:Y:1").json()["shapes"]["bus:Y:1"]) == 2

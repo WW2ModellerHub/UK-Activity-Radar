@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## 2026-11-24 — bus route lines: retry soon while a timetable is indexing
+
+- Live, after the morning restarts the West Midlands bus timetable was
+  still indexing, so buses had no route line yet; the endpoint cached that
+  "no line" for 15 minutes. Empty results are now retried after a minute.
+
 ## 2026-11-24 — hotfix: trains placed at a junction with no coordinates
 
 - The protected stream named the cause of the #107 outage: "'<=' not
