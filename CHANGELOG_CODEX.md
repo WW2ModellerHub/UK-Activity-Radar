@@ -1,5 +1,21 @@
 # Codex stabilization changelog
 
+## 2026-11-24 — trains keep moving along the track between reports
+
+- Measured on the live map around Birmingham: trains stood still 98-100% of
+  the time, then rushed to catch up; 60 of 112 had no timetable leg at all.
+  Cause: legs were built only from public times, so a train reported at a
+  junction or passing point (working time only, and every freight train)
+  got none, and the TD step also wiped the leg it had, parking it at the
+  junction until the next station report.
+- Now, as Signalbox-style maps do (a model of the network and timetable,
+  corrected by each signalling report): working times are used where there
+  is no public time; a berth step the timetable cannot start from keeps a
+  still-running leg if it is within 5 km of it; and a matched train with
+  no leg, reported in the last 30 minutes, is placed on the leg its
+  timetable and current lateness put it on (if within 30 km of its last
+  report), at most 25 look-ups a second.
+
 ## 2026-11-23 — smoother trains, buses and aircraft
 
 - Moving markers were re-placed once a second and slid there with a
