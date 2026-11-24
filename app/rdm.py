@@ -36,7 +36,7 @@ class RailDataMarketplace:
     }
     PATHS = {
         "stations": (r"/stations", r"/stations/[A-Z0-9]{3}", r"/stations/tocs/[A-Z0-9]{2,4}"),
-        "query": (r"/QueryServices/[^/]+/\d{4}-\d{2}-\d{2}", r"/GetServiceDetailsByRID/[^/]+"),
+        "query": (r"/QueryServices/[A-Z0-9]+/(?:\d{8}|\d{4}-\d{2}-\d{2})", r"/GetServiceDetailsByRID/[A-Za-z0-9_-]+"),
         "hsp": (r"/serviceDetails", r"/serviceMetrics"),
         "disruptions": (
             r"/stations/disruptions/incidents", r"/stations/disruptions/stationMessages",
@@ -118,6 +118,73 @@ class RailDataMarketplace:
         with self._lock:
             self._cache[key] = (now, copy.deepcopy(payload))
         return payload
+
+    def post(
+        self, product: str, path: str, payload: Mapping[str, Any], *,
+        ttl: int = 60, stale_ttl: int = 900,
+    ) -> Any:
+        """POST to one allow-listed product operation without exposing its key."""
+        definition = self.products.get(product)
+        if definition is None or not self._path_allowed(product, path):
+            raise ValueError("Unsupported Rail Data Marketplace operation")
+        if not definition.api_key:
+            raise RuntimeError(f"Rail Data Marketplace {product} subscription is not configured")
+        body = copy.deepcopy(dict(payload or {}))
+        key = self._cache_key(product, path, {"body": repr(sorted(body.items()))})
+        now = time.monotonic()
+        with self._lock:
+            cached = self._cache.get(key)
+            if cached and now - cached[0] <= ttl:
+                return copy.deepcopy(cached[1])
+        try:
+            response = self.session.post(
+                definition.base_url + path, json=body,
+                headers={"x-apikey": definition.api_key, "Accept": "application/json"},
+                timeout=(min(4.0, self.timeout), self.timeout),
+            )
+            response.raise_for_status()
+            result = response.json()
+        except (requests.RequestException, ValueError):
+            with self._lock:
+                cached = self._cache.get(key)
+                if cached and now - cached[0] <= stale_ttl:
+                    return copy.deepcopy(cached[1])
+            raise
+        with self._lock:
+            self._cache[key] = (now, copy.deepcopy(result))
+        return result
+
+    def query_services(self, service_id: str, service_date: str) -> Any:
+        identifier = str(service_id or "").strip().upper()
+        day = str(service_date or "").strip()
+        if not re.fullmatch(r"[A-Z0-9]+", identifier) or not re.fullmatch(r"(?:\d{8}|\d{4}-\d{2}-\d{2})", day):
+            raise ValueError("Invalid service identifier or date")
+        return self.get("query", f"/QueryServices/{identifier}/{day}", ttl=60, stale_ttl=600)
+
+    def service_by_rid(self, rid: str) -> Any:
+        identifier = str(rid or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", identifier):
+            raise ValueError("Invalid RID")
+        return self.get("query", f"/GetServiceDetailsByRID/{identifier}", ttl=60, stale_ttl=600)
+
+    def historical_service(self, payload: Mapping[str, Any], *, metrics: bool = False) -> Any:
+        if not isinstance(payload, Mapping) or not payload or len(payload) > 30:
+            raise ValueError("Historical service request must be a non-empty object")
+        return self.post("hsp", "/serviceMetrics" if metrics else "/serviceDetails", payload,
+                         ttl=300, stale_ttl=3600)
+
+    def performance_reference(self, dataset: str) -> Any:
+        paths = {
+            "rag": "/referenceData/rag",
+            "stanox": "/referenceData/stanox",
+            "operators": "/referenceData/operator",
+            "stanox-groups": "/referenceData/stanoxGroup",
+            "routes": "/referenceData/route",
+        }
+        path = paths.get(str(dataset or "").strip().lower())
+        if not path:
+            raise ValueError("Unknown performance reference dataset")
+        return self.get("performance_reference", path, ttl=86400, stale_ttl=604800)
 
     def station(self, crs: str) -> Any:
         code = str(crs or "").strip().upper()

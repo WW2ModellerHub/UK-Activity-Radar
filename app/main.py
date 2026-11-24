@@ -159,6 +159,7 @@ td_collector: TDCollector | None = None
 vstp_collector: VSTPCollector | None = None
 rail_feed_hub: MultiplexStompFeed | None = None
 darwin_collector = None
+allocation_collector = None
 bods_collector: BODSCollector | None = None
 bods_sx_collector: BODSSXCollector | None = None
 roads_collector: NationalHighwaysCollector | None = None
@@ -839,6 +840,8 @@ def runtime_report(detail: bool = False) -> dict:
             report["td_kafka"] = td_collector.kafka.report()
         if darwin_collector is not None:
             report["darwin_kafka"] = darwin_collector.report()
+        if allocation_collector is not None:
+            report["allocation_kafka"] = allocation_collector.report()
         if _runtime.get("rail_replacement_error"):
             report["rail_replacement_error"] = _runtime["rail_replacement_error"]
         if _runtime.get("stream_errors"):
@@ -876,7 +879,7 @@ async def _runtime_monitor_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global trust_collector, td_collector, vstp_collector, rail_feed_hub, darwin_collector, bods_collector, bods_sx_collector, roads_collector, vms_collector, speed_collector, features_collector, floods_collector, ais_collector, rnli_collector, adsb_sar_collector, london_fire_collector, met_office_collector, traffic_flow_service, world_collectors, smart_places, street_manager_store, billing_store, billing_service, commute_alert_store
+    global trust_collector, td_collector, vstp_collector, rail_feed_hub, darwin_collector, allocation_collector, bods_collector, bods_sx_collector, roads_collector, vms_collector, speed_collector, features_collector, floods_collector, ais_collector, rnli_collector, adsb_sar_collector, london_fire_collector, met_office_collector, traffic_flow_service, world_collectors, smart_places, street_manager_store, billing_store, billing_service, commute_alert_store
     tasks: list[asyncio.Task] = []
     tasks.append(asyncio.create_task(_state_maintenance_loop()))
     tasks.append(asyncio.create_task(_runtime_monitor_loop()))
@@ -952,6 +955,14 @@ async def lifespan(app: FastAPI):
 
         rail_feed_hub = MultiplexStompFeed(settings, rail_feeds)
         rail_feed_hub.start()
+        if settings.raildata_trust_kafka_ready:
+            from .collectors.trust_kafka import TrustKafkaFeed
+            trust_collector.kafka = TrustKafkaFeed(settings, state, trust_collector, hub=rail_feed_hub)
+            trust_collector.kafka.start()
+        if settings.raildata_allocation_kafka_ready:
+            from .collectors.allocation_kafka import AllocationKafkaFeed
+            allocation_collector = AllocationKafkaFeed(settings, state)
+            allocation_collector.start()
         if td_collector is not None and settings.raildata_td_kafka_ready:
             from .collectors.td_kafka import TDKafkaFeed
             td_collector.kafka = TDKafkaFeed(settings, state, td_collector, hub=rail_feed_hub)
@@ -1133,7 +1144,12 @@ async def lifespan(app: FastAPI):
     if darwin_collector is not None:
         darwin_collector.stop()
         darwin_collector = None
+    if allocation_collector is not None:
+        allocation_collector.stop()
+        allocation_collector = None
     if rail_feed_hub:
+        if trust_collector is not None and trust_collector.kafka is not None:
+            trust_collector.kafka.stop()
         if td_collector is not None and td_collector.kafka is not None:
             td_collector.kafka.stop()
         rail_feed_hub.stop()
@@ -2729,6 +2745,61 @@ def rail_data_station_disruptions(crs: str, request: Request):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except requests.RequestException as exc:
         raise HTTPException(status_code=503, detail="Rail Data Marketplace is temporarily unavailable") from exc
+
+
+def _rdm_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, RuntimeError):
+        return HTTPException(status_code=503, detail=str(exc))
+    return HTTPException(status_code=503, detail="Rail Data Marketplace is temporarily unavailable")
+
+
+@app.get("/api/rail-data/services/rid/{rid}")
+def rail_data_service_by_rid(rid: str, request: Request):
+    _enforce_public_budget(request, lookup_request_budget)
+    try:
+        return {"service": rdm.service_by_rid(rid)}
+    except (ValueError, RuntimeError, requests.RequestException) as exc:
+        raise _rdm_error(exc) from exc
+
+
+@app.get("/api/rail-data/services/{service_id}/{service_date}")
+def rail_data_services(service_id: str, service_date: str, request: Request):
+    _enforce_public_budget(request, lookup_request_budget)
+    try:
+        return {"services": rdm.query_services(service_id, service_date)}
+    except (ValueError, RuntimeError, requests.RequestException) as exc:
+        raise _rdm_error(exc) from exc
+
+
+@app.post("/api/rail-data/history/service-details")
+async def rail_data_historical_service_details(request: Request):
+    _enforce_public_budget(request, lookup_request_budget)
+    try:
+        payload = await request.json()
+        return {"history": rdm.historical_service(payload)}
+    except (ValueError, RuntimeError, requests.RequestException) as exc:
+        raise _rdm_error(exc) from exc
+
+
+@app.post("/api/rail-data/history/service-metrics")
+async def rail_data_historical_service_metrics(request: Request):
+    _enforce_public_budget(request, lookup_request_budget)
+    try:
+        payload = await request.json()
+        return {"metrics": rdm.historical_service(payload, metrics=True)}
+    except (ValueError, RuntimeError, requests.RequestException) as exc:
+        raise _rdm_error(exc) from exc
+
+
+@app.get("/api/rail-data/performance/reference/{dataset}")
+def rail_data_performance_reference(dataset: str, request: Request):
+    _enforce_public_budget(request, lookup_request_budget)
+    try:
+        return {"reference": rdm.performance_reference(dataset)}
+    except (ValueError, RuntimeError, requests.RequestException) as exc:
+        raise _rdm_error(exc) from exc
 
 
 @app.get("/api/journeys/status")

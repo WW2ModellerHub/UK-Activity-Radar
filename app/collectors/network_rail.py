@@ -51,6 +51,11 @@ class TrustCollector(StompFeed):
         self._canonical_ids: dict[str, str] = {}
         self._pending_movements: deque[dict] = deque(maxlen=5000)
         self._pending_lock = RLock()
+        self.kafka = None
+
+    def stomp_superseded(self) -> bool:
+        """Ignore the duplicate STOMP copy only while RDM Kafka is live."""
+        return bool(self.kafka is not None and self.kafka.live)
 
     def _load_stations(self) -> dict[str, dict]:
         if not self.station_file.exists():
@@ -519,7 +524,12 @@ class TrustCollector(StompFeed):
             if canonical_id in self.activations:
                 self.activations[canonical_id]["headcode"] = _headcode_from_train_id(revised) or self.activations[canonical_id].get("headcode")
 
-    def handle_message(self, payload: str) -> None:
+    def handle_message(self, payload) -> None:
+        via = "Network Rail"
+        if isinstance(payload, tuple):
+            via, payload = "Rail Data Marketplace", payload[1]
+        elif self.stomp_superseded():
+            return
         try:
             messages = json.loads(payload)
             if isinstance(messages, dict):
@@ -555,7 +565,7 @@ class TrustCollector(StompFeed):
         status.connected = True
         status.mode = "live"
         status.message = (
-            f"TRUST live • {status.messages_seen:,} messages • {status.movements_mapped:,} mapped • "
+            f"TRUST live via {via} • {status.messages_seen:,} messages • {status.movements_mapped:,} mapped • "
             f"{status.movements_unmapped:,} unmapped • {len(self.stations):,} mapped STANOX"
         )
         self.state.set_source(status)

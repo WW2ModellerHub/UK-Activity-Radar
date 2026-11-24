@@ -34,6 +34,13 @@ class Session:
             raise reply
         return reply
 
+    def post(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
 
 def settings(**keys):
     values = {f"rdm_{name}_api_key": "" for name in RailDataMarketplace.BASES if name != "rail_replacement"}
@@ -107,3 +114,21 @@ def test_station_disruptions_are_combined_and_filtered_by_crs():
     assert [call[1]["params"] for call in session.calls] == [
         {"stationCode": "LEI"}, {"stationCode": "LEI"},
     ]
+
+
+def test_query_historical_and_reference_products_use_their_own_keys():
+    query_session = Session([Response({"services": [1]}), Response({"rid": "ok"})])
+    query = RailDataMarketplace(settings(rdm_query_api_key="query-key"), session=query_session)
+    assert query.query_services("p04025", "20250601") == {"services": [1]}
+    assert query.service_by_rid("20250601-P04025") == {"rid": "ok"}
+    assert all(call[1]["headers"]["x-apikey"] == "query-key" for call in query_session.calls)
+
+    hsp_session = Session([Response({"history": []})])
+    hsp = RailDataMarketplace(settings(rdm_hsp_api_key="hsp-key"), session=hsp_session)
+    assert hsp.historical_service({"serviceId": "P04025"}) == {"history": []}
+    assert hsp_session.calls[0][1]["json"] == {"serviceId": "P04025"}
+
+    ref_session = Session([Response([{"code": "WC"}])])
+    ref = RailDataMarketplace(settings(rdm_performance_reference_api_key="ref-key"), session=ref_session)
+    assert ref.performance_reference("routes") == [{"code": "WC"}]
+    assert ref_session.calls[0][0].endswith("/referenceData/route")

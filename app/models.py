@@ -36,6 +36,10 @@ class Vehicle(BaseModel):
     booked_speed: str | None = None
     operating_characteristics: str | None = None
     vehicle_ref: str | None = None
+    # Exact unit/vehicle identifiers supplied by the passenger allocation and
+    # consist feed. The first item is also exposed as ``vehicle_ref`` for the
+    # established rolling-stock reference lookup.
+    formation: list[str] | None = None
     journey_ref: str | None = None
     aircraft_type_code: str | None = None
     aircraft_model: str | None = None

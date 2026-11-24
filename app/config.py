@@ -84,6 +84,19 @@ class Settings:
     raildata_td_kafka_group: str = os.getenv("RAILDATA_TD_KAFKA_GROUP", "").strip()
     raildata_td_kafka_username: str = os.getenv("RAILDATA_TD_KAFKA_USERNAME", "").strip()
     raildata_td_kafka_password: str = os.getenv("RAILDATA_TD_KAFKA_PASSWORD", "").strip()
+    # TRUST train activations, movements and cancellations over the RDM Kafka
+    # product. It feeds the same position engine as Network Rail STOMP and
+    # takes over only while records are arriving.
+    raildata_trust_kafka_bootstrap: str = os.getenv("RAILDATA_TRUST_KAFKA_BOOTSTRAP", "pkc-z3p1v0.europe-west2.gcp.confluent.cloud:9092").strip()
+    raildata_trust_kafka_topic: str = os.getenv("RAILDATA_TRUST_KAFKA_TOPIC", "TRAIN_MVT_ALL_TOC").strip()
+    raildata_trust_kafka_group: str = os.getenv("RAILDATA_TRUST_KAFKA_GROUP", "").strip()
+    raildata_trust_kafka_username: str = os.getenv("RAILDATA_TRUST_KAFKA_USERNAME", "").strip()
+    raildata_trust_kafka_password: str = os.getenv("RAILDATA_TRUST_KAFKA_PASSWORD", "").strip()
+    raildata_allocation_kafka_bootstrap: str = os.getenv("RAILDATA_ALLOCATION_KAFKA_BOOTSTRAP", "pkc-z3p1v0.europe-west2.gcp.confluent.cloud:9092").strip()
+    raildata_allocation_kafka_topic: str = os.getenv("RAILDATA_ALLOCATION_KAFKA_TOPIC", "prod-1033-Passenger-Train-Allocation-and-Consist-1_0").strip()
+    raildata_allocation_kafka_group: str = os.getenv("RAILDATA_ALLOCATION_KAFKA_GROUP", "").strip()
+    raildata_allocation_kafka_username: str = os.getenv("RAILDATA_ALLOCATION_KAFKA_USERNAME", "").strip()
+    raildata_allocation_kafka_password: str = os.getenv("RAILDATA_ALLOCATION_KAFKA_PASSWORD", "").strip()
     # Darwin real-time service forecasts from Rail Data Marketplace. These
     # credentials belong to the Darwin subscription and are deliberately not
     # shared with the separate Train Describer product.
@@ -443,6 +456,22 @@ class Settings:
     def raildata_td_kafka_ready(self) -> bool:
         return bool(self.raildata_td_kafka_bootstrap and self.raildata_td_kafka_topic and self.raildata_td_kafka_group
                     and self.raildata_td_kafka_username and self.raildata_td_kafka_password)
+
+    @property
+    def raildata_trust_kafka_ready(self) -> bool:
+        return bool(
+            self.raildata_trust_kafka_bootstrap and self.raildata_trust_kafka_topic
+            and self.raildata_trust_kafka_group and self.raildata_trust_kafka_username
+            and self.raildata_trust_kafka_password
+        )
+
+    @property
+    def raildata_allocation_kafka_ready(self) -> bool:
+        return bool(
+            self.raildata_allocation_kafka_bootstrap and self.raildata_allocation_kafka_topic
+            and self.raildata_allocation_kafka_group and self.raildata_allocation_kafka_username
+            and self.raildata_allocation_kafka_password
+        )
 
     @property
     def raildata_darwin_kafka_ready(self) -> bool:

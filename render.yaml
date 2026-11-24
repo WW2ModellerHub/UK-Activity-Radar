@@ -175,6 +175,18 @@ services:
         sync: false
       - key: RAILDATA_TD_KAFKA_PASSWORD
         sync: false
+      - key: RAILDATA_TRUST_KAFKA_GROUP
+        sync: false
+      - key: RAILDATA_TRUST_KAFKA_USERNAME
+        sync: false
+      - key: RAILDATA_TRUST_KAFKA_PASSWORD
+        sync: false
+      - key: RAILDATA_ALLOCATION_KAFKA_GROUP
+        sync: false
+      - key: RAILDATA_ALLOCATION_KAFKA_USERNAME
+        sync: false
+      - key: RAILDATA_ALLOCATION_KAFKA_PASSWORD
+        sync: false
       - key: RAILDATA_DARWIN_KAFKA_GROUP
         sync: false
       - key: RAILDATA_DARWIN_KAFKA_USERNAME
