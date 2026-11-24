@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## Station facilities from the National Rail Knowledgebase
+
+- `app/station_knowledge.py` turns the Knowledgebase station feed (Rail Data Marketplace) into plain facts: step-free access, staffing, today's ticket office hours, ticket machines, toilets, lifts, wheelchairs, ramp, car park and cycle spaces, taxis, Wi-Fi, food, waiting room, help line, and where replacement buses leave from.
+- Station pages show them as "At <station> station" (cached an hour by the RDM client).
+- RDM errors now say what the Marketplace answered (status and path, never the key) instead of "temporarily unavailable".
+
 ## Generated train profiles built coach by coach, with each coach's data under it
 
 - `scripts/build_train_profiles.py` cuts each generated profile at its gangways (found as dips in bright bodyside) into one WebP per coach, and shrinks the freight images: 396 KB served instead of ~14 MB of PNG. The source PNGs move to `art/train-profiles/` (not served).

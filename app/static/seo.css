@@ -49,3 +49,7 @@ footer p{margin:.6rem 0 0;font-size:.8rem}
 .engineering{margin:16px 0;padding:12px 16px;border-radius:12px;background:#fff8e1;border:1px solid #f1d27a}.engineering h2{margin-top:0;font-size:1.1rem}.engineering ul{margin:0;padding-left:18px}
 .brand img{width:32px;height:32px;border-radius:8px;flex:none}
 .fleet-find{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}.fleet-find label{flex-basis:100%;font-weight:600}.fleet-find input{flex:1;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font:inherit}.fleet-find button{padding:10px 16px;border:0;border-radius:10px;background:var(--accent);color:#fff;font:inherit;font-weight:600}
+.station-kb{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin:12px 0}
+.station-kb div{border:1px solid #dde3e8;border-radius:8px;padding:8px 10px}
+.station-kb dt{font-size:12px;color:#5b6670;margin:0}
+.station-kb dd{margin:2px 0 0;font-weight:600;font-size:14px}
