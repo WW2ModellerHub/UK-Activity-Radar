@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## National Rail's own status on the line status board
+
+- `rdm.service_indicators()` (one call, every operator, cached 2 min) feeds `line_status.official_status`: National Rail's wording per operator and its current incidents, taken from the dated incident links (stale links over 21 days old dropped; https only). Per-incident lookups were not used: rapid calls are refused (403).
+- `with_official`: an officially disrupted operator is never shown as "Good service", and is listed even with no live trains reporting.
+- The board shows the official line and incident links under each operator.
+
 ## Official disruption messages on station pages and boards
 
 - The Disruptions Experience API takes `crsCode` (the client sent `stationCode`, answered 400); station messages are now optional so a refusal cannot hide incidents.

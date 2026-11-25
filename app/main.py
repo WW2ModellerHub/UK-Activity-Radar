@@ -1436,8 +1436,14 @@ def _operator_rows() -> list[dict]:
     global _operator_status_cache
     computed_at, rows = _operator_status_cache
     if time.monotonic() - computed_at > 30:
-        from .line_status import operator_status
+        from .line_status import official_status, operator_status, with_official
         rows = operator_status(_live_trains())
+        # National Rail's own status per operator (Disruptions API), when connected.
+        if rdm.status().get("disruptions"):
+            try:
+                rows = with_official(rows, official_status(rdm.service_indicators()))
+            except Exception:
+                pass
         _operator_status_cache = (time.monotonic(), rows)
     return rows
 
@@ -3412,8 +3418,14 @@ def rail_operator_status(request: Request):
     _enforce_public_budget(request, lookup_request_budget)
     computed_at, rows = _operator_status_cache
     if time.monotonic() - computed_at > 30:
-        from .line_status import operator_status
+        from .line_status import official_status, operator_status, with_official
         rows = operator_status(_live_trains())
+        # National Rail's own status per operator (Disruptions API), when connected.
+        if rdm.status().get("disruptions"):
+            try:
+                rows = with_official(rows, official_status(rdm.service_indicators()))
+            except Exception:
+                pass
         _operator_status_cache = (time.monotonic(), rows)
     return {"operators": rows}
 

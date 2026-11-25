@@ -192,6 +192,16 @@ class RailDataMarketplace:
             raise ValueError("Invalid station CRS")
         return self.get("stations", f"/stations/{code}", ttl=3600, stale_ttl=86400)
 
+    def service_indicators(self) -> Any:
+        """Each train company's status from National Rail ("Good service", or what is wrong)."""
+        return self.get("disruptions", "/tocs/serviceIndicators", ttl=120, stale_ttl=1800)
+
+    def incident(self, incident_id: str) -> Any:
+        code = str(incident_id or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9]{8,64}", code):
+            raise ValueError("Invalid incident id")
+        return self.get("disruptions", f"/disruptions/incidents/{code}", ttl=600, stale_ttl=3600)
+
     def station_disruptions(self, crs: str) -> dict[str, Any]:
         code = str(crs or "").strip().upper()
         if not re.fullmatch(r"[A-Z0-9]{3}", code):
