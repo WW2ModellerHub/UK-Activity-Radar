@@ -4606,8 +4606,10 @@
     '90':{freightliner:'/static/assets/train-profiles/freight-class-90-freightliner.webp'},
     '92':{gbrf:'/static/assets/train-profiles/freight-class-92-gbrf.webp'},
   };
-  function freightVehicleHtml(kind,index,theme,electric,isLoco=false,exactClass=null){
-    const image=isLoco?(FREIGHT_LOCOMOTIVE_IMAGES[exactClass]?.[theme.key]||null):FREIGHT_PROFILE_IMAGES[kind];
+  function freightVehicleHtml(kind,index,theme,electric,isLoco=false,exactClass=null,trainKind=null){
+    const image=isLoco
+      ?(FREIGHT_LOCOMOTIVE_IMAGES[exactClass]?.[theme.key]||(trainKind==='engineering'?'/static/assets/train-profiles/rail-engineering-machine.png':null))
+      :FREIGHT_PROFILE_IMAGES[kind];
     const visual=image?`<img class="freight-profile-asset" src="${image}" alt="" loading="lazy" decoding="async">`
       :isLoco?locoSvg(theme,electric):wagonSvg(kind,index);
     return `<div class="coach"><small></small>${visual}<div class="coach-marks"></div></div>`;
@@ -4623,8 +4625,9 @@
     const wagons=code==='ZZ'?[]:code==='ZB'?['brake']:Array.from({length:5},()=>kind||'van');
     const exactClass=(String(vehicleRef||'').match(/(?:CLASS\s*)?(60|66|68|69|70|90|92)\d{3}\b/i)||[])[1]||null;
     const vehicles=[...wagons.map((w,i)=>({kind:w,index:i})).reverse(),{loco:true}];
-    const cells=vehicles.map(item=>freightVehicleHtml(item.kind,item.index,theme,electric,item.loco,exactClass)).join('');
-    const title=code==='ZZ'?'Light locomotive':code==='ZB'?'Locomotive and brake van':`${freight.cargo||'Freight'} train`;
+    const cells=vehicles.map(item=>freightVehicleHtml(item.kind,item.index,theme,electric,item.loco,exactClass,kind)).join('');
+    const cargoLabel=(cargo||'Freight').replace(/\s+train$/i,'');
+    const title=code==='ZZ'?'Light locomotive':code==='ZB'?'Locomotive and brake van':`${cargoLabel} train`;
     return `<section class="train-formation is-freight" aria-label="${esc(title)}"><header><strong>${esc(title)}</strong></header><div class="formation-row" style="--coaches:${vehicles.length}">${cells}</div><p>Illustration: ${wagons.length?'wagons drawn for what this train is timetabled to carry':'drawn from its timetable'}, not this exact train.</p></section>`;
   }
 
