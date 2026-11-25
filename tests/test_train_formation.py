@@ -72,3 +72,19 @@ def test_rail_data_marketplace_envelope_and_namespaced_keys_are_read():
     assert feed.services == 1 and feed.malformed == 0
     assert [c["letter"] for c in feed.formation_for("P19489", "2026-11-24")] == ["A", "B"]
     assert feed.report()["raw_sample"].startswith('{"messageID"')
+
+
+def test_formations_survive_a_restart(tmp_path):
+    from datetime import date
+    today = date.today().isoformat()
+    path = str(tmp_path / "darwin_formations.json")
+    feed = DarwinKafkaFeed(Settings(), LiveState(), store_path=path)
+    feed.handle(json.dumps({"uR": {
+        "TS": {"rid": "R9", "uid": "P1", "ssd": today, "Location": []},
+        "scheduleFormations": {"rid": "R9", "formation": {"coaches": {"coach": [
+            {"coachNumber": "A", "coachClass": "First"}, {"coachNumber": "B", "coachClass": "Standard", "toilet": "Standard"}]}}},
+    }}).encode())
+    feed.save(force=True)
+    restarted = DarwinKafkaFeed(Settings(), LiveState(), store_path=path)
+    assert [c["letter"] for c in restarted.formation_for("P1", today)] == ["A", "B"]
+    assert DarwinKafkaFeed(Settings(), LiveState()).formation_for("P1", today) == []   # no path, nothing saved

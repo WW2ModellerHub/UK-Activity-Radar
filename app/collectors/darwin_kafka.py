@@ -7,6 +7,7 @@ feed. TRUST and Train Describer remain the only sources that move a marker.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -155,6 +156,13 @@ def _formation_coaches(formation: dict) -> list[dict]:
 MAX_FORMATIONS = 30000
 
 
+def _days_kept() -> set[str]:
+    """Yesterday (late running), today and tomorrow, as service dates."""
+    from datetime import date, timedelta
+    today = date.today()
+    return {(today + timedelta(days=offset)).isoformat() for offset in (-1, 0, 1)}
+
+
 
 def _broker_logger(name: str):
     """A logger for librdkafka that keeps its last few warnings and errors (no credentials are logged)."""
@@ -173,7 +181,7 @@ def _broker_logger(name: str):
     return log, lines
 
 class DarwinKafkaFeed:
-    def __init__(self, settings, state, consumer_factory=None) -> None:
+    def __init__(self, settings, state, consumer_factory=None, store_path=None) -> None:
         self.settings = settings
         self.state = state
         self._factory = consumer_factory
@@ -192,8 +200,14 @@ class DarwinKafkaFeed:
         # Coaches per Darwin service (RID), and which timetable train each RID is.
         self._formations: dict[str, list[dict]] = {}
         self._rid_for: dict[tuple[str, str], str] = {}
+        # Coach details are published ahead of each train, often hours before:
+        # kept on disk so a restart does not lose the day's formations.
+        self._store_path = store_path
+        self._dirty = False
+        self._saved_at = time.monotonic()
         self._lock = threading.Lock()
         self.formation_messages = 0
+        self.load()
 
     @property
     def live(self) -> bool:
@@ -208,6 +222,7 @@ class DarwinKafkaFeed:
 
     def stop(self) -> None:
         self._stop.set()
+        self.save(force=True)
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5)
 
@@ -275,6 +290,7 @@ class DarwinKafkaFeed:
         for service in services:
             self._remember_rid(service)
             self._service(service)
+        self.save()
         for block in _update_blocks(payload):
             for schedule in _list(block.get("schedule")):
                 if isinstance(schedule, dict):
@@ -288,7 +304,9 @@ class DarwinKafkaFeed:
         day = (_text(service.get("ssd")) or "")[:10]
         if rid and uid and day:
             with self._lock:
-                self._rid_for[(uid, day)] = rid
+                if self._rid_for.get((uid, day)) != rid:
+                    self._rid_for[(uid, day)] = rid
+                    self._dirty = True
                 if len(self._rid_for) > MAX_FORMATIONS:
                     self._rid_for.pop(next(iter(self._rid_for)))
 
@@ -305,8 +323,45 @@ class DarwinKafkaFeed:
         with self._lock:
             self._formations.pop(rid, None)
             self._formations[rid] = coaches
+            self._dirty = True
             if len(self._formations) > MAX_FORMATIONS:
                 self._formations.pop(next(iter(self._formations)))
+
+    def load(self) -> None:
+        if not self._store_path:
+            return
+        try:
+            saved = json.loads(open(self._store_path, encoding="utf-8").read())
+        except (OSError, ValueError):
+            return
+        keep = _days_kept()
+        with self._lock:
+            for row in saved.get("rids") or []:
+                if isinstance(row, list) and len(row) == 3 and str(row[1])[:10] in keep:
+                    self._rid_for[(str(row[0]), str(row[1]))] = str(row[2])
+            wanted = set(self._rid_for.values())
+            for rid, coaches in (saved.get("formations") or {}).items():
+                if rid in wanted and isinstance(coaches, list):
+                    self._formations[rid] = coaches
+
+    def save(self, force: bool = False) -> None:
+        """Write formations for today and tomorrow, at most once a minute."""
+        if not self._store_path or not self._dirty or (not force and time.monotonic() - self._saved_at < 60):
+            return
+        keep = _days_kept()
+        with self._lock:
+            rids = [[uid, day, rid] for (uid, day), rid in self._rid_for.items() if day[:10] in keep]
+            wanted = {row[2] for row in rids}
+            formations = {rid: coaches for rid, coaches in self._formations.items() if rid in wanted}
+            self._dirty = False
+            self._saved_at = time.monotonic()
+        try:
+            temporary = f"{self._store_path}.tmp"
+            with open(temporary, "w", encoding="utf-8") as handle:
+                json.dump({"rids": rids, "formations": formations}, handle, separators=(",", ":"))
+            os.replace(temporary, self._store_path)
+        except OSError:
+            self._dirty = True
 
     def formation_for(self, uid: str | None, service_date: str | None) -> list[dict]:
         """The coaches Darwin last published for this train, or []."""
