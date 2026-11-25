@@ -21,7 +21,18 @@ DIR = ROOT / "app" / "static" / "assets" / "train-profiles"   # what the page lo
 COACHES = {  # coaches drawn in each generated image
     "class-170-crosscountry-turbostar": 3, "class-195-northern-civity": 3, "class-220-crosscountry-voyager": 3,
     "class-350-lnwr-desiro": 4, "class-390-pendolino": 7, "class-800-gwr-iet": 5, "class-800-lner-azuma": 5,
+    "class-150-northern": 2, "class-158-northern": 2, "class-159-south-western": 3, "class-165-gwr": 3,
+    "class-168-chiltern": 4, "class-185-transpennine": 3, "class-196-west-midlands": 4,
+    "class-197-transport-for-wales": 3, "class-345-elizabeth-line": 9, "class-377-southern": 4,
+    "class-385-scotrail": 4, "class-395-southeastern": 6, "class-444-south-western": 5,
+    "class-700-thameslink": 8, "class-720-greater-anglia": 5,
 }
+# Shown whole: locomotives and wagons, trams and specials, and the articulated
+# class 745 (its short carriages share bogies: no clean gap to cut at).
+WHOLE = ("freight-*", "class-745-*", "heritage-*", "london-underground", "postal-train", "rail-engineering-machine",
+         "sleeper-train", "tram-*")
+BUS_SOURCE = ROOT / "art" / "bus-profiles"
+BUS_DIR = ROOT / "app" / "static" / "assets" / "bus-profiles"
 HEIGHT = 96   # px of each coach image (shown at about a third of that, sharp on phones)
 
 
@@ -82,16 +93,20 @@ def build(name: str, count: int) -> list[int]:
     return widths
 
 
-def build_single(name: str) -> int:
-    """A locomotive or wagon: trimmed and made small (the PNGs are 1.5-2.3 MB each)."""
-    image = trim(Image.open(SOURCE / f"{name}.png").convert("RGBA"))
-    image = image.resize((max(1, round(image.width * HEIGHT / image.height)), HEIGHT), Image.LANCZOS)
-    image.save(DIR / f"{name}.webp", "WEBP", quality=82, method=6)
+def build_single(name: str, source: Path = SOURCE, target: Path = DIR, height: int = HEIGHT) -> int:
+    """A whole picture (locomotive, wagon, tram, bus): trimmed and made small (the PNGs are 0.5-2.3 MB each)."""
+    image = trim(Image.open(source / f"{name}.png").convert("RGBA"))
+    image = image.resize((max(1, round(image.width * height / image.height)), height), Image.LANCZOS)
+    target.mkdir(parents=True, exist_ok=True)
+    image.save(target / f"{name}.webp", "WEBP", quality=82, method=6)
     return image.width
 
 
 if __name__ == "__main__":
     for name, count in COACHES.items():
         print(name, build(name, count))
-    for path in sorted(SOURCE.glob("freight-*.png")):
-        print(path.stem, build_single(path.stem))
+    for pattern in WHOLE:
+        for path in sorted(SOURCE.glob(f"{pattern}.png")):
+            print(path.stem, build_single(path.stem))
+    for path in sorted(BUS_SOURCE.glob("*.png")):     # buses are taller than they are long: more pixels
+        print(path.stem, build_single(path.stem, BUS_SOURCE, BUS_DIR, 160))
