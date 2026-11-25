@@ -1,5 +1,10 @@
 # Codex stabilization changelog
 
+## EMR Meridians named; engineering picture fixed
+
+- EMR's 125 mph diesel units carry no class in the timetable (seen: 1D94 St Pancras-Nottingham, "DMU", no timing load); its Aurora workings carry "810". These are now Class 222 Meridian, marked as worked out from the timetable.
+- Codex's engineering-train change pointed at a PNG that had moved; it now uses the WebP. App version bumped.
+
 ## Codex's new train and bus profiles: cut per coach, made small
 
 - 15 new passenger classes (150, 158, 159, 165/166, 168, 185, 196, 197, 345, 377, 385, 395, 444, 700, 720) are cut at their gangways into per-coach WebP and built to each train's real length with coach letters, first class and toilets under each coach (every cut checked by eye; 377 has 4 coaches and 720 has 5 in the artwork). The articulated 745 is shown whole: its short carriages share bogies, leaving no clean gap.

@@ -77,6 +77,13 @@ def train_class(power_type: str | None, timing_load: str | None, operator: str |
     return None
 
 
+def _speed(train) -> int:
+    try:
+        return int(str(getattr(train, "booked_speed", "") or "0").strip() or 0)
+    except ValueError:
+        return 0
+
+
 def _coach(raw: dict) -> dict:
     toilet = str(raw.get("toilet") or "").strip().lower()
     return {
@@ -98,13 +105,19 @@ def describe(train, coaches: list[dict] | None) -> dict | None:
     known = [_coach(row) for row in (coaches or []) if isinstance(row, dict)]
     power = str(getattr(train, "power_type", "") or "").strip().upper()
     hauled = power in {"D", "E", "ED"}
+    inferred = False
+    if not code and power in {"DMU", "DEM"} and operator == "East Midlands Railway" and _speed(train) >= 110:
+        # EMR's 125 mph diesel units with no class in the timetable are its
+        # Meridians: its Aurora (810) workings carry "810".
+        code, inferred = "222", True
+        name, usual, traction = CLASSES[code]
     if not code:
         # Class not settled by the timetable: still drawn, as a generic train of its traction.
         traction = _POWER_TRACTION.get(power)
         name = "High Speed Train" if power == "HST" else None
     return {
         "class": code, "name": name, "traction": traction, "operator": operator,
-        "hauled": hauled, "generic": not code,
+        "hauled": hauled, "generic": not code, "inferred": inferred,
         "coaches": known,
         # Unit numbers from the allocation feed (e.g. "170636"), when it has them.
         "units": [str(unit) for unit in (getattr(train, "formation", None) or []) if str(unit).strip()][:4],
