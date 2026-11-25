@@ -99,6 +99,9 @@ def _inside(lat: float, lon: float, bbox: tuple[float, float, float, float] | No
     return west <= lon <= east and south <= lat <= north
 
 
+ARRIVAL_HOLD_KM = 0.2
+
+
 def _estimated_train_position(vehicle: Vehicle, now: datetime) -> tuple[float, float] | None:
     """Return the browser-equivalent position for viewport continuity.
 
@@ -138,6 +141,9 @@ def _estimated_train_position(vehicle: Vehicle, now: datetime) -> tuple[float, f
     if not legs or total_distance <= 0:
         return None
     target = fraction * total_distance
+    # Not at the next stop until a report says so: wait ~200 m out (motion-engine.js does the same).
+    if (vehicle.estimate_brake_s or 0) > 0 and str(vehicle.rail_event_type or "") != "Arrival":
+        target = min(target, max(0.0, total_distance - ARRIVAL_HOLD_KM)) if total_distance > 2 * ARRIVAL_HOLD_KM else min(target, total_distance / 2)
     first, second, length, started = next(
         (leg for leg in legs if target <= leg[3] + leg[2]),
         legs[-1],
