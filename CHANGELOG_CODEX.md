@@ -1,5 +1,9 @@
 # Codex stabilization changelog
 
+## A train that only passes a station is moved on past it
+
+Seen at Market Harborough at 17:32: three trains shown, one of them 1F56 to Sheffield, which does not stop there, parked for 6 minutes. After an "arrival" report, the rollover looked for the train's dwell at the next place; a place it only passes has none, so the lookup was empty and the rollover stopped. It now carries on along the timetable.
+
 ## An early train waits for its booked departure
 
 Seen at Leicester at 08:08: 1F10 was at the platform but drawn leaving towards Syston (booked 08:09). After an arrival report, departure was estimated as arrival + booked dwell, so an early arrival "left" early. It is now never before the booked departure.
