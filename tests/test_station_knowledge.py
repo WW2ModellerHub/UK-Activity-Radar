@@ -56,3 +56,25 @@ def test_official_disruption_messages_become_plain_notices_worst_first():
     assert notices[1]["text"] == "The lift serving platform 12 is out of order."
     assert "Disruption at Birmingham New Street now" in station_notices_html("Birmingham New Street", notices)
     assert disruption_items(None) == [] and station_notices_html("X", []) == ""
+
+
+def test_operator_status_from_national_rail_drops_stale_incident_links():
+    from datetime import date
+    from app.line_status import official_status, with_official
+    indicators = [
+        {"tocCode": "LN", "tocStatus": "Custom", "tocStatusDescription": "Reduced service between Crewe and Stafford ",
+         "tocServiceGroup": [{"customURL": "https://www.nationalrail.co.uk/service-disruptions/crewe-20261125/"},
+                             {"customURL": "https://www.nationalrail.co.uk/service-disruptions/birmingham-new-street-20260524/"}]},
+        {"tocCode": "CC", "tocStatus": "Good service", "tocStatusDescription": "Good service", "tocServiceGroup": []},
+        {"tocCode": "CH", "tocStatus": "Custom", "tocStatusDescription": "Reduced service via Amersham",
+         "tocServiceGroup": [{"customURL": "javascript:alert(1)"}]},
+    ]
+    official = official_status(indicators, date(2026, 11, 25))
+    wm = official["West Midlands Trains"]
+    assert wm["disrupted"] and wm["text"] == "Reduced service between Crewe and Stafford"
+    assert [i["place"] for i in wm["incidents"]] == ["Crewe"]          # the May link is dropped
+    assert official["Chiltern Railways"]["incidents"] == []              # never a non-https link
+    rows = with_official([{"operator": "West Midlands Trains", "status": "good", "label": "Good service", "running": 40,
+                           "late": 1, "cancelled": 0, "average_delay": 6, "worst": []}], official)
+    assert rows[0]["status"] == "minor" and rows[0]["label"] == "Disruption"   # never "Good service" while disrupted
+    assert any(r["operator"] == "Chiltern Railways" for r in rows)            # listed even with no live trains
