@@ -18,6 +18,9 @@ export function maplibreZoom(leafletZoom){return Number(leafletZoom)-1;}
 // Leaflet animates zooms with transform .25s cubic-bezier(0,0,.25,1).
 function leafletZoomEasing(t){return 1-Math.pow(1-t,3);}
 
+// How quickly a fanned-out group slides into a new arrangement.
+const FAN_EASE_MS=600;
+
 export function frameInterval(objectCount,selected=false,reducedMotion=false,zoom=14){
   if(reducedMotion)return 100;
   // Zoomed out, a train moves well under a pixel a frame: redraw less often.
@@ -199,22 +202,37 @@ export class LiveObjectRenderer{
     const zoom=this.map.getZoom();
     const features=[];
     let coincidentGroups=0,separatedObjects=0;
+    // Objects at one spot (trains at a station) are fanned out so each can be
+    // tapped. The fan slides between arrangements: when a train joins or leaves
+    // it, the others used to jump ~22 px at once (measured live).
+    this.fan=this.fan||new Map();
+    const step=Math.min(1,(timestamp-(this.lastFanAt??timestamp))/FAN_EASE_MS)||0;this.lastFanAt=timestamp;
+    const seen=new Set();
     for(const group of groups.values()){
       if(group.length>1){coincidentGroups+=1;separatedObjects+=group.length;}
       group.forEach((row,index)=>{
         let lat=Number(row.lat),lon=Number(row.lon);
+        const id=String(row.id);seen.add(id);
+        let tx=0,ty=0;
         if(group.length>1){
-          const angle=-Math.PI/2+Math.PI*2*index/group.length;
+          const angle=-Math.PI/2+Math.PI*2*index/group.length,radius=Math.min(32,18+group.length*2);
+          tx=Math.cos(angle)*radius;ty=Math.sin(angle)*radius;
+        }
+        const was=this.fan.get(id)||{x:tx,y:ty};
+        const offset={x:was.x+(tx-was.x)*step,y:was.y+(ty-was.y)*step};
+        if(Math.abs(offset.x-tx)<.05&&Math.abs(offset.y-ty)<.05){offset.x=tx;offset.y=ty;}
+        this.fan.set(id,offset);
+        if(offset.x||offset.y){
           const metresPerPixel=78271.51696*Math.cos(lat*Math.PI/180)/(2**zoom);
-          const radiusMetres=Math.min(32,18+group.length*2)*metresPerPixel;
-          lat+=Math.sin(angle)*radiusMetres/111320;
-          lon+=Math.cos(angle)*radiusMetres/(111320*Math.max(.2,Math.cos(lat*Math.PI/180)));
+          lat+=offset.y*metresPerPixel/111320;
+          lon+=offset.x*metresPerPixel/(111320*Math.max(.2,Math.cos(lat*Math.PI/180)));
         }
         // Only aircraft turn to face their heading; a train or bus badge is a
         // sign and always sits upright.
         features.push({type:'Feature',id:String(row.id),geometry:{type:'Point',coordinates:[lon,lat]},properties:{id:String(row.id),type:row.type,selected:row.id===this.selectedId,icon:`live-${iconKind(row)}`,rotation:['aircraft','sar'].includes(row.type)?Number(row.bearing||0):0,stale:isStale(row,now),...punctuality(row)}});
       });
     }
+    for(const id of this.fan.keys())if(!seen.has(id))this.fan.delete(id);
     this.lastFeatures=features;
     this.map.getSource('live-objects')?.setData({type:'FeatureCollection',features});
     this.container.dataset.objectCount=String(features.length);

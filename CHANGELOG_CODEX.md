@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## Trains at a shared spot no longer jump; mid-size corrections glide
+
+Measured live around Leicester (2 min, 15 moving trains): 6 trains jumped, most by ~22 px in one frame.
+- Trains at the same spot (a station) are fanned out so each can be tapped; when one joined or left, the rest jumped to the new arrangement at once (~22 px). The fan now slides over 600 ms (`live-object-renderer.js`). Regression test fails on the old code with a 22 px single-frame jump.
+- Corrections to a train off its new path snapped above 1.5 km; measured ones were 1.7-1.8 km. They now glide up to 6 km (`TRAIN_GLIDE_MAX_KM`).
+
 ## Darwin coach formations survive restarts
 
 Only 11 trains had coach details after 18 minutes of Darwin: operators publish formations ahead of each train (often hours before) and every restart wiped them from memory. Formations and the RID-to-train map for yesterday, today and tomorrow are now saved to `DATA_DIR/darwin_formations.json` (at most once a minute, and on shutdown) and reloaded at start-up.
