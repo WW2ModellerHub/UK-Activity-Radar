@@ -4552,13 +4552,17 @@
     cars:'/static/assets/train-profiles/freight-wagon-automotive.webp',
   };
   const FREIGHT_LOCOMOTIVE_IMAGES={
+    '60':{'db-cargo':'/static/assets/train-profiles/freight-class-60-db-cargo.png'},
     '66':{
       'db-cargo':'/static/assets/train-profiles/freight-class-66-db-cargo.png',
       freightliner:'/static/assets/train-profiles/freight-class-66-freightliner.png',
       gbrf:'/static/assets/train-profiles/freight-class-66-gbrf.png',
     },
     '68':{drs:'/static/assets/train-profiles/freight-class-68-drs.png'},
+    '69':{gbrf:'/static/assets/train-profiles/freight-class-69-gbrf.png'},
     '70':{freightliner:'/static/assets/train-profiles/freight-class-70-freightliner.png'},
+    '90':{freightliner:'/static/assets/train-profiles/freight-class-90-freightliner.png'},
+    '92':{gbrf:'/static/assets/train-profiles/freight-class-92-gbrf.png'},
   };
   function freightVehicleHtml(kind,index,theme,electric,isLoco=false,exactClass=null){
     const image=isLoco&&exactClass==='66'&&theme.key==='db-cargo'
@@ -4576,7 +4580,7 @@
     const kind=FREIGHT_WAGONS[code];
     // Light engines run alone; a locomotive and brake van is just that.
     const wagons=code==='ZZ'?[]:code==='ZB'?['brake']:Array.from({length:5},()=>kind||'van');
-    const exactClass=(String(vehicleRef||'').match(/(?:CLASS\s*)?(66|68|70)\d{3}\b/i)||[])[1]||null;
+    const exactClass=(String(vehicleRef||'').match(/(?:CLASS\s*)?(60|66|68|69|70|90|92)\d{3}\b/i)||[])[1]||null;
     const vehicles=[...wagons.map((w,i)=>({kind:w,index:i})).reverse(),{loco:true}];
     const cells=vehicles.map(item=>freightVehicleHtml(item.kind,item.index,theme,electric,item.loco,exactClass)).join('');
     const title=code==='ZZ'?'Light locomotive':code==='ZB'?'Locomotive and brake van':`${freight.cargo||'Freight'} train`;
