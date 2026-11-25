@@ -4608,7 +4608,7 @@
   };
   function freightVehicleHtml(kind,index,theme,electric,isLoco=false,exactClass=null,trainKind=null){
     const image=isLoco
-      ?(FREIGHT_LOCOMOTIVE_IMAGES[exactClass]?.[theme.key]||(trainKind==='engineering'?'/static/assets/train-profiles/rail-engineering-machine.png':null))
+      ?(FREIGHT_LOCOMOTIVE_IMAGES[exactClass]?.[theme.key]||(trainKind==='engineering'?'/static/assets/train-profiles/rail-engineering-machine.webp':null))
       :FREIGHT_PROFILE_IMAGES[kind];
     const visual=image?`<img class="freight-profile-asset" src="${image}" alt="" loading="lazy" decoding="async">`
       :isLoco?locoSvg(theme,electric):wagonSvg(kind,index);
@@ -4667,7 +4667,7 @@
         coach.toilet==='accessible'?`<span title="Accessible toilet">${WHEELCHAIR_ICON}</span>`:coach.toilet==='standard'?'<b class="coach-wc" title="Toilet">WC</b>':''].join('');
       return `<div class="coach"><small>${coach.letter?`Coach ${esc(coach.letter)}`:''}</small>${trainCoachSvg(i,coaches.length,theme,formation.class)}<div class="coach-marks">${marks}</div></div>`;
     }).join('');
-    const note=known?'Coaches as published by National Rail for this train.':formation.generic?"Illustration: this train's class and coaches are not in its timetable.":"This train's coaches are not published; drawn at its class's usual length.";
+    const note=known?'Coaches as published by National Rail for this train.':formation.generic?"Illustration: this train's class and coaches are not in its timetable.":formation.inferred?"Class worked out from the timetable (operator, diesel, 125 mph); coaches not published, drawn at its usual length.":"This train's coaches are not published; drawn at its class's usual length.";
     return `<section class="train-formation${known?'':' is-typical is-plain'}${formation.class?` profile-class-${esc(formation.class)}`:''}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="formation-row" style="--coaches:${coaches.length}">${cells}</div><p>${esc(note)}</p></section>`;
   }
 

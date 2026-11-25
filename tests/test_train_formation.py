@@ -88,3 +88,11 @@ def test_formations_survive_a_restart(tmp_path):
     restarted = DarwinKafkaFeed(Settings(), LiveState(), store_path=path)
     assert [c["letter"] for c in restarted.formation_for("P1", today)] == ["A", "B"]
     assert DarwinKafkaFeed(Settings(), LiveState()).formation_for("P1", today) == []   # no path, nothing saved
+
+
+def test_emr_125mph_diesel_with_no_class_is_a_meridian_and_says_it_was_worked_out():
+    drawn = describe(_train(operator="East Midlands Railway", power_type="DMU", timing_load=None, booked_speed="125"), [])
+    assert drawn["class"] == "222" and drawn["name"] == "Meridian" and drawn["inferred"] is True
+    assert drawn["usual"] == [5, 7]
+    slower = describe(_train(operator="East Midlands Railway", power_type="DMU", timing_load=None, booked_speed="90"), [])
+    assert slower["class"] is None and slower["inferred"] is False
