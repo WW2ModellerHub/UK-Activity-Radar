@@ -1554,3 +1554,8 @@ strong[data-plus].needs-plus::after,
 .line-official { margin: -2px 0 6px 26px; font-size: 12px; color: var(--ink, inherit); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
 .line-official span { flex: 1 1 100%; border-left: 3px solid #d9822b; padding-left: 7px; }
 .line-official a { font-weight: 600; }
+/* Freight pictures at a readable height; a long train scrolls sideways. */
+.train-formation.is-freight .formation-row { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; align-items: flex-end; }
+.train-formation.is-freight .formation-row .coach { flex: 0 0 auto; grid-template-rows: auto; }
+.train-formation.is-freight .freight-profile-asset { height: 36px; width: auto; max-width: none; }
+.train-formation.is-freight .coach-svg { width: 96px; height: 36px; }

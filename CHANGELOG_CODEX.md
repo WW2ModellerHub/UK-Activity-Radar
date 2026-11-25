@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## Freight cards use the locomotive and wagon pictures
+
+- The exact locomotive is almost never in the feeds, so every freight card fell back to a drawn locomotive. The card (labelled an illustration) now shows the operator's usual locomotive: class 66 for DB Cargo, Freightliner and GBRF, class 68 for DRS, class 90/92 when electric; a DB Cargo 66 when the operator is not known. Operators without a picture (Colas, ROG...) keep the drawn locomotive in their own colours.
+- General merchandise and Channel Tunnel freight show container wagons (were plain drawn vans).
+- Pictures at a readable 36 px, locomotive first, the train scrolling sideways (they were ~14 px squeezed into the card).
+
 ## EMR Meridians named; engineering picture fixed
 
 - EMR's 125 mph diesel units carry no class in the timetable (seen: 1D94 St Pancras-Nottingham, "DMU", no timing load); its Aurora workings carry "810". These are now Class 222 Meridian, marked as worked out from the timetable.

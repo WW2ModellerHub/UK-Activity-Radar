@@ -2902,3 +2902,21 @@ for (const [cls, operator, usual, pieces] of [['150','Northern',[2],2],['377','S
     await drawn.screenshot({ path: process.env.PROFILE_DIR ? `${process.env.PROFILE_DIR}/p-${cls}.png` : '/dev/null' }).catch(() => {});
   });
 }
+
+test('a freight train shows the operator usual locomotive and container wagons for general merchandise', async ({ page }) => {
+  const draw = async (operator, category, cargo) => {
+    await page.unroute('**/api/activity/train-live-1/rail');
+    await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json:{ activity:'train-live-1', detail:{ available:true,
+      runs:[{ headcode:'4M00', operator, status:'On time', freight:{ category, cargo, tonnes:1200, traction:'Diesel' }, calling_points:[] }] } } }));
+    await page.goto('/?open=train-live-1');
+    const drawn = page.locator('.train-formation.is-freight');
+    await expect(drawn).toBeVisible();
+    return drawn.locator('img').evaluateAll(imgs => imgs.map(i => i.getAttribute('src').split('/').pop()));
+  };
+  const gbrf = await draw('GB Railfreight', 'J8', 'General merchandise');
+  expect(gbrf[0]).toBe('freight-class-66-gbrf.webp');
+  expect(gbrf.slice(1).every(src => src === 'freight-wagon-intermodal.webp')).toBe(true);
+  expect((await draw(null, 'J8', 'General merchandise'))[0]).toBe('freight-class-66-db-cargo.webp');
+  // Colas has no picture: its locomotive stays drawn in Colas colours, not another company's.
+  expect((await draw('Colas Rail', 'B4', 'Aggregates')).some(src => /class-66/.test(src))).toBe(false);
+});
