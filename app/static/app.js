@@ -4661,6 +4661,36 @@
     return {text:'On time',tone:'good'};
   }
 
+  const BUS_PROFILE_IMAGES = [
+    {pattern:/\b(?:ALEXANDER\s+DENNIS\s+)?(?:ENVIRO\s*200|E200)(?:\s*MMC)?\b/i,name:'Alexander Dennis Enviro200 MMC',kind:'single-deck bus',src:'/static/assets/bus-profiles/enviro200-mmc.png'},
+    {pattern:/\b(?:ALEXANDER\s+DENNIS\s+)?(?:ENVIRO\s*400|E400)(?:\s*MMC)?\b/i,name:'Alexander Dennis Enviro400 MMC',kind:'double-deck bus',src:'/static/assets/bus-profiles/enviro400-mmc.png'},
+    {pattern:/\bWRIGHT\s+STREETLITE\b|\bSTREETLITE\b/i,name:'Wright StreetLite',kind:'single-deck bus',src:'/static/assets/bus-profiles/wright-streetlite.png'},
+    {pattern:/\bWRIGHT\s+STREETDECK\b|\bSTREETDECK\b/i,name:'Wright StreetDeck',kind:'double-deck bus',src:'/static/assets/bus-profiles/wright-streetdeck.png'},
+    {pattern:/\b(?:MERCEDES(?:-BENZ)?\s+)?CITARO\b|\bO\s*530\b/i,name:'Mercedes-Benz Citaro',kind:'single-deck bus',src:'/static/assets/bus-profiles/mercedes-citaro.png'},
+    {pattern:/\bYUTONG\s+E(?:10|12)\b|\bE12EV\b/i,name:'Yutong electric bus',kind:'electric single-deck bus',src:'/static/assets/bus-profiles/yutong-e12.png'},
+    {pattern:/\bNEW\s+ROUTEMASTER\b|\bNEW\s+BUS\s+FOR\s+LONDON\b|\bNB4L\b/i,name:'New Routemaster',kind:'London double-deck bus',src:'/static/assets/bus-profiles/new-routemaster.png'},
+  ];
+
+  function busProfileMatch(detail, a) {
+    // BODS usually publishes a fleet number, not a body model. Only make an
+    // exact model claim when the provider identity itself contains a model
+    // token. A known coach operator gets a clearly-labelled generic coach.
+    const identity=[detail?.vehicle_ref,a?.vehicle_ref,a?.name,a?.subtitle].filter(Boolean).join(' ');
+    const exact=BUS_PROFILE_IMAGES.find(profile=>profile.pattern.test(identity));
+    if(exact)return {...exact,exact:true};
+    if(coachInfo(a))return {name:'Intercity coach',kind:'coach',src:'/static/assets/bus-profiles/generic-intercity-coach.png',exact:false};
+    return null;
+  }
+
+  function busProfileHtml(detail, a) {
+    const profile=busProfileMatch(detail,a);
+    if(!profile)return '';
+    const note=profile.exact
+      ? 'Body model matched from the published vehicle identity.'
+      : 'Typical coach illustration. The live feed does not publish this vehicle’s exact body model.';
+    return `<section class="bus-profile-card${profile.exact?'':' is-typical'}" aria-label="${esc(profile.name)}"><header><strong>${esc(profile.name)}</strong><span>${esc(profile.kind)}</span></header><div class="bus-profile-stage"><img src="${profile.src}" alt="" loading="lazy" decoding="async"></div><p>${esc(note)}</p></section>`;
+  }
+
   function renderBusIntelligence(detail, a=null) {
     // Same stop list as trains: opens at the stop before the bus, marks where
     // it is, and shows a later expected time beside each stop when it runs late.
@@ -4686,7 +4716,7 @@
     const list=stopTimelineHtml(rows,{vehicle:vehicleWord,hasProgress:rows.some(row=>row.state),className:'bus-stops train-full-route'});
     const empty=`<div class="transport-unavailable"><strong>${detail?.mode==='timetable_sync'?'Timetable preparing':'Stops not available'}</strong><span>This ${vehicleWord.toLowerCase()} has not been linked to a timetabled journey yet.</span></div>`;
     const fleet=detail?.fleet_path?`<p class="fleet-link"><a href="${esc(detail.fleet_path)}">Where else this ${coachInfo(a)?'coach':'bus'} has worked →</a></p>`:'';
-    return `${head}${coachBookingHtml(a)}${list||empty}${fleet}`;
+    return `${busProfileHtml(detail,a)}${head}${coachBookingHtml(a)}${list||empty}${fleet}`;
   }
 
   async function loadActivityIntelligence(a, force=false) {
