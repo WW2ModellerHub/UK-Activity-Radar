@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## Official disruption messages on station pages and boards
+
+- The Disruptions Experience API takes `crsCode` (the client sent `stationCode`, answered 400); station messages are now optional so a refusal cannot hide incidents.
+- `station_knowledge.disruption_items` turns incidents and station messages into plain notices (train service first, worst first, duplicates and the "Latest information..." boilerplate removed, https links only).
+- Station pages show "Disruption at <station> now"; the live station board shows "Disruption now" above engineering works.
+
 ## Station facilities from the National Rail Knowledgebase
 
 - `app/station_knowledge.py` turns the Knowledgebase station feed (Rail Data Marketplace) into plain facts: step-free access, staffing, today's ticket office hours, ticket machines, toilets, lifts, wheelchairs, ramp, car park and cycle spaces, taxis, Wi-Fi, food, waiting room, help line, and where replacement buses leave from.

@@ -2869,3 +2869,20 @@ test('an unpublished Pendolino is drawn at a length the class runs at', async ({
   await expect(drawn).toContainText('Not published for this train');
   await drawn.screenshot({ path: process.env.PROFILE_SHOT2 || '/dev/null' }).catch(() => {});
 });
+
+test('a station board shows official disruption messages, train problems first', async ({ page }) => {
+  await page.route(/\/api\/places\/rail(%3A|:)MKC\/board/, route => route.fulfill({ json:{ board:{ mode:'network_rail', departures:[], arrivals:[],
+    station_notices:[
+      { category:'Train service', severity:'Minor', text:'Reduced service between Crewe and Stafford.', link:'https://www.nationalrail.co.uk/disruptions/crewe-20261125/' },
+      { category:'Station', severity:'Normal', text:'The lift serving platform 12 is out of order.', link:null },
+      { category:'Station', severity:'Normal', text:'<img src=x onerror=alert(1)>', link:'javascript:alert(1)' },
+    ] } } }));
+  await page.locator('#station-boards').click();
+  const notices = page.locator('.station-notices');
+  await expect(notices.locator('li')).toHaveCount(3);
+  await expect(notices.locator('li').first()).toContainText('Reduced service between Crewe and Stafford.');
+  await expect(notices.locator('li').first().locator('a')).toHaveAttribute('href', 'https://www.nationalrail.co.uk/disruptions/crewe-20261125/');
+  // Text is never markup, and only https links are offered.
+  await expect(notices.locator('img')).toHaveCount(0);
+  await expect(notices.locator('li').nth(2).locator('a')).toHaveCount(0);
+});

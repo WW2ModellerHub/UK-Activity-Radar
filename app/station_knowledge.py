@@ -21,6 +21,7 @@ def plain(value) -> str | None:
         return None
     text = html.unescape(_TAGS.sub(" ", str(value)))
     text = " ".join(text.split())
+    text = re.sub(r"\s+([.,;:!?])", r"\1", text)
     return text or None
 
 
@@ -133,3 +134,41 @@ def replacement_bus_note(station: dict | None) -> str | None:
 
 def operator(station: dict | None) -> str | None:
     return str(_get(station, "stationOperator", "name") or "").strip() or None if isinstance(station, dict) else None
+
+
+_SEVERITY = {"severe": 3, "major": 2, "minor": 1, "normal": 0}
+_LINK = re.compile(r"""href=["']([^"']+)["']""")
+
+
+def disruption_items(payload) -> list[dict]:
+    """Official disruption messages for a station (Disruptions Experience API), plain text.
+
+    [{"category": "Train service", "severity": "Minor", "text": "...", "link": url|None}],
+    worst first. Train service problems come before station facilities (a
+    broken lift), and the same message is shown once.
+    """
+    if not isinstance(payload, dict):
+        return []
+    rows, seen = [], set()
+    for group in payload.get("incidents") or []:
+        for item in (group or {}).get("disruptions") or [] if isinstance(group, dict) else []:
+            if isinstance(item, dict):
+                rows.append(("Train service", item.get("severity") or item.get("priority") or "Minor",
+                             item.get("summary") or item.get("header") or item.get("description"), item))
+    for group in payload.get("station_messages") or []:
+        for item in (group or {}).get("stationDisruptions") or [] if isinstance(group, dict) else []:
+            if isinstance(item, dict):
+                rows.append((item.get("category") or "Station", item.get("severity") or "Normal", item.get("summary"), item))
+    out = []
+    for category, severity, raw, item in rows:
+        text = plain(raw)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        text = re.sub(r"\s*Latest information can be found in the Disruptions area of the\s*National Rail website\.?", "", text).strip()
+        text = re.sub(r"\s+([.,;:])", r"\1", text)
+        text = re.sub(r"\.(?:\s*\.)+", ".", text)
+        link = next((url for url in _LINK.findall(str(raw or "")) if url.startswith("https://")), None)
+        out.append({"category": str(category), "severity": str(severity), "text": text, "link": link})
+    out.sort(key=lambda row: (row["category"] != "Train service", -_SEVERITY.get(row["severity"].lower(), 0)))
+    return out[:6]

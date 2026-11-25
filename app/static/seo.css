@@ -53,3 +53,8 @@ footer p{margin:.6rem 0 0;font-size:.8rem}
 .station-kb div{border:1px solid #dde3e8;border-radius:8px;padding:8px 10px}
 .station-kb dt{font-size:12px;color:#5b6670;margin:0}
 .station-kb dd{margin:2px 0 0;font-weight:600;font-size:14px}
+.station-notices ul{list-style:none;padding:0;margin:10px 0;display:grid;gap:6px}
+.station-notices li{border-left:4px solid #9aa5ae;background:#f6f8f9;border-radius:6px;padding:8px 10px;font-size:14px}
+.station-notices li.notice-minor,.station-notices li.notice-major,.station-notices li.notice-severe{border-left-color:#d9822b}
+.station-notices li.notice-severe{border-left-color:#c0392b}
+.station-notices b{display:block;font-size:12px;color:#5b6670}

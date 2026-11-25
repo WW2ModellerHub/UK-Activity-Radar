@@ -39,3 +39,20 @@ def test_station_page_section_and_html_notes():
     assert station_knowledge_html("Nowhere", None) == ""
     assert plain("<p>A&#160;B</p>") == "A B"
     assert hours_on([{"daysOfTheWeek": ["Monday"], "openingStatus": "24 Hours"}], "Monday") == "24 hours"
+
+
+def test_official_disruption_messages_become_plain_notices_worst_first():
+    from app.seo_pages import station_notices_html
+    from app.station_knowledge import disruption_items
+    payload = {"incidents": [{"crsCode": "BHM", "disruptions": []}], "station_messages": [{"crsCode": "BHM", "stationDisruptions": [
+        {"category": "Station", "severity": "Normal", "summary": "<p>The lift serving&nbsp;platform 12 is out of order.</p>"},
+        {"category": "Train service", "severity": "Minor", "summary": 'Reduced service between Crewe and Stafford. Latest information can be found in the Disruptions area of the<a href="https://www.nationalrail.co.uk/disruptions/crewe-20261125/"> National Rail website</a>. '},
+        {"category": "Station", "severity": "Normal", "summary": "<p>The lift serving&nbsp;platform 12 is out of order.</p>"},
+    ]}]}
+    notices = disruption_items(payload)
+    assert [n["category"] for n in notices] == ["Train service", "Station"]       # train first, duplicate dropped
+    assert notices[0]["text"] == "Reduced service between Crewe and Stafford."
+    assert notices[0]["link"] == "https://www.nationalrail.co.uk/disruptions/crewe-20261125/"
+    assert notices[1]["text"] == "The lift serving platform 12 is out of order."
+    assert "Disruption at Birmingham New Street now" in station_notices_html("Birmingham New Street", notices)
+    assert disruption_items(None) == [] and station_notices_html("X", []) == ""
