@@ -368,6 +368,12 @@ def test_confirmed_arrival_advances_after_published_station_dwell(tmp_path):
     assert leg["next_tiploc"] == "MARKTH"
     assert len(leg["path"]) > 2
 
+    # Early: it arrived at 07:56 but still leaves at its booked 08:01, not 07:57.
+    early = store.estimate_departure_leg_after_arrival(
+        schedule_id, date(2026, 11, 5), "LESTER", datetime(2026, 11, 5, 7, 56, tzinfo=london_tz()),
+    )
+    assert early["started_at"] == datetime(2026, 11, 5, 8, 1, tzinfo=london_tz())
+
 
 def test_smart_arrival_offset_keeps_train_on_approach_leg(tmp_path):
     store = ScheduleStore(tmp_path / "schedule.sqlite")

@@ -1147,7 +1147,10 @@ class ScheduleStore:
             dwell = departure - arrival
             if dwell < timedelta(0) or dwell > timedelta(minutes=30):
                 continue
-            candidates.append((abs((arrival - observed_arrival_at).total_seconds()), observed_arrival_at + dwell))
+            # An early train waits for its booked departure (seen at Leicester:
+            # 1F10 arrived early and was drawn leaving before its 08:09).
+            candidates.append((abs((arrival - observed_arrival_at).total_seconds()),
+                               max(observed_arrival_at + dwell, departure)))
         if not candidates:
             return None
         _, estimated_departure = min(candidates, key=lambda item: item[0])

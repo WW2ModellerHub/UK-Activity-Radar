@@ -1,5 +1,9 @@
 # Codex stabilization changelog
 
+## An early train waits for its booked departure
+
+Seen at Leicester at 08:08: 1F10 was at the platform but drawn leaving towards Syston (booked 08:09). After an arrival report, departure was estimated as arrival + booked dwell, so an early arrival "left" early. It is now never before the booked departure.
+
 ## Station boards use Darwin's forecast for that station
 
 Seen at Leicester at 08:04: the station screen said 08:01 to St Pancras expected 08:06 and the 08:13 on time; the app said 08:09 and 08:14 (scheduled + the train's delay as last reported elsewhere).
