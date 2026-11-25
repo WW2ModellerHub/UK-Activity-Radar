@@ -189,27 +189,32 @@ class TDCollector(StompFeed):
             existing = self.state.find_train_by_headcode(descr) if descr else None
             berth_key = BerthPositions.key(area, to) if (typ == "CA" and to) else None
             learned = self.berths.position(berth_key) if (self.berths is not None and berth_key) else None
+            trail = self._trail.get(existing.id) if existing else None
+            # The same train: its last report came from this TD area, it made a
+            # placed step in this area since (TRUST may have reported it in
+            # between), or a learned berth puts this step near it.
             owned = bool(existing and existing.source == "Network Rail TD"
                          and str(existing.source_id or "").startswith(f"{area}:"))
-            # A learned berth also identifies trains last placed by TRUST, if it is near them.
+            followed = bool(trail and trail.get("area") == area and event_time >= trail["t"] - timedelta(minutes=5))
             near = bool(existing and learned and existing.lat is not None
                         and _km({"lat": existing.lat, "lon": existing.lon}, {"lat": learned[0], "lon": learned[1]}) <= 15.0)
-            if existing and (owned or near) and event_time >= existing.last_updated:
-                trail = self._trail.get(existing.id)
+            # TRUST times can run minutes ahead of TD's: allow for it.
+            fresh = bool(existing and event_time >= existing.last_updated - timedelta(minutes=10))
+            if existing and (owned or followed or near) and fresh:
                 if trail is not None and berth_key:
                     trail["steps"].append((berth_key, event_time))
                     del trail["steps"][:-60]
                 advanced = self._advance_schedule_estimate(existing, event_time)
                 if learned and self._place_on_leg(existing, learned, event_time, area, to):
                     existing.restored_snapshot = False
-                    existing.last_updated = event_time
+                    existing.last_updated = max(existing.last_updated, event_time)
                     existing.status = "TD live"
                     self.state.upsert(existing)
                     if not replay:
                         status.movements_unmapped += 1
                     return True
                 existing.restored_snapshot = False
-                existing.last_updated = event_time
+                existing.last_updated = max(existing.last_updated, event_time)
                 existing.status = "TD live • next berth unresolved"
                 existing.position_method = "estimated"
                 existing.position_label = (
@@ -352,7 +357,7 @@ class TDCollector(StompFeed):
                 self._arrive_by(existing, station, event_time, arrive_at, before)
             if self._reached_destination(schedule, station):
                 existing.terminated_at = existing.terminated_at or event_time
-            self._learn_and_anchor(existing, station, event_time + timedelta(seconds=berth_offset if event_kind else 0), event_kind)
+            self._learn_and_anchor(existing, station, event_time + timedelta(seconds=berth_offset if event_kind else 0), event_kind, area)
             self.state.upsert(existing)
         else:
             leg = self._schedule_leg(
@@ -462,7 +467,8 @@ class TDCollector(StompFeed):
         except (TypeError, ValueError):
             return None
 
-    def _learn_and_anchor(self, vehicle: Vehicle, station: dict, at_time: datetime, event_kind: str | None) -> None:
+    def _learn_and_anchor(self, vehicle: Vehicle, station: dict, at_time: datetime, event_kind: str | None,
+                          area: str | None = None) -> None:
         """A placed report: learn where the unplaced berths since the last one are, then start again here."""
         tiploc = str(station.get("tiploc") or "").strip().upper()
         trail = self._trail.get(vehicle.id)
@@ -472,7 +478,7 @@ class TDCollector(StompFeed):
                 self._learn(vehicle, trail, tiploc, station, at_time, event_kind)
             except Exception:
                 pass
-        self._trail[vehicle.id] = {"tiploc": tiploc, "t": at_time, "kind": event_kind, "steps": [],
+        self._trail[vehicle.id] = {"tiploc": tiploc, "t": at_time, "kind": event_kind, "steps": [], "area": area,
                                    "lat": float(station["lat"]), "lon": float(station["lon"])}
         if len(self._trail) > 8000:
             self._trail.pop(next(iter(self._trail)))
