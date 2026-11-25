@@ -96,3 +96,10 @@ def test_emr_125mph_diesel_with_no_class_is_a_meridian_and_says_it_was_worked_ou
     assert drawn["usual"] == [5, 7]
     slower = describe(_train(operator="East Midlands Railway", power_type="DMU", timing_load=None, booked_speed="90"), [])
     assert slower["class"] is None and slower["inferred"] is False
+
+
+def test_operator_spellings_and_single_class_codes_name_more_trains():
+    assert train_class("DMU", "E", "Northern Trains") == "158"        # same fleet as "Northern"
+    assert train_class("DMU", "S", "ScotRail") == "156"
+    assert train_class("DMU", "E", "East Midlands Railway") is None   # 158 or 170: not guessed
+    assert train_class("EMU", None, "ScotRail") is None                # 318/320/334/380/385: not guessed

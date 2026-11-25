@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## Audit of what live trains are missing; two fixes
+
+Sampled 86 live trains (70 passenger): 22 had a named class, 48 were drawn generically; 30 had not updated for 5+ minutes.
+- Class: the timetable carries no class for most electric units (ScotRail 75 mph EMUs, SWR, Southeastern), which cannot be named honestly; the unit-allocation feed would settle them. Fixed now: "Northern Trains" spelling (missed the class lookup), and diesel codes with one class in the fleet (ScotRail "S" = 156, GWR "E" = 158). EMR's "E" (158/170) and "S" (153/156) stay unnamed.
+- Stale trains: trains saved before a restart and never reported again lingered 15 minutes; live ones return within ~3 (TD replay), so the limit is now 6.
+
 ## Freight cards use the locomotive and wagon pictures
 
 - The exact locomotive is almost never in the feeds, so every freight card fell back to a drawn locomotive. The card (labelled an illustration) now shows the operator's usual locomotive: class 66 for DB Cargo, Freightliner and GBRF, class 68 for DRS, class 90/92 when electric; a DB Cargo 66 when the operator is not known. Operators without a picture (Colas, ROG...) keep the drawn locomotive in their own colours.
