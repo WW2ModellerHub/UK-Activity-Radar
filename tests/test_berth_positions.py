@@ -60,3 +60,24 @@ def test_unplaced_steps_between_two_reports_are_learned_then_place_the_next_trai
     assert "learned berth" in late.position_label and berths.placed_steps == 1
     # Off its track by more than 400 m: not used.
     assert not collector._place_on_leg(late, (52.70, -1.30), T0, "LR", "0396")
+
+
+def test_steps_are_followed_after_trust_reports_the_train_in_between(tmp_path):
+    """TRUST can take a train over (source, and a clock minutes ahead); its next TD steps are still its own."""
+    import json as _json
+    from app.collectors.td import TDCollector
+    from app.state import LiveState
+    (tmp_path / "stations.json").write_text("{}")
+    (tmp_path / "smart.json").write_text("[]")
+    state = LiveState()
+    collector = TDCollector(SimpleNamespace(td_topic="/topic/TD"), state, tmp_path / "stations.json", tmp_path / "smart.json")
+    collector.berths = BerthPositions(None)
+    train = Vehicle(id="nr:1", type="train", name="1N41", headcode="1N41", lat=LEICESTER[0], lon=LEICESTER[1], source="Network Rail TRUST",
+                    last_updated=T0 + timedelta(minutes=6))                     # TRUST, stamped ahead
+    state.upsert(train)
+    collector._trail["nr:1"] = {"tiploc": "LESTER", "t": T0, "kind": None, "steps": [], "area": "LR",
+                                "lat": LEICESTER[0], "lon": LEICESTER[1]}
+    collector.handle_message(_json.dumps([{"CA_MSG": {"area_id": "LR", "from": "0404", "to": "0396", "descr": "1N41",
+                                                      "time": str(int((T0 + timedelta(minutes=2)).timestamp() * 1000))}}]))
+    assert collector._trail["nr:1"]["steps"] == [("LR:0396", T0 + timedelta(minutes=2))]
+    assert state.get("nr:1").last_updated == T0 + timedelta(minutes=6)        # never moved backwards
