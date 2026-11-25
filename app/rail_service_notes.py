@@ -38,7 +38,7 @@ class RailServiceNotes:
         if entry is None:
             if len(self._notes) >= MAX_SERVICES:
                 self._prune_unlocked(force=True)
-            entry = self._notes[key] = {"cancelled": None, "platforms": {}}
+            entry = self._notes[key] = {"cancelled": None, "platforms": {}, "forecasts": {}}
         entry["touched"] = time.time()
         return entry
 
@@ -77,6 +77,20 @@ class RailServiceNotes:
         with self._lock:
             self._entry(key)["platforms"][code] = value
 
+    def forecast(self, train_uid, service_date, tiploc: str | None, *, arrival: str | None = None,
+                 departure: str | None = None) -> None:
+        """Darwin's expected or actual time ("08:06") at one calling point."""
+        key = self._key(train_uid, service_date)
+        code = str(tiploc or "").strip().upper()
+        if key is None or not code or not (arrival or departure):
+            return
+        with self._lock:
+            slot = self._entry(key).setdefault("forecasts", {}).setdefault(code, {})
+            if arrival:
+                slot["arrival"] = str(arrival)[:5]
+            if departure:
+                slot["departure"] = str(departure)[:5]
+
     def get(self, train_uid, service_date) -> dict | None:
         key = self._key(train_uid, service_date)
         if key is None:
@@ -89,6 +103,7 @@ class RailServiceNotes:
             return {
                 "cancelled": dict(cancelled) if cancelled else None,
                 "platforms": dict(entry.get("platforms") or {}),
+                "forecasts": {code: dict(slot) for code, slot in (entry.get("forecasts") or {}).items()},
             }
 
     def _prune_unlocked(self, force: bool = False) -> None:

@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## Station boards use Darwin's forecast for that station
+
+Seen at Leicester at 08:04: the station screen said 08:01 to St Pancras expected 08:06 and the 08:13 on time; the app said 08:09 and 08:14 (scheduled + the train's delay as last reported elsewhere).
+- The Darwin consumer keeps each calling point's expected or actual time (`RailServiceNotes.forecast`).
+- Boards prefer that forecast for the station shown; the whole-train delay remains the fallback. Rows say `forecast_source: darwin`.
+
 ## Trains are not drawn at a stop before they reach it
 
 Seen at Hinckley: the map showed 1K03 at the platform at 07:27; it arrived at 07:28:28.

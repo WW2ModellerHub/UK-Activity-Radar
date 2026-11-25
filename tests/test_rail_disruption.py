@@ -157,3 +157,32 @@ def test_board_says_the_usual_platform_until_the_real_one_is_announced(tmp_path:
     rows = {row["train_uid"]: row for row in service._scheduled_station_calls("LEI", 10)["departures"]}
     assert rows["NORMAL"]["usual_platform"] == {"platform": "6", "seen": 4, "of": 4}
     assert "usual_platform" not in rows["CANX01"] and "usual_platform" not in rows["MOVED1"]
+
+
+def test_board_uses_darwins_forecast_for_this_station_over_the_whole_train_delay(tmp_path: Path):
+    """Seen at Leicester: the screen said 08:06, the app 08:09 (scheduled + the train's delay elsewhere)."""
+    service, state, day = _board_service(tmp_path)
+    scheduled = {row["train_uid"]: row for row in service._scheduled_station_calls("LEI", 10)["departures"]}["NORMAL"]
+    booked = datetime.fromisoformat(f"{day}T{scheduled['scheduled']}:00")
+    state.upsert(Vehicle(id="nr:n", type="train", name="1F10", train_uid="NORMAL", service_date=day,
+                         lat=52.6, lon=-1.1, delay_minutes=8, source="Network Rail TRUST"))
+    state.rail_notes.forecast("NORMAL", day, "LESTER", departure=(booked + timedelta(minutes=5)).strftime("%H:%M"))
+    row = {row["train_uid"]: row for row in service._scheduled_station_calls("LEI", 10)["departures"]}["NORMAL"]
+    assert row["status"] == "5 min late" and row["delay_minutes"] == 5 and row["forecast_source"] == "darwin"
+    assert row["live_train_id"] == "nr:n"
+    state.rail_notes.forecast("NORMAL", day, "LESTER", departure=scheduled["scheduled"])
+    row = {row["train_uid"]: row for row in service._scheduled_station_calls("LEI", 10)["departures"]}["NORMAL"]
+    assert row["status"] == "On time"
+
+
+def test_darwin_forecasts_are_kept_per_calling_point():
+    from app.collectors.darwin_kafka import DarwinKafkaFeed
+    from app.config import Settings
+    state = LiveState()
+    feed = DarwinKafkaFeed(Settings(), state)
+    feed.handle(json.dumps({"uR": {"TS": {"rid": "R", "uid": "C1", "ssd": "2026-11-25", "Location": [
+        {"tpl": "LESTER", "ptd": "08:01", "dep": {"et": "08:06"}},
+        {"tpl": "MKTHBRO", "pta": "08:15", "arr": {"at": "08:19"}},
+    ]}}}).encode())
+    forecasts = state.rail_notes.get("C1", "2026-11-25")["forecasts"]
+    assert forecasts == {"LESTER": {"departure": "08:06"}, "MKTHBRO": {"arrival": "08:19"}}
