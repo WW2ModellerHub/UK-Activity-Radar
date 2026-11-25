@@ -1575,6 +1575,12 @@ def station_page_route(name: str, request: Request):
                 facts["knowledge"] = rdm.station(crs)
             except Exception:
                 pass
+        if rdm.status().get("disruptions"):
+            try:
+                from .station_knowledge import disruption_items
+                facts["notices"] = disruption_items(rdm.station_disruptions(crs))
+            except Exception:
+                pass
         # Each direct destination links to its route page ("Hinckley to Leicester trains").
         from .route_pages import route_path
         paths = {row["crs"]: route_path(station, row) for row in _stations() if row["crs"] != crs}
@@ -2708,6 +2714,8 @@ def place_board(place_id: str, request: Request, limit: int = 10):
         if rdm.status().get("disruptions"):
             try:
                 payload["official_disruptions"] = rdm.station_disruptions(crs)
+                from .station_knowledge import disruption_items
+                payload["station_notices"] = disruption_items(payload["official_disruptions"])
             except (ValueError, RuntimeError, requests.RequestException):
                 payload["official_disruptions_unavailable"] = True
     elif typ == "bus_stop": payload=smart_places.bus_board(place, limit)

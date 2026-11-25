@@ -2622,6 +2622,13 @@
   }
 
   // Engineering works: days in the next week when buses replace trains here.
+  // Official disruption messages for a station now (National Rail via the
+  // Rail Data Marketplace), already plain text from the server.
+  function stationNoticesHtml(notices){
+    const rows=(Array.isArray(notices)?notices:[]).filter(n=>n&&n.text);
+    if(!rows.length)return '';
+    return `<section class="station-notices" aria-label="Disruption at this station"><strong>Disruption now</strong><ul>${rows.map(n=>`<li class="notice-${esc(String(n.severity||'').toLowerCase())}"><b>${esc(n.category||'')}</b><span>${esc(n.text)}</span>${n.link&&/^https:\/\//.test(n.link)?` <a href="${esc(n.link)}" target="_blank" rel="noopener">More</a>`:''}</li>`).join('')}</ul></section>`;
+  }
   function engineeringNoticeHtml(days,stops){
     const rows=(Array.isArray(days)?days:[]).slice(0,3);
     if(!rows.length)return '';
@@ -2668,7 +2675,7 @@
       if(tab==='freight'&&!freight)tab='departures';
       const freightTab=freight?`<button type="button" role="tab" data-board-tab="freight" aria-selected="${tab==='freight'}">Freight <small>${freightRows.length}</small></button>`:'';
       const freightList=freight?`<div class="board-list" data-board-list="freight"${tab==='freight'?'':' hidden'}><p class="board-note">Freight and engineering trains due in the next two hours.</p>${freight}</div>`:'';
-      html=`${waiting}${engineeringNoticeHtml(board.engineering,board.replacement_stops)}<div class="board-switch${freight?' has-three':''}" role="tablist" aria-label="Departures, arrivals or freight"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button>${freightTab}</div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>${freightList}${railBoardSnapshot(board)}${stationActions(place)}`;
+      html=`${waiting}${stationNoticesHtml(board.station_notices)}${engineeringNoticeHtml(board.engineering,board.replacement_stops)}<div class="board-switch${freight?' has-three':''}" role="tablist" aria-label="Departures, arrivals or freight"><button type="button" role="tab" data-board-tab="departures" aria-selected="${tab==='departures'}">Departures</button><button type="button" role="tab" data-board-tab="arrivals" aria-selected="${tab==='arrivals'}">${esc(arrivalLabel)}</button>${freightTab}</div><div class="board-list" data-board-list="departures"${tab==='departures'?'':' hidden'}>${deps||'<p class="board-empty">No departures due.</p>'}</div><div class="board-list" data-board-list="arrivals"${tab==='arrivals'?'':' hidden'}>${arr||'<p class="board-empty">No arrivals due.</p>'}</div>${freightList}${railBoardSnapshot(board)}${stationActions(place)}`;
     } else if(place.place_type==='bus_stop') {
       box.classList.add('bus-departure-board');
       const rows=(board.rows||[]).map(r=>boardRow(r,'bus')).join('');
