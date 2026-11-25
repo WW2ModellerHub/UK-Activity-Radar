@@ -112,7 +112,7 @@ def test_station_disruptions_are_combined_and_filtered_by_crs():
 
     assert result == {"incidents": [{"id": 1}], "station_messages": [{"id": 2}]}
     assert [call[1]["params"] for call in session.calls] == [
-        {"stationCode": "LEI"}, {"stationCode": "LEI"},
+        {"crsCode": "LEI"}, {"crsCode": "LEI"},
     ]
 
 
