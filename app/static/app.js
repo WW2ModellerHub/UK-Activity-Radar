@@ -4576,8 +4576,8 @@
     return `<svg class="coach-svg" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">${pantograph}<path d="M8 7 L92 7 Q97 8 97 14 L97 30 L3 30 L3 14 Q3 8 8 7 Z" fill="${theme.primary}"/><rect x="3" y="21" width="94" height="3" fill="${theme.secondary}"/><path d="M5 10 L14 10 L14 18 L4 18 Z" fill="#1f2a33"/><path d="M95 10 L86 10 L86 18 L96 18 Z" fill="#1f2a33"/><g stroke="rgba(0,0,0,.28)" stroke-width="1">${[26,29,32,35,62,65,68,71].map(x=>`<line x1="${x}" y1="11" x2="${x}" y2="18"/>`).join('')}</g><rect x="44" y="10" width="12" height="9" rx="1" fill="rgba(0,0,0,.15)"/><rect x="3" y="30" width="94" height="3" fill="#2d3238"/><g fill="#2d3238"><circle cx="13" cy="36" r="3"/><circle cx="23" cy="36" r="3"/><circle cx="77" cy="36" r="3"/><circle cx="87" cy="36" r="3"/></g></svg>`;
   }
   const FREIGHT_WAGONS={A0:'coal',E0:'coal',B0:'coal',B1:'metals',B4:'aggregate',B5:'containers',B6:'aggregate',B7:'tank',
-    H0:'containers',H1:'containers',H2:'cars',H3:'cars',H4:'van',H5:'van',H6:'van',H8:'containers',H9:'containers',
-    J2:'van',J3:'containers',J4:'aggregate',J5:'chemical',J6:'aggregate',J8:'van',J9:'containers',
+    H0:'containers',H1:'containers',H2:'cars',H3:'cars',H4:'containers',H5:'containers',H6:'containers',H8:'containers',H9:'containers',
+    J2:'van',J3:'containers',J4:'aggregate',J5:'chemical',J6:'aggregate',J8:'containers',J9:'containers',
     DD:'ballast',DH:'ballast',DI:'ballast',DQ:'ballast',DY:'ballast',PP:'van',PM:'van',JJ:'van',PV:'van'};
   const FREIGHT_PROFILE_IMAGES={
     containers:'/static/assets/train-profiles/freight-wagon-intermodal.webp',
@@ -4606,9 +4606,24 @@
     '90':{freightliner:'/static/assets/train-profiles/freight-class-90-freightliner.webp'},
     '92':{gbrf:'/static/assets/train-profiles/freight-class-92-gbrf.webp'},
   };
+  // The feeds rarely give the exact locomotive: the freight card is an
+  // illustration, so it shows the operator's usual type (the most common
+  // freight locomotive when the operator is not known).
+  const TYPICAL_FREIGHT_LOCO={
+    'db-cargo':['66','90'],freightliner:['66','90'],gbrf:['66','92'],drs:['68','68'],
+  };
+  function typicalFreightLoco(theme,electric){
+    // A known operator with no picture (Colas, ROG...) keeps the drawn
+    // locomotive in its own colours rather than another company's.
+    if(!TYPICAL_FREIGHT_LOCO[theme.key]&&theme.key!=='reference')return null;
+    const [diesel,electricClass]=TYPICAL_FREIGHT_LOCO[theme.key]||['66'];
+    const key=TYPICAL_FREIGHT_LOCO[theme.key]?theme.key:'db-cargo';
+    return FREIGHT_LOCOMOTIVE_IMAGES[electric&&electricClass?electricClass:diesel]?.[key]
+      ||FREIGHT_LOCOMOTIVE_IMAGES[diesel]?.[key]||FREIGHT_LOCOMOTIVE_IMAGES['66']['db-cargo'];
+  }
   function freightVehicleHtml(kind,index,theme,electric,isLoco=false,exactClass=null,trainKind=null){
     const image=isLoco
-      ?(FREIGHT_LOCOMOTIVE_IMAGES[exactClass]?.[theme.key]||(trainKind==='engineering'?'/static/assets/train-profiles/rail-engineering-machine.webp':null))
+      ?(FREIGHT_LOCOMOTIVE_IMAGES[exactClass]?.[theme.key]||(trainKind==='engineering'?'/static/assets/train-profiles/rail-engineering-machine.webp':typicalFreightLoco(theme,electric)))
       :FREIGHT_PROFILE_IMAGES[kind];
     const visual=image?`<img class="freight-profile-asset" src="${image}" alt="" loading="lazy" decoding="async">`
       :isLoco?locoSvg(theme,electric):wagonSvg(kind,index);
@@ -4624,7 +4639,7 @@
     // Light engines run alone; a locomotive and brake van is just that.
     const wagons=code==='ZZ'?[]:code==='ZB'?['brake']:Array.from({length:5},()=>kind||'van');
     const exactClass=(String(vehicleRef||'').match(/(?:CLASS\s*)?(60|66|68|69|70|90|92)\d{3}\b/i)||[])[1]||null;
-    const vehicles=[...wagons.map((w,i)=>({kind:w,index:i})).reverse(),{loco:true}];
+    const vehicles=[{loco:true},...wagons.map((w,i)=>({kind:w,index:i}))];   // locomotive first: visible without scrolling
     const cells=vehicles.map(item=>freightVehicleHtml(item.kind,item.index,theme,electric,item.loco,exactClass,kind)).join('');
     const cargoLabel=(cargo||'Freight').replace(/\s+train$/i,'');
     const title=code==='ZZ'?'Light locomotive':code==='ZB'?'Locomotive and brake van':`${cargoLabel} train`;
