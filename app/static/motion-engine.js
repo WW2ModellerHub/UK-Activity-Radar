@@ -161,6 +161,15 @@
       // A train is not drawn at its next stop until a report says it got
       // there: on time by the timetable is not arrived. It waits ~200 m out.
       // (An arrival leg from a signalling step already knows when it arrives.)
+      // Not past the next signal berth until the train steps into it (learned
+      // on the server; only on the leg it was set for, and only for 3 minutes).
+      const cap=activity.estimate_cap;
+      if(Array.isArray(cap)&&cap.length>=6&&serverNow<=cap[5]&&fraction>cap[4]){
+        const first=path[0],last=path[path.length-1];
+        if(Math.abs(first[0]-cap[0])<1e-4&&Math.abs(first[1]-cap[1])<1e-4&&Math.abs(last[0]-cap[2])<1e-4&&Math.abs(last[1]-cap[3])<1e-4){
+          fraction=cap[4];sample=samplePath(path,fraction)||sample;
+        }
+      }
       if(sample&&Number(activity.estimate_brake_s)>0&&activity.rail_event_type!=='Arrival'){
         const cap=Math.max(0,1-ARRIVAL_HOLD_KM/Math.max(sample.total,ARRIVAL_HOLD_KM*2));
         if(fraction>cap){fraction=cap;sample=samplePath(path,cap);}

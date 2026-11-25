@@ -133,6 +133,11 @@ def _estimated_train_position(vehicle: Vehicle, now: datetime) -> tuple[float, f
     total_seconds = (vehicle.estimate_due_at - vehicle.estimate_started_at).total_seconds()
     fraction = distance_fraction((now - vehicle.estimate_started_at).total_seconds(), total_seconds,
                                  vehicle.estimate_accel_s, vehicle.estimate_brake_s)
+    # Not past the next signal berth it has not stepped into (learned; motion-engine.js does the same).
+    cap = vehicle.estimate_cap
+    if cap and len(cap) >= 6 and now.timestamp() * 1000 <= cap[5] and all(
+            abs(a - b) < 1e-4 for a, b in zip(cap[:4], (points[0][0], points[0][1], points[-1][0], points[-1][1]))):
+        fraction = min(fraction, float(cap[4]))
     legs: list[tuple[tuple[float, float], tuple[float, float], float, float]] = []
     total_distance = 0.0
     for first, second in zip(points, points[1:]):

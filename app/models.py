@@ -128,6 +128,10 @@ class Vehicle(BaseModel):
     # Seconds of the leg spent speeding up from a stand and braking to a stop (running_profile).
     estimate_accel_s: float = 0.0
     estimate_brake_s: float = 0.0
+    # [first lat, first lon, last lat, last lon, share, until epoch ms]: on the leg
+    # with these ends, not drawn past `share` of the way until `until` (the next
+    # signal berth, learned). Ignored on any other leg or after `until`.
+    estimate_cap: list[float] | None = None
 
 
 class Event(BaseModel):
