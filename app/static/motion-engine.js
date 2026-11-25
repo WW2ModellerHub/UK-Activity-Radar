@@ -130,6 +130,8 @@
   // normal timetable/reporting noise. Hold position until the estimate catches
   // up instead of visibly reversing along the track.
   const TRAIN_HOLD_MAX_KM=1.5;
+  // How far short of an unconfirmed stop a train waits (see trainTarget).
+  const ARRIVAL_HOLD_KM=.2;
   // The drawn marker counts as "on" a new path within this distance.
   const TRAIN_ON_PATH_KM=.35;
 
@@ -151,8 +153,15 @@
     const started=Date.parse(activity.estimate_started_at||''),due=Date.parse(activity.estimate_due_at||'');
     const path=usablePath(activity.estimate_path);
     if(path.length>=2&&Number.isFinite(started)&&Number.isFinite(due)&&due>started&&serverNow>=started){
-      const fraction=clamp(legFraction((serverNow-started)/1000,(due-started)/1000,activity.estimate_accel_s,activity.estimate_brake_s));
-      const sample=samplePath(path,fraction);
+      let fraction=clamp(legFraction((serverNow-started)/1000,(due-started)/1000,activity.estimate_accel_s,activity.estimate_brake_s));
+      let sample=samplePath(path,fraction);
+      // A train is not drawn at its next stop until a report says it got
+      // there: on time by the timetable is not arrived. It waits ~200 m out.
+      // (An arrival leg from a signalling step already knows when it arrives.)
+      if(sample&&Number(activity.estimate_brake_s)>0&&activity.rail_event_type!=='Arrival'){
+        const cap=Math.max(0,1-ARRIVAL_HOLD_KM/Math.max(sample.total,ARRIVAL_HOLD_KM*2));
+        if(fraction>cap){fraction=cap;sample=samplePath(path,cap);}
+      }
       if(sample)return {mode:'path',path,fraction,sample,
         key:`path|${activity.estimate_started_at||''}|${activity.estimate_due_at||''}|${JSON.stringify(path)}`};
     }

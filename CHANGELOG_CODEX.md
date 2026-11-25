@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## Trains are not drawn at a stop before they reach it
+
+Seen at Hinckley: the map showed 1K03 at the platform at 07:27; it arrived at 07:28:28.
+- TD arrival steps (e.g. Hinckley platform 1: 84 s before the train stops) with no fresh approach leg now retime a kept leg to arrive at step + offset, or hold the train where it was, instead of drawing it at the platform at once (`TDCollector._arrive_by`).
+- A leg ending at a stop is not drawn into the platform until a report confirms arrival: the train waits ~200 m out (motion-engine.js and `state._estimated_train_position`). Arrival legs from a signalling step are trusted.
+- The timetable rollover past an unconfirmed stop waits 90 s (`ARRIVAL_GRACE_S`) for a report.
+
 ## National Rail's own status on the line status board
 
 - `rdm.service_indicators()` (one call, every operator, cached 2 min) feeds `line_status.official_status`: National Rail's wording per operator and its current incidents, taken from the dated incident links (stale links over 21 days old dropped; https only). Per-incident lookups were not used: rapid calls are refused (403).

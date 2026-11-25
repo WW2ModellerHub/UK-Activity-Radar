@@ -206,7 +206,7 @@ def test_td_uses_smart_departure_offset_instead_of_restarting_at_station(tmp_pat
 
     collector.handle_message(json.dumps({"CA_MSG": {
         "area_id": "WG", "from": "UNKNOWN", "to": "UNKNOWN", "descr": "1P04",
-        "time": int((now + timedelta(minutes=10)).timestamp() * 1000),
+        "time": int((now + timedelta(minutes=11)).timestamp() * 1000),   # past the 90 s arrival grace
     }}))
 
     advanced = state.get("td:WG:1P04")
@@ -261,7 +261,8 @@ def test_elapsed_train_leg_advances_without_another_td_message_or_click(tmp_path
 
     first = state.get("td:WG:1P04")
     assert first.next_tiploc == "NARBORO"
-    assert collector.advance_live_estimates(now + timedelta(minutes=7)) == 1
+    # After the 90 s grace an unconfirmed stop is given (see test_running_profile).
+    assert collector.advance_live_estimates(now + timedelta(minutes=8)) == 1
 
     moved = state.get("td:WG:1P04")
     assert moved.reported_lat == 52.571

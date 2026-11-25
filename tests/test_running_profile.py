@@ -90,3 +90,25 @@ def test_newer_berth_steps_replace_old_smart_rows_in_the_areas_they_cover(tmp_pa
     assert ("LR", "0426", "0412") in collector.exact
     assert ("LR", "0999", "0998") not in collector.exact
     assert ("ZZ", "0001", "0002") in collector.exact
+
+
+def test_a_train_is_not_drawn_at_an_unconfirmed_stop_and_waits_for_a_late_report():
+    from datetime import timedelta as td_
+    from types import SimpleNamespace
+    from app.collectors import td as td_module
+    start = datetime(2026, 11, 25, 7, 20, tzinfo=london_tz())
+    train = Vehicle(id="t", type="train", name="1K03", lat=0, lon=0, last_updated=start,
+                    estimate_path=[[52.53, -1.50], [52.535, -1.372]], estimate_started_at=start,
+                    estimate_due_at=start + td_(minutes=7), estimate_brake_s=60)
+    lat, lon = _estimated_train_position(train, start + td_(minutes=8))       # a minute after its booked arrival
+    assert abs(lon - (-1.372)) > 0.002                                          # still short of the platform
+    train.rail_event_type = "Arrival"                                           # an arrival step knows when it arrives
+    assert abs(_estimated_train_position(train, start + td_(minutes=8))[1] - (-1.372)) < 1e-6
+    # The rollover past the stop waits ARRIVAL_GRACE_S for a report.
+    collector = SimpleNamespace(_schedule_departure_after_arrival=lambda *a: None, _schedule_leg=lambda *a, **k: {"due_at": start + td_(minutes=20)},
+                                _apply_estimate_leg=lambda *a: None)
+    late = Vehicle(id="u", type="train", name="1K03", lat=0, lon=0, last_updated=start, next_tiploc="HINCKLY",
+                   estimate_due_at=start + td_(minutes=7), estimate_brake_s=60, schedule_id=1, service_date="2026-11-25")
+    advance = td_module.TDCollector._advance_schedule_estimate
+    assert advance(collector, late, start + td_(minutes=8)) is False
+    assert advance(collector, late, start + td_(minutes=9)) is True

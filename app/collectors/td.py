@@ -30,6 +30,7 @@ def _near_path(lat: float, lon: float, path, km: float) -> bool:
     return False
 
 
+ARRIVAL_GRACE_S = 90
 BERTH_STEPS_FILE = Path(__file__).resolve().parents[1] / "reference" / "berth_steps.csv.gz"
 # Column order of the Rail Data Marketplace berth steps file (SMART fields).
 BERTH_STEP_COLUMNS = ("TD", "STEPTYPE", "FROMBERTH", "TOBERTH", "STANOX", "STANME", "EVENT",
@@ -255,8 +256,15 @@ class TDCollector(StompFeed):
                 and existing.estimate_due_at
                 and existing.estimate_due_at > event_time
             )
+            before = (existing.lat, existing.lon)
             existing.lat = lat; existing.lon = lon
             existing.reported_lat = lat; existing.reported_lon = lon
+            # An arrival step comes before the train reaches the platform: SMART
+            # gives how long (Hinckley platform 1: 84 s). It must not be drawn
+            # there yet.
+            arrive_at = (event_time + timedelta(seconds=berth_offset)
+                         if event_kind == "Arrival" and berth_offset > 0 and not fallback else None)
+            leg_applied = False
             # A berth step at a location the timetable leg cannot start from
             # (a junction with no booked time, an unmatched berth) used to wipe
             # a perfectly good leg and park the train there until the next
@@ -314,6 +322,7 @@ class TDCollector(StompFeed):
                     existing.estimate_due_at = leg["due_at"]
                     existing.estimate_accel_s = float(leg.get("accel_s") or 0)
                     existing.estimate_brake_s = float(leg.get("brake_s") or 0)
+                    leg_applied = True
                 if leg and leg.get("delay_minutes") is not None and not fallback:
                     # A berth step at a timetabled location is a real report:
                     # its offset from the booked time is the train's lateness.
@@ -322,6 +331,8 @@ class TDCollector(StompFeed):
                 for field, value in kept_leg.items():
                     setattr(existing, field, value)
                 existing.position_method = "estimated"
+            if arrive_at and not leg_applied and not preserve_leg:
+                self._arrive_by(existing, station, event_time, arrive_at, before)
             if self._reached_destination(schedule, station):
                 existing.terminated_at = existing.terminated_at or event_time
             self.state.upsert(existing)
@@ -434,6 +445,32 @@ class TDCollector(StompFeed):
             return None
 
     @staticmethod
+    def _arrive_by(vehicle: Vehicle, station: dict, event_time: datetime, arrive_at: datetime, before) -> None:
+        """An arrival step with no fresh approach leg: reach the platform at arrive_at, not now.
+
+        A kept leg that ends at this station is retimed to arrive then (it
+        was timed from the booked arrival, which a late-running train misses).
+        With no path at all, the train stays where it was drawn until a
+        report moves it, rather than jumping to the platform early.
+        """
+        path = vehicle.estimate_path or []
+        if path and len(path) >= 2 and _km({"lat": path[-1][0], "lon": path[-1][1]}, station) <= 0.8:
+            vehicle.estimate_due_at = arrive_at
+            if not vehicle.estimate_started_at or vehicle.estimate_started_at >= arrive_at:
+                vehicle.estimate_started_at = event_time
+            vehicle.estimate_brake_s = max(float(vehicle.estimate_brake_s or 0), 30.0)
+            vehicle.position_method = "estimated"
+            vehicle.position_label = f"Approaching {station.get('name') or 'the station'} • due about {arrive_at:%H:%M:%S} from the TD arrival step"
+            return
+        if not path:
+            lat, lon = before
+            if lat is not None and lon is not None and _km({"lat": lat, "lon": lon}, station) <= 10.0:
+                vehicle.lat, vehicle.lon = lat, lon
+                vehicle.reported_lat, vehicle.reported_lon = lat, lon
+                vehicle.position_method = "estimated"
+                vehicle.position_label = f"Approaching {station.get('name') or 'the station'} • due about {arrive_at:%H:%M:%S}"
+
+    @staticmethod
     def _apply_estimate_leg(vehicle: Vehicle, leg: dict) -> None:
         vehicle.lat = leg["lat"]
         vehicle.lon = leg["lon"]
@@ -483,6 +520,11 @@ class TDCollector(StompFeed):
             due_at = vehicle.estimate_due_at
             next_tiploc = str(vehicle.next_tiploc or "").strip().upper()
             if not due_at or observed_at <= due_at or not next_tiploc:
+                break
+            # A stop the timetable says it has reached but no report has
+            # confirmed: give a late train 90 s before moving it on past it.
+            if (step == 0 and (vehicle.estimate_brake_s or 0) > 0 and str(vehicle.rail_event_type or "") != "Arrival"
+                    and observed_at <= due_at + timedelta(seconds=ARRIVAL_GRACE_S)):
                 break
             leg = (
                 self._schedule_departure_after_arrival(vehicle, due_at)

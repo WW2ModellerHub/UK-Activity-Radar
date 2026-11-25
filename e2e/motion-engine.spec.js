@@ -376,3 +376,24 @@ test('a train speeds up from a stand and brakes to a stop, matching the server s
   expect(result.sum).toBeCloseTo(0.01087, 4);
   expect(result.end).toBeCloseTo(1, 6);
 });
+
+test('a train is not drawn at its next stop before a report says it arrived', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const now = Date.now();
+    const leg = extra => engine.present({
+      id: `t-${JSON.stringify(extra)}`, type: 'train', lat: 52.53, lon: -1.5, estimate_path: [[52.53, -1.5], [52.535, -1.372]],
+      estimate_started_at: new Date(now - 480000).toISOString(), estimate_due_at: new Date(now - 60000).toISOString(),
+      estimate_brake_s: 60, ...extra,
+    }, now, false);
+    const end = [52.535, -1.372];
+    const away = a => engine.distanceKm(a.lat, a.lon, end[0], end[1]);
+    return { unconfirmed: away(leg({})), arrivalStep: away(leg({ rail_event_type: 'Arrival' })), passing: away(leg({ estimate_brake_s: 0 })) };
+  });
+  expect(result.unconfirmed).toBeGreaterThan(0.15);   // waits about 200 m out
+  expect(result.unconfirmed).toBeLessThan(0.25);
+  expect(result.arrivalStep).toBeLessThan(0.01);      // a signalling arrival step is trusted
+  expect(result.passing).toBeLessThan(0.01);          // a junction it passes is not a stop
+});
