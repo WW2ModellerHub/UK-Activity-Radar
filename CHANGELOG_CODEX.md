@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## Codex's new train and bus profiles: cut per coach, made small
+
+- 15 new passenger classes (150, 158, 159, 165/166, 168, 185, 196, 197, 345, 377, 385, 395, 444, 700, 720) are cut at their gangways into per-coach WebP and built to each train's real length with coach letters, first class and toilets under each coach (every cut checked by eye; 377 has 4 coaches and 720 has 5 in the artwork). The articulated 745 is shown whole: its short carriages share bogies, leaving no clean gap.
+- Freight locomotives and wagons, trams, Underground, sleeper, steam, postal, engineering and the 16 bus profiles are trimmed to small WebP.
+- Served profile images: ~1.9 MB in all, from ~70 MB of PNG; the PNG sources move to `art/`. Codex's PNG-size tests are replaced by a check that every referenced picture is a small WebP and no PNG is served.
+
 ## Trains paced by their own measured speed between learned berths
 
 - After two learned-berth steps on the same leg, the rest of the leg runs at the train's own pace (distance between the steps over the time taken), bounded to half-to-double the timetable's; before that, the timetable's.

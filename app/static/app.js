@@ -4443,25 +4443,35 @@
     '800':{lner:['class-800-lner-azuma',[215,187,176,171,206]],gwr:['class-800-gwr-iet',[292,216,263,196,281]]},
     '801':{lner:['class-800-lner-azuma',[215,187,176,171,206]]},
     '802':{gwr:['class-800-gwr-iet',[292,216,263,196,281]]},
+    '150':{'northern':['class-150-northern',[367,368]]},
+    '158':{'northern':['class-158-northern',[377,375]]},
+    '159':{'south-western':['class-159-south-western',[317,280,328]]},
+    '165':{'gwr':['class-165-gwr',[317,303,316]]},
+    '166':{'gwr':['class-165-gwr',[317,303,316]]},
+    '168':{'chiltern':['class-168-chiltern',[291,267,263,292]]},
+    '185':{'transpennine':['class-185-transpennine',[274,311,266]]},
+    '196':{'west-midlands':['class-196-west-midlands',[288,230,239,287]]},
+    '197':{'transport-for-wales':['class-197-transport-for-wales',[261,279,264]]},
+    '345':{'elizabeth-line':['class-345-elizabeth-line',[222,142,135,133,146,126,137,128,223]]},
+    '377':{'southern':['class-377-southern',[302,277,267,300]]},
+    '385':{'scotrail':['class-385-scotrail',[203,167,167,213]]},
+    '395':{'southeastern':['class-395-southeastern',[251,180,190,184,186,250]]},
+    '444':{'south-western':['class-444-south-western',[286,260,263,262,283]]},
+    '700':{'thameslink':['class-700-thameslink',[225,123,133,125,129,125,125,223]]},
+    '720':{'greater-anglia':['class-720-greater-anglia',[197,198,224,188,208]]},
   };
   // Whole-formation assets supplement the newer coach-by-coach sets. They are
   // selected only from an explicit timetable class or service description.
   const WHOLE_TRAIN_PROFILE_IMAGES={
-    '150':{northern:'class-150-northern.png'},'158':{northern:'class-158-northern.png'},
-    '159':{'south-western':'class-159-south-western.png'},'165':{gwr:'class-165-gwr.png'},'166':{gwr:'class-165-gwr.png'},
-    '168':{chiltern:'class-168-chiltern.png'},'185':{transpennine:'class-185-transpennine.png'},
-    '196':{'west-midlands':'class-196-west-midlands.png'},'197':{'transport-for-wales':'class-197-transport-for-wales.png'},
-    '345':{'elizabeth-line':'class-345-elizabeth-line.png'},'377':{southern:'class-377-southern.png'},
-    '385':{scotrail:'class-385-scotrail.png'},'395':{southeastern:'class-395-southeastern.png'},
-    '444':{'south-western':'class-444-south-western.png'},'700':{thameslink:'class-700-thameslink.png'},
-    '720':{'greater-anglia':'class-720-greater-anglia.png'},'745':{'greater-anglia':'class-745-greater-anglia.png'},
+    // The articulated FLIRT has no clean gap between carriages to cut at.
+    '745':{'greater-anglia':'class-745-greater-anglia.webp'},
   };
   const SPECIAL_TRAIN_PROFILE_IMAGES=[
-    [/\b(?:LONDON\s+UNDERGROUND|TUBE|UNDERGROUND)\b/i,'london-underground.png'],[/\b(?:CROYDON|TRAMLINK)\b/i,'tram-croydon.png'],
-    [/\b(?:MANCHESTER|METROLINK)\b/i,'tram-manchester.png'],[/\bEDINBURGH\s+TRAM/i,'tram-edinburgh.png'],
-    [/\b(?:NOTTINGHAM|NET)\s+TRAM/i,'tram-nottingham.png'],[/\b(?:SLEEPER|CALEDONIAN)\b/i,'sleeper-train.png'],
-    [/\b(?:STEAM|HERITAGE|CHARTER)\b/i,'heritage-steam-charter.png'],[/\b(?:ENGINEERING|ON[- ]TRACK|MAINTENANCE)\b/i,'rail-engineering-machine.png'],
-    [/\b(?:POSTAL|MAIL)\b/i,'postal-train.png'],
+    [/\b(?:LONDON\s+UNDERGROUND|TUBE|UNDERGROUND)\b/i,'london-underground.webp'],[/\b(?:CROYDON|TRAMLINK)\b/i,'tram-croydon.webp'],
+    [/\b(?:MANCHESTER|METROLINK)\b/i,'tram-manchester.webp'],[/\bEDINBURGH\s+TRAM/i,'tram-edinburgh.webp'],
+    [/\b(?:NOTTINGHAM|NET)\s+TRAM/i,'tram-nottingham.webp'],[/\b(?:SLEEPER|CALEDONIAN)\b/i,'sleeper-train.webp'],
+    [/\b(?:STEAM|HERITAGE|CHARTER)\b/i,'heritage-steam-charter.webp'],[/\b(?:ENGINEERING|ON[- ]TRACK|MAINTENANCE)\b/i,'rail-engineering-machine.webp'],
+    [/\b(?:POSTAL|MAIL)\b/i,'postal-train.webp'],
   ];
   function wholeTrainProfileImage(formation,operator){
     const identity=[formation?.name,formation?.type,formation?.description].filter(Boolean).join(' ');
@@ -4578,23 +4588,23 @@
     ballast:'/static/assets/train-profiles/freight-wagon-aggregate.webp',
     metals:'/static/assets/train-profiles/freight-wagon-steel.webp',
     cars:'/static/assets/train-profiles/freight-wagon-automotive.webp',
-    biomass:'/static/assets/train-profiles/freight-wagon-biomass.png',
-    nuclear:'/static/assets/train-profiles/freight-wagon-nuclear-flask.png',
-    timber:'/static/assets/train-profiles/freight-wagon-timber.png',
-    engineering:'/static/assets/train-profiles/freight-wagon-engineering.png',
+    biomass:'/static/assets/train-profiles/freight-wagon-biomass.webp',
+    nuclear:'/static/assets/train-profiles/freight-wagon-nuclear-flask.webp',
+    timber:'/static/assets/train-profiles/freight-wagon-timber.webp',
+    engineering:'/static/assets/train-profiles/freight-wagon-engineering.webp',
   };
   const FREIGHT_LOCOMOTIVE_IMAGES={
-    '60':{'db-cargo':'/static/assets/train-profiles/freight-class-60-db-cargo.png'},
+    '60':{'db-cargo':'/static/assets/train-profiles/freight-class-60-db-cargo.webp'},
     '66':{
-      'db-cargo':'/static/assets/train-profiles/freight-class-66-db-cargo.png',
-      freightliner:'/static/assets/train-profiles/freight-class-66-freightliner.png',
-      gbrf:'/static/assets/train-profiles/freight-class-66-gbrf.png',
+      'db-cargo':'/static/assets/train-profiles/freight-class-66-db-cargo.webp',
+      freightliner:'/static/assets/train-profiles/freight-class-66-freightliner.webp',
+      gbrf:'/static/assets/train-profiles/freight-class-66-gbrf.webp',
     },
-    '68':{drs:'/static/assets/train-profiles/freight-class-68-drs.png'},
-    '69':{gbrf:'/static/assets/train-profiles/freight-class-69-gbrf.png'},
-    '70':{freightliner:'/static/assets/train-profiles/freight-class-70-freightliner.png'},
-    '90':{freightliner:'/static/assets/train-profiles/freight-class-90-freightliner.png'},
-    '92':{gbrf:'/static/assets/train-profiles/freight-class-92-gbrf.png'},
+    '68':{drs:'/static/assets/train-profiles/freight-class-68-drs.webp'},
+    '69':{gbrf:'/static/assets/train-profiles/freight-class-69-gbrf.webp'},
+    '70':{freightliner:'/static/assets/train-profiles/freight-class-70-freightliner.webp'},
+    '90':{freightliner:'/static/assets/train-profiles/freight-class-90-freightliner.webp'},
+    '92':{gbrf:'/static/assets/train-profiles/freight-class-92-gbrf.webp'},
   };
   function freightVehicleHtml(kind,index,theme,electric,isLoco=false,exactClass=null){
     const image=isLoco?(FREIGHT_LOCOMOTIVE_IMAGES[exactClass]?.[theme.key]||null):FREIGHT_PROFILE_IMAGES[kind];
@@ -4699,21 +4709,21 @@
   }
 
   const BUS_PROFILE_IMAGES = [
-    {pattern:/\b(?:ALEXANDER\s+DENNIS\s+)?(?:ENVIRO\s*200|E200)(?:\s*MMC)?\b/i,name:'Alexander Dennis Enviro200 MMC',kind:'single-deck bus',src:'/static/assets/bus-profiles/enviro200-mmc.png'},
-    {pattern:/\b(?:ALEXANDER\s+DENNIS\s+)?(?:ENVIRO\s*400|E400)(?!\s*CITY)(?:\s*MMC)?\b/i,name:'Alexander Dennis Enviro400 MMC',kind:'double-deck bus',src:'/static/assets/bus-profiles/enviro400-mmc.png'},
-    {pattern:/\bWRIGHT\s+STREETLITE\b|\bSTREETLITE\b/i,name:'Wright StreetLite',kind:'single-deck bus',src:'/static/assets/bus-profiles/wright-streetlite.png'},
-    {pattern:/\bWRIGHT\s+STREETDECK(?!\s+ELECTROLINER)\b|\bSTREETDECK(?!\s+ELECTROLINER)\b/i,name:'Wright StreetDeck',kind:'double-deck bus',src:'/static/assets/bus-profiles/wright-streetdeck.png'},
-    {pattern:/\b(?:MERCEDES(?:-BENZ)?\s+)?CITARO\b|\bO\s*530\b/i,name:'Mercedes-Benz Citaro',kind:'single-deck bus',src:'/static/assets/bus-profiles/mercedes-citaro.png'},
-    {pattern:/\bYUTONG\s+E(?:10|12)\b|\bE12EV\b/i,name:'Yutong electric bus',kind:'electric single-deck bus',src:'/static/assets/bus-profiles/yutong-e12.png'},
-    {pattern:/\bNEW\s+ROUTEMASTER\b|\bNEW\s+BUS\s+FOR\s+LONDON\b|\bNB4L\b/i,name:'New Routemaster',kind:'London double-deck bus',src:'/static/assets/bus-profiles/new-routemaster.png'},
-    {pattern:/\bENVIRO\s*400\s*CITY\b|\bE400\s*CITY\b/i,name:'Alexander Dennis Enviro400 City',kind:'double-deck bus',src:'/static/assets/bus-profiles/enviro400-city.png'},
-    {pattern:/\bB5LH\b|\bGEMINI\s*3\b/i,name:'Volvo B5LH / Wright Gemini 3',kind:'hybrid double-deck bus',src:'/static/assets/bus-profiles/volvo-b5lh-gemini3.png'},
-    {pattern:/\bELECTROLINER\b/i,name:'Wright StreetDeck Electroliner',kind:'electric double-deck bus',src:'/static/assets/bus-profiles/wright-electroliner.png'},
-    {pattern:/\b(?:BYD\s*)?(?:ENVIRO\s*200EV|E200EV)\b/i,name:'BYD–Alexander Dennis electric bus',kind:'electric single-deck bus',src:'/static/assets/bus-profiles/byd-adl-electric.png'},
-    {pattern:/\b(?:OPTARE|SWITCH)\s+SOLO\b|\bSOLO\s*SR\b/i,name:'Switch Solo',kind:'compact single-deck bus',src:'/static/assets/bus-profiles/switch-solo.png'},
-    {pattern:/\b(?:OPTARE|SWITCH)\s+METROCITY\b|\bMETROCITY\b/i,name:'Switch Metrocity',kind:'single-deck bus',src:'/static/assets/bus-profiles/switch-metrocity.png'},
-    {pattern:/\b(?:MCV\s+)?EVORA\b|\bB8RLE\b/i,name:'Volvo B8RLE / MCV Evora',kind:'single-deck bus',src:'/static/assets/bus-profiles/mcv-evora.png'},
-    {pattern:/\bOPEN[- ]?TOP\b|\bSIGHTSEEING\b/i,name:'Open-top sightseeing bus',kind:'open-top double-deck bus',src:'/static/assets/bus-profiles/open-top.png'},
+    {pattern:/\b(?:ALEXANDER\s+DENNIS\s+)?(?:ENVIRO\s*200|E200)(?:\s*MMC)?\b/i,name:'Alexander Dennis Enviro200 MMC',kind:'single-deck bus',src:'/static/assets/bus-profiles/enviro200-mmc.webp'},
+    {pattern:/\b(?:ALEXANDER\s+DENNIS\s+)?(?:ENVIRO\s*400|E400)(?!\s*CITY)(?:\s*MMC)?\b/i,name:'Alexander Dennis Enviro400 MMC',kind:'double-deck bus',src:'/static/assets/bus-profiles/enviro400-mmc.webp'},
+    {pattern:/\bWRIGHT\s+STREETLITE\b|\bSTREETLITE\b/i,name:'Wright StreetLite',kind:'single-deck bus',src:'/static/assets/bus-profiles/wright-streetlite.webp'},
+    {pattern:/\bWRIGHT\s+STREETDECK(?!\s+ELECTROLINER)\b|\bSTREETDECK(?!\s+ELECTROLINER)\b/i,name:'Wright StreetDeck',kind:'double-deck bus',src:'/static/assets/bus-profiles/wright-streetdeck.webp'},
+    {pattern:/\b(?:MERCEDES(?:-BENZ)?\s+)?CITARO\b|\bO\s*530\b/i,name:'Mercedes-Benz Citaro',kind:'single-deck bus',src:'/static/assets/bus-profiles/mercedes-citaro.webp'},
+    {pattern:/\bYUTONG\s+E(?:10|12)\b|\bE12EV\b/i,name:'Yutong electric bus',kind:'electric single-deck bus',src:'/static/assets/bus-profiles/yutong-e12.webp'},
+    {pattern:/\bNEW\s+ROUTEMASTER\b|\bNEW\s+BUS\s+FOR\s+LONDON\b|\bNB4L\b/i,name:'New Routemaster',kind:'London double-deck bus',src:'/static/assets/bus-profiles/new-routemaster.webp'},
+    {pattern:/\bENVIRO\s*400\s*CITY\b|\bE400\s*CITY\b/i,name:'Alexander Dennis Enviro400 City',kind:'double-deck bus',src:'/static/assets/bus-profiles/enviro400-city.webp'},
+    {pattern:/\bB5LH\b|\bGEMINI\s*3\b/i,name:'Volvo B5LH / Wright Gemini 3',kind:'hybrid double-deck bus',src:'/static/assets/bus-profiles/volvo-b5lh-gemini3.webp'},
+    {pattern:/\bELECTROLINER\b/i,name:'Wright StreetDeck Electroliner',kind:'electric double-deck bus',src:'/static/assets/bus-profiles/wright-electroliner.webp'},
+    {pattern:/\b(?:BYD\s*)?(?:ENVIRO\s*200EV|E200EV)\b/i,name:'BYD–Alexander Dennis electric bus',kind:'electric single-deck bus',src:'/static/assets/bus-profiles/byd-adl-electric.webp'},
+    {pattern:/\b(?:OPTARE|SWITCH)\s+SOLO\b|\bSOLO\s*SR\b/i,name:'Switch Solo',kind:'compact single-deck bus',src:'/static/assets/bus-profiles/switch-solo.webp'},
+    {pattern:/\b(?:OPTARE|SWITCH)\s+METROCITY\b|\bMETROCITY\b/i,name:'Switch Metrocity',kind:'single-deck bus',src:'/static/assets/bus-profiles/switch-metrocity.webp'},
+    {pattern:/\b(?:MCV\s+)?EVORA\b|\bB8RLE\b/i,name:'Volvo B8RLE / MCV Evora',kind:'single-deck bus',src:'/static/assets/bus-profiles/mcv-evora.webp'},
+    {pattern:/\bOPEN[- ]?TOP\b|\bSIGHTSEEING\b/i,name:'Open-top sightseeing bus',kind:'open-top double-deck bus',src:'/static/assets/bus-profiles/open-top.webp'},
   ];
 
   function busProfileMatch(detail, a) {
@@ -4723,7 +4733,7 @@
     const identity=[detail?.vehicle_ref,a?.vehicle_ref,a?.name,a?.subtitle].filter(Boolean).join(' ');
     const exact=BUS_PROFILE_IMAGES.find(profile=>profile.pattern.test(identity));
     if(exact)return {...exact,exact:true};
-    if(coachInfo(a))return {name:'Intercity coach',kind:'coach',src:'/static/assets/bus-profiles/generic-intercity-coach.png',exact:false};
+    if(coachInfo(a))return {name:'Intercity coach',kind:'coach',src:'/static/assets/bus-profiles/generic-intercity-coach.webp',exact:false};
     return null;
   }
 

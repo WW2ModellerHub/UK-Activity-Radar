@@ -26,3 +26,22 @@ def test_coach_widths_in_the_page_match_the_cut_images():
         for index, width in enumerate(int(w) for w in widths.split(",")):
             with Image.open(STATIC / "assets" / "train-profiles" / folder / f"{index}.webp") as image:
                 assert image.size == (width, 96)
+
+
+def test_every_train_and_bus_picture_the_page_uses_is_a_small_webp():
+    """Whole pictures (locomotives, wagons, trams, specials, buses): the PNG sources are not served."""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    names = set(re.findall(r"((?:train|bus)-profiles/[a-z0-9-]+\.webp)", js))
+    names |= {f"train-profiles/{n}" for n in re.findall(r"'([a-z0-9-]+\.webp)'", js)}
+    assert len(names) >= 40
+    for name in names:
+        path = STATIC / "assets" / name
+        payload = path.read_bytes()
+        assert payload[:4] == b"RIFF" and payload[8:12] == b"WEBP", name
+        assert len(payload) < 80_000, name
+    assert not list((STATIC / "assets").rglob("*.png")), "PNG sources belong in art/, not the served folder"
+
+
+def test_bus_pictures_only_claim_a_model_the_feed_names():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "function busProfileMatch" in js and "Typical coach illustration" in js
