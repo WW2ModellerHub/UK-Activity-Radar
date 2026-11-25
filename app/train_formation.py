@@ -59,7 +59,19 @@ _DMU_BY_OPERATOR = {
     ("V", "CrossCountry"): "220", ("X", "South Western Railway"): "159",
     ("S", "Northern"): "150", ("S", "Great Western Railway"): "150", ("S", "Transport for Wales"): "150",
     ("T", "Great Western Railway"): "165", ("T", "Chiltern Railways"): "165",
+    # Only one class in each fleet for these codes (seen live).
+    # (EMR's "E" may be a 158 or 170 and its "S" a 153 or 156: left unnamed.)
+    ("S", "ScotRail"): "156", ("E", "Great Western Railway"): "158",
 }
+# The feeds spell some operators two ways ("Northern" and "Northern Trains").
+_OPERATOR_ALIASES = {"northern trains": "Northern", "london northwestern railway": "West Midlands Trains",
+                     "west midlands railway": "West Midlands Trains", "scotrail trains": "ScotRail",
+                     "gwr": "Great Western Railway", "emr": "East Midlands Railway"}
+
+
+def canonical_operator(operator: str | None) -> str:
+    name = str(operator or "").strip()
+    return _OPERATOR_ALIASES.get(name.casefold(), name)
 
 
 _POWER_TRACTION = {"DMU": "diesel", "DEM": "diesel", "HST": "diesel", "D": "diesel",
@@ -70,7 +82,7 @@ def train_class(power_type: str | None, timing_load: str | None, operator: str |
     power = str(power_type or "").strip().upper()
     load = str(timing_load or "").strip().upper()
     if power == "DMU" and load and not load.isdigit():
-        return _DMU_BY_OPERATOR.get((load[:1], str(operator or "").strip()))
+        return _DMU_BY_OPERATOR.get((load[:1], canonical_operator(operator)))
     digits = load[:3]
     if power in {"EMU", "DMU", "DEM", "EML"} and digits in CLASSES:
         return digits
@@ -98,7 +110,7 @@ def describe(train, coaches: list[dict] | None) -> dict | None:
     category = str(getattr(train, "train_category", "") or "").upper()
     if category[:1] in {"E", "J", "P"} or str(getattr(train, "headcode", "") or "")[:1] in {"0", "3", "4", "5", "6", "7", "8"}:
         return None   # freight, empty stock and engineering trains: no coaches to show
-    operator = getattr(train, "operator", None)
+    operator = canonical_operator(getattr(train, "operator", None)) or None
     code = train_class(getattr(train, "power_type", None), getattr(train, "timing_load", None), operator)
     name, usual, traction = CLASSES.get(code, (None, (), None)) if code else (None, (), None)
     name = _NAMES.get((code, operator), name)

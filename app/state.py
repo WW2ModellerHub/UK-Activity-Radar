@@ -18,7 +18,10 @@ TRAIN_PROJECTION_MINUTES = 90
 TRAIN_ROLLOVER_GRACE_MINUTES = 10
 # How long a train restored from the warm-start snapshot may be shown before a
 # live report replaces it.
-RESTORED_SNAPSHOT_MINUTES = 15
+# A train saved before a restart and not heard from since: live ones are
+# reported again within ~3 minutes (TD replay), so one silent for 6 has
+# finished its run while the server was down.
+RESTORED_SNAPSHOT_MINUTES = 6
 # A finished service stays visible briefly so a viewer sees it arrive.
 TERMINATED_VISIBLE_MINUTES = 2
 # A cancelled train stays on the map, struck through, long enough to be seen.
