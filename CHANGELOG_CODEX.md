@@ -1,5 +1,10 @@
 # Codex stabilization changelog
 
+## Trains paced by their own measured speed between learned berths
+
+- After two learned-berth steps on the same leg, the rest of the leg runs at the train's own pace (distance between the steps over the time taken), bounded to half-to-double the timetable's; before that, the timetable's.
+- `berth_learning.correction_km` in health detail: how far off trains were drawn when they reached a learned berth (median, p90): the smoothness measure for this work.
+
 ## Berth positions learned from passing trains (Signalbox-style smoothness)
 
 SMART places only TD steps at reporting points; live, 10,036 of 16,977 steps since a restart had no position, so trains coasted on the timetable between stations.

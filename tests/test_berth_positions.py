@@ -33,7 +33,7 @@ def test_path_helpers():
 
 
 def _collector(berths):
-    collector = SimpleNamespace(berths=berths, _trail={},
+    collector = SimpleNamespace(berths=berths, _trail={}, _last_place={},
                                 schedules=SimpleNamespace(route_points=lambda sid, a, b: [LEICESTER, WIGSTON]))
     for name in ("_learn_and_anchor", "_learn", "_place_on_leg"):
         setattr(collector, name, getattr(TDCollector, name).__get__(collector))
@@ -81,3 +81,19 @@ def test_steps_are_followed_after_trust_reports_the_train_in_between(tmp_path):
                                                       "time": str(int((T0 + timedelta(minutes=2)).timestamp() * 1000))}}]))
     assert collector._trail["nr:1"]["steps"] == [("LR:0396", T0 + timedelta(minutes=2))]
     assert state.get("nr:1").last_updated == T0 + timedelta(minutes=6)        # never moved backwards
+
+
+def test_a_train_slower_than_its_timetable_is_paced_by_its_own_steps():
+    berths = BerthPositions(None)
+    collector = _collector(berths)
+    path = [LEICESTER, WIGSTON]                       # ~4.8 km, booked 4 minutes
+    train = Vehicle(id="slow", type="train", name="1N41", lat=0, lon=0, last_updated=T0,
+                    estimate_path=path, estimate_started_at=T0, estimate_due_at=T0 + timedelta(minutes=4))
+    quarter, half = point_at(path, 0.25), point_at(path, 0.5)
+    assert collector._place_on_leg(train, quarter, T0 + timedelta(minutes=1), "LR", "1")
+    assert train.estimate_due_at == T0 + timedelta(minutes=4)               # one step: timetable pace
+    # It takes 2 minutes to cover the next quarter (booked: 1): half speed.
+    assert collector._place_on_leg(train, half, T0 + timedelta(minutes=3), "LR", "2")
+    assert abs((train.estimate_due_at - (T0 + timedelta(minutes=7))).total_seconds()) < 2   # the rest at its own pace
+    report = berths.report()["correction_km"]
+    assert report["n"] == 2 and report["median"] > 0.5                       # the second step was a big correction
