@@ -51,3 +51,10 @@ def test_emr_intercity_profiles_are_cut_per_coach():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "'222':{'east-midlands':['class-222-emr-meridian',[286,225,244,222,285]]}" in js
     assert "'810':{'east-midlands':['class-810-emr-aurora',[275,209,245,202,267]]}" in js
+
+
+def test_colas_and_rog_use_their_own_locomotive_profiles():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "'37':{'rail-operations-group':'/static/assets/train-profiles/freight-class-37-rail-operations-group.webp'}" in js
+    assert "colas:'/static/assets/train-profiles/freight-class-70-colas.webp'" in js
+    assert "colas:['70','70'],'rail-operations-group':['37','37']" in js

@@ -7,6 +7,7 @@ import re
 import certifi
 
 from ..models import SourceStatus
+from .td_kafka import _broker_logger
 from .trust_kafka import TrustKafkaFeed, _decode
 
 _UID_KEYS = ("trainUid", "trainUID", "train_uid", "uid", "cifTrainUid", "CIF_train_uid")
@@ -57,6 +58,8 @@ class AllocationKafkaFeed(TrustKafkaFeed):
         self.allocations = 0
         self.enriched = 0
         self.malformed = 0
+        self.broker_error: str | None = None
+        self._log, self.broker_log = _broker_logger(type(self).__name__)
 
     def _config(self) -> dict:
         return {
@@ -70,6 +73,15 @@ class AllocationKafkaFeed(TrustKafkaFeed):
             "queued.max.messages.kbytes": 8192, "fetch.max.bytes": 4 * 1024 * 1024,
             "client.id": "uk-activity-radar-allocation",
         }
+
+    def _consumer(self):
+        if self._factory:
+            return self._factory()
+        from confluent_kafka import Consumer
+        return Consumer({**self._config(), "error_cb": self._note_broker_error, "logger": self._log})
+
+    def _note_broker_error(self, error) -> None:
+        self.broker_error = str(error)[:300]
 
     def _assign(self, consumer) -> int:
         from confluent_kafka import TopicPartition
@@ -120,5 +132,8 @@ class AllocationKafkaFeed(TrustKafkaFeed):
                                            connected=self.error is None, mode="live", message=message))
 
     def report(self) -> dict:
-        return {"live": self.live, "messages": self.messages, "allocations": self.allocations,
+        return {"server": self.settings.raildata_allocation_kafka_bootstrap,
+                "topic": self.settings.raildata_allocation_kafka_topic,
+                "broker_error": self.broker_error, "broker_log": list(self.broker_log),
+                "live": self.live, "messages": self.messages, "allocations": self.allocations,
                 "enriched": self.enriched, "malformed": self.malformed, "error": self.error}

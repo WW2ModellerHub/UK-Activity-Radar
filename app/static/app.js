@@ -4596,6 +4596,7 @@
     engineering:'/static/assets/train-profiles/freight-wagon-engineering.webp',
   };
   const FREIGHT_LOCOMOTIVE_IMAGES={
+    '37':{'rail-operations-group':'/static/assets/train-profiles/freight-class-37-rail-operations-group.webp'},
     '60':{'db-cargo':'/static/assets/train-profiles/freight-class-60-db-cargo.webp'},
     '66':{
       'db-cargo':'/static/assets/train-profiles/freight-class-66-db-cargo.webp',
@@ -4604,7 +4605,10 @@
     },
     '68':{drs:'/static/assets/train-profiles/freight-class-68-drs.webp'},
     '69':{gbrf:'/static/assets/train-profiles/freight-class-69-gbrf.webp'},
-    '70':{freightliner:'/static/assets/train-profiles/freight-class-70-freightliner.webp'},
+    '70':{
+      freightliner:'/static/assets/train-profiles/freight-class-70-freightliner.webp',
+      colas:'/static/assets/train-profiles/freight-class-70-colas.webp',
+    },
     '90':{freightliner:'/static/assets/train-profiles/freight-class-90-freightliner.webp'},
     '92':{gbrf:'/static/assets/train-profiles/freight-class-92-gbrf.webp'},
   };
@@ -4613,6 +4617,7 @@
   // freight locomotive when the operator is not known).
   const TYPICAL_FREIGHT_LOCO={
     'db-cargo':['66','90'],freightliner:['66','90'],gbrf:['66','92'],drs:['68','68'],
+    colas:['70','70'],'rail-operations-group':['37','37'],
   };
   function typicalFreightLoco(theme,electric){
     // A known operator with no picture (Colas, ROG...) keeps the drawn
@@ -4640,7 +4645,7 @@
     const kind=/biomass/i.test(cargo)?'biomass':/nuclear|flask/i.test(cargo)?'nuclear':/timber|logs?/i.test(cargo)?'timber':/engineering|railhead|infrastructure/i.test(cargo)?'engineering':FREIGHT_WAGONS[code];
     // Light engines run alone; a locomotive and brake van is just that.
     const wagons=code==='ZZ'?[]:code==='ZB'?['brake']:Array.from({length:5},()=>kind||'van');
-    const exactClass=(String(vehicleRef||'').match(/(?:CLASS\s*)?(60|66|68|69|70|90|92)\d{3}\b/i)||[])[1]||null;
+    const exactClass=(String(vehicleRef||'').match(/(?:CLASS\s*)?(37|60|66|68|69|70|90|92)\d{3}\b/i)||[])[1]||null;
     const vehicles=[{loco:true},...wagons.map((w,i)=>({kind:w,index:i}))];   // locomotive first: visible without scrolling
     const cells=vehicles.map(item=>freightVehicleHtml(item.kind,item.index,theme,electric,item.loco,exactClass,kind)).join('');
     const cargoLabel=(cargo||'Freight').replace(/\s+train$/i,'');

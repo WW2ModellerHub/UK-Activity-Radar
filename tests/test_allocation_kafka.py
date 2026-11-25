@@ -38,3 +38,12 @@ def test_allocation_enriches_existing_train_without_moving_it():
 def test_allocation_requires_all_credentials():
     assert configured().raildata_allocation_kafka_ready
     assert not Settings(raildata_allocation_kafka_group="group").raildata_allocation_kafka_ready
+
+
+def test_allocation_health_reports_broker_and_topic_without_credentials():
+    feed = AllocationKafkaFeed(configured(), LiveState())
+    report = feed.report()
+    assert report["server"].endswith(":9092")
+    assert report["topic"] == "prod-1033-Passenger-Train-Allocation-and-Consist-1_0"
+    assert report["broker_error"] is None and report["broker_log"] == []
+    assert "password" not in repr(report).lower()
