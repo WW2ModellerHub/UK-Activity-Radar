@@ -4577,7 +4577,8 @@
     const theme=trainLiveryTheme(null, operator);
     const code=String(freight.category||'').toUpperCase();
     const electric=/electric/i.test(String(freight.traction||''))&&!/diesel/i.test(String(freight.traction||''));
-    const kind=FREIGHT_WAGONS[code];
+    const cargo=String(freight.cargo||'');
+    const kind=/biomass/i.test(cargo)?'biomass':/nuclear|flask/i.test(cargo)?'nuclear':/timber|logs?/i.test(cargo)?'timber':/engineering|railhead|infrastructure/i.test(cargo)?'engineering':FREIGHT_WAGONS[code];
     // Light engines run alone; a locomotive and brake van is just that.
     const wagons=code==='ZZ'?[]:code==='ZB'?['brake']:Array.from({length:5},()=>kind||'van');
     const exactClass=(String(vehicleRef||'').match(/(?:CLASS\s*)?(60|66|68|69|70|90|92)\d{3}\b/i)||[])[1]||null;
@@ -4663,12 +4664,20 @@
 
   const BUS_PROFILE_IMAGES = [
     {pattern:/\b(?:ALEXANDER\s+DENNIS\s+)?(?:ENVIRO\s*200|E200)(?:\s*MMC)?\b/i,name:'Alexander Dennis Enviro200 MMC',kind:'single-deck bus',src:'/static/assets/bus-profiles/enviro200-mmc.png'},
-    {pattern:/\b(?:ALEXANDER\s+DENNIS\s+)?(?:ENVIRO\s*400|E400)(?:\s*MMC)?\b/i,name:'Alexander Dennis Enviro400 MMC',kind:'double-deck bus',src:'/static/assets/bus-profiles/enviro400-mmc.png'},
+    {pattern:/\b(?:ALEXANDER\s+DENNIS\s+)?(?:ENVIRO\s*400|E400)(?!\s*CITY)(?:\s*MMC)?\b/i,name:'Alexander Dennis Enviro400 MMC',kind:'double-deck bus',src:'/static/assets/bus-profiles/enviro400-mmc.png'},
     {pattern:/\bWRIGHT\s+STREETLITE\b|\bSTREETLITE\b/i,name:'Wright StreetLite',kind:'single-deck bus',src:'/static/assets/bus-profiles/wright-streetlite.png'},
-    {pattern:/\bWRIGHT\s+STREETDECK\b|\bSTREETDECK\b/i,name:'Wright StreetDeck',kind:'double-deck bus',src:'/static/assets/bus-profiles/wright-streetdeck.png'},
+    {pattern:/\bWRIGHT\s+STREETDECK(?!\s+ELECTROLINER)\b|\bSTREETDECK(?!\s+ELECTROLINER)\b/i,name:'Wright StreetDeck',kind:'double-deck bus',src:'/static/assets/bus-profiles/wright-streetdeck.png'},
     {pattern:/\b(?:MERCEDES(?:-BENZ)?\s+)?CITARO\b|\bO\s*530\b/i,name:'Mercedes-Benz Citaro',kind:'single-deck bus',src:'/static/assets/bus-profiles/mercedes-citaro.png'},
     {pattern:/\bYUTONG\s+E(?:10|12)\b|\bE12EV\b/i,name:'Yutong electric bus',kind:'electric single-deck bus',src:'/static/assets/bus-profiles/yutong-e12.png'},
     {pattern:/\bNEW\s+ROUTEMASTER\b|\bNEW\s+BUS\s+FOR\s+LONDON\b|\bNB4L\b/i,name:'New Routemaster',kind:'London double-deck bus',src:'/static/assets/bus-profiles/new-routemaster.png'},
+    {pattern:/\bENVIRO\s*400\s*CITY\b|\bE400\s*CITY\b/i,name:'Alexander Dennis Enviro400 City',kind:'double-deck bus',src:'/static/assets/bus-profiles/enviro400-city.png'},
+    {pattern:/\bB5LH\b|\bGEMINI\s*3\b/i,name:'Volvo B5LH / Wright Gemini 3',kind:'hybrid double-deck bus',src:'/static/assets/bus-profiles/volvo-b5lh-gemini3.png'},
+    {pattern:/\bELECTROLINER\b/i,name:'Wright StreetDeck Electroliner',kind:'electric double-deck bus',src:'/static/assets/bus-profiles/wright-electroliner.png'},
+    {pattern:/\b(?:BYD\s*)?(?:ENVIRO\s*200EV|E200EV)\b/i,name:'BYD–Alexander Dennis electric bus',kind:'electric single-deck bus',src:'/static/assets/bus-profiles/byd-adl-electric.png'},
+    {pattern:/\b(?:OPTARE|SWITCH)\s+SOLO\b|\bSOLO\s*SR\b/i,name:'Switch Solo',kind:'compact single-deck bus',src:'/static/assets/bus-profiles/switch-solo.png'},
+    {pattern:/\b(?:OPTARE|SWITCH)\s+METROCITY\b|\bMETROCITY\b/i,name:'Switch Metrocity',kind:'single-deck bus',src:'/static/assets/bus-profiles/switch-metrocity.png'},
+    {pattern:/\b(?:MCV\s+)?EVORA\b|\bB8RLE\b/i,name:'Volvo B8RLE / MCV Evora',kind:'single-deck bus',src:'/static/assets/bus-profiles/mcv-evora.png'},
+    {pattern:/\bOPEN[- ]?TOP\b|\bSIGHTSEEING\b/i,name:'Open-top sightseeing bus',kind:'open-top double-deck bus',src:'/static/assets/bus-profiles/open-top.png'},
   ];
 
   function busProfileMatch(detail, a) {

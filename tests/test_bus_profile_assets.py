@@ -12,6 +12,9 @@ EXPECTED = {
     "yutong-e12.png",
     "new-routemaster.png",
     "generic-intercity-coach.png",
+    "enviro400-city.png", "volvo-b5lh-gemini3.png", "wright-electroliner.png",
+    "byd-adl-electric.png", "switch-solo.png", "switch-metrocity.png",
+    "mcv-evora.png", "open-top.png",
 }
 
 
