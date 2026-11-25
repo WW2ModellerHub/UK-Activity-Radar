@@ -529,11 +529,16 @@ class TDCollector(StompFeed):
             leg = (
                 self._schedule_departure_after_arrival(vehicle, due_at)
                 if step == 0 and str(vehicle.rail_event_type or "").lower() == "arrival"
-                else self._schedule_leg(
+                else None
+            )
+            # A place the train only passes has no dwell to wait out: carry on
+            # along the timetable (seen at Market Harborough: 1F56 to Sheffield
+            # was left parked there because the "after its stop" lookup was empty).
+            if leg is None:
+                leg = self._schedule_leg(
                     vehicle.schedule_id, vehicle.service_date, next_tiploc, due_at,
                     event_code="D", berth_offset_seconds=0,
                 )
-            )
             if not leg or leg.get("due_at") <= due_at:
                 break
             self._apply_estimate_leg(vehicle, leg)

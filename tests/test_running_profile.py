@@ -112,3 +112,21 @@ def test_a_train_is_not_drawn_at_an_unconfirmed_stop_and_waits_for_a_late_report
     advance = td_module.TDCollector._advance_schedule_estimate
     assert advance(collector, late, start + td_(minutes=8)) is False
     assert advance(collector, late, start + td_(minutes=9)) is True
+
+
+def test_a_train_that_only_passes_a_station_is_rolled_on_past_it():
+    """Seen at Market Harborough: 1F56 (no stop there) stayed parked at the end of its leg."""
+    from datetime import timedelta as td_
+    from types import SimpleNamespace
+    from app.collectors import td as td_module
+    start = datetime(2026, 11, 25, 17, 21, tzinfo=london_tz())
+    applied = []
+    collector = SimpleNamespace(
+        _schedule_departure_after_arrival=lambda *a: None,      # no dwell: it passes MRKTHRB
+        _schedule_leg=lambda *a, **k: {"due_at": start + td_(minutes=14)},
+        _apply_estimate_leg=lambda vehicle, leg: (applied.append(leg), setattr(vehicle, "estimate_due_at", leg["due_at"])),
+    )
+    train = Vehicle(id="f", type="train", name="1F56", lat=0, lon=0, last_updated=start, next_tiploc="MRKTHRB",
+                    rail_event_type="Arrival", estimate_due_at=start + td_(minutes=6), schedule_id=1, service_date="2026-11-25")
+    assert td_module.TDCollector._advance_schedule_estimate(collector, train, start + td_(minutes=12)) is True
+    assert applied and train.estimate_due_at == start + td_(minutes=14)
