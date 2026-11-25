@@ -45,3 +45,9 @@ def test_every_train_and_bus_picture_the_page_uses_is_a_small_webp():
 def test_bus_pictures_only_claim_a_model_the_feed_names():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "function busProfileMatch" in js and "Typical coach illustration" in js
+
+
+def test_emr_intercity_profiles_are_cut_per_coach():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "'222':{'east-midlands':['class-222-emr-meridian',[286,225,244,222,285]]}" in js
+    assert "'810':{'east-midlands':['class-810-emr-aurora',[275,209,245,202,267]]}" in js

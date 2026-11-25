@@ -26,6 +26,7 @@ COACHES = {  # coaches drawn in each generated image
     "class-197-transport-for-wales": 3, "class-345-elizabeth-line": 9, "class-377-southern": 4,
     "class-385-scotrail": 4, "class-395-southeastern": 6, "class-444-south-western": 5,
     "class-700-thameslink": 8, "class-720-greater-anglia": 5,
+    "class-222-emr-meridian": 5, "class-810-emr-aurora": 5,
 }
 # Shown whole: locomotives and wagons, trams and specials, and the articulated
 # class 745 (its short carriages share bogies: no clean gap to cut at).
