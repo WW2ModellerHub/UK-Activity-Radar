@@ -32,6 +32,18 @@ def _near_path(lat: float, lon: float, path, km: float) -> bool:
 
 
 ARRIVAL_GRACE_S = 90
+CAP_SECONDS = 180   # a learned next-berth cap lapses after this: a missed step must not freeze a train
+
+
+def cap_share(vehicle, at_time) -> float | None:
+    """The share of its leg a train may be drawn up to now, if a next-berth cap applies."""
+    cap, path = vehicle.estimate_cap, vehicle.estimate_path or []
+    if not cap or len(cap) < 6 or len(path) < 2:
+        return None
+    same_leg = all(abs(a - b) < 1e-4 for a, b in zip(cap[:4], (path[0][0], path[0][1], path[-1][0], path[-1][1])))
+    if not same_leg or at_time.timestamp() * 1000 > cap[5]:
+        return None
+    return float(cap[4])
 BERTH_STEPS_FILE = Path(__file__).resolve().parents[1] / "reference" / "berth_steps.csv.gz"
 # Column order of the Rail Data Marketplace berth steps file (SMART fields).
 BERTH_STEP_COLUMNS = ("TD", "STEPTYPE", "FROMBERTH", "TOBERTH", "STANOX", "STANME", "EVENT",
@@ -529,10 +541,16 @@ class TDCollector(StompFeed):
         length_km = path_length(path)
         # How far off the drawn train was: the correction this step makes.
         drawn = distance_fraction((at_time - vehicle.estimate_started_at).total_seconds(), total, accel, brake)
+        cap = cap_share(vehicle, at_time)
+        if cap is not None:
+            drawn = min(drawn, cap)
         self.berths.note_correction(abs(fraction - drawn) * length_km)
         leg = (round(path[0][0], 4), round(path[0][1], 4), round(path[-1][0], 4), round(path[-1][1], 4))
+        key = BerthPositions.key(area, berth)
         last = self._last_place.get(vehicle.id)
-        self._last_place[vehicle.id] = (leg, fraction, at_time)
+        self._last_place[vehicle.id] = (leg, fraction, at_time, key)
+        if last and len(last) > 3 and (at_time - last[2]).total_seconds() <= 600:
+            self.berths.note_next(last[3], key)
         if len(self._last_place) > 8000:
             self._last_place.pop(next(iter(self._last_place)))
         if last and last[0] == leg:
@@ -550,6 +568,16 @@ class TDCollector(StompFeed):
                 high = middle
         vehicle.estimate_started_at = at_time - timedelta(seconds=low)
         vehicle.estimate_due_at = vehicle.estimate_started_at + timedelta(seconds=total)
+        # Not past the next signal berth until the train steps into it.
+        vehicle.estimate_cap = None
+        following = self.berths.next_berth(key)
+        ahead = self.berths.position(following) if following else None
+        if ahead:
+            spot = project(path, ahead[0], ahead[1])
+            if spot and spot[1] <= 0.4 and spot[0] > fraction + 0.001:
+                until = (at_time + timedelta(seconds=CAP_SECONDS)).timestamp() * 1000
+                vehicle.estimate_cap = [path[0][0], path[0][1], path[-1][0], path[-1][1], round(spot[0], 5), until]
+                self.berths.capped += 1
         vehicle.position_method = "estimated"
         vehicle.position_label = f"TD step into learned berth {area} {berth} • placed on the track"
         self.berths.placed_steps += 1

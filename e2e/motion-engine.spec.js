@@ -397,3 +397,24 @@ test('a train is not drawn at its next stop before a report says it arrived', as
   expect(result.arrivalStep).toBeLessThan(0.01);      // a signalling arrival step is trusted
   expect(result.passing).toBeLessThan(0.01);          // a junction it passes is not a stop
 });
+
+test('a train is held at the next signal berth on its own leg, and only there', async ({ page }) => {
+  await openEngine(page);
+  const r = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const now = Date.now(), path = [[52, -1], [52, 0]];
+    const train = (id, cap) => engine.present({ id, type: 'train', lat: 52, lon: -1, estimate_path: path,
+      estimate_started_at: new Date(now - 180000).toISOString(), estimate_due_at: new Date(now + 60000).toISOString(), estimate_cap: cap }, now, false);
+    return {
+      free: train('a', null).lon + 1,                                       // 3/4 of the way at its pace
+      held: train('b', [52, -1, 52, 0, 0.5, now + 60000]).lon + 1,         // capped at the next berth (half way)
+      lapsed: train('c', [52, -1, 52, 0, 0.5, now - 1000]).lon + 1,        // cap expired
+      otherLeg: train('d', [53, -1, 53, 0, 0.5, now + 60000]).lon + 1,     // cap for another leg
+    };
+  });
+  expect(r.held).toBeCloseTo(0.5, 2);
+  expect(r.free).toBeGreaterThan(0.7);
+  expect(r.lapsed).toBeCloseTo(r.free, 3);
+  expect(r.otherLeg).toBeCloseTo(r.free, 3);
+});

@@ -111,3 +111,41 @@ def test_a_td_only_copy_is_hidden_once_the_matched_train_reports_elsewhere():
                          source="Network Rail TD", last_updated=now - timedelta(minutes=7)))      # another 1C98 in Scotland
     ids = {v.id for v in state.all(include_buses=False, include_vessels=False)}
     assert "nr:1C98" in ids and "td:LR:1C98" not in ids and "td:G1:1C98" in ids
+
+
+def test_a_train_is_not_drawn_past_the_next_signal_berth_until_it_steps_in():
+    from app.collectors.td import CAP_SECONDS, cap_share
+    from app.state import _estimated_train_position
+    berths = BerthPositions(None)
+    collector = _collector(berths)
+    path = [LEICESTER, WIGSTON]
+    a, b = berths.key("LR", "A"), berths.key("LR", "B")
+    for spot, key in ((0.25, a), (0.5, b)):
+        for _ in range(3):
+            berths.observe(key, *point_at(path, spot))
+    berths.note_next(a, b); berths.note_next(a, b)                     # trains step A -> B
+    assert berths.next_berth(a) == b
+    train = Vehicle(id="t", type="train", name="1N41", lat=0, lon=0, last_updated=T0,
+                    estimate_path=path, estimate_started_at=T0, estimate_due_at=T0 + timedelta(minutes=4))
+    assert collector._place_on_leg(train, berths.position(a), T0 + timedelta(minutes=1), "LR", "A")
+    assert abs(cap_share(train, T0 + timedelta(minutes=2)) - 0.5) < 0.02
+    # At its pace it would be 3/4 of the way at +3 min; held at berth B (half way) instead.
+    at = T0 + timedelta(minutes=3)
+    lat, lon = _estimated_train_position(train.model_copy(update={"estimate_path": path}), at)
+    assert abs(project(path, lat, lon)[0] - 0.5) < 0.02
+    # The cap lapses (a missed step must not freeze a train) and belongs to this leg only.
+    assert cap_share(train, T0 + timedelta(minutes=1, seconds=CAP_SECONDS + 1)) is None
+    other = train.model_copy(update={"estimate_path": [WIGSTON, LEICESTER]})
+    assert cap_share(other, T0 + timedelta(minutes=2)) is None
+    # Junction with no settled next berth: no cap.
+    berths.note_next(b, berths.key("LR", "C")); berths.note_next(b, berths.key("LR", "D"))
+    assert berths.next_berth(b) is None
+
+
+def test_next_berths_survive_a_restart(tmp_path):
+    berths = BerthPositions(str(tmp_path / "b.json"))
+    berths.observe("LR:A", 52.6, -1.1)
+    berths.note_next("LR:A", "LR:B"); berths.note_next("LR:A", "LR:B")
+    berths.save(force=True)
+    again = BerthPositions(str(tmp_path / "b.json"))
+    assert again.next_berth("LR:A") == "LR:B" and again.report()["berths_seen"] == 1

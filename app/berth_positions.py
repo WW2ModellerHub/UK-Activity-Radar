@@ -86,6 +86,10 @@ class BerthPositions:
         self.learned_steps = 0
         self.placed_steps = 0
         self._corrections: list[float] = []   # km a train was off when it reached a learned berth
+        # Which berth trains step into next, by berth: a train may not be
+        # drawn past the next berth until it steps into it (signals).
+        self._next: dict[str, dict[str, int]] = {}
+        self.capped = 0
         self.load()
 
     @staticmethod
@@ -115,6 +119,29 @@ class BerthPositions:
             return None
         return sum(p[0] for p in close) / len(close), sum(p[1] for p in close) / len(close)
 
+    def note_next(self, key: str, following: str) -> None:
+        if not key or not following or key == following:
+            return
+        with self._lock:
+            seen = self._next.setdefault(key, {})
+            seen[following] = seen.get(following, 0) + 1
+            if len(seen) > 8:   # keep the commonest
+                for drop in sorted(seen, key=seen.get)[: len(seen) - 8]:
+                    seen.pop(drop, None)
+            if len(self._next) > MAX_BERTHS:
+                self._next.pop(next(iter(self._next)))
+            self._dirty = True
+
+    def next_berth(self, key: str) -> str | None:
+        """The berth trains step into after this one, when they agree (2+ times, 70%+)."""
+        with self._lock:
+            seen = dict(self._next.get(key) or {})
+        if not seen:
+            return None
+        best = max(seen, key=seen.get)
+        total = sum(seen.values())
+        return best if seen[best] >= 2 and seen[best] >= 0.7 * total else None
+
     def note_correction(self, km: float) -> None:
         self._corrections.append(round(km, 3))
         del self._corrections[:-2000]
@@ -127,7 +154,7 @@ class BerthPositions:
         corrections = sorted(self._corrections)
         quantile = (lambda q: corrections[min(len(corrections) - 1, int(len(corrections) * q))]) if corrections else (lambda q: None)
         return {"berths_seen": berths, "berths_trusted": trusted, "steps_learned": self.learned_steps,
-                "steps_placed": self.placed_steps,
+                "steps_placed": self.placed_steps, "next_berths_known": len(self._next), "capped": self.capped,
                 # How far off trains were drawn when they reached a learned berth (km): lower is smoother.
                 "correction_km": {"median": quantile(0.5), "p90": quantile(0.9), "n": len(corrections)}}
 
@@ -140,16 +167,20 @@ class BerthPositions:
         except (OSError, ValueError):
             return
         if isinstance(saved, dict):
+            positions = saved.get("positions") if isinstance(saved.get("positions"), dict) else saved
+            following = saved.get("next") if isinstance(saved.get("next"), dict) else {}
             with self._lock:
                 self._seen = {str(k): [list(map(float, p))[:2] for p in v if isinstance(p, list) and len(p) >= 2]
-                              for k, v in saved.items() if isinstance(v, list)}
+                              for k, v in positions.items() if isinstance(v, list)}
+                self._next = {str(k): {str(a): int(b) for a, b in v.items()} for k, v in following.items() if isinstance(v, dict)}
 
     def save(self, force: bool = False) -> None:
         """At most once a minute (and on shutdown)."""
         if not self._path or not self._dirty or (not force and time.monotonic() - self._saved_at < 60):
             return
         with self._lock:
-            snapshot = {k: list(v) for k, v in self._seen.items()}
+            snapshot = {"positions": {k: list(v) for k, v in self._seen.items()},
+                        "next": {k: dict(v) for k, v in self._next.items()}}
             self._dirty = False
             self._saved_at = time.monotonic()
         try:

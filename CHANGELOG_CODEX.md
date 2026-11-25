@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## Trains held at the next signal berth until they step into it
+
+Before (live): median correction 0.20 km, p90 0.89 km at learned berths.
+- BerthPositions learns which berth trains step into next after each one (persisted with the positions). Settled when seen 2+ times and 70%+ of the time; junctions with several routes are left alone.
+- On a learned-berth step, the train's leg carries `estimate_cap` (leg ends, share, expiry): it is not drawn past the next berth until it steps in, as a train cannot pass a signal it has not reached. Applies only on that leg and lapses after 3 minutes. Server and motion engine both honour it.
+- Health detail: `next_berths_known`, `capped`.
+
 ## TD-only copies of a train hidden once the matched train reports elsewhere
 
 Seen live: 1C98 shown as "Train describer • SOUTH JUNCTION", 7 minutes old, while the matched 1C98 had moved on. A TD-only record with no timetable match is hidden when a matched train with the same headcode within 150 km has reported more recently (headcodes are reused around the country).

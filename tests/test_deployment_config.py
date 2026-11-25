@@ -222,7 +222,7 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     assert "/static/app.css?v=16403" in index
     assert "/static/map-markers.css?v=16393" in index
     assert "/static/app.js?v=16409" in index
-    assert "/static/motion-engine.js?v=16406" in index
+    assert "/static/motion-engine.js?v=16410" in index
     # The renderer loads through a file, not an inline script (blocked by CSP).
     assert "/static/renderer-loader.js?v=16406" in index
     loader = (ROOT / "app" / "static" / "renderer-loader.js").read_text(encoding="utf-8")
@@ -236,9 +236,9 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     assert "/static/app.css?v=16403" in worker
     assert "/static/map-markers.css?v=16393" in worker
     assert "/static/app.js?v=16409" in worker
-    assert "/static/motion-engine.js?v=16406" in worker
+    assert "/static/motion-engine.js?v=16410" in worker
     assert "/static/live-object-renderer.js?v=16406" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r186" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r187" in worker
 
 
 def test_sparse_reporting_interval_does_not_grey_live_trains():
