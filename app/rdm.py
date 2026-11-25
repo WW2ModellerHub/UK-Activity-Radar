@@ -200,10 +200,15 @@ class RailDataMarketplace:
         # the unfiltered feed away from browsers and cache this short-lived view.
         incidents = self.get(
             "disruptions", "/stations/disruptions/incidents",
-            params={"stationCode": code}, ttl=45, stale_ttl=600,
+            params={"crsCode": code}, ttl=45, stale_ttl=600,
         )
-        messages = self.get(
-            "disruptions", "/stations/disruptions/stationMessages",
-            params={"stationCode": code}, ttl=45, stale_ttl=600,
-        )
+        # Station messages are a second, optional call: a refusal there must
+        # not hide the incidents.
+        try:
+            messages = self.get(
+                "disruptions", "/stations/disruptions/stationMessages",
+                params={"crsCode": code}, ttl=45, stale_ttl=600,
+            )
+        except requests.RequestException:
+            messages = None
         return {"incidents": incidents, "station_messages": messages}
