@@ -122,7 +122,10 @@
   // An off-path correction (e.g. a report arriving without a track leg) this
   // short glides for under a second, which at map scale stays on the railway.
   // Anything further is placed directly rather than slid across countryside.
-  const TRAIN_GLIDE_MAX_KM=1.5;
+  // Corrections up to this size glide (over trainCatchUpMs); bigger ones are a
+  // different train or a reconnect and are taken at once. At 1.5 km, measured
+  // 1.7-1.8 km corrections were snapping.
+  const TRAIN_GLIDE_MAX_KM=6;
   // Corrections along the railway itself never leave the track, so they may
   // cover more ground before a direct placement is preferable.
   const TRAIN_PATH_GLIDE_MAX_KM=30;

@@ -39,6 +39,19 @@ test('MapLibre live layer renders trains; aircraft stay on the map markers with 
   expect(await page.evaluate(()=>Object.fromEntries(window.__renderer.lastFeatures.map(row=>[row.properties.id,row.properties.rotation])))).toEqual({'train-1':0,'train-2':0});
   await expect(page.locator('body')).toHaveAttribute('data-frame-intervals','16,33,50,16');
   await expect(page.locator('.map-panel')).toHaveClass(/maplibre-live-ready/);
+  // When one train leaves a shared spot, the one left behind slides back to
+  // its true place instead of jumping ~22 px in one frame (seen at stations).
+  const steps = await page.evaluate(async () => {
+    const r = window.__renderer, rows = r.rows.filter(row => row.id !== 'train-2');
+    const px = () => { const f = r.lastFeatures.find(row => row.properties.id === 'train-1'); return r.map.project(f.geometry.coordinates); };
+    const t0 = performance.now(); r.draw(t0, true); const start = px();
+    r.setActivities(rows, 'train-1');
+    const moves = []; let last = start;
+    for (let i = 1; i <= 50; i++) { r.draw(t0 + i * 16, true); const now = px(); moves.push(Math.hypot(now.x - last.x, now.y - last.y)); last = now; }
+    return { biggest: Math.max(...moves), total: Math.hypot(last.x - start.x, last.y - start.y) };
+  });
+  expect(steps.total).toBeGreaterThan(10);      // it did move back to its own place
+  expect(steps.biggest).toBeLessThan(steps.total / 2);   // but over several frames, not in one jump
 });
 
 test('the live layer lines up with the base map at every zoom', async ({ page }) => {
