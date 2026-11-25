@@ -838,6 +838,8 @@ def runtime_report(detail: bool = False) -> dict:
             report["stream_estimate_errors"] = {"count": state.estimate_errors, "last": state.estimate_error}
         if td_collector is not None and td_collector.kafka is not None:
             report["td_kafka"] = td_collector.kafka.report()
+        if td_collector is not None and td_collector.berths is not None:
+            report["berth_learning"] = td_collector.berths.report()
         if darwin_collector is not None:
             report["darwin_kafka"] = darwin_collector.report()
         if allocation_collector is not None:
@@ -943,6 +945,8 @@ async def lifespan(app: FastAPI):
 
         if settings.td_enabled:
             td_collector = TDCollector(settings, state, STATION_FILE, SMART_FILE, schedules)
+            from .berth_positions import BerthPositions
+            td_collector.berths = BerthPositions(str(DATA_DIR / "berth_positions.json"))
             rail_feeds.append(td_collector)
         else:
             state.set_source(SourceStatus(name="td", enabled=False, mode="off", message="TD disabled in .env"))
@@ -1152,6 +1156,8 @@ async def lifespan(app: FastAPI):
             trust_collector.kafka.stop()
         if td_collector is not None and td_collector.kafka is not None:
             td_collector.kafka.stop()
+        if td_collector is not None and td_collector.berths is not None:
+            td_collector.berths.save(force=True)
         rail_feed_hub.stop()
         rail_feed_hub = None
     for collector in (trust_collector, td_collector, vstp_collector, bods_collector, bods_sx_collector, roads_collector, vms_collector, speed_collector, features_collector, floods_collector, ais_collector, rnli_collector, adsb_sar_collector, london_fire_collector, met_office_collector):
