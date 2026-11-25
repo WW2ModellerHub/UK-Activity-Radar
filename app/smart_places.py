@@ -252,6 +252,23 @@ def _day_runs(days: str | None, dt: datetime) -> bool:
     return s[dt.weekday()] not in {"0", "N", "n", "-"}
 
 
+
+def _forecast_at(scheduled_at, clock):
+    """Darwin's 'HH:MM' on the right day next to a scheduled datetime (crossing midnight)."""
+    if scheduled_at is None or not clock:
+        return None
+    try:
+        hour, minute = (int(part) for part in str(clock)[:5].split(':'))
+    except (TypeError, ValueError):
+        return None
+    candidate = scheduled_at.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    gap = (candidate - scheduled_at).total_seconds()
+    if gap < -12 * 3600:
+        candidate += timedelta(days=1)
+    elif gap > 12 * 3600:
+        candidate -= timedelta(days=1)
+    return candidate
+
 class SmartPlacesService:
     """Live contextual places layered on top of the moving/event radar.
 
@@ -904,7 +921,8 @@ class SmartPlacesService:
                     if key in seen: continue
                     seen.add(key)
                     clock=event_at.strftime('%H:%M')
-                    item={**common,"scheduled":clock,"expected":clock,"minutes":delta,"status":"Scheduled","_scheduled_at":event_at}
+                    item={**common,"scheduled":clock,"expected":clock,"minutes":delta,"status":"Scheduled","_scheduled_at":event_at,
+                          "_forecast":(((note or {}).get('forecasts') or {}).get(row_codes[loc_index]) or {}).get(kind)}
                     if call_is_cancelled(note,row_codes,loc_index,kind):
                         item["status"]="Cancelled"; item["cancelled"]=True
                     bucket.append(item)
@@ -924,7 +942,17 @@ class SmartPlacesService:
             if (live is None and fallback is not None and not getattr(fallback,'service_date',None)
                     and len(service_dates_by_uid.get(uid,set())) == 1):
                 live=fallback
+            forecast_at=_forecast_at(item.get('_scheduled_at'),item.pop('_forecast',None))
             if item.get('cancelled'):
+                if live is not None:
+                    item['live_train_id']=live.id
+            elif forecast_at is not None:
+                # Darwin's forecast for this very station: what its screens show.
+                late=round((forecast_at-item['_scheduled_at']).total_seconds()/60)
+                item['expected']=forecast_at.isoformat()
+                item['delay_minutes']=max(0,late)
+                item['status']='On time' if late<=0 else f"{late} min late"
+                item['forecast_source']='darwin'
                 if live is not None:
                     item['live_train_id']=live.id
             elif live is not None:

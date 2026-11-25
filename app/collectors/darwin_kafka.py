@@ -72,6 +72,19 @@ def _delay_minutes(location: dict) -> int | None:
     return None
 
 
+def _forecast_clock(report) -> str | None:
+    """'08:06' from a Darwin arr/dep report: actual time if it happened, else the estimate."""
+    if isinstance(report, list):
+        report = report[-1] if report else None
+    if not isinstance(report, dict):
+        return None
+    for key in ("at", "et", "wet"):
+        value = _text(report.get(key))
+        if value and _clock_minutes(value) is not None:
+            return value[:5]
+    return None
+
+
 def _updates(payload: dict) -> list[dict]:
     root = payload.get("Pport") if isinstance(payload.get("Pport"), dict) else payload
     ur = root.get("uR") if isinstance(root, dict) else None
@@ -310,6 +323,12 @@ class DarwinKafkaFeed:
         for location in locations:
             self.state.rail_notes.platform(
                 uid, service_date, _text(location.get("tpl")), _text(location.get("plat")),
+            )
+            # Darwin's own expected (or actual) time at each call: what the
+            # station's departure screens show.
+            self.state.rail_notes.forecast(
+                uid, service_date, _text(location.get("tpl")),
+                arrival=_forecast_clock(location.get("arr")), departure=_forecast_clock(location.get("dep")),
             )
 
         train = self.state.find_train_by_uid(uid, service_date)
