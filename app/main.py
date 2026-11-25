@@ -969,7 +969,7 @@ async def lifespan(app: FastAPI):
             td_collector.kafka.start()
         if settings.raildata_darwin_kafka_ready:
             from .collectors.darwin_kafka import DarwinKafkaFeed
-            darwin_collector = DarwinKafkaFeed(settings, state)
+            darwin_collector = DarwinKafkaFeed(settings, state, store_path=str(DATA_DIR / "darwin_formations.json"))
             darwin_collector.start()
 
         if schedules.ready():

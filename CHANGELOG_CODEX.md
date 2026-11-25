@@ -1,5 +1,9 @@
 # Codex stabilization changelog
 
+## Darwin coach formations survive restarts
+
+Only 11 trains had coach details after 18 minutes of Darwin: operators publish formations ahead of each train (often hours before) and every restart wiped them from memory. Formations and the RID-to-train map for yesterday, today and tomorrow are now saved to `DATA_DIR/darwin_formations.json` (at most once a minute, and on shutdown) and reloaded at start-up.
+
 ## A train that only passes a station is moved on past it
 
 Seen at Market Harborough at 17:32: three trains shown, one of them 1F56 to Sheffield, which does not stop there, parked for 6 minutes. After an "arrival" report, the rollover looked for the train's dwell at the next place; a place it only passes has none, so the lookup was empty and the rollover stopped. It now carries on along the timetable.
