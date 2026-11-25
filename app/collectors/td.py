@@ -9,6 +9,7 @@ from threading import RLock
 
 from ..config import Settings
 from ..models import SourceStatus, Vehicle
+from ..berth_positions import BerthPositions
 from ..schedule_store import ScheduleStore
 from ..state import TRAIN_PROJECTION_MINUTES, LiveState
 from ..train_identity import operator_name
@@ -79,6 +80,8 @@ class TDCollector(StompFeed):
         self._pending_lock = RLock()
         self._last_path_refresh = float("-inf")
         self._rollover_retry_at: dict[str, tuple[datetime, float]] = {}
+        # Per train: the last placed report and the unplaced steps since (for learning).
+        self._trail: dict[str, dict] = {}
         self.reload_references()
 
     def reload_references(self) -> None:
@@ -184,13 +187,27 @@ class TDCollector(StompFeed):
             # clearly the same TD-area/headcode we already hold, keep the last
             # confirmed position fresh until a mappable berth arrives.
             existing = self.state.find_train_by_headcode(descr) if descr else None
-            if (
-                existing
-                and existing.source == "Network Rail TD"
-                and str(existing.source_id or "").startswith(f"{area}:")
-                and event_time >= existing.last_updated
-            ):
+            berth_key = BerthPositions.key(area, to) if (typ == "CA" and to) else None
+            learned = self.berths.position(berth_key) if (self.berths is not None and berth_key) else None
+            owned = bool(existing and existing.source == "Network Rail TD"
+                         and str(existing.source_id or "").startswith(f"{area}:"))
+            # A learned berth also identifies trains last placed by TRUST, if it is near them.
+            near = bool(existing and learned and existing.lat is not None
+                        and _km({"lat": existing.lat, "lon": existing.lon}, {"lat": learned[0], "lon": learned[1]}) <= 15.0)
+            if existing and (owned or near) and event_time >= existing.last_updated:
+                trail = self._trail.get(existing.id)
+                if trail is not None and berth_key:
+                    trail["steps"].append((berth_key, event_time))
+                    del trail["steps"][:-60]
                 advanced = self._advance_schedule_estimate(existing, event_time)
+                if learned and self._place_on_leg(existing, learned, event_time, area, to):
+                    existing.restored_snapshot = False
+                    existing.last_updated = event_time
+                    existing.status = "TD live"
+                    self.state.upsert(existing)
+                    if not replay:
+                        status.movements_unmapped += 1
+                    return True
                 existing.restored_snapshot = False
                 existing.last_updated = event_time
                 existing.status = "TD live • next berth unresolved"
@@ -335,6 +352,7 @@ class TDCollector(StompFeed):
                 self._arrive_by(existing, station, event_time, arrive_at, before)
             if self._reached_destination(schedule, station):
                 existing.terminated_at = existing.terminated_at or event_time
+            self._learn_and_anchor(existing, station, event_time + timedelta(seconds=berth_offset if event_kind else 0), event_kind)
             self.state.upsert(existing)
         else:
             leg = self._schedule_leg(
@@ -443,6 +461,70 @@ class TDCollector(StompFeed):
             )
         except (TypeError, ValueError):
             return None
+
+    def _learn_and_anchor(self, vehicle: Vehicle, station: dict, at_time: datetime, event_kind: str | None) -> None:
+        """A placed report: learn where the unplaced berths since the last one are, then start again here."""
+        tiploc = str(station.get("tiploc") or "").strip().upper()
+        trail = self._trail.get(vehicle.id)
+        if (self.berths is not None and trail and trail["steps"] and tiploc and trail["tiploc"]
+                and trail["tiploc"] != tiploc and vehicle.schedule_id and self.schedules is not None):
+            try:
+                self._learn(vehicle, trail, tiploc, station, at_time, event_kind)
+            except Exception:
+                pass
+        self._trail[vehicle.id] = {"tiploc": tiploc, "t": at_time, "kind": event_kind, "steps": [],
+                                   "lat": float(station["lat"]), "lon": float(station["lon"])}
+        if len(self._trail) > 8000:
+            self._trail.pop(next(iter(self._trail)))
+
+    def _learn(self, vehicle: Vehicle, trail: dict, tiploc: str, station: dict, at_time: datetime, event_kind) -> None:
+        from ..berth_positions import path_length, point_at
+        from ..running_profile import allowances, distance_fraction, ramps
+        duration = (at_time - trail["t"]).total_seconds()
+        if not 30 <= duration <= 1200:
+            return
+        path = [list(p) for p in (self.schedules.route_points(vehicle.schedule_id, trail["tiploc"], tiploc) or [])]
+        start, end = [trail["lat"], trail["lon"]], [float(station["lat"]), float(station["lon"])]
+        if not path or _km({"lat": path[0][0], "lon": path[0][1]}, {"lat": start[0], "lon": start[1]}) > 0.05:
+            path.insert(0, start)
+        if _km({"lat": path[-1][0], "lon": path[-1][1]}, {"lat": end[0], "lon": end[1]}) > 0.05:
+            path.append(end)
+        if len(path) < 2 or not 0.3 <= path_length(path) <= 60:
+            return
+        accel, brake = ramps(duration, str(trail.get("kind") or "") == "Departure", str(event_kind or "") == "Arrival",
+                             allowances(vehicle.power_type, vehicle.timing_load, vehicle.train_category))
+        for key, when in trail["steps"]:
+            elapsed = (when - trail["t"]).total_seconds()
+            if 0 < elapsed < duration:
+                lat, lon = point_at(path, distance_fraction(elapsed, duration, accel, brake))
+                self.berths.observe(key, lat, lon)
+
+    def _place_on_leg(self, vehicle: Vehicle, learned, at_time: datetime, area: str, berth: str) -> bool:
+        """A step into a learned berth: put the train there on its current leg, keeping its pace."""
+        from ..berth_positions import project
+        from ..running_profile import distance_fraction
+        path = vehicle.estimate_path or []
+        if len(path) < 2 or not vehicle.estimate_started_at or not vehicle.estimate_due_at:
+            return False
+        found = project(path, learned[0], learned[1])
+        total = (vehicle.estimate_due_at - vehicle.estimate_started_at).total_seconds()
+        if not found or found[1] > 0.4 or total <= 0:
+            return False
+        fraction = found[0]
+        accel, brake = float(vehicle.estimate_accel_s or 0), float(vehicle.estimate_brake_s or 0)
+        low, high = 0.0, total
+        for _ in range(40):   # the time on this leg at which the train is that far along
+            middle = (low + high) / 2
+            if distance_fraction(middle, total, accel, brake) < fraction:
+                low = middle
+            else:
+                high = middle
+        vehicle.estimate_started_at = at_time - timedelta(seconds=low)
+        vehicle.estimate_due_at = vehicle.estimate_started_at + timedelta(seconds=total)
+        vehicle.position_method = "estimated"
+        vehicle.position_label = f"TD step into learned berth {area} {berth} • placed on the track"
+        self.berths.placed_steps += 1
+        return True
 
     @staticmethod
     def _arrive_by(vehicle: Vehicle, station: dict, event_time: datetime, arrive_at: datetime, before) -> None:
@@ -674,6 +756,8 @@ class TDCollector(StompFeed):
 
     # The Rail Data Marketplace Kafka copy of this feed (td_kafka.TDKafkaFeed).
     kafka = None
+    # Learned berth positions (berth_positions.BerthPositions), set by main.
+    berths = None
 
     def stomp_superseded(self) -> bool:
         """True while the Kafka copy is delivering: the STOMP copy is then ignored."""
@@ -710,3 +794,5 @@ class TDCollector(StompFeed):
         if self.backlog_dropped:
             status.message += f" • {self.backlog_dropped:,} stale frames skipped under load"
         self.state.set_source(status)
+        if self.berths is not None:
+            self.berths.save()

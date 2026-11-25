@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## Berth positions learned from passing trains (Signalbox-style smoothness)
+
+SMART places only TD steps at reporting points; live, 10,036 of 16,977 steps since a restart had no position, so trains coasted on the timetable between stations.
+- `app/berth_positions.py`: while a train runs between two placed reports, each unplaced step it makes is put on the track by its time (with speed-up/braking from running_profile). A berth is trusted once 3 trains agree within 500 m (median, outliers ignored). Saved to `DATA_DIR/berth_positions.json` (once a minute, and on shutdown).
+- A step into a trusted berth now re-times the train's current leg so it is at that point at that moment (same pace), if the berth is within 400 m of its track; the browser glides it there. Learned berths also identify trains last placed by TRUST when within 15 km.
+- Health detail: `berth_learning` (berths seen/trusted, steps learned/placed).
+
 ## Trains at a shared spot no longer jump; mid-size corrections glide
 
 Measured live around Leicester (2 min, 15 moving trains): 6 trains jumped, most by ~22 px in one frame.
