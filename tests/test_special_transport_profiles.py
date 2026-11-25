@@ -17,4 +17,4 @@ def test_special_transport_assets_are_real_pngs():
         payload = (ASSETS / name).read_bytes()
         assert payload.startswith(b"\x89PNG\r\n\x1a\n")
         assert len(payload) > 100_000
-        assert f"/static/assets/train-profiles/{name}" in javascript
+        assert name in javascript

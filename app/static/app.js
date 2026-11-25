@@ -4444,6 +4444,34 @@
     '801':{lner:['class-800-lner-azuma',[215,187,176,171,206]]},
     '802':{gwr:['class-800-gwr-iet',[292,216,263,196,281]]},
   };
+  // Whole-formation assets supplement the newer coach-by-coach sets. They are
+  // selected only from an explicit timetable class or service description.
+  const WHOLE_TRAIN_PROFILE_IMAGES={
+    '150':{northern:'class-150-northern.png'},'158':{northern:'class-158-northern.png'},
+    '159':{'south-western':'class-159-south-western.png'},'165':{gwr:'class-165-gwr.png'},'166':{gwr:'class-165-gwr.png'},
+    '168':{chiltern:'class-168-chiltern.png'},'185':{transpennine:'class-185-transpennine.png'},
+    '196':{'west-midlands':'class-196-west-midlands.png'},'197':{'transport-for-wales':'class-197-transport-for-wales.png'},
+    '345':{'elizabeth-line':'class-345-elizabeth-line.png'},'377':{southern:'class-377-southern.png'},
+    '385':{scotrail:'class-385-scotrail.png'},'395':{southeastern:'class-395-southeastern.png'},
+    '444':{'south-western':'class-444-south-western.png'},'700':{thameslink:'class-700-thameslink.png'},
+    '720':{'greater-anglia':'class-720-greater-anglia.png'},'745':{'greater-anglia':'class-745-greater-anglia.png'},
+  };
+  const SPECIAL_TRAIN_PROFILE_IMAGES=[
+    [/\b(?:LONDON\s+UNDERGROUND|TUBE|UNDERGROUND)\b/i,'london-underground.png'],[/\b(?:CROYDON|TRAMLINK)\b/i,'tram-croydon.png'],
+    [/\b(?:MANCHESTER|METROLINK)\b/i,'tram-manchester.png'],[/\bEDINBURGH\s+TRAM/i,'tram-edinburgh.png'],
+    [/\b(?:NOTTINGHAM|NET)\s+TRAM/i,'tram-nottingham.png'],[/\b(?:SLEEPER|CALEDONIAN)\b/i,'sleeper-train.png'],
+    [/\b(?:STEAM|HERITAGE|CHARTER)\b/i,'heritage-steam-charter.png'],[/\b(?:ENGINEERING|ON[- ]TRACK|MAINTENANCE)\b/i,'rail-engineering-machine.png'],
+    [/\b(?:POSTAL|MAIL)\b/i,'postal-train.png'],
+  ];
+  function wholeTrainProfileImage(formation,operator){
+    const identity=[formation?.name,formation?.type,formation?.description].filter(Boolean).join(' ');
+    const special=SPECIAL_TRAIN_PROFILE_IMAGES.find(([pattern])=>pattern.test(identity));
+    if(special)return `/static/assets/train-profiles/${special[1]}`;
+    const choices=WHOLE_TRAIN_PROFILE_IMAGES[String(formation?.class||'')];
+    const livery=trainLiveryTheme(null,formation?.operator||operator).key;
+    const file=choices?.[livery]||choices?.default;
+    return file?`/static/assets/train-profiles/${file}`:null;
+  }
   function trainProfileSet(formation,operator){
     const choices=TRAIN_PROFILE_SETS[String(formation?.class||'')];
     if(!choices)return null;
@@ -4550,6 +4578,10 @@
     ballast:'/static/assets/train-profiles/freight-wagon-aggregate.webp',
     metals:'/static/assets/train-profiles/freight-wagon-steel.webp',
     cars:'/static/assets/train-profiles/freight-wagon-automotive.webp',
+    biomass:'/static/assets/train-profiles/freight-wagon-biomass.png',
+    nuclear:'/static/assets/train-profiles/freight-wagon-nuclear-flask.png',
+    timber:'/static/assets/train-profiles/freight-wagon-timber.png',
+    engineering:'/static/assets/train-profiles/freight-wagon-engineering.png',
   };
   const FREIGHT_LOCOMOTIVE_IMAGES={
     '60':{'db-cargo':'/static/assets/train-profiles/freight-class-60-db-cargo.png'},
@@ -4565,9 +4597,7 @@
     '92':{gbrf:'/static/assets/train-profiles/freight-class-92-gbrf.png'},
   };
   function freightVehicleHtml(kind,index,theme,electric,isLoco=false,exactClass=null){
-    const image=isLoco&&exactClass==='66'&&theme.key==='db-cargo'
-      ?'/static/assets/train-profiles/freight-class-66-db-cargo.webp'
-      :FREIGHT_PROFILE_IMAGES[kind];
+    const image=isLoco?(FREIGHT_LOCOMOTIVE_IMAGES[exactClass]?.[theme.key]||null):FREIGHT_PROFILE_IMAGES[kind];
     const visual=image?`<img class="freight-profile-asset" src="${image}" alt="" loading="lazy" decoding="async">`
       :isLoco?locoSvg(theme,electric):wagonSvg(kind,index);
     return `<div class="coach"><small></small>${visual}<div class="coach-marks"></div></div>`;
@@ -4600,6 +4630,7 @@
     const title=[formation.class?`Class ${formation.class}`:null,formation.name].filter(Boolean).join(' ')||(formation.traction==='diesel'?'Diesel train':formation.traction==='electric'?'Electric train':'Passenger train');
     const length=known?`${count} coach${count===1?'':'es'}`:!usual.length?'':usual.length>1?`usually ${usual.slice(0,-1).join(', ')} or ${usual[usual.length-1]} coaches`:`usually ${usual[0]} coach${usual[0]===1?'':'es'}`;
     const profile=trainProfileSet(formation,operator);
+    const wholeProfile=profile?null:wholeTrainProfileImage(formation,operator);
     const units=(formation.units||[]).filter(Boolean);
     const unitsHtml=units.length?`<p class="formation-units">${units.map(unit=>`<b>${esc(unit)}</b>`).join('')}</p>`:'';
     if(profile){
@@ -4610,6 +4641,11 @@
         ? 'Coaches, first class and toilets as published by National Rail for this train.'
         : 'Not published for this train: drawn at its class’s usual length. Coaches, first class and toilets appear here when National Rail publishes them.';
       return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header>${profileTrainHtml(profile,drawn)}${unitsHtml}<p>${esc(note)}</p></section>`;
+    }
+    if(wholeProfile){
+      const coachData=known?coaches.map(coach=>`<li><strong>${coach.letter?`Coach ${esc(coach.letter)}`:'Coach'}</strong><div>${coach.first?'<b class="coach-first">First class</b>':'<span>Standard</span>'}${coach.toilet==='accessible'?`<span class="coach-facility">${WHEELCHAIR_ICON} Accessible toilet</span>`:coach.toilet==='standard'?'<span class="coach-facility">WC Toilet</span>':''}</div></li>`).join(''):'';
+      const note=known?'Coach information from National Rail for this service.':'The operator has not published this service’s exact coach formation.';
+      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="train-profile-stage"><img src="${wholeProfile}" alt="" loading="lazy" decoding="async"></div>${coachData?`<div class="formation-data"><strong>${count} published coaches</strong><ul>${coachData}</ul></div>`:''}${unitsHtml}<p>${esc(note)}</p></section>`;
     }
     if(formation.hauled&&!known)coaches.push({loco:true});
     const cells=coaches.map((coach,i)=>{
