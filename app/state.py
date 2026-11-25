@@ -408,6 +408,25 @@ class LiveState:
                     found[(uid, service_date)] = deepcopy(item)
             return found
 
+    def _superseded_td_copy_unlocked(self, stored: Vehicle) -> bool:
+        """A TD-only copy (no timetable match) of a train now reported elsewhere.
+
+        Seen live: 1C98 shown as "Train describer • SOUTH JUNCTION", 7 minutes
+        old, while the matched 1C98 had moved on. Headcodes are reused around
+        the country, so only a matched train with the same headcode within
+        150 km that reported more recently replaces it.
+        """
+        if stored.train_uid or not str(stored.id).startswith("td:"):
+            return False
+        code = str(stored.headcode or stored.name or "").strip().upper()
+        for key in self._train_headcode_index.get(code, ()):
+            other = self._vehicles.get(key)
+            if (other is not None and other.id != stored.id and other.train_uid
+                    and other.last_updated > stored.last_updated
+                    and _distance_km(other.lat, other.lon, stored.lat, stored.lon) <= 150):
+                return True
+        return False
+
     def all(
         self,
         max_age_minutes: int = 45,
@@ -450,6 +469,8 @@ class LiveState:
                         if current is not None and current.id != stored.id:
                             continue
                     if _train_finished(stored, now):
+                        continue
+                    if self._superseded_td_copy_unlocked(stored):
                         continue
                     if stored.restored_snapshot and stored.last_updated < restored_cutoff:
                         # A warm-start row that no live report has replaced is

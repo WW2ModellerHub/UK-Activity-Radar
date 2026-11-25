@@ -97,3 +97,17 @@ def test_a_train_slower_than_its_timetable_is_paced_by_its_own_steps():
     assert abs((train.estimate_due_at - (T0 + timedelta(minutes=7))).total_seconds()) < 2   # the rest at its own pace
     report = berths.report()["correction_km"]
     assert report["n"] == 2 and report["median"] > 0.5                       # the second step was a big correction
+
+
+def test_a_td_only_copy_is_hidden_once_the_matched_train_reports_elsewhere():
+    from app.state import LiveState
+    state = LiveState()
+    now = datetime.now(timezone.utc)
+    state.upsert(Vehicle(id="td:LR:1C98", type="train", name="1C98", headcode="1C98", lat=52.62, lon=-1.13,
+                         source="Network Rail TD", last_updated=now - timedelta(minutes=7)))
+    state.upsert(Vehicle(id="nr:1C98", type="train", name="1C98", headcode="1C98", lat=52.48, lon=-0.92, train_uid="C12345",
+                         source="Network Rail TRUST", last_updated=now - timedelta(minutes=1)))
+    state.upsert(Vehicle(id="td:G1:1C98", type="train", name="1C98", headcode="1C98", lat=55.86, lon=-4.25,
+                         source="Network Rail TD", last_updated=now - timedelta(minutes=7)))      # another 1C98 in Scotland
+    ids = {v.id for v in state.all(include_buses=False, include_vessels=False)}
+    assert "nr:1C98" in ids and "td:LR:1C98" not in ids and "td:G1:1C98" in ids

@@ -1,5 +1,9 @@
 # Codex stabilization changelog
 
+## TD-only copies of a train hidden once the matched train reports elsewhere
+
+Seen live: 1C98 shown as "Train describer • SOUTH JUNCTION", 7 minutes old, while the matched 1C98 had moved on. A TD-only record with no timetable match is hidden when a matched train with the same headcode within 150 km has reported more recently (headcodes are reused around the country).
+
 ## Audit of what live trains are missing; two fixes
 
 Sampled 86 live trains (70 passenger): 22 had a named class, 48 were drawn generically; 30 had not updated for 5+ minutes.
