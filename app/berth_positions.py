@@ -85,6 +85,7 @@ class BerthPositions:
         self._saved_at = time.monotonic()
         self.learned_steps = 0
         self.placed_steps = 0
+        self._corrections: list[float] = []   # km a train was off when it reached a learned berth
         self.load()
 
     @staticmethod
@@ -114,13 +115,21 @@ class BerthPositions:
             return None
         return sum(p[0] for p in close) / len(close), sum(p[1] for p in close) / len(close)
 
+    def note_correction(self, km: float) -> None:
+        self._corrections.append(round(km, 3))
+        del self._corrections[:-2000]
+
     def report(self) -> dict:
         with self._lock:
             berths = len(self._seen)
             trusted_keys = list(self._seen)
         trusted = sum(1 for key in trusted_keys if self.position(key) is not None)
+        corrections = sorted(self._corrections)
+        quantile = (lambda q: corrections[min(len(corrections) - 1, int(len(corrections) * q))]) if corrections else (lambda q: None)
         return {"berths_seen": berths, "berths_trusted": trusted, "steps_learned": self.learned_steps,
-                "steps_placed": self.placed_steps}
+                "steps_placed": self.placed_steps,
+                # How far off trains were drawn when they reached a learned berth (km): lower is smoother.
+                "correction_km": {"median": quantile(0.5), "p90": quantile(0.9), "n": len(corrections)}}
 
     def load(self) -> None:
         if not self._path:

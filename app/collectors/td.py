@@ -82,6 +82,8 @@ class TDCollector(StompFeed):
         self._rollover_retry_at: dict[str, tuple[datetime, float]] = {}
         # Per train: the last placed report and the unplaced steps since (for learning).
         self._trail: dict[str, dict] = {}
+        # Per train: (leg, share along it, time) of its last learned-berth step, for its own pace.
+        self._last_place: dict[str, tuple] = {}
         self.reload_references()
 
     def reload_references(self) -> None:
@@ -506,8 +508,14 @@ class TDCollector(StompFeed):
                 self.berths.observe(key, lat, lon)
 
     def _place_on_leg(self, vehicle: Vehicle, learned, at_time: datetime, area: str, berth: str) -> bool:
-        """A step into a learned berth: put the train there on its current leg, keeping its pace."""
-        from ..berth_positions import project
+        """A step into a learned berth: put the train there on its current leg.
+
+        Its pace is its own once it has made two learned steps on this leg
+        (distance between them over the time taken), kept within half to
+        double the timetable's, so it does not drift from the next step and
+        jump there; until then, the timetable's.
+        """
+        from ..berth_positions import path_length, project
         from ..running_profile import distance_fraction
         path = vehicle.estimate_path or []
         if len(path) < 2 or not vehicle.estimate_started_at or not vehicle.estimate_due_at:
@@ -518,6 +526,21 @@ class TDCollector(StompFeed):
             return False
         fraction = found[0]
         accel, brake = float(vehicle.estimate_accel_s or 0), float(vehicle.estimate_brake_s or 0)
+        length_km = path_length(path)
+        # How far off the drawn train was: the correction this step makes.
+        drawn = distance_fraction((at_time - vehicle.estimate_started_at).total_seconds(), total, accel, brake)
+        self.berths.note_correction(abs(fraction - drawn) * length_km)
+        leg = (round(path[0][0], 4), round(path[0][1], 4), round(path[-1][0], 4), round(path[-1][1], 4))
+        last = self._last_place.get(vehicle.id)
+        self._last_place[vehicle.id] = (leg, fraction, at_time)
+        if len(self._last_place) > 8000:
+            self._last_place.pop(next(iter(self._last_place)))
+        if last and last[0] == leg:
+            moved, seconds = fraction - last[1], (at_time - last[2]).total_seconds()
+            if moved > 0.01 and 15 <= seconds <= 900:
+                own = moved * length_km / seconds                 # km/s between the two steps
+                booked = length_km / total
+                total *= booked / max(booked * 0.5, min(booked * 2.0, own))
         low, high = 0.0, total
         for _ in range(40):   # the time on this leg at which the train is that far along
             middle = (low + high) / 2
