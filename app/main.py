@@ -3563,7 +3563,12 @@ def _saved_train_status(train_id: str) -> dict:
     if vehicle is None or getattr(vehicle, "type", None) != "train":
         return {"found": False, "id": train_id}
     note = state.rail_notes.get(vehicle.train_uid, vehicle.service_date)
-    return saved_train_status(vehicle, note)
+    formation = None
+    if darwin_collector is not None:
+        from .train_formation import describe
+        coaches = darwin_collector.formation_for(vehicle.train_uid, vehicle.service_date)
+        formation = describe(vehicle, coaches)
+    return saved_train_status(vehicle, note, formation)
 
 
 @app.get("/api/trains/near")

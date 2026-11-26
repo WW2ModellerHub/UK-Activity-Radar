@@ -118,6 +118,18 @@ def test_journey_watch_warns_only_before_leaving_and_only_for_serious_things_on_
     assert journey_alerts(events, journey, monday_7.replace(hour=12)) == []
     assert normalise_preferences({"mode": "trains-only", "journey": {"points": [[1, 1]], "leave_minutes": 10}})["journey"] is None
 
+    flood = Event(id="flood", type="flood", name="River Aire at Leeds", lat=53.752, lon=-1.55,
+                  status="Flood Warning", severity="2", reason="Flooding is expected")
+    weather = Event(id="weather", type="weather", name="Amber rain warning", subtitle="Heavy rain",
+                    lat=53.8, lon=-1.5, severity="Amber", reason="Travel disruption is likely")
+    bus = Event(id="bus", type="bus", name="Route 36 diverted", subtitle="Leeds station",
+                lat=53.752, lon=-1.55, reason="City centre road closure",
+                details={"bus_disruption": True, "line": "36", "stop": "Leeds station"})
+    bus.impact = {"active": True, "rank": 1, "title": "Bus disruption", "where": "Leeds station",
+                  "impact": "Route 36", "when": "Now"}
+    extra = journey_alerts([flood, weather, bus], journey, monday_7)
+    assert [row["activity_id"] for row in extra] == ["flood", "weather", "bus"]
+
 
 def test_leave_now_times_the_alert_to_the_train_and_moves_with_its_delay():
     from datetime import datetime, timedelta, timezone

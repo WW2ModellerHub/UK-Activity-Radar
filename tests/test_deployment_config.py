@@ -300,6 +300,15 @@ def test_map_has_a_max_zoom_before_marker_clusters_are_attached():
     assert "maxZoom: 20" in map_setup
 
 
+def test_national_aircraft_view_clusters_without_the_removed_train_explanation():
+    app_js = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "disableClusteringAtZoom: 8" in app_js
+    assert "className:'aerial-cluster'" in app_js
+    assert "Last confirmed railway report" not in app_js
+    assert "How the movement works" not in app_js
+
+
 def test_the_app_page_has_no_inline_scripts_the_csp_would_block():
     import re
     index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")

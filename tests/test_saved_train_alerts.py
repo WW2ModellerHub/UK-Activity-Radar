@@ -30,6 +30,16 @@ def test_alerts_for_lateness_platform_change_and_cancellation():
     assert saved_train_alerts(saved_train_status(None)) == []
 
 
+def test_a_published_formation_generates_one_stable_alert():
+    status = saved_train_status(_train(), formation={
+        "class": "170", "coaches_known": True, "coaches": [{}, {}, {}], "units": ["170636"],
+    })
+    alert = saved_train_alerts(status)[0]
+    assert alert["key"] == "saved-train:nr:1L56:formation:170:3:170636"
+    assert alert["title"] == "Formation confirmed for 1L56 to Cambridge"
+    assert alert["body"] == "Class 170 · 3 coaches · Units 170636"
+
+
 def test_a_cancellation_known_only_from_the_timetable_note_counts():
     status = saved_train_status(_train(), {"cancelled": {"scope": "whole"}, "platforms": {}})
     assert status["cancelled"] is True

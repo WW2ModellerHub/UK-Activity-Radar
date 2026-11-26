@@ -183,6 +183,8 @@ body[data-experience="cool"] .marker-cluster div{background:rgba(215,125,47,.72)
 /* A group of stations (zoomed out): small, white, clearly not a train. */
 .station-cluster{display:grid!important;place-items:center;background:none;border:0}
 .station-cluster span{display:grid;place-items:center;width:22px;height:22px;box-sizing:border-box;border-radius:50%;background:#fff;border:2px solid #2b3a46;box-shadow:0 1px 4px rgba(0,0,0,.25);font:700 11px/1 system-ui,sans-serif;color:#2b3a46}
+.aerial-cluster{display:grid!important;place-items:center;background:none;border:0}
+.aerial-cluster span{display:grid;place-items:center;width:32px;height:32px;box-sizing:border-box;border-radius:50%;background:#14283a;border:2px solid #9fd7ff;box-shadow:0 2px 8px rgba(0,0,0,.3);font:700 12px/1 system-ui,sans-serif;color:#fff}
 
 /* Aircraft: a larger silhouette with an ATC-style data block beneath it -
    callsign and type, then flight level, climb/descent and speed (from

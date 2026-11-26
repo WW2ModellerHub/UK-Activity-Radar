@@ -244,9 +244,15 @@
     ? L.markerClusterGroup({ disableClusteringAtZoom: 10, maxClusterRadius: 48, showCoverageOnHover: false, spiderfyOnMaxZoom: true })
     : L.layerGroup();
   markerGroup.addTo(map);
-  // Aircraft must remain individually selectable at national zoom levels. Dense
-  // ground/sea activity can still use clusters, but aircraft never enter one.
-  const aerialMarkerGroup = L.layerGroup().addTo(map);
+  // At national zoom, thousands of individual aircraft obscure the map. Keep
+  // them selectable from regional zoom while clustering the country-wide view.
+  const aerialMarkerGroup = typeof L.markerClusterGroup === 'function'
+    ? L.markerClusterGroup({ disableClusteringAtZoom: 8, maxClusterRadius: 56, showCoverageOnHover: false,
+        spiderfyOnMaxZoom: true, iconCreateFunction: cluster => L.divIcon({
+          html:`<span>${cluster.getChildCount()}</span>`, className:'aerial-cluster', iconSize:[34,34]
+        }) })
+    : L.layerGroup();
+  aerialMarkerGroup.addTo(map);
   const cameraMarkerGroup = L.layerGroup().addTo(map);
   const cameraMarkers = new Map();
   let cameras = [];
@@ -3224,6 +3230,10 @@
   // (remove and re-add). From zoom 10 nothing clusters, so frames move the
   // icon alone and the group is told once, when the map zooms back out.
   const CLUSTER_FREE_ZOOM=10;
+  function clusterFreeZoom(group){
+    const configured=Number(group?.options?.disableClusteringAtZoom);
+    return Number.isFinite(configured)?configured:CLUSTER_FREE_ZOOM;
+  }
   function moveMarker(marker,lat,lon) {
     placeMarker(marker,lat,lon);
     // Leaflet rounds marker positions to whole pixels, so a slow plane ticked
@@ -3268,7 +3278,7 @@
   function placeMarker(marker,lat,lon) {
     const group=marker.__activityGroup;
     const clustered=group&&typeof group._moveChild==='function';
-    if(clustered&&(map.getZoom?.()??0)>=CLUSTER_FREE_ZOOM){
+    if(clustered&&(map.getZoom?.()??0)>=clusterFreeZoom(group)){
       if(!marker.__treeLatLng)marker.__treeLatLng=marker.getLatLng?.();
       group._ignoreMove=true;
       try{marker.setLatLng([lat,lon]);}finally{group._ignoreMove=false;}
@@ -3283,11 +3293,11 @@
     }
     marker.setLatLng([lat,lon]);
   }
-  // Back below zoom 10: file the markers moved frame by frame under their
-  // real positions so clusters are right.
+  // Back below each group's clustering threshold: file markers moved frame by
+  // frame under their real positions so clusters are right.
   function resyncClusteredMarkers() {
-    if((map.getZoom?.()??0)>=CLUSTER_FREE_ZOOM)return;
     for(const marker of markers.values()){
+      if((map.getZoom?.()??0)>=clusterFreeZoom(marker.__activityGroup))continue;
       if(!marker.__treeLatLng)continue;
       const here=marker.getLatLng();
       moveMarker(marker,here.lat,here.lng);
@@ -3318,11 +3328,11 @@
     let moved=0;
     const now=Date.now();
     const bounds=typeof map.getBounds==='function'?map.getBounds()?.pad?.(0.2):null;
-    const clusterFree=(map.getZoom?.()??0)>=CLUSTER_FREE_ZOOM;
     for(const [id,marker] of markers){
       if(!LIVE_MOTION_TYPES.has(marker.__activityType))continue;
       // Clustered trains and buses (zoomed out) keep the once-a-second step.
-      if(!clusterFree&&marker.__activityGroup===markerGroup)continue;
+      if(typeof marker.__activityGroup?._moveChild==='function'
+          && (map.getZoom?.()??0)<clusterFreeZoom(marker.__activityGroup))continue;
       const here=marker.getLatLng?.();
       if(bounds&&here&&!bounds.contains(here))continue;
       const a=activityById(id);
@@ -3751,21 +3761,13 @@
       const status=cancelled?'Cancelled':delay==null?'Live':delay>=1?`${Math.round(delay)} min late`:delay<=-1?`${Math.abs(Math.round(delay))} min early`:'On time';
       const route=[humanTransitLabel(a.origin||''),humanTransitLabel(a.destination||'')].filter(Boolean);
       const operator=humanTransitLabel(a.operator||'');
-      const ageSeconds=Math.max(0,(Date.now()-new Date(a.last_updated||0).getTime())/1000);
-      const age=relativeAge(ageSeconds);
       const next=humanTransitLabel(a.next_location||'');
-      const position=humanTransitLabel(a.position_label||'');
-      const reportKind=a.position_method==='estimated'
-        ? 'The marker is moving along the mapped railway between confirmed signalling reports.'
-        : 'The marker is at the latest confirmed reporting point on the mapped railway.';
       const journey=route.length===2?` from ${route[0]} to ${route[1]}`:route.length?` towards ${route[0]}`:'';
       const nowCopy=cancelled
         ? `${a.name} is cancelled${journey}.`
         : `${operator?`${operator} service `:''}${a.name} is ${status.toLowerCase()}${journey}${next?`, heading next towards ${next}`:''}.`;
       const stories=[];
       if(next)stories.push(['What happens next',`The next railway report is expected around ${next}.`]);
-      if(position)stories.push(['Last confirmed railway report',`${position} · updated ${age}.`]);
-      stories.push(['How the movement works',reportKind]);
       box.classList.remove('hidden','aircraft-live-card');
       box.classList.add('train-live-card');
       box.innerHTML=`<div class="train-live-head"><small>LIVE TRAIN STORY</small><span>${esc(operator||'UK railway network')}</span></div><div class="train-live-now"><div class="train-story-icon" aria-hidden="true">${icons.train}</div><div><small>RIGHT NOW</small><strong>${esc(nowCopy)}</strong></div></div><div class="train-live-tags"><b data-tone="${cancelled?'bad':delay>=5?'bad':delay>=1?'warn':'good'}">${esc(status)}</b>${a.platform?`<b>Platform ${esc(a.platform)}</b>`:''}${a.position_method==='estimated'?'<b>Between reports</b>':'<b>Confirmed report</b>'}</div><div class="train-story-list">${stories.map(([label,value])=>`<div><strong>${esc(label)}</strong><span>${esc(value)}</span></div>`).join('')}</div>`;
@@ -6102,7 +6104,7 @@
       if(active){
         const trains=(p.saved_trains||[]).length;
         const items=[
-          `Your saved trains: late, cancelled or a platform change${trains?` (${trains} saved)`:' (none saved yet)'}`,
+          `Your saved trains: late, cancelled, platform or formation changes${trains?` (${trains} saved)`:' (none saved yet)'}`,
           placeOn?`${p.mode==='train'?'Train':'Driving'} delays near ${p.place_name||'your saved place'}, ${String(p.start_hour).padStart(2,'0')}:00 to ${String(p.end_hour).padStart(2,'0')}:00`:null,
           p.spotter?`Unusual trains and aircraft within ${p.spotter.radius_miles} miles`:null,
           p.journey?`Trouble on ${p.journey.name} before you leave`:null,
@@ -6187,7 +6189,7 @@
     renderMyRadarInterests();renderSavedPlaces();renderMyRadarArea();renderYours();
     badge.textContent = followed.size;
     badge.classList.toggle('hidden', !followed.size);
-    if (!followed.size) { box.innerHTML = '<p class="my-radar-empty">Nothing saved yet. Tap Save on a train to be told if it runs late, is cancelled or changes platform.</p>'; return; }
+    if (!followed.size) { box.innerHTML = '<p class="my-radar-empty">Nothing saved yet. Tap Save on a train to be told if it runs late, is cancelled, changes platform or gets a confirmed formation.</p>'; return; }
     // Everything saved is listed. What is not on the map right now (a plane
     // out of range, a train that has finished) says so instead of vanishing.
     const rows=[...followed].map(id=>{
@@ -7276,9 +7278,9 @@
         const beyondFree=alertsLimited()&&savedTrainIds().indexOf(selectedId)>0;
         if(beyondFree)trackProduct('plus_limit_reached','saved-train-alerts');
         showToast(beyondFree?'Saved. On the free plan, phone alerts cover your first saved train. Radar+ covers them all.'
-          : enabled?'Saved. Your phone will tell you if this train is late, cancelled or changes platform.'
+          : enabled?'Saved. Your phone will tell you if this train is late, cancelled, changes platform or gets a confirmed formation.'
           : unsupported&&commuteAlertStatus.configured?`Saved. ${unsupported}`
-          : 'Saved. You will be told here if this train is late, cancelled or changes platform.');
+          : 'Saved. You will be told here if this train is late, cancelled, changes platform or gets a confirmed formation.');
       }
       syncSavedTrainsToPush();
       renderCommuteAlertStatus();

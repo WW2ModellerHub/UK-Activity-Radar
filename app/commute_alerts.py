@@ -200,21 +200,53 @@ def _distance_to_route_km(lat: float, lon: float, points: list) -> float:
 
 
 def journey_alerts(events, journey: dict | None, now: datetime | None = None) -> list[dict]:
-    """Serious things on the route right now, worst first, one alert each per day."""
+    """Serious road, flood and weather problems near the route, worst first."""
     if not journey_due(journey, now):
         return []
     local = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("Europe/London"))
     found = []
     for event in events:
         impact = getattr(event, "impact", None) or {}
-        if event.type not in {"road", "incident"} or not impact.get("active") or (impact.get("rank") or 0) < 3:
+        event_type = str(getattr(event, "type", "") or "").lower()
+        if event_type == "bus" and (getattr(event, "details", None) or {}).get("bus_disruption"):
+            rank = int(impact.get("rank") or 0)
+            if not impact.get("active") or rank < 1:
+                continue
+            reach_km = 2.0
+            title = impact.get("title") or "Bus disruption"
+            body = " · ".join(x for x in (impact.get("where"), impact.get("impact"), impact.get("when")) if x)
+        elif event_type in {"road", "incident"}:
+            rank = int(impact.get("rank") or 0)
+            if not impact.get("active") or rank < 3:
+                continue
+            reach_km = JOURNEY_REACH_KM
+            title = impact.get("title") or "Incident"
+            body = " · ".join(x for x in (impact.get("where"), impact.get("impact"), impact.get("when")) if x)
+        elif event_type == "flood":
+            try:
+                level = int(getattr(event, "severity", 3) or 3)
+            except (TypeError, ValueError):
+                level = 3
+            if level > 2:
+                continue
+            rank, reach_km = 6 - level, 5.0
+            title = getattr(event, "status", None) or "Flood warning"
+            body = " · ".join(x for x in (getattr(event, "name", None), getattr(event, "reason", None)) if x)
+        elif event_type == "weather":
+            severity = str(getattr(event, "severity", "") or "").lower()
+            if severity not in {"amber", "red"}:
+                continue
+            rank, reach_km = (5 if severity == "red" else 4), 80.0
+            title = getattr(event, "name", None) or f"{severity.title()} weather warning"
+            body = " · ".join(x for x in (getattr(event, "subtitle", None), getattr(event, "reason", None)) if x)
+        else:
             continue
-        if _distance_to_route_km(event.lat, event.lon, journey["points"]) > JOURNEY_REACH_KM:
+        if _distance_to_route_km(event.lat, event.lon, journey["points"]) > reach_km:
             continue
-        found.append((impact.get("rank") or 0, {
+        found.append((rank, {
             "key": "journey:" + road_event_key(event, impact, now),
-            "title": f"{impact.get('title') or 'Incident'} on {journey['name']}",
-            "body": " · ".join(x for x in (impact.get("where"), impact.get("impact"), impact.get("when")) if x) or "Check before you leave.",
+            "title": f"{title} on {journey['name']}",
+            "body": body or "Check before you leave.",
             "activity_id": event.id,
             "mode": "journey",
         }))
@@ -556,13 +588,19 @@ def late_band(delay_minutes) -> int:
     return band
 
 
-def saved_train_status(vehicle, note: dict | None = None) -> dict:
+def saved_train_status(vehicle, note: dict | None = None, formation: dict | None = None) -> dict:
     """What a traveller needs to know about one saved train, or ``found: False``."""
     if vehicle is None:
         return {"found": False}
     cancelled = bool(getattr(vehicle, "cancelled_at", None)) or bool((note or {}).get("cancelled"))
     platform = getattr(vehicle, "platform", None)
     booked = getattr(vehicle, "booked_platform", None)
+    known_coaches = list((formation or {}).get("coaches") or []) if (formation or {}).get("coaches_known") else []
+    units = [str(value) for value in ((formation or {}).get("units") or []) if str(value).strip()]
+    formation_bits = [str((formation or {}).get("class") or "").strip(), str(len(known_coaches) or "").strip(), *units]
+    # A timetable-derived class is not a formation change. Alert only when
+    # Darwin publishes coaches or the allocation feed confirms unit numbers.
+    formation_signature = ":".join(value for value in formation_bits if value) if known_coaches or units else ""
     return {
         "found": True,
         "id": vehicle.id,
@@ -576,6 +614,10 @@ def saved_train_status(vehicle, note: dict | None = None) -> dict:
         "platform": platform,
         "platform_changed": bool(platform and booked and platform != booked),
         "booked_platform": booked,
+        "formation": {
+            "class": (formation or {}).get("class"), "coaches": len(known_coaches), "units": units,
+            "signature": formation_signature,
+        } if formation_signature else None,
     }
 
 
@@ -600,6 +642,15 @@ def saved_train_alerts(status: dict) -> list[dict]:
         alerts.append({"key": f"saved-train:{train_id}:platform:{status['platform']}",
                        "title": f"{label} now at platform {status['platform']}",
                        "body": f"It was booked for platform {status['booked_platform']}.",
+                       "activity_id": train_id, "mode": "saved-train"})
+    formation = status.get("formation") or {}
+    if formation.get("signature"):
+        facts = [f"Class {formation['class']}" if formation.get("class") else None,
+                 f"{formation['coaches']} coaches" if formation.get("coaches") else None,
+                 "Units " + ", ".join(formation.get("units") or []) if formation.get("units") else None]
+        alerts.append({"key": f"saved-train:{train_id}:formation:{formation['signature']}",
+                       "title": f"Formation confirmed for {label}",
+                       "body": " · ".join(value for value in facts if value),
                        "activity_id": train_id, "mode": "saved-train"})
     return alerts
 
