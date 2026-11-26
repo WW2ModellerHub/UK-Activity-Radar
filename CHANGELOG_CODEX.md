@@ -1,5 +1,11 @@
 # Codex stabilization changelog
 
+## Ingestion/web split foundation
+
+- Added an explicit, atomic `LiveState` snapshot boundary and a compressed Redis-compatible shared-state bridge, with round-trip/index and unchanged-revision tests.
+- Added opt-in process-role/shared-state configuration and a staged migration guide. Production remains in safe `all` mode until a private Render Key Value resource, shadow soak and durable billing/push store are approved.
+- Measured a synthetic 22,389-bus snapshot at 170.7 ms to export, 126.5 ms to encode/compress and 0.27 MB over the private network.
+
 ## Live non-rail updates no longer redraw the whole national map
 
 - Measured before changing: every meaningful WebSocket delta re-filtered the complete activity snapshot and walked every visible marker; the one-second motion tick also re-filtered the full national feed, including tens of thousands of buses.

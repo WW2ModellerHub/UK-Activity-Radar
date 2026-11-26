@@ -53,6 +53,12 @@ def _adsb_poll_seconds() -> int:
 
 @dataclass(frozen=True)
 class Settings:
+    # Architecture migration controls. ``all`` preserves today's single
+    # process. ``ingest`` and ``web`` are activated only after the shared-state
+    # bridge has completed its shadow soak and a second Render service exists.
+    process_role: str = os.getenv("RADAR_PROCESS_ROLE", "all").strip().lower()
+    shared_state_url: str = os.getenv("RADAR_SHARED_STATE_URL", "").strip()
+    shared_state_publish_seconds: float = max(0.5, float(os.getenv("RADAR_SHARED_STATE_PUBLISH_SECONDS", "2")))
     network_rail_username: str = os.getenv("NETWORK_RAIL_USERNAME", "").strip()
     network_rail_password: str = os.getenv("NETWORK_RAIL_PASSWORD", "").strip()
     network_rail_client_id: str = os.getenv("NETWORK_RAIL_CLIENT_ID", "uk-activity-radar-dev").strip()

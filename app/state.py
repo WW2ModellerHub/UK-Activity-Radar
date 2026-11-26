@@ -243,6 +243,36 @@ class LiveState:
     def _touch_unlocked(self) -> None:
         self._revision += 1
 
+    def export_shared_snapshot(self) -> dict:
+        """Return a detached, JSON-ready snapshot for another process.
+
+        This is the explicit boundary between feed ingestion and read-only web
+        workers.  Copying happens under one lock so a consumer never observes
+        half of a source replacement.
+        """
+        with self._lock:
+            return {
+                "revision": self._revision,
+                "vehicles": [row.model_dump(mode="json", exclude_none=True) for row in self._vehicles.values()],
+                "events": [row.model_dump(mode="json", exclude_none=True) for row in self._events.values()],
+                "sources": [row.model_dump(mode="json", exclude_none=True) for row in self._sources.values()],
+            }
+
+    def replace_shared_snapshot(self, payload: dict) -> None:
+        """Atomically install a validated snapshot received from ingestion."""
+        vehicles = [Vehicle.model_validate(row) for row in payload.get("vehicles", [])]
+        events = [Event.model_validate(row) for row in payload.get("events", [])]
+        sources = [SourceStatus.model_validate(row) for row in payload.get("sources", [])]
+        with self._lock:
+            self._vehicles = {row.id: row for row in vehicles}
+            self._events = {row.id: row for row in events}
+            self._sources = {row.name: row for row in sources}
+            self._train_uid_index = {}
+            self._train_headcode_index = {}
+            for row in vehicles:
+                self._index_unlocked(row)
+            self._revision = max(self._revision + 1, int(payload.get("revision", 0)))
+
     def _index_unlocked(self, vehicle: Vehicle) -> None:
         if vehicle.type != 'train':
             return
