@@ -30,6 +30,27 @@ def test_without_darwin_the_class_usual_length_is_given_and_marked_as_such():
     assert drawn["coaches_known"] is False and drawn["coaches"] == []
 
 
+def test_allocated_crosscountry_class_170_gets_normal_facilities_without_claiming_darwin_published_them():
+    drawn = describe(_train(formation=["170106"]), [])
+    assert drawn["units"] == ["170106"]
+    assert [coach["letter"] for coach in drawn["coaches"]] == ["A", "B", "C"]
+    assert drawn["coaches_known"] is True and drawn["coaches_published"] is False
+    assert drawn["facilities"] == {
+        "wifi": True, "bicycle_spaces": True, "wheelchair_spaces": True, "toilets": True,
+    }
+    assert drawn["coaches"][0]["toilet"] == "standard"
+    assert drawn["coaches"][2]["toilet"] == "accessible"
+    assert drawn["coaches"][2]["bicycle"] and drawn["coaches"][2]["wheelchair_space"]
+    assert drawn["facilities_typical"] is True
+    assert drawn["source"] == "Allocated unit profile"
+
+
+def test_facilities_are_not_guessed_without_an_allocation_or_for_an_unsupported_operator():
+    assert describe(_train(), [])["facilities"] == {}
+    northern = describe(_train(operator="Northern", formation=["170001"]), [])
+    assert northern["facilities"] == {} and northern["coaches_known"] is False
+
+
 def test_freight_is_drawn_elsewhere_and_unknown_classes_generically():
     assert describe(_train(headcode="6M23", train_category="EE"), []) is None
     generic = describe(_train(power_type="DMU", timing_load="E", operator="East Midlands Railway"), [])
@@ -51,6 +72,7 @@ def test_darwin_formation_messages_give_this_trains_coaches():
     assert [c["letter"] for c in coaches] == ["A", "B", "C"]
     drawn = describe(_train(), coaches)
     assert drawn["coaches_known"] and drawn["name"] == "Turbostar"
+    assert drawn["coaches_published"] is True
     assert [(c["letter"], c["first"], c["toilet"]) for c in drawn["coaches"]] == [
         ("A", True, None), ("B", False, "standard"), ("C", False, None)]   # an out-of-service toilet is not shown
     assert feed.report()["formations"] == 1

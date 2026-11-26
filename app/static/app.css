@@ -1506,6 +1506,11 @@ strong[data-plus].needs-plus::after,
 .train-formation header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .train-formation header strong { font-size: 15px; }
 .train-formation header span { font-size: 13px; color: var(--muted); }
+.train-facilities { display: flex; flex-wrap: wrap; gap: 5px; }
+.train-facility { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 999px; background: var(--subtle, #f6f8f9); color: var(--ink, inherit); font-size: 11px; font-weight: 600; line-height: 1.2; }
+.train-facility > svg { width: 16px; height: 16px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.train-formation > .facility-provenance { margin-top: -3px; font-size: 11px; }
+.facility-provenance a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .formation-row { display: grid; grid-template-columns: repeat(var(--coaches), minmax(0, 1fr)); gap: 2px; align-items: start; }
 .formation-row .coach { display: grid; grid-template-rows: 15px 30px 18px; gap: 3px; justify-items: center; align-items: center; min-width: 0; }
 .formation-row .coach > small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; min-height: 14px; }
@@ -1513,7 +1518,7 @@ strong[data-plus].needs-plus::after,
 .coach-marks { display: flex; gap: 3px; height: 18px; align-items: center; }
 .coach-marks b { font-size: 10px; line-height: 1; padding: 2px 3px; border-radius: 3px; border: 1px solid var(--line); color: var(--ink, inherit); }
 .coach-marks .coach-first { background: #f3d36b; border-color: #d6b23d; color: #3a2d00; }
-.coach-marks .ico { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.coach-marks svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .train-formation > p { margin: 0; font-size: 12px; color: var(--muted); }
 .train-formation.is-typical .coach-svg { opacity: .85; }
 .train-formation.is-freight .formation-row .coach, .train-formation.is-plain .formation-row .coach { grid-template-rows: 32px; }
@@ -1537,7 +1542,7 @@ strong[data-plus].needs-plus::after,
 .profile-train.is-labelled .profile-coach .coach-marks { display: flex; gap: 2px; height: 18px; align-items: center; justify-content: center; }
 .profile-coach .coach-marks b { font-size: 9px; line-height: 1; padding: 2px 3px; border-radius: 3px; border: 1px solid var(--line); }
 .profile-coach .coach-first { background: #f3d36b; border-color: #d6b23d; color: #3a2d00; }
-.profile-coach .ico { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.profile-coach .coach-marks svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 .formation-units { display: flex; gap: 6px; justify-content: center; margin: 0; }
 .formation-units b { font-size: 13px; padding: 3px 14px; border: 1px solid var(--accent, #2a7f9e); border-radius: 6px; font-variant-numeric: tabular-nums; }
 

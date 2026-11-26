@@ -66,7 +66,37 @@ _DMU_BY_OPERATOR = {
 # The feeds spell some operators two ways ("Northern" and "Northern Trains").
 _OPERATOR_ALIASES = {"northern trains": "Northern", "london northwestern railway": "West Midlands Trains",
                      "west midlands railway": "West Midlands Trains", "scotrail trains": "ScotRail",
-                     "gwr": "Great Western Railway", "emr": "East Midlands Railway"}
+                     "gwr": "Great Western Railway", "emr": "East Midlands Railway",
+                     "cross country": "CrossCountry"}
+
+
+# Facilities which are not present in Darwin's formation messages.  Entries
+# are intentionally narrow: a class can have different interiors at different
+# operators, and even within an operator's sub-fleets.  Add a profile only when
+# its source supports every advertised facility.  Live Darwin coach class and
+# toilet data always takes precedence over these normal/unit-profile values.
+_FACILITY_PROFILES: dict[tuple[str, str], dict] = {
+    ("170", "CrossCountry"): {
+        "facilities": {
+            "wifi": True,
+            "bicycle_spaces": True,
+            "wheelchair_spaces": True,
+            "toilets": True,
+        },
+        # CrossCountry 170/1 units are three-car sets; 170/5 units are two-car.
+        # Locations are deliberately not asserted here because they vary by
+        # orientation.  The operator's current seating plan identifies Coach C
+        # for the accessible area and Coach A for the other toilet.
+        "unit_lengths": {"1701": 3, "1705": 2},
+        "coach_letters": {2: ["A", "C"], 3: ["A", "B", "C"]},
+        "coach_facilities": {
+            "A": {"toilet": "standard"},
+            "C": {"toilet": "accessible", "bicycle": True, "wheelchair_space": True},
+        },
+        "source_name": "CrossCountry fleet information",
+        "source_url": "https://www.crosscountrytrains.co.uk/travel-information/on-board/about-our-trains",
+    },
+}
 
 
 def canonical_operator(operator: str | None) -> str:
@@ -105,6 +135,33 @@ def _coach(raw: dict) -> dict:
     }
 
 
+def _allocated_facilities(code: str | None, operator: str | None, units: list[str]) -> dict | None:
+    """Return a conservative operator/sub-fleet profile for an allocated unit.
+
+    A profile is not used when there is no allocation: in that case it would
+    describe a typical class rather than the train the passenger selected.
+    """
+    if not code or not operator or not units:
+        return None
+    profile = _FACILITY_PROFILES.get((code, operator))
+    if not profile:
+        return None
+    allocated = next((str(unit).strip() for unit in units if str(unit).strip()), "")
+    length = next((count for prefix, count in profile.get("unit_lengths", {}).items()
+                   if allocated.startswith(prefix)), None)
+    if not length:
+        return None
+    letters = profile.get("coach_letters", {}).get(length) or [chr(ord("A") + index) for index in range(length)]
+    coach_facilities = profile.get("coach_facilities", {})
+    return {
+        "facilities": dict(profile.get("facilities") or {}),
+        "coaches": [{"letter": letter, "first": False, "toilet": None,
+                     **coach_facilities.get(letter, {})} for letter in letters],
+        "source_name": profile.get("source_name"),
+        "source_url": profile.get("source_url"),
+    }
+
+
 def describe(train, coaches: list[dict] | None) -> dict | None:
     """The diagram for a passenger train, or None when there is nothing honest to draw."""
     category = str(getattr(train, "train_category", "") or "").upper()
@@ -115,6 +172,8 @@ def describe(train, coaches: list[dict] | None) -> dict | None:
     name, usual, traction = CLASSES.get(code, (None, (), None)) if code else (None, (), None)
     name = _NAMES.get((code, operator), name)
     known = [_coach(row) for row in (coaches or []) if isinstance(row, dict)]
+    units = [str(unit) for unit in (getattr(train, "formation", None) or []) if str(unit).strip()][:4]
+    allocated = _allocated_facilities(code, operator, units)
     power = str(getattr(train, "power_type", "") or "").strip().upper()
     hauled = power in {"D", "E", "ED"}
     inferred = False
@@ -127,14 +186,22 @@ def describe(train, coaches: list[dict] | None) -> dict | None:
         # Class not settled by the timetable: still drawn, as a generic train of its traction.
         traction = _POWER_TRACTION.get(power)
         name = "High Speed Train" if power == "HST" else None
+    published = bool(known)
+    if not known and allocated:
+        known = allocated["coaches"]
     return {
         "class": code, "name": name, "traction": traction, "operator": operator,
         "hauled": hauled, "generic": not code, "inferred": inferred,
         "coaches": known,
         # Unit numbers from the allocation feed (e.g. "170636"), when it has them.
-        "units": [str(unit) for unit in (getattr(train, "formation", None) or []) if str(unit).strip()][:4],
+        "units": units,
         "coaches_known": bool(known),
+        "coaches_published": published,
+        "facilities": allocated["facilities"] if allocated else {},
+        "facilities_source": allocated["source_name"] if allocated else None,
+        "facilities_source_url": allocated["source_url"] if allocated else None,
+        "facilities_typical": bool(allocated),
         # Without Darwin: the class's usual unit lengths ("2 or 3"), never a claim about this train.
         "usual": list(usual),
-        "source": "Darwin (National Rail)" if known else "Timetable",
+        "source": "Darwin (National Rail)" if published else "Allocated unit profile" if allocated else "Timetable",
     }

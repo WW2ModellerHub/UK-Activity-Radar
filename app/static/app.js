@@ -4482,6 +4482,24 @@
   // from National Rail (Darwin) when published, else its class's usual length
   // with a note saying so. Replaces the photo: Commons rarely has the right unit.
   const WHEELCHAIR_ICON='<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="4" r="1.8"/><path d="M11 7v6h5l2 5M11 10h4M8.5 11.5A5 5 0 1 0 15 18"/></svg>';
+  const TRAIN_FACILITY_ICONS={
+    air_conditioning:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M4 7l16 10M20 7L4 17M8 4l4 3 4-3M8 20l4-3 4 3M3 11l4 1-1 4M21 11l-4 1 1 4"/></svg>',
+    wifi:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9a14 14 0 0 1 18 0M6 13a9 9 0 0 1 12 0M9.5 17a4 4 0 0 1 5 0"/><circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/></svg>',
+    bicycle_spaces:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="17" r="4"/><circle cx="18" cy="17" r="4"/><path d="m6 17 4-8 4 8H6l4-5h5l3 5M9 6h4"/></svg>',
+    wheelchair_spaces:WHEELCHAIR_ICON,
+    toilets:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v5a5 5 0 0 1-10 0V3ZM5 8v2a7 7 0 0 0 14 0V8M8 18h8v3H8z"/></svg>',
+  };
+  const TRAIN_FACILITY_LABELS={air_conditioning:'Air conditioning',wifi:'Wi-Fi',bicycle_spaces:'Cycle spaces',wheelchair_spaces:'Wheelchair space',toilets:'Toilets'};
+
+  function trainFacilitiesHtml(formation){
+    const facilities=formation?.facilities||{};
+    const entries=Object.keys(TRAIN_FACILITY_LABELS).filter(key=>facilities[key]===true);
+    if(!entries.length)return '';
+    const badges=entries.map(key=>`<span class="train-facility" title="${esc(TRAIN_FACILITY_LABELS[key])}">${TRAIN_FACILITY_ICONS[key]}<span>${esc(TRAIN_FACILITY_LABELS[key])}</span></span>`).join('');
+    const source=safeUrl(formation.facilities_source_url);
+    const sourceLabel=formation.facilities_source||'operator fleet information';
+    return `<div class="train-facilities" aria-label="Facilities normally provided">${badges}</div><p class="facility-provenance">Normally provided on the allocated unit · ${source?`<a href="${source}" target="_blank" rel="noopener">${esc(sourceLabel)}</a>`:esc(sourceLabel)}</p>`;
+  }
   // Generated broadside profiles, cut into one image per coach
   // (scripts/build_train_profiles.py): [folder, width of each coach image at
   // 96 px high]. The timetable chooses the class; the operator the livery.
@@ -4595,15 +4613,17 @@
   }
   function coachMarksHtml(coach){
     return [coach.first?'<b class="coach-first" title="First class">1st</b>':'',
-      coach.toilet==='accessible'?`<span class="coach-accessible" title="Accessible toilet">${WHEELCHAIR_ICON}</span>`:coach.toilet==='standard'?'<b class="coach-wc" title="Toilet">WC</b>':''].join('');
+      coach.toilet==='accessible'?`<span class="coach-accessible" title="Accessible toilet">${WHEELCHAIR_ICON}</span>`:coach.toilet==='standard'?'<b class="coach-wc" title="Toilet">WC</b>':'',
+      coach.bicycle?`<span title="Cycle spaces">${TRAIN_FACILITY_ICONS.bicycle_spaces}</span>`:'',
+      coach.wheelchair_space&&coach.toilet!=='accessible'?`<span title="Wheelchair space">${WHEELCHAIR_ICON}</span>`:''].join('');
   }
   function profileTrainHtml(set,coaches){
     const [folder,widths]=set;
     const pieces=profilePieces(widths.length,coaches.length);
-    const labelled=coaches.some(coach=>coach.letter||coach.first||coach.toilet);
+    const labelled=coaches.some(coach=>coach.letter||coach.first||coach.toilet||coach.bicycle||coach.wheelchair_space);
     const cells=coaches.map((coach,i)=>{
       const piece=pieces[i];
-      const label=coach.letter?`Coach ${coach.letter}${coach.first?', first class':''}${coach.toilet==='accessible'?', accessible toilet':coach.toilet==='standard'?', toilet':''}`:'';
+      const label=coach.letter?`Coach ${coach.letter}${coach.first?', first class':''}${coach.toilet==='accessible'?', accessible toilet':coach.toilet==='standard'?', toilet':''}${coach.bicycle?', cycle spaces':''}${coach.wheelchair_space?', wheelchair space':''}`:'';
       return `<figure class="profile-coach" style="flex:${widths[piece]} 1 0"${label?` aria-label="${esc(label)}"`:''}>${labelled?`<small>${esc(coach.letter||'')}</small>`:''}<img src="/static/assets/train-profiles/${folder}/${piece}.webp" width="${widths[piece]}" height="96" alt="" decoding="async">${labelled?`<span class="coach-marks">${coachMarksHtml(coach)}</span>`:''}</figure>`;
     }).join('');
     // Long trains scroll sideways rather than shrink to a sliver.
@@ -4750,6 +4770,8 @@
     if(!formation)return '';
     const theme=trainLiveryTheme(null, formation.operator||operator);
     const known=formation.coaches_known&&Array.isArray(formation.coaches)&&formation.coaches.length;
+    const published=formation.coaches_published===true
+      ||(formation.coaches_published==null&&formation.source==='Darwin (National Rail)'&&Boolean(known));
     const usual=(formation.usual||[]).filter(n=>Number(n)>0);
     const count=known?formation.coaches.length:(usual[usual.length-1]||usual[0]||(formation.generic?(formation.hauled?5:3):0));
     if(!count)return '';
@@ -4761,29 +4783,34 @@
     const wholeProfile=profile?null:wholeTrainProfileImage(formation,operator);
     const units=(formation.units||[]).filter(Boolean);
     const unitsHtml=units.length?`<p class="formation-units">${units.map(unit=>`<b>${esc(unit)}</b>`).join('')}</p>`:'';
+    const facilitiesHtml=trainFacilitiesHtml(formation);
     if(profile){
       // Without published coaches: the drawn unit's own length if that is one
       // the class runs at, else its usual length.
       const drawn=known?coaches:Array.from({length:usual.includes(profile[1].length)?profile[1].length:count},()=>({}));
-      const note=known
+      const note=published
         ? 'Coaches, first class and toilets as published by National Rail for this train.'
-        : 'Not published for this train: drawn at its class’s usual length. Coaches, first class and toilets appear here when National Rail publishes them.';
-      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header>${profileTrainHtml(profile,drawn)}${unitsHtml}<p>${esc(note)}</p></section>`;
+        : formation.facilities_typical
+          ? 'Coach layout from the allocated unit. Facilities are normally provided and may change on the day.'
+          : 'Not published for this train: drawn at its class’s usual length. Coaches, first class and toilets appear here when National Rail publishes them.';
+      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header>${facilitiesHtml}${profileTrainHtml(profile,drawn)}${unitsHtml}<p>${esc(note)}</p></section>`;
     }
     if(wholeProfile){
-      const coachData=known?coaches.map(coach=>`<li><strong>${coach.letter?`Coach ${esc(coach.letter)}`:'Coach'}</strong><div>${coach.first?'<b class="coach-first">First class</b>':'<span>Standard</span>'}${coach.toilet==='accessible'?`<span class="coach-facility">${WHEELCHAIR_ICON} Accessible toilet</span>`:coach.toilet==='standard'?'<span class="coach-facility">WC Toilet</span>':''}</div></li>`).join(''):'';
-      const note=known?'Coach information from National Rail for this service.':'The operator has not published this service’s exact coach formation.';
-      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="train-profile-stage"><img src="${wholeProfile}" alt="" loading="lazy" decoding="async"></div>${coachData?`<div class="formation-data"><strong>${count} published coaches</strong><ul>${coachData}</ul></div>`:''}${unitsHtml}<p>${esc(note)}</p></section>`;
+      const coachData=known?coaches.map(coach=>`<li><strong>${coach.letter?`Coach ${esc(coach.letter)}`:'Coach'}</strong><div>${coach.first?'<b class="coach-first">First class</b>':'<span>Standard</span>'}${coach.toilet==='accessible'?`<span class="coach-facility">${WHEELCHAIR_ICON} Accessible toilet</span>`:coach.toilet==='standard'?'<span class="coach-facility">WC Toilet</span>':''}${coach.bicycle?'<span class="coach-facility">Cycle spaces</span>':''}${coach.wheelchair_space?'<span class="coach-facility">Wheelchair space</span>':''}</div></li>`).join(''):'';
+      const note=published?'Coach information from National Rail for this service.':formation.facilities_typical?'Coach layout from the allocated unit; facilities may change on the day.':'The operator has not published this service’s exact coach formation.';
+      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header>${facilitiesHtml}<div class="train-profile-stage"><img src="${wholeProfile}" alt="" loading="lazy" decoding="async"></div>${coachData?`<div class="formation-data"><strong>${count} ${published?'published':'allocated'} coaches</strong><ul>${coachData}</ul></div>`:''}${unitsHtml}<p>${esc(note)}</p></section>`;
     }
     if(formation.hauled&&!known)coaches.push({loco:true});
     const cells=coaches.map((coach,i)=>{
       if(coach.loco)return `<div class="coach"><small></small>${locoSvg(theme,formation.traction==='electric')}<div class="coach-marks"></div></div>`;
       const marks=[coach.first?'<b class="coach-first" title="First class">1st</b>':'',
-        coach.toilet==='accessible'?`<span title="Accessible toilet">${WHEELCHAIR_ICON}</span>`:coach.toilet==='standard'?'<b class="coach-wc" title="Toilet">WC</b>':''].join('');
+        coach.toilet==='accessible'?`<span title="Accessible toilet">${WHEELCHAIR_ICON}</span>`:coach.toilet==='standard'?'<b class="coach-wc" title="Toilet">WC</b>':'',
+        coach.bicycle?`<span title="Cycle spaces">${TRAIN_FACILITY_ICONS.bicycle_spaces}</span>`:'',
+        coach.wheelchair_space&&coach.toilet!=='accessible'?`<span title="Wheelchair space">${WHEELCHAIR_ICON}</span>`:''].join('');
       return `<div class="coach"><small>${coach.letter?`Coach ${esc(coach.letter)}`:''}</small>${trainCoachSvg(i,coaches.length,theme,formation.class)}<div class="coach-marks">${marks}</div></div>`;
     }).join('');
-    const note=known?'Coaches as published by National Rail for this train.':formation.generic?"Illustration: this train's class and coaches are not in its timetable.":formation.inferred?"Class worked out from the timetable (operator, diesel, 125 mph); coaches not published, drawn at its usual length.":"This train's coaches are not published; drawn at its class's usual length.";
-    return `<section class="train-formation${known?'':' is-typical is-plain'}${formation.class?` profile-class-${esc(formation.class)}`:''}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="formation-row" style="--coaches:${coaches.length}">${cells}</div><p>${esc(note)}</p></section>`;
+    const note=published?'Coaches as published by National Rail for this train.':formation.facilities_typical?'Coach layout from the allocated unit; facilities may change on the day.':formation.generic?"Illustration: this train's class and coaches are not in its timetable.":formation.inferred?"Class worked out from the timetable (operator, diesel, 125 mph); coaches not published, drawn at its usual length.":"This train's coaches are not published; drawn at its class's usual length.";
+    return `<section class="train-formation${known?'':' is-typical is-plain'}${formation.class?` profile-class-${esc(formation.class)}`:''}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header>${facilitiesHtml}<div class="formation-row" style="--coaches:${coaches.length}">${cells}</div><p>${esc(note)}</p></section>`;
   }
 
   function renderRailIntelligence(detail) {
