@@ -1,7 +1,11 @@
 import json
 from datetime import datetime, timezone
 
-from app.collectors.allocation_kafka import AllocationKafkaFeed, allocation_records
+from app.collectors.allocation_kafka import (
+    AllocationKafkaFeed,
+    allocation_records,
+    allocation_xml_records,
+)
 from app.config import Settings
 from app.models import Vehicle
 from app.state import LiveState
@@ -38,6 +42,31 @@ def test_allocation_enriches_existing_train_without_moving_it():
 def test_allocation_requires_all_credentials():
     assert configured().raildata_allocation_kafka_ready
     assert not Settings(raildata_allocation_kafka_group="group").raildata_allocation_kafka_ready
+
+
+def test_era_passenger_consist_xml_is_normalised_and_deduplicated():
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <PassengerTrainConsistMessage xmlns="http://www.era.europa.eu/schemes/TAFTSI/5.3">
+      <TransportOperationalIdentifiers>
+        <TransportOperationalIdentifier><OperationalTrainNumber>5u31</OperationalTrainNumber></TransportOperationalIdentifier>
+      </TransportOperationalIdentifiers>
+      <Allocation><Vehicle><VehicleId>421157</VehicleId></Vehicle><Vehicle><VehicleId>422157</VehicleId></Vehicle></Allocation>
+      <Allocation><Vehicle><VehicleId>421157</VehicleId></Vehicle><Vehicle><VehicleId>423157</VehicleId></Vehicle></Allocation>
+    </PassengerTrainConsistMessage>"""
+    assert allocation_xml_records(xml) == [{
+        "uid": None,
+        "headcode": "5U31",
+        "vehicles": ["421157", "422157", "423157"],
+    }]
+
+
+def test_allocation_feed_accepts_era_xml():
+    feed = AllocationKafkaFeed(configured(), LiveState())
+    feed.handle(b"<PassengerTrainConsistMessage><OperationalTrainNumber>1A23</OperationalTrainNumber>"
+                b"<Vehicle><VehicleId>390001</VehicleId></Vehicle></PassengerTrainConsistMessage>")
+    assert feed.messages == 1
+    assert feed.allocations == 1
+    assert feed.malformed == 0
 
 
 def test_allocation_health_reports_broker_and_topic_without_credentials():

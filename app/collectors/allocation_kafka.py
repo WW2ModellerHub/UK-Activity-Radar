@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import xml.etree.ElementTree as ET
 
 import certifi
 
@@ -50,6 +51,39 @@ def allocation_records(payload) -> list[dict]:
             records.append({"uid": uid or None, "headcode": headcode or None, "vehicles": vehicles})
             break
     return records
+
+
+def allocation_xml_records(text: str) -> list[dict]:
+    """Normalise ERA TAF/TAP ``PassengerTrainConsistMessage`` XML.
+
+    Rail Data Marketplace publishes this topic as namespace-qualified XML,
+    despite some portal material describing the wider product as JSON.  A
+    consist message can repeat vehicles across multiple allocation sections,
+    so keep their document order while de-duplicating them.
+    """
+    try:
+        root = ET.fromstring(text)
+    except (ET.ParseError, TypeError, ValueError):
+        return []
+
+    def local(element) -> str:
+        return element.tag.rsplit("}", 1)[-1]
+
+    headcode = next(
+        (str(element.text or "").strip().upper() for element in root.iter()
+         if local(element) == "OperationalTrainNumber" and str(element.text or "").strip()),
+        "",
+    )
+    vehicles: list[str] = []
+    for element in root.iter():
+        if local(element) != "VehicleId":
+            continue
+        vehicle = _clean_vehicle(element.text)
+        if vehicle and vehicle not in vehicles:
+            vehicles.append(vehicle)
+    if not headcode or not vehicles:
+        return []
+    return [{"uid": None, "headcode": headcode, "vehicles": vehicles}]
 
 
 class AllocationKafkaFeed(TrustKafkaFeed):
@@ -104,12 +138,18 @@ class AllocationKafkaFeed(TrustKafkaFeed):
         text = _decode(value)
         if not text:
             return
-        try:
-            payload = json.loads(text)
-        except (TypeError, json.JSONDecodeError):
+        if text.lstrip().startswith("<"):
+            records = allocation_xml_records(text)
+        else:
+            try:
+                payload = json.loads(text)
+            except (TypeError, json.JSONDecodeError):
+                self.malformed += 1
+                return
+            records = allocation_records(payload)
+        if not records:
             self.malformed += 1
             return
-        records = allocation_records(payload)
         self.messages += 1
         import time
         self.last_message_at = time.monotonic()
