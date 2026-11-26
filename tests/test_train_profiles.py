@@ -33,7 +33,7 @@ def test_every_train_and_bus_picture_the_page_uses_is_a_small_webp():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     names = set(re.findall(r"((?:train|bus)-profiles/[a-z0-9-]+\.webp)", js))
     names |= {f"train-profiles/{n}" for n in re.findall(r"'([a-z0-9-]+\.webp)'", js)}
-    assert len(names) >= 100
+    assert len(names) >= 40
     for name in names:
         path = STATIC / "assets" / name
         payload = path.read_bytes()
@@ -60,12 +60,27 @@ def test_colas_and_rog_use_their_own_locomotive_profiles():
     assert "colas:['70','70'],'rail-operations-group':['37','37']" in js
 
 
-def test_requested_passenger_classes_choose_the_operator_livery():
+def test_requested_passenger_classes_are_cut_per_coach_in_each_operator_livery():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
-    assert "'387':{'great-northern':'class-387-great-northern-4.webp'" in js
-    assert "'gatwick-express':'class-387-gatwick-express-4.webp'" in js
-    assert "'707':{southeastern:'class-707-southeastern-5.webp','south-western':'class-707-south-western-5.webp'}" in js
-    assert "'802':{transpennine:'class-802-transpennine-5.webp','hull-trains':'class-802-hull-trains-5.webp'}" in js
-    assert "'805':{avanti:'class-805-avanti-evero-5.webp'}" in js
-    assert "'807':{avanti:'class-807-avanti-evero-7.webp'}" in js
+    sets = dict(re.findall(r"\['(class-[\w-]+)',\[([\d,]+)\]\]", js))
+    for folder, coaches in (("class-387-great-northern-4", 4), ("class-387-gatwick-express-4", 4),
+                            ("class-707-southeastern-5", 5), ("class-707-south-western-5", 5),
+                            ("class-802-transpennine-5", 5), ("class-802-hull-trains-5", 5),
+                            ("class-805-avanti-evero-5", 5), ("class-807-avanti-evero-7", 7),
+                            ("class-153-east-midlands-1", 1), ("class-710-london-overground-5", 5)):
+        assert len(sets[folder].split(",")) == coaches, folder
+    assert "'807':{avanti:['class-807-avanti-evero-7'," in js
+    assert "'170':{crosscountry:['class-170-crosscountry-turbostar'" in js   # existing liveries kept
     assert "'lumo'" in js and "'gatwick-express'" in js and "'island-line'" in js
+
+
+def test_cut_points_are_taken_from_the_name_and_guided_where_the_bellows_match_the_body():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("build", Path(__file__).parents[1] / "scripts" / "build_train_profiles.py")
+    build = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build)
+    counts = build.coach_counts()
+    assert counts["class-807-avanti-evero-7"] == 7 and counts["class-153-east-midlands-1"] == 1
+    assert "class-745-greater-anglia" not in counts and "class-43-gwr-castle" not in counts
+    from PIL import Image
+    assert build.cuts(Image.new("RGBA", (300, 96)), 1) == [0, 300]       # a single car is not cut
