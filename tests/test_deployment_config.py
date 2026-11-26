@@ -221,7 +221,7 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
     assert "/static/app.css?v=16403" in index
     assert "/static/map-markers.css?v=16393" in index
-    assert "/static/app.js?v=16411" in index
+    assert "/static/app.js?v=16412" in index
     assert "/static/motion-engine.js?v=16410" in index
     # The renderer loads through a file, not an inline script (blocked by CSP).
     assert "/static/renderer-loader.js?v=16406" in index
@@ -235,10 +235,10 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     assert "NETWORK_FIRST_ASSETS" in worker
     assert "/static/app.css?v=16403" in worker
     assert "/static/map-markers.css?v=16393" in worker
-    assert "/static/app.js?v=16411" in worker
+    assert "/static/app.js?v=16412" in worker
     assert "/static/motion-engine.js?v=16410" in worker
     assert "/static/live-object-renderer.js?v=16406" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r188" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r189" in worker
 
 
 def test_sparse_reporting_interval_does_not_grey_live_trains():
@@ -307,6 +307,16 @@ def test_national_aircraft_view_clusters_without_the_removed_train_explanation()
     assert "className:'aerial-cluster'" in app_js
     assert "Last confirmed railway report" not in app_js
     assert "How the movement works" not in app_js
+
+
+def test_non_rail_stream_deltas_use_the_incremental_marker_path():
+    app_js = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "function renderMapDelta(changedIds)" in app_js
+    assert "let visibleActivityIds = new Set()" in app_js
+    assert "if(a.type==='train')return false" in app_js
+    assert "renderAll(latestSources,isDelta&&!deltaHasTrain?deltaIds:null)" in app_js
+    assert "const rows=[...visibleActivityIds].map(activityById).filter(Boolean)" in app_js
 
 
 def test_the_app_page_has_no_inline_scripts_the_csp_would_block():

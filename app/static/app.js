@@ -317,6 +317,7 @@
   let activityRevision = 0;
   let filteredCacheKey = '';
   let filteredCacheRows = [];
+  let visibleActivityIds = new Set();
   const searchableCache = new WeakMap();
   const interestCache = new WeakMap();
   const coolCache = new WeakMap();
@@ -439,6 +440,9 @@
     markerVisualUpdates: 0,
     markerTooltipUpdates: 0,
     lastRenderMs: 0,
+    lastDeltaRenderMs: 0,
+    fullMapRenders: 0,
+    deltaMapRenders: 0,
     unchangedSnapshots: 0,
     startupExtrasAtMs: null,
   };
@@ -2990,6 +2994,16 @@
     }
   }
 
+  function activityPassesFilters(a) {
+    if (!a || aircraftNotWorthShowing(a)) return false;
+    if (!matchesMapFilters(a)) return false;
+    if (!layerTypeMatch(a, selectedType)) return false;
+    if (!operatorMatches(a)) return false;
+    if (!inNearby(a)) return false;
+    if (lateTrainsOnly && a.type === 'train' && !(a.cancelled_at || Number(a.delay_minutes) >= 5)) return false;
+    return !searchText || searchable(a).includes(searchText);
+  }
+
   function filteredActivities() {
     const nearbyKey = nearbyState.active
       ? `${nearbyState.lat}:${nearbyState.lon}:${nearbyState.radiusMiles}`
@@ -3010,16 +3024,7 @@
     ].join('|');
     if (cacheKey === filteredCacheKey) return filteredCacheRows;
     const source=currentWorkspace==='cool'&&globalCoolActivities.length ? globalCoolRows() : activities;
-    filteredCacheRows = source.filter(a => {
-      if (aircraftNotWorthShowing(a)) return false;
-      if (!matchesMapFilters(a)) return false;
-      if (!layerTypeMatch(a, selectedType)) return false;
-      if (!operatorMatches(a)) return false;
-      if (!inNearby(a)) return false;
-      if (lateTrainsOnly && a.type === 'train' && !(a.cancelled_at || Number(a.delay_minutes) >= 5)) return false;
-      if (!searchText) return true;
-      return searchable(a).includes(searchText);
-    });
+    filteredCacheRows = source.filter(activityPassesFilters);
     filteredCacheKey = cacheKey;
     return filteredCacheRows;
   }
@@ -3391,7 +3396,85 @@
     }catch{}finally{airportLayer.loading=false;}
   }
 
-  function renderMap() {
+  function syncLeafletActivityMarker(a,displayActivity) {
+    const intendedGroup = currentWorkspace==='cool' || ['aircraft','sar'].includes(a.type) ? aerialMarkerGroup : markerGroup;
+    let marker = markers.get(a.id), clusterDirty = false;
+    const positionSignature = markerPositionSignature(displayActivity);
+    const visualSignature = markerVisualSignature(displayActivity);
+    const tooltipSignature = markerTooltipSignature(displayActivity);
+    if (!marker) {
+      marker = L.marker([displayActivity.lat, displayActivity.lon], { icon: markerIcon(displayActivity), riseOnHover: true });
+      bindHoverCard(marker, tooltipHtml(displayActivity), { direction: 'top', offset: [0,-13], opacity: 0.97, className: 'activity-tooltip', sticky: true });
+      marker.on('click', () => { marker.closeTooltip?.(); selectActivity(a.id, true); });
+      marker.__activityGroup = intendedGroup;
+      marker.__activityType = a.type;
+      marker.__positionSignature = positionSignature;
+      marker.__visualSignature = visualSignature;
+      marker.__tooltipSignature = tooltipSignature;
+      intendedGroup.addLayer(marker);
+      if(a.type==='train')marker.getElement?.()?.classList.add('live-object-proxy');
+      markers.set(a.id, marker);
+      clusterDirty = intendedGroup === markerGroup;
+      diagnostics.markersCreated += 1;
+      return clusterDirty;
+    }
+    if (marker.__activityGroup !== intendedGroup) {
+      if (marker.__activityGroup === markerGroup || intendedGroup === markerGroup) clusterDirty = true;
+      marker.__activityGroup?.removeLayer(marker);
+      marker.__activityGroup = intendedGroup;
+      intendedGroup.addLayer(marker);
+    }
+    if (marker.__positionSignature !== positionSignature) {
+      moveMarker(marker, displayActivity.lat, displayActivity.lon);
+      marker.__positionSignature = positionSignature;
+      if (intendedGroup === markerGroup) clusterDirty = true;
+      diagnostics.markerMoves += 1;
+    }
+    syncMarkerVisual(marker,displayActivity,visualSignature);
+    if (marker.__tooltipSignature !== tooltipSignature && marker.getTooltip()) {
+      marker.setTooltipContent(tooltipHtml(displayActivity));
+      marker.__tooltipSignature = tooltipSignature;
+      diagnostics.markerTooltipUpdates += 1;
+    }
+    marker.__activityType = a.type;
+    if(a.type==='train')marker.getElement?.()?.classList.add('live-object-proxy');
+    return clusterDirty;
+  }
+
+  function renderMapDelta(changedIds) {
+    if (!changedIds?.size || currentWorkspace==='cool') return false;
+    const startedAt=performance.now(), now=Date.now();
+    let clusterDirty=false;
+    for(const id of changedIds){
+      const a=activityById(id), marker=markers.get(id);
+      if(!a||!activityPassesFilters(a)){
+        if(marker){
+          if((marker.__activityGroup||markerGroup)===markerGroup)clusterDirty=true;
+          (marker.__activityGroup||markerGroup).removeLayer(marker);
+          markers.delete(id);
+        }
+        visibleActivityIds.delete(id);
+        continue;
+      }
+      // Train neighbours can share an exact berth, so a train change needs
+      // the full coincidence-layout pass. Non-rail deltas are independent.
+      if(a.type==='train')return false;
+      const display=activityMapPresentation(a,now);
+      clusterDirty=syncLeafletActivityMarker(a,display)||clusterDirty;
+      visibleActivityIds.add(id);
+    }
+    if(clusterDirty&&typeof markerGroup.refreshClusters==='function')markerGroup.refreshClusters();
+    diagnostics.deltaMapRenders+=1;
+    diagnostics.lastDeltaRenderMs=Math.round((performance.now()-startedAt)*10)/10;
+    $('map').dataset.activityCount=String(visibleActivityIds.size);
+    $('map').dataset.lastDeltaRenderMs=String(diagnostics.lastDeltaRenderMs);
+    if(heatMode!=='off')renderHeatmap();
+    startLiveMotion();
+    return true;
+  }
+
+  function renderMap(changedIds=null) {
+    if(changedIds&&renderMapDelta(changedIds))return;
     syncAirports();
     const startedAt = performance.now();
     let rows = filteredActivities();
@@ -3405,7 +3488,9 @@
     if(!liveObjectRenderer)ensureLiveRenderer();
     liveObjectRenderer?.setActivities(rows,selectedId);
     const coincidentLayouts=trainCoincidentLayouts(presentations);
+    const laidOutPresentations=presentations.map((row,index)=>withTrainCoincidentLayout(row,coincidentLayouts.get(rows[index]?.id)));
     const shown = new Set(rows.map(a => a.id));
+    visibleActivityIds = shown;
     let clusterDirty = false;
     for (const [id, marker] of markers.entries()) {
       if (!shown.has(id)||(liveObjectRenderer?.ready&&marker.__activityType==='train')) {
@@ -3416,58 +3501,18 @@
     }
     for (let index=0;index<rows.length;index+=1) {
       const a=rows[index];
-      const displayActivity=withTrainCoincidentLayout(presentations[index],coincidentLayouts.get(a.id));
+      const displayActivity=laidOutPresentations[index];
       if(liveObjectRenderer?.ready&&a.type==='train')continue;
       // Discover is a curated, deliberately small set. Never cluster those
       // markers: each find must remain individually visible at every zoom.
-      const intendedGroup = currentWorkspace==='cool' || ['aircraft','sar'].includes(a.type) ? aerialMarkerGroup : markerGroup;
-      let marker = markers.get(a.id);
-      const positionSignature = markerPositionSignature(displayActivity);
-      const visualSignature = markerVisualSignature(displayActivity);
-      const tooltipSignature = markerTooltipSignature(displayActivity);
-      if (!marker) {
-        marker = L.marker([displayActivity.lat, displayActivity.lon], { icon: markerIcon(displayActivity), riseOnHover: true });
-        bindHoverCard(marker, tooltipHtml(displayActivity), { direction: 'top', offset: [0,-13], opacity: 0.97, className: 'activity-tooltip', sticky: true });
-        marker.on('click', () => { marker.closeTooltip?.(); selectActivity(a.id, true); });
-        marker.__activityGroup = intendedGroup;
-        marker.__activityType = a.type;
-        marker.__positionSignature = positionSignature;
-        marker.__visualSignature = visualSignature;
-        marker.__tooltipSignature = tooltipSignature;
-        intendedGroup.addLayer(marker);
-        if(a.type==='train')marker.getElement?.()?.classList.add('live-object-proxy');
-        markers.set(a.id, marker);
-        if (intendedGroup === markerGroup) clusterDirty = true;
-        diagnostics.markersCreated += 1;
-      } else {
-        if (marker.__activityGroup !== intendedGroup) {
-          if (marker.__activityGroup === markerGroup || intendedGroup === markerGroup) clusterDirty = true;
-          marker.__activityGroup?.removeLayer(marker);
-          marker.__activityGroup = intendedGroup;
-          intendedGroup.addLayer(marker);
-        }
-        if (marker.__positionSignature !== positionSignature) {
-          moveMarker(marker, displayActivity.lat, displayActivity.lon);
-          marker.__positionSignature = positionSignature;
-          if (intendedGroup === markerGroup) clusterDirty = true;
-          diagnostics.markerMoves += 1;
-        }
-        syncMarkerVisual(marker,displayActivity,visualSignature);
-        if (marker.__tooltipSignature !== tooltipSignature && marker.getTooltip()) {
-          marker.setTooltipContent(tooltipHtml(displayActivity));
-          marker.__tooltipSignature = tooltipSignature;
-          diagnostics.markerTooltipUpdates += 1;
-        }
-        if(a.type==='train')marker.getElement?.()?.classList.add('live-object-proxy');
-      }
+      clusterDirty=syncLeafletActivityMarker(a,displayActivity)||clusterDirty;
     }
     if (clusterDirty && typeof markerGroup.refreshClusters === 'function') markerGroup.refreshClusters();
-    repairCoincidentTrainMarkerDom(presentations.map((row,index)=>withTrainCoincidentLayout(row,coincidentLayouts.get(rows[index]?.id))));
-    requestAnimationFrame(()=>repairCoincidentTrainMarkerDom(
-      presentations.map((row,index)=>withTrainCoincidentLayout(row,coincidentLayouts.get(rows[index]?.id)))
-    ));
+    repairCoincidentTrainMarkerDom(laidOutPresentations);
+    requestAnimationFrame(()=>repairCoincidentTrainMarkerDom(laidOutPresentations));
     renderHeatmap();
     diagnostics.lastRenderMs = Math.round((performance.now() - startedAt) * 10) / 10;
+    diagnostics.fullMapRenders += 1;
     $('map').dataset.activityCount = String(rows.length);
     startLiveMotion();
     $('map').dataset.lastRenderMs = String(diagnostics.lastRenderMs);
@@ -3479,7 +3524,9 @@
   function refreshLiveMarkerPositions() {
     if(document.hidden||reduceLiveMotion?.matches)return;
     const now=Date.now();
-    const rows=filteredActivities();
+    // The full feed can contain tens of thousands of buses nationally. Only
+    // prepare motion for activities that survived the current map filters.
+    const rows=[...visibleActivityIds].map(activityById).filter(Boolean);
     const presentations=rows.map(row=>activityMapPresentation(row,now));
     const coincidentLayouts=trainCoincidentLayouts(presentations);
     liveMotionLayouts=coincidentLayouts;
@@ -6450,8 +6497,8 @@
     }, delay);
   }
 
-  function renderAll(sources) {
-    renderMap();
+  function renderAll(sources,changedIds=null) {
+    renderMap(changedIds);
     renderSelectedTrail();
     renderStats();
     renderStreamZoomNote();
@@ -6481,12 +6528,14 @@
       scheduleSecondaryRender();
       return;
     }
-    let streamed;
+    let streamed, deltaIds=null, deltaHasTrain=false;
     if (isDelta) {
       const merged = new Map(activities.map(row=>[row.id,row]));
+      deltaIds=new Set();
       for (const id of payload.activity_delta.remove || []) {
         const current=merged.get(id);
         if(current?.type==='train'){
+          deltaHasTrain=true;
           if(deferredTrainRemovals.has(id))continue;
           const timer=setTimeout(()=>{
             deferredTrainRemovals.delete(id);
@@ -6495,9 +6544,11 @@
             renderAll(latestSources);
           },90000);
           deferredTrainRemovals.set(id,timer);
-        }else merged.delete(id);
+        }else {merged.delete(id);deltaIds.add(id);}
       }
       for (const row of payload.activity_delta.upsert || []) if (row?.id) {
+        if(row.type==='train'||merged.get(row.id)?.type==='train')deltaHasTrain=true;
+        deltaIds.add(row.id);
         const pending=deferredTrainRemovals.get(row.id);
         if(pending){clearTimeout(pending);deferredTrainRemovals.delete(row.id);}
         merged.set(row.id,row);
@@ -6514,7 +6565,7 @@
       ? [...new Map([...streamed,...nearbyAircraftRows].map(row=>[row.id,row])).values()]
       : streamed;
     replaceActivities(nextActivities);
-    renderAll(latestSources);
+    renderAll(latestSources,isDelta&&!deltaHasTrain?deltaIds:null);
   }
 
   function queueSocketPayload(payload) {

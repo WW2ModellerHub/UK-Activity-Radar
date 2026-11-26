@@ -1,5 +1,12 @@
 # Codex stabilization changelog
 
+## Live non-rail updates no longer redraw the whole national map
+
+- Measured before changing: every meaningful WebSocket delta re-filtered the complete activity snapshot and walked every visible marker; the one-second motion tick also re-filtered the full national feed, including tens of thousands of buses.
+- Bus, aircraft, vessel and other independent non-rail deltas now update only the marker IDs that changed. Train deltas deliberately retain the full coincidence-layout pass so trains sharing a berth continue to fan out correctly.
+- The motion tick now prepares only the IDs already visible after map filtering, and each full render calculates the shared-train layout once instead of three times.
+- Browser regression coverage proves a one-bus delta increments the delta-render counter without a full map render (under 50 ms in the deterministic fixture). The existing 2,500-object stream remains under its 500 ms budget.
+
 ## Trains held at the next signal berth until they step into it
 
 Before (live): median correction 0.20 km, p90 0.89 km at learned berths.

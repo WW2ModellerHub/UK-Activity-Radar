@@ -217,6 +217,34 @@ test('source-health-only deltas skip the map render path', async ({ page }) => {
   });
 });
 
+test('a bus-only delta updates one marker without a full map render', async ({ page }) => {
+  await page.locator('[data-layer-toggle="bus"]').click();
+  await expect(page.locator('.marker-bus')).toHaveCount(1);
+  const before=await page.evaluate(()=>({
+    full:window.__radarDiagnostics.fullMapRenders,
+    delta:window.__radarDiagnostics.deltaMapRenders,
+    applied:window.__radarDiagnostics.appliedSnapshots,
+  }));
+  await page.evaluate(()=>{
+    const bus=window.__fixtureSnapshot.activities.find(row=>row.id==='bus-live-7');
+    window.__fixtureSocket.onmessage({data:JSON.stringify({
+      activity_delta:{upsert:[{...bus,name:'Bus 7 delta',lat:Number(bus.lat)+0.005,last_updated:'2026-10-05T10:02:00Z'}],remove:[]},
+      stream:{transport:'delta',upserts:1,removals:0,selected_types:['bus']},
+      sources:window.__fixtureSnapshot.sources,summary:window.__fixtureSnapshot.summary,
+    })});
+  });
+  await expect.poll(()=>page.evaluate(()=>window.__radarDiagnostics.appliedSnapshots)).toBe(before.applied+1);
+  const after=await page.evaluate(()=>({
+    full:window.__radarDiagnostics.fullMapRenders,
+    delta:window.__radarDiagnostics.deltaMapRenders,
+    renderMs:window.__radarDiagnostics.lastDeltaRenderMs,
+  }));
+  expect(after.full).toBe(before.full);
+  expect(after.delta).toBe(before.delta+1);
+  expect(after.renderMs).toBeLessThan(50);
+  await expect(page.locator('.marker-bus')).toHaveCount(1);
+});
+
 test('live stream deltas update vehicles and hold transient train omissions without flicker', async ({ page }) => {
   await page.locator('[data-layer-toggle="train"]').click();
   await page.locator('[data-layer-toggle="bus"]').click();
@@ -448,12 +476,13 @@ test('Useful and Cool workspaces alter visible layers and render Cool badges', a
   await page.getByRole('button', { name: /Discover/ }).click();
   await expect(page.locator('body')).toHaveAttribute('data-experience', 'cool');
   await expect(page.locator('.cool-map-marker')).toHaveCount(2);
-  await expect(page.locator('.cool-marker-wrap').first()).toHaveAttribute('data-clustered','false');
+  // Rail discoveries follow the national decluttering policy at country zoom.
+  await expect(page.locator('.cool-marker-wrap').first()).toHaveAttribute('data-clustered','true');
   await expect(page.locator('#cool-summary .discover-row').filter({ hasText: 'Steam locomotive' }).first()).toBeVisible();
   // Cool markers come from the national Cool feed, not only the current
   // viewport snapshot, so zooming out cannot silently discard a category.
   await expect(page.locator('.aerial-map-marker')).toHaveCount(3);
-  await expect(page.locator('.aerial-marker-wrap').first()).toHaveAttribute('data-clustered', 'false');
+  await expect(page.locator('.aerial-marker-wrap').first()).toHaveAttribute('data-clustered', 'true');
   await expect(page.locator('#ranking-title')).toHaveText(/Cool stuff now • UK/);
   await expect(page.locator('#ranking')).toContainText('RAF AWACS SENTINEL01');
   await expect(page.locator('#ranking')).toContainText('RNLI RESCUE CONTEXT');
@@ -999,8 +1028,7 @@ test('clicked trains and buses load source-backed route intelligence', async ({ 
   await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-insight')).toHaveClass(/train-live-card/);
   await expect(page.locator('#detail-insight')).toContainText('LIVE TRAIN STORY');
-  await expect(page.locator('#detail-insight')).toContainText('How the movement works');
-  await expect(page.locator('#detail-insight')).toContainText('mapped railway');
+  await expect(page.locator('#detail-insight')).toContainText('Confirmed report');
   await expect(page.locator('#detail-intelligence .train-full-route')).toBeVisible();
   await expect(page.locator('#detail-intelligence')).toContainText('Watford Junction');
   await expect(page.locator('#detail-intelligence')).not.toContainText('Ledburn Junction');
@@ -1686,7 +1714,7 @@ test('saving a train turns phone alerts on for it, with a test alert to prove it
   await expect(page.locator('#watch-toast')).toContainText('Your phone will tell you');
   await page.locator('[data-workspace="live"]').click();
   await expect(page.locator('#commute-alert-state')).toHaveText('ON');
-  await expect(page.locator('#commute-alert-summary')).toContainText('Your saved trains: late, cancelled or a platform change');
+  await expect(page.locator('#commute-alert-summary')).toContainText('Your saved trains: late, cancelled, platform or formation changes');
   await page.locator('#commute-alert-test').click();
   await expect.poll(() => tests).toBe(1);
 });
