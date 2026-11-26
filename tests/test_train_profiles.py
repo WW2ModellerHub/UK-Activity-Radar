@@ -33,7 +33,7 @@ def test_every_train_and_bus_picture_the_page_uses_is_a_small_webp():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     names = set(re.findall(r"((?:train|bus)-profiles/[a-z0-9-]+\.webp)", js))
     names |= {f"train-profiles/{n}" for n in re.findall(r"'([a-z0-9-]+\.webp)'", js)}
-    assert len(names) >= 40
+    assert len(names) >= 100
     for name in names:
         path = STATIC / "assets" / name
         payload = path.read_bytes()
@@ -58,3 +58,14 @@ def test_colas_and_rog_use_their_own_locomotive_profiles():
     assert "'37':{'rail-operations-group':'/static/assets/train-profiles/freight-class-37-rail-operations-group.webp'}" in js
     assert "colas:'/static/assets/train-profiles/freight-class-70-colas.webp'" in js
     assert "colas:['70','70'],'rail-operations-group':['37','37']" in js
+
+
+def test_requested_passenger_classes_choose_the_operator_livery():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "'387':{'great-northern':'class-387-great-northern-4.webp'" in js
+    assert "'gatwick-express':'class-387-gatwick-express-4.webp'" in js
+    assert "'707':{southeastern:'class-707-southeastern-5.webp','south-western':'class-707-south-western-5.webp'}" in js
+    assert "'802':{transpennine:'class-802-transpennine-5.webp','hull-trains':'class-802-hull-trains-5.webp'}" in js
+    assert "'805':{avanti:'class-805-avanti-evero-5.webp'}" in js
+    assert "'807':{avanti:'class-807-avanti-evero-7.webp'}" in js
+    assert "'lumo'" in js and "'gatwick-express'" in js and "'island-line'" in js
