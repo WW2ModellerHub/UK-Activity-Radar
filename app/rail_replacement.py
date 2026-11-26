@@ -21,7 +21,7 @@ REFRESH_S = 24 * 3600
 API_HEADERS = {
     "Accept": "application/json",
     # The marketplace gateway rejects requests' default python-requests UA.
-    "User-Agent": "UK-Activity-Radar/1.5 (+https://uk-activity-radar.onrender.com)",
+    "User-Agent": "UK-Activity-Radar/1.5 (+https://activityradar.uk)",
 }
 
 

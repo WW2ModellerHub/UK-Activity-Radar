@@ -1234,7 +1234,7 @@ def _site_origin(request: Request | None = None) -> str:
         return configured
     if request is not None:
         return str(request.base_url).rstrip("/")
-    return "https://uk-activity-radar.onrender.com"
+    return "https://activityradar.uk"
 
 
 def _render_public_html(filename: str, request: Request) -> Response:

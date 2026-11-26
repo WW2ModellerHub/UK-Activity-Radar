@@ -27,7 +27,7 @@ class PlanespottersPhotoLookup:
     def __init__(self) -> None:
         self._session = requests.Session()
         self._session.headers.update({
-            "User-Agent": "UKActivityRadar/1.5 (+https://uk-activity-radar.onrender.com/about)",
+            "User-Agent": "UKActivityRadar/1.5 (+https://activityradar.uk/about)",
             "Accept": "application/json",
         })
         self._cache: dict[str, _CachedPhoto] = {}

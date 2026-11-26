@@ -9,6 +9,8 @@ services:
     startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers --timeout-keep-alive 120
     healthCheckPath: /api/health/runtime
     autoDeployTrigger: checksPass
+    domains:
+      - activityradar.uk
     disk:
       name: radar-data
       mountPath: /opt/render/project/src/data
@@ -85,7 +87,7 @@ services:
       - key: PUSH_POLL_SECONDS
         value: "90"
       - key: PUBLIC_BASE_URL
-        value: "https://uk-activity-radar.onrender.com"
+        value: "https://activityradar.uk"
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET

@@ -70,7 +70,7 @@ class RailDataMarketplace:
             attribute = "raildata_replacement_api_key" if name == "rail_replacement" else f"rdm_{name}_api_key"
             self.products[name] = Product(base, str(getattr(settings, attribute, "") or "").strip())
         self.session = session or requests.Session()
-        self.session.headers.update({"User-Agent": "UK-Activity-Radar/1.5 (+https://uk-activity-radar.onrender.com)"})
+        self.session.headers.update({"User-Agent": "UK-Activity-Radar/1.5 (+https://activityradar.uk)"})
         self._cache: dict[tuple, tuple[float, Any]] = {}
         self._lock = threading.RLock()
 
