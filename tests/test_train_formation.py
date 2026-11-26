@@ -46,7 +46,10 @@ def test_allocated_crosscountry_class_170_gets_normal_facilities_without_claimin
 
 
 def test_facilities_are_not_guessed_without_an_allocation_or_for_an_unsupported_operator():
-    assert describe(_train(), [])["facilities"] == {}
+    typical = describe(_train(), [])
+    assert typical["facilities"]["wifi"] is True
+    assert typical["facilities_basis"] == "operator_class"
+    assert typical["coaches_known"] is False and typical["coaches"] == []
     northern = describe(_train(operator="Northern", formation=["170001"]), [])
     assert northern["facilities"] == {} and northern["coaches_known"] is False
 

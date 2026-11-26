@@ -2851,7 +2851,7 @@ test('an allocated Turbostar shows normally provided facilities without presenti
   await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { activity:'train-live-1', detail:{ available:true,
     runs:[{ headcode:'1A23', operator:'CrossCountry', status:'On time', calling_points:[] }],
     formation:{ class:'170', name:'Turbostar', traction:'diesel', operator:'CrossCountry', coaches_known:true, coaches_published:false,
-      usual:[2,3], units:['170106'], source:'Allocated unit profile', facilities_typical:true,
+      usual:[2,3], units:['170106'], source:'Allocated unit profile', facilities_typical:true, facilities_basis:'allocated_unit',
       facilities:{wifi:true,bicycle_spaces:true,wheelchair_spaces:true,toilets:true},
       facilities_source:'CrossCountry fleet information', facilities_source_url:'https://www.crosscountrytrains.co.uk/travel-information/on-board/about-our-trains',
       coaches:[{letter:'A',first:false,toilet:'standard'},{letter:'B',first:false,toilet:null},{letter:'C',first:false,toilet:'accessible',bicycle:true,wheelchair_space:true}] } } } }));
@@ -2868,6 +2868,22 @@ test('an allocated Turbostar shows normally provided facilities without presenti
   await expect(drawn.locator('.profile-coach small')).toHaveText(['C','B','A']);
   await expect(drawn.locator('[title="Cycle spaces"]')).toHaveCount(2); // global facility and Coach C
   await expect(drawn).not.toContainText('published by National Rail');
+});
+
+test('a CrossCountry Turbostar still shows class facilities when its exact unit is unavailable', async ({ page }) => {
+  await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { activity:'train-live-1', detail:{ available:true,
+    runs:[{ headcode:'1L54', operator:'CrossCountry', status:'Late', calling_points:[] }],
+    formation:{ class:'170', name:'Turbostar', traction:'diesel', operator:'CrossCountry', coaches_known:false, coaches_published:false,
+      usual:[2,3], units:[], source:'Operator class profile', facilities_typical:true, facilities_basis:'operator_class',
+      facilities:{wifi:true,bicycle_spaces:true,wheelchair_spaces:true,toilets:true},
+      facilities_source:'CrossCountry fleet information', facilities_source_url:'https://www.crosscountrytrains.co.uk/travel-information/on-board/about-our-trains', coaches:[] } } } }));
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  const drawn = page.locator('#detail-intelligence .train-formation');
+  await expect(drawn).toContainText('Wi-Fi');
+  await expect(drawn).toContainText('Normally provided on CrossCountry Class 170 trains');
+  await expect(drawn).toContainText('Exact coaches are not published');
+  await expect(drawn.locator('.profile-coach')).toHaveCount(3);
 });
 
 test('each kind of freight gets its own wagons', async ({ page }) => {

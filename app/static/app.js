@@ -4498,7 +4498,10 @@
     const badges=entries.map(key=>`<span class="train-facility" title="${esc(TRAIN_FACILITY_LABELS[key])}">${TRAIN_FACILITY_ICONS[key]}<span>${esc(TRAIN_FACILITY_LABELS[key])}</span></span>`).join('');
     const source=safeUrl(formation.facilities_source_url);
     const sourceLabel=formation.facilities_source||'operator fleet information';
-    return `<div class="train-facilities" aria-label="Facilities normally provided">${badges}</div><p class="facility-provenance">Normally provided on the allocated unit · ${source?`<a href="${source}" target="_blank" rel="noopener">${esc(sourceLabel)}</a>`:esc(sourceLabel)}</p>`;
+    const basis=formation.facilities_basis==='allocated_unit'
+      ?'Normally provided on the allocated unit'
+      :`Normally provided on ${[formation.operator,formation.class?`Class ${formation.class}`:null,'trains'].filter(Boolean).join(' ')}`;
+    return `<div class="train-facilities" aria-label="Facilities normally provided">${badges}</div><p class="facility-provenance">${esc(basis)} · ${source?`<a href="${source}" target="_blank" rel="noopener">${esc(sourceLabel)}</a>`:esc(sourceLabel)}</p>`;
   }
   // Generated broadside profiles, cut into one image per coach
   // (scripts/build_train_profiles.py): [folder, width of each coach image at
@@ -4790,8 +4793,10 @@
       const drawn=known?coaches:Array.from({length:usual.includes(profile[1].length)?profile[1].length:count},()=>({}));
       const note=published
         ? 'Coaches, first class and toilets as published by National Rail for this train.'
-        : formation.facilities_typical
+        : formation.facilities_basis==='allocated_unit'
           ? 'Coach layout from the allocated unit. Facilities are normally provided and may change on the day.'
+          : formation.facilities_typical
+            ? 'Exact coaches are not published. Facilities are normally provided for this operator and train class and may change on the day.'
           : 'Not published for this train: drawn at its class’s usual length. Coaches, first class and toilets appear here when National Rail publishes them.';
       return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header>${facilitiesHtml}${profileTrainHtml(profile,drawn)}${unitsHtml}<p>${esc(note)}</p></section>`;
     }

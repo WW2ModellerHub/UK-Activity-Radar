@@ -136,12 +136,12 @@ def _coach(raw: dict) -> dict:
 
 
 def _allocated_facilities(code: str | None, operator: str | None, units: list[str]) -> dict | None:
-    """Return a conservative operator/sub-fleet profile for an allocated unit.
+    """Return a conservative operator profile, refined by an allocation.
 
-    A profile is not used when there is no allocation: in that case it would
-    describe a typical class rather than the train the passenger selected.
+    Without an allocation only class-wide facilities are returned: coach
+    letters and locations remain unknown and the API labels the basis clearly.
     """
-    if not code or not operator or not units:
+    if not code or not operator:
         return None
     profile = _FACILITY_PROFILES.get((code, operator))
     if not profile:
@@ -149,14 +149,14 @@ def _allocated_facilities(code: str | None, operator: str | None, units: list[st
     allocated = next((str(unit).strip() for unit in units if str(unit).strip()), "")
     length = next((count for prefix, count in profile.get("unit_lengths", {}).items()
                    if allocated.startswith(prefix)), None)
-    if not length:
-        return None
-    letters = profile.get("coach_letters", {}).get(length) or [chr(ord("A") + index) for index in range(length)]
+    letters = profile.get("coach_letters", {}).get(length) if length else None
+    letters = letters or ([chr(ord("A") + index) for index in range(length)] if length else [])
     coach_facilities = profile.get("coach_facilities", {})
     return {
         "facilities": dict(profile.get("facilities") or {}),
         "coaches": [{"letter": letter, "first": False, "toilet": None,
                      **coach_facilities.get(letter, {})} for letter in letters],
+        "basis": "allocated_unit" if allocated and length else "operator_class",
         "source_name": profile.get("source_name"),
         "source_url": profile.get("source_url"),
     }
@@ -201,7 +201,8 @@ def describe(train, coaches: list[dict] | None) -> dict | None:
         "facilities_source": allocated["source_name"] if allocated else None,
         "facilities_source_url": allocated["source_url"] if allocated else None,
         "facilities_typical": bool(allocated),
+        "facilities_basis": allocated["basis"] if allocated else None,
         # Without Darwin: the class's usual unit lengths ("2 or 3"), never a claim about this train.
         "usual": list(usual),
-        "source": "Darwin (National Rail)" if published else "Allocated unit profile" if allocated else "Timetable",
+        "source": "Darwin (National Rail)" if published else "Allocated unit profile" if allocated and allocated["basis"] == "allocated_unit" else "Operator class profile" if allocated else "Timetable",
     }
