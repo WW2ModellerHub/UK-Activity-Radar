@@ -18,6 +18,11 @@ from pathlib import Path
 API_URL = ("https://api1.raildata.org.uk/1018-rail-replacement-location-data-api2_0"
            "/v1/rail-replacement/stops/download?format=json")
 REFRESH_S = 24 * 3600
+API_HEADERS = {
+    "Accept": "application/json",
+    # The marketplace gateway rejects requests' default python-requests UA.
+    "User-Agent": "UK-Activity-Radar/1.5 (+https://uk-activity-radar.onrender.com)",
+}
 
 
 def parse_stops(payload: dict) -> dict[str, list[dict]]:
@@ -77,7 +82,11 @@ class RailReplacementStops:
             return 0
         import requests
         session = self._session or requests
-        link = session.get(API_URL, headers={"x-apikey": self._api_key}, timeout=30)
+        link = session.get(
+            API_URL,
+            headers={**API_HEADERS, "x-apikey": self._api_key},
+            timeout=30,
+        )
         link.raise_for_status()
         url = (link.json() or {}).get("downloadUrl")
         if not url:

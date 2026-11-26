@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from app.rail_replacement import RailReplacementStops, parse_stops
+from app.rail_replacement import API_HEADERS, RailReplacementStops, parse_stops
 from app.seo_pages import engineering_html
 
 
@@ -44,7 +44,8 @@ def test_refresh_downloads_saves_and_keeps_the_last_good_copy(tmp_path):
     session = _Session(FILE)
     service = RailReplacementStops(tmp_path, "secret", session)
     assert service.due() and service.refresh() == 4 - 1
-    assert session.calls[0][1] == {"x-apikey": "secret"} and session.calls[1][1] is None   # key only to the API
+    assert session.calls[0][1] == {**API_HEADERS, "x-apikey": "secret"}
+    assert session.calls[1][1] is None   # key only to the API
     assert service.at("lei")[0]["atco"] == "9110LEI0" and not service.due()
     # A bad file later keeps what we had; a fresh process reads the saved copy.
     with pytest.raises(ValueError):
