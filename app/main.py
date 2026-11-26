@@ -616,7 +616,10 @@ async def _rail_replacement_loop() -> None:
     while True:
         if rail_replacement.due():
             try:
-                await asyncio.to_thread(rail_replacement.refresh)
+                count = await asyncio.to_thread(rail_replacement.refresh)
+                _runtime.pop("rail_replacement_error", None)
+                _runtime["rail_replacement_stops"] = count
+                _runtime["rail_replacement_refreshed_at"] = datetime.now(timezone.utc).isoformat()
             except Exception as error:  # noqa: BLE001 - keep the saved copy
                 _runtime["rail_replacement_error"] = f"{type(error).__name__}: {error}"[:300]
         await asyncio.sleep(3600)
@@ -848,6 +851,12 @@ def runtime_report(detail: bool = False) -> dict:
             report["allocation_kafka"] = allocation_collector.report()
         if _runtime.get("rail_replacement_error"):
             report["rail_replacement_error"] = _runtime["rail_replacement_error"]
+        if _runtime.get("rail_replacement_refreshed_at"):
+            report["rail_replacement"] = {
+                "live": True,
+                "stops": _runtime.get("rail_replacement_stops", 0),
+                "refreshed_at": _runtime["rail_replacement_refreshed_at"],
+            }
         if _runtime.get("stream_errors"):
             report["stream_errors"] = {"count": _runtime["stream_errors"], "last": _runtime.get("stream_error")}
     return report
