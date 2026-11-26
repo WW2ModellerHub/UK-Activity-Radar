@@ -13,6 +13,7 @@ from __future__ import annotations
 
 # class: (name, usual coaches per unit, traction)
 CLASSES: dict[str, tuple[str | None, tuple[int, ...], str]] = {
+    "139": ("Parry People Mover", (1,), "diesel"),
     "142": ("Pacer", (2,), "diesel"), "143": ("Pacer", (2,), "diesel"), "144": ("Pacer", (2,), "diesel"),
     "150": ("Sprinter", (2,), "diesel"), "153": ("Super Sprinter", (1,), "diesel"),
     "155": ("Super Sprinter", (2,), "diesel"), "156": ("Super Sprinter", (2,), "diesel"),
@@ -35,6 +36,7 @@ CLASSES: dict[str, tuple[str | None, tuple[int, ...], str]] = {
     "380": ("Desiro", (3, 4), "electric"), "385": ("AT200", (3, 4), "electric"),
     "387": ("Electrostar", (4,), "electric"), "390": ("Pendolino", (9, 11), "electric"),
     "395": ("Javelin", (6,), "electric"), "397": ("Nova 2", (5,), "electric"),
+    "398": ("Citylink", (3,), "electric"), "399": ("Citylink tram-train", (3,), "electric"),
     "444": ("Desiro", (5,), "electric"), "450": ("Desiro", (4,), "electric"),
     "455": (None, (4,), "electric"), "456": (None, (2,), "electric"), "458": ("Juniper", (5,), "electric"), "465": ("Networker", (4,), "electric"),
     "466": ("Networker", (2,), "electric"), "484": (None, (2,), "electric"), "507": (None, (3,), "electric"),
@@ -56,6 +58,7 @@ _NAMES = {("800", "Great Western Railway"): "Intercity Express Train",
 _DMU_BY_OPERATOR = {
     ("E", "CrossCountry"): "170", ("E", "Northern"): "158", ("E", "West Midlands Trains"): "170",
     ("E", "ScotRail"): "170", ("E", "Transport for Wales"): "158", ("E", "Chiltern Railways"): "168",
+    ("E", "TransPennine Express"): "185",
     ("V", "CrossCountry"): "220", ("X", "South Western Railway"): "159",
     ("S", "Northern"): "150", ("S", "Great Western Railway"): "150", ("S", "Transport for Wales"): "150",
     ("T", "Great Western Railway"): "165", ("T", "Chiltern Railways"): "165",
@@ -67,7 +70,8 @@ _DMU_BY_OPERATOR = {
 _OPERATOR_ALIASES = {"northern trains": "Northern", "london northwestern railway": "West Midlands Trains",
                      "west midlands railway": "West Midlands Trains", "scotrail trains": "ScotRail",
                      "gwr": "Great Western Railway", "emr": "East Midlands Railway",
-                     "cross country": "CrossCountry"}
+                     "cross country": "CrossCountry", "transpennine": "TransPennine Express",
+                     "transpennine trains": "TransPennine Express", "tpe": "TransPennine Express"}
 
 
 # Facilities which are not present in Darwin's formation messages.  Entries
@@ -177,10 +181,18 @@ def describe(train, coaches: list[dict] | None) -> dict | None:
     power = str(getattr(train, "power_type", "") or "").strip().upper()
     hauled = power in {"D", "E", "ED"}
     inferred = False
+    inference_reason = None
     if not code and power in {"DMU", "DEM"} and operator == "East Midlands Railway" and _speed(train) >= 110:
         # EMR's 125 mph diesel units with no class in the timetable are its
         # Meridians: its Aurora (810) workings carry "810".
         code, inferred = "222", True
+        inference_reason = "operator, diesel unit and 125 mph timing"
+        name, usual, traction = CLASSES[code]
+    if not code and power in {"DMU", "DEM"} and operator == "TransPennine Express" and 0 < _speed(train) <= 110:
+        # TPE's diesel-only passenger fleet is Class 185. Nova 1 Class 802
+        # workings are bi-mode and normally carry their numeric timing load.
+        code, inferred = "185", True
+        inference_reason = "operator, diesel unit and 100 mph timing"
         name, usual, traction = CLASSES[code]
     if not code:
         # Class not settled by the timetable: still drawn, as a generic train of its traction.
@@ -192,6 +204,7 @@ def describe(train, coaches: list[dict] | None) -> dict | None:
     return {
         "class": code, "name": name, "traction": traction, "operator": operator,
         "hauled": hauled, "generic": not code, "inferred": inferred,
+        "inference_reason": inference_reason,
         "coaches": known,
         # Unit numbers from the allocation feed (e.g. "170636"), when it has them.
         "units": units,

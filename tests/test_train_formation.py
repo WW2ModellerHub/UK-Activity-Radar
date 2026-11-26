@@ -20,6 +20,7 @@ def _train(**changes):
 def test_class_comes_from_the_timetable_and_letters_only_where_the_operator_settles_it():
     assert train_class("EMU", "390", "Avanti West Coast") == "390"
     assert train_class("DMU", "E", "CrossCountry") == "170"
+    assert train_class("DMU", "E", "TransPennine Express") == "185"
     assert train_class("DMU", "E", "East Midlands Railway") is None   # 158 or 170: not guessed
     assert train_class("D", "1600", "DB Cargo UK") is None
 
@@ -123,8 +124,21 @@ def test_emr_125mph_diesel_with_no_class_is_a_meridian_and_says_it_was_worked_ou
     assert slower["class"] is None and slower["inferred"] is False
 
 
+def test_tpe_diesel_with_no_numeric_class_is_a_class_185_and_explains_the_inference():
+    drawn = describe(_train(operator="TransPennine Express", power_type="DMU", timing_load=None,
+                            booked_speed="100", headcode="1P86"), [])
+    assert drawn["class"] == "185" and drawn["name"] == "Desiro" and drawn["usual"] == [3]
+    assert drawn["inferred"] is True
+    assert drawn["inference_reason"] == "operator, diesel unit and 100 mph timing"
+
+    unknown = describe(_train(operator="TransPennine Express", power_type="DMU", timing_load=None,
+                              booked_speed=None), [])
+    assert unknown["class"] is None and unknown["inferred"] is False
+
+
 def test_operator_spellings_and_single_class_codes_name_more_trains():
     assert train_class("DMU", "E", "Northern Trains") == "158"        # same fleet as "Northern"
+    assert train_class("DMU", "E", "TPE") == "185"
     assert train_class("DMU", "S", "ScotRail") == "156"
     assert train_class("DMU", "E", "East Midlands Railway") is None   # 158 or 170: not guessed
     assert train_class("EMU", None, "ScotRail") is None                # 318/320/334/380/385: not guessed

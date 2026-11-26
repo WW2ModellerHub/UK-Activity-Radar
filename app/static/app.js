@@ -4507,8 +4507,9 @@
   // (scripts/build_train_profiles.py): [folder, width of each coach image at
   // 96 px high]. The timetable chooses the class; the operator the livery.
   const TRAIN_PROFILE_SETS={
+    '139':{'west-midlands':['class-139-west-midlands-1',[374]]},
     '390':{default:['class-390-pendolino',[292,165,161,154,147,162,283]]},
-    '170':{crosscountry:['class-170-crosscountry-turbostar',[268,254,278]],scotrail:['class-170-scotrail-3',[344,364,354]],northern:['class-170-northern-3',[290,259,283]],'west-midlands':['class-170-west-midlands-3',[346,291,328]],'transport-for-wales':['class-170-transport-for-wales-3',[387,355,362]]},
+    '170':{crosscountry:['class-170-crosscountry-turbostar',[268,254,278]],scotrail:['class-170-scotrail-3',[344,364,354]],northern:['class-170-northern-3',[290,259,283]],'west-midlands':['class-170-west-midlands-3',[346,291,328]],'transport-for-wales':['class-170-transport-for-wales-3',[387,355,362]],'east-midlands':['class-170-east-midlands-3',[262,246,270]],chiltern:['class-170-chiltern-3',[260,257,253]]},
     '195':{northern:['class-195-northern-civity',[354,319,354]]},
     '220':{crosscountry:['class-220-crosscountry-voyager',[453,314,432]]},
     '221':{crosscountry:['class-220-crosscountry-voyager',[453,314,432]]},
@@ -4521,14 +4522,15 @@
     '150':{'northern':['class-150-northern',[367,368]]},
     '158':{'northern':['class-158-northern',[377,375]],scotrail:['class-158-scotrail-2',[424,406]],'transport-for-wales':['class-158-transport-for-wales-2',[422,407]],gwr:['class-158-gwr-2',[431,406]],'east-midlands':['class-158-east-midlands-2',[436,432]],'south-western':['class-158-south-western-2',[435,431]]},
     '159':{'south-western':['class-159-south-western',[317,280,328]]},
-    '165':{'gwr':['class-165-gwr',[317,303,316]]},
+    '165':{'gwr':['class-165-gwr',[317,303,316]],chiltern:['class-165-chiltern-3',[317,302,318]]},
     '166':{'gwr':['class-165-gwr',[317,303,316]]},
     '168':{'chiltern':['class-168-chiltern',[291,267,263,292]]},
     '185':{'transpennine':['class-185-transpennine',[274,311,266]]},
     '196':{'west-midlands':['class-196-west-midlands',[288,230,239,287]]},
     '197':{'transport-for-wales':['class-197-transport-for-wales',[261,279,264]]},
     '345':{'elizabeth-line':['class-345-elizabeth-line',[222,142,135,133,146,126,137,128,223]]},
-    '377':{'southern':['class-377-southern',[302,277,267,300]]},
+    '377':{'southern':['class-377-southern',[302,277,267,300]],southeastern:['class-377-southeastern-4',[289,263,263,276]]},
+    '379':{'great-northern':['class-379-great-northern-4',[247,218,210,245]]},
     '385':{'scotrail':['class-385-scotrail',[203,167,167,213]]},
     '395':{'southeastern':['class-395-southeastern',[251,180,190,184,186,250]]},
     '444':{'south-western':['class-444-south-western',[286,260,263,262,283]]},
@@ -4538,7 +4540,8 @@
     '155':{northern:['class-155-northern-2',[427,414]]},
     '156':{northern:['class-156-northern-2',[360,370]],scotrail:['class-156-scotrail-2',[441,421]]},
     '171':{southern:['class-171-southern-2',[419,348]]},
-    '172':{'west-midlands':['class-172-west-midlands-2',[419,406]]},
+    '172':{'west-midlands':['class-172-west-midlands-2',[419,406]],chiltern:['class-172-chiltern-2',[412,393]]},
+    '175':{'transport-for-wales':['class-175-transport-for-wales-3',[281,495,307]]},
     '180':{'grand-central':['class-180-grand-central-5',[375,272,265,262,347]]},
     '230':{'transport-for-wales':['class-230-transport-for-wales-3',[295,257,262]]},
     '231':{'transport-for-wales':['class-231-transport-for-wales-4',[347,246,262,291]]},
@@ -4554,8 +4557,10 @@
     '376':{southeastern:['class-376-southeastern-4',[246,198,216,206]]},
     '378':{'london-overground':['class-378-london-overground-5',[237,189,196,197,211]]},
     '380':{scotrail:['class-380-scotrail-3',[253,250,241]]},
-    '387':{'great-northern':['class-387-great-northern-4',[266,215,218,229]],southern:['class-387-southern-4',[235,200,219,208]],gwr:['class-387-gwr-4',[224,213,226,219]],'gatwick-express':['class-387-gatwick-express-4',[269,220,228,271]]},
+    '387':{'great-northern':['class-387-great-northern-4',[266,215,218,229]],southern:['class-387-southern-4',[235,200,219,208]],gwr:['class-387-gwr-4',[224,213,226,219]],'gatwick-express':['class-387-gatwick-express-4',[269,220,228,271]],'heathrow-express':['class-387-heathrow-express-4',[259,209,212,224]]},
     '397':{transpennine:['class-397-transpennine-5',[250,193,184,188,209]]},
+    '398':{'transport-for-wales':['class-398-transport-for-wales-3',[246,179,247]]},
+    '399':{default:['class-399-stagecoach-supertram-3',[200,169,178]]},
     '450':{'south-western':['class-450-south-western-4',[307,274,268,270]]},
     '455':{'south-western':['class-455-south-western-4',[306,269,263,320]]},
     '458':{'south-western':['class-458-south-western-4',[302,268,274,306]]},
@@ -4814,7 +4819,8 @@
         coach.wheelchair_space&&coach.toilet!=='accessible'?`<span title="Wheelchair space">${WHEELCHAIR_ICON}</span>`:''].join('');
       return `<div class="coach"><small>${coach.letter?`Coach ${esc(coach.letter)}`:''}</small>${trainCoachSvg(i,coaches.length,theme,formation.class)}<div class="coach-marks">${marks}</div></div>`;
     }).join('');
-    const note=published?'Coaches as published by National Rail for this train.':formation.facilities_typical?'Coach layout from the allocated unit; facilities may change on the day.':formation.generic?"Illustration: this train's class and coaches are not in its timetable.":formation.inferred?"Class worked out from the timetable (operator, diesel, 125 mph); coaches not published, drawn at its usual length.":"This train's coaches are not published; drawn at its class's usual length.";
+    const inference=formation.inference_reason||'operator and timetable characteristics';
+    const note=published?'Coaches as published by National Rail for this train.':formation.facilities_typical?'Coach layout from the allocated unit; facilities may change on the day.':formation.generic?"Illustration: this train's class and coaches are not in its timetable.":formation.inferred?`Class worked out from the timetable (${inference}); coaches not published, drawn at its usual length.`:"This train's coaches are not published; drawn at its class's usual length.";
     return `<section class="train-formation${known?'':' is-typical is-plain'}${formation.class?` profile-class-${esc(formation.class)}`:''}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header>${facilitiesHtml}<div class="formation-row" style="--coaches:${coaches.length}">${cells}</div><p>${esc(note)}</p></section>`;
   }
 
