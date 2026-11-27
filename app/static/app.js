@@ -860,9 +860,22 @@
       }
       const keys = railCellKeys(map.getBounds());
       if (keys.length > 64) return;
-      const results = await Promise.all(keys.map(([cx, cy]) => railCell(level, cx, cy)));
-      if (seq !== railLines.seq) return;
-      drawRailLines(level, results.flatMap(result => result?.lines || []));
+      // Fetch everything in parallel, but paint the cell under the map centre
+      // first. A slow/empty cell at the viewport edge must not leave a phone
+      // showing stations on a blank map while Promise.all waits for it.
+      const centre = map.getCenter();
+      const centreCx = Math.floor(centre.lng / 0.5), centreCy = Math.floor(centre.lat / 0.5);
+      keys.sort((a,b)=>(Math.abs(a[0]-centreCx)+Math.abs(a[1]-centreCy))-(Math.abs(b[0]-centreCx)+Math.abs(b[1]-centreCy)));
+      const requests = keys.map(([cx, cy]) => railCell(level, cx, cy));
+      if (requests.length) {
+        const central = await requests[0];
+        if (seq !== railLines.seq) return;
+        drawRailLines(level, central?.lines || []);
+      }
+      await Promise.all(requests.slice(1).map(async request => {
+        const result = await request;
+        if (seq === railLines.seq) drawRailLines(level, result?.lines || []);
+      }));
     } catch {}
   }
 

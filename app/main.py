@@ -897,6 +897,10 @@ async def lifespan(app: FastAPI):
     tasks: list[asyncio.Task] = []
     tasks.append(asyncio.create_task(_state_maintenance_loop()))
     tasks.append(asyncio.create_task(_runtime_monitor_loop()))
+    # Preparing all three railway geometry levels from the bundled 9 MB file
+    # is CPU-heavy. Do it alongside startup work instead of making the first
+    # person who turns on Trains wait for the lazy load.
+    tasks.append(asyncio.create_task(asyncio.to_thread(rail_line_layer.national)))
 
     # Remembers which platform each train uses, for "usually platform N".
     try:
