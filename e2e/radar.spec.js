@@ -2812,7 +2812,7 @@ test('at Birmingham a plane on the runway reads the airport height, not flying a
   await expect(page.locator('#detail-panel')).toContainText('is taxiing at Birmingham Airport at 13 knots');
 });
 
-test('a train is drawn coach by coach in its operator colours instead of a photo', async ({ page }) => {
+test('a train is drawn coach by coach in its operator colours with a compact card', async ({ page }) => {
   let mediaCalls = 0;
   page.on('request', request => { if (request.url().includes('/api/activity/train-live-1/media')) mediaCalls += 1; });
   await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { activity:'train-live-1', detail:{ available:true,
@@ -2830,12 +2830,13 @@ test('a train is drawn coach by coach in its operator colours instead of a photo
   await expect(drawn.locator('.coach-first')).toHaveCount(1);
   await expect(drawn.locator('.coach-wc')).toHaveCount(1);
   await expect(drawn.locator('[title="Accessible toilet"]')).toHaveCount(1);
-  await expect(drawn).toContainText('published by National Rail');
+  await expect(drawn).toHaveAttribute('aria-label', 'Class 170 Turbostar, 3 coaches');
+  await expect(drawn).not.toContainText('published by National Rail');
   await page.locator('#detail-panel').screenshot({ path: process.env.FORMATION_SHOT || '/dev/null' }).catch(() => {});
   expect(mediaCalls).toBe(0);
 });
 
-test('without a published formation a train is drawn at its class length and says so', async ({ page }) => {
+test('without a published formation a train is drawn at its usual class length', async ({ page }) => {
   await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { activity:'train-live-1', detail:{ available:true,
     runs:[{ headcode:'1A23', operator:'Avanti West Coast', status:'On time', calling_points:[] }],
     formation:{ class:'390', name:'Pendolino', traction:'electric', operator:'Avanti West Coast', coaches_known:false, usual:[9,11], coaches:[] } } } }));
@@ -2843,11 +2844,12 @@ test('without a published formation a train is drawn at its class length and say
   await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   const drawn = page.locator('#detail-intelligence .train-formation');
   await expect(drawn).toContainText('usually 9 or 11 coaches');
-  await expect(drawn).toContainText('Not published');
+  await expect(drawn).toHaveAttribute('aria-label', 'Class 390 Pendolino, usually 9 or 11 coaches');
+  await expect(drawn).not.toContainText('Not published');
   await expect(drawn.locator('.profile-coach')).toHaveCount(11);
 });
 
-test('an allocated Turbostar shows normally provided facilities without presenting them as live facts', async ({ page }) => {
+test('an allocated Turbostar shows facilities without redundant explanatory copy', async ({ page }) => {
   await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { activity:'train-live-1', detail:{ available:true,
     runs:[{ headcode:'1A23', operator:'CrossCountry', status:'On time', calling_points:[] }],
     formation:{ class:'170', name:'Turbostar', traction:'diesel', operator:'CrossCountry', coaches_known:true, coaches_published:false,
@@ -2862,15 +2864,15 @@ test('an allocated Turbostar shows normally provided facilities without presenti
   await expect(drawn).toContainText('Wi-Fi');
   await expect(drawn).toContainText('Cycle spaces');
   await expect(drawn).toContainText('Wheelchair space');
-  await expect(drawn).toContainText('Normally provided on the allocated unit');
-  await expect(drawn).toContainText('may change on the day');
+  await expect(drawn).not.toContainText('Normally provided on the allocated unit');
+  await expect(drawn).not.toContainText('may change on the day');
   await expect(drawn.locator('.formation-units b')).toHaveText(['170106']);
   await expect(drawn.locator('.profile-coach small')).toHaveText(['C','B','A']);
   await expect(drawn.locator('[title="Cycle spaces"]')).toHaveCount(2); // global facility and Coach C
   await expect(drawn).not.toContainText('published by National Rail');
 });
 
-test('a CrossCountry Turbostar still shows class facilities when its exact unit is unavailable', async ({ page }) => {
+test('a CrossCountry Turbostar shows class facilities compactly when its unit is unavailable', async ({ page }) => {
   await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { activity:'train-live-1', detail:{ available:true,
     runs:[{ headcode:'1L54', operator:'CrossCountry', status:'Late', calling_points:[] }],
     formation:{ class:'170', name:'Turbostar', traction:'diesel', operator:'CrossCountry', coaches_known:false, coaches_published:false,
@@ -2881,8 +2883,8 @@ test('a CrossCountry Turbostar still shows class facilities when its exact unit 
   await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   const drawn = page.locator('#detail-intelligence .train-formation');
   await expect(drawn).toContainText('Wi-Fi');
-  await expect(drawn).toContainText('Normally provided on CrossCountry Class 170 trains');
-  await expect(drawn).toContainText('Exact coaches are not published');
+  await expect(drawn).not.toContainText('Normally provided on CrossCountry Class 170 trains');
+  await expect(drawn).not.toContainText('Exact coaches are not published');
   await expect(drawn.locator('.profile-coach')).toHaveCount(3);
 });
 
@@ -2933,7 +2935,8 @@ test('an unpublished Pendolino is drawn at a length the class runs at', async ({
   await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   const drawn = page.locator('#detail-intelligence .train-profile-image');
   await expect(drawn.locator('.profile-coach')).toHaveCount(11);
-  await expect(drawn).toContainText('Not published for this train');
+  await expect(drawn).toContainText('usually 9 or 11 coaches');
+  await expect(drawn).not.toContainText('Not published for this train');
   await drawn.screenshot({ path: process.env.PROFILE_SHOT2 || '/dev/null' }).catch(() => {});
 });
 
