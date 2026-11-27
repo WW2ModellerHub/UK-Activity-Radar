@@ -5405,7 +5405,7 @@
       clearTimeout(requestTimeout);
       if(requestId===overheadRefreshRequest&&overheadActive){
         clearTimeout(overheadRefreshTimer);
-        overheadRefreshTimer=setTimeout(()=>refreshOverheadAircraft(),15000);
+        overheadRefreshTimer=setTimeout(()=>refreshOverheadAircraft(),12000);
       }
     }
   }
