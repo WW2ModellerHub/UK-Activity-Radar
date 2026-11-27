@@ -550,6 +550,16 @@ class BODSCollector:
             except Exception as exc:
                 api_error = exc
 
+            # GTFS-RT and SIRI-VM are separate BODS products. An outage in the
+            # matched feed must not force us onto the legacy download page.
+            try:
+                return self._fetch_siri()
+            except Exception as exc:
+                api_error = RuntimeError(
+                    f"GTFS-RT failed ({public_error(api_error, self.settings.bods_api_key)}); "
+                    f"SIRI-VM failed ({public_error(exc, self.settings.bods_api_key)})"
+                )
+
         try:
             response = self._session.get(
                 self.settings.bods_bulk_url,
@@ -557,7 +567,10 @@ class BODSCollector:
                 timeout=(10, 90),
             )
             response.raise_for_status()
-            return response.content, response.headers.get("content-type", ""), "bulk-siri"
+            content_type = response.headers.get("content-type", "")
+            if "html" in content_type.lower() or response.content.lstrip().lower().startswith(b"<!doctype html"):
+                raise RuntimeError("BODS bulk endpoint returned an HTML page instead of bus data")
+            return response.content, content_type, "bulk-siri"
         except Exception as bulk_exc:
             if api_error is not None:
                 raise RuntimeError(
