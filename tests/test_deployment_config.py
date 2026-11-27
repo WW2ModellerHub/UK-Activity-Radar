@@ -222,7 +222,7 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
     worker = (ROOT / "app" / "static" / "service-worker.js").read_text(encoding="utf-8")
     assert "/static/app.css?v=16403" in index
     assert "/static/map-markers.css?v=16393" in index
-    assert "/static/app.js?v=16414" in index
+    assert "/static/app.js?v=16415" in index
     assert "/static/motion-engine.js?v=16410" in index
     # The renderer loads through a file, not an inline script (blocked by CSP).
     assert "/static/renderer-loader.js?v=16406" in index
@@ -233,13 +233,13 @@ def test_versioned_shell_assets_do_not_leave_mobile_clients_on_stale_css():
         assert f"/static/{retired}" not in index
         assert f"/static/{retired}" not in worker
         assert not (ROOT / "app" / "static" / retired).exists()
-    assert "NETWORK_FIRST_ASSETS" in worker
+    assert "NETWORK_FIRST_ASSETS" not in worker
     assert "/static/app.css?v=16403" in worker
     assert "/static/map-markers.css?v=16393" in worker
-    assert "/static/app.js?v=16414" in worker
+    assert "/static/app.js?v=16415" in worker
     assert "/static/motion-engine.js?v=16410" in worker
     assert "/static/live-object-renderer.js?v=16406" in worker
-    assert "uk-activity-radar-shell-v1.5.0-r191" in worker
+    assert "uk-activity-radar-shell-v1.5.0-r192" in worker
 
 
 def test_sparse_reporting_interval_does_not_grey_live_trains():
@@ -261,9 +261,13 @@ def test_paid_transport_detail_is_labelled_as_radar_plus():
 def test_map_provider_configuration_cannot_pin_the_old_fallback_in_cache():
     app_js = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
     main = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
-    map_route = main[main.index("def map_config("):main.index("def map_tile(")]
+    map_route = main[main.index("def _map_browser_config("):main.index("def map_tile(")]
+    index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
 
     assert "fetch('/api/map/config',{cache:'no-store'" in app_js
+    assert "document.body?.dataset?.mapConfig" in app_js
+    assert 'data-map-config="{{MAP_BROWSER_CONFIG}}"' in index
+    assert 'page.replace(\n        "{{MAP_BROWSER_CONFIG}}"' in main
     assert "if(!configAvailable)" in app_js
     assert "window.setTimeout(configureBaseMap,retryDelay)" in app_js
     assert "mapNode.dataset.mapProvider='loading'" in app_js

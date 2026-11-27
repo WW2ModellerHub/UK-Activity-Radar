@@ -1,6 +1,5 @@
-const CACHE = 'uk-activity-radar-shell-v1.5.0-r191';
-const SHELL = ['/', '/about', '/terms', '/privacy', '/data-licences', '/static/map-markers.css?v=16393', '/static/app.css?v=16403', '/static/motion-engine.js?v=16410', '/static/renderer-loader.js?v=16406', '/static/live-object-renderer.js?v=16406', '/static/vendor/maplibre/maplibre-gl.css?v=6.17.0', '/static/vendor/maplibre/maplibre-gl.mjs', '/static/app.js?v=16414', '/static/share.html', '/static/share.css', '/static/share.js', '/static/legal.css?v=16375', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png', '/static/brand/logo.svg'];
-const NETWORK_FIRST_ASSETS = new Set(['/static/app.css', '/static/map-markers.css', '/static/app.js', '/static/movement-history.js', '/static/motion-engine.js', '/static/live-object-renderer.js']);
+const CACHE = 'uk-activity-radar-shell-v1.5.0-r192';
+const SHELL = ['/', '/about', '/terms', '/privacy', '/data-licences', '/static/map-markers.css?v=16393', '/static/app.css?v=16403', '/static/motion-engine.js?v=16410', '/static/renderer-loader.js?v=16406', '/static/live-object-renderer.js?v=16406', '/static/vendor/maplibre/maplibre-gl.css?v=6.17.0', '/static/vendor/maplibre/maplibre-gl.mjs', '/static/app.js?v=16415', '/static/share.html', '/static/share.css', '/static/share.js', '/static/legal.css?v=16375', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png', '/static/brand/logo.svg'];
 self.addEventListener('install', event => {
   // One file failing (the server mid-restart) must not leave nothing saved.
   event.waitUntil(caches.open(CACHE).then(cache => Promise.allSettled(SHELL.map(item => cache.add(item)))).catch(() => null));
@@ -28,24 +27,19 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.pathname === '/ws') return;
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/static/')) {
-    if (NETWORK_FIRST_ASSETS.has(url.pathname)) {
-      // While the server restarts the new version may 502: use the copy
-      // saved for this version, else the last version saved, rather than
-      // drawing the map with no styles.
-      const saved = () => caches.match(event.request).then(hit => hit || caches.match(event.request, { ignoreSearch: true }));
-      event.respondWith(fetch(event.request).then(response => {
-        // Copy before handing it over: once the page reads the body, it cannot be copied.
-        if (response.ok) { const copy = response.clone(); caches.open(CACHE).then(cache => cache.put(event.request, copy)); return response; }
-        return saved().then(hit => hit || response);
-      }).catch(() => saved()));
-      return;
-    }
+    // Release assets have a version in the URL. An exact cache hit is the
+    // exact code requested by the HTML, so return it immediately rather than
+    // waiting for a redundant network revalidation on every app launch.
     event.respondWith(caches.match(event.request).then(hit => {
-      const refresh = fetch(event.request).then(response => {
-        if (response.ok) { const copy = response.clone(); caches.open(CACHE).then(cache => cache.put(event.request, copy)); }
-        return response;
-      });
-      return hit || refresh;
+      if (hit) return hit;
+      return fetch(event.request).then(response => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then(cache => cache.put(event.request, copy));
+          return response;
+        }
+        return caches.match(event.request, { ignoreSearch:true }).then(saved => saved || response);
+      }).catch(() => caches.match(event.request, { ignoreSearch:true }));
     }));
     return;
   }

@@ -1255,6 +1255,10 @@ def _render_public_html(filename: str, request: Request) -> Response:
     page = page.replace("{{GOOGLE_SITE_VERIFICATION_META}}", verification_meta)
     page = page.replace("{{GA4_MEASUREMENT_ID}}", html_escape(measurement_id, quote=True))
     page = page.replace("{{GTM_CONTAINER_ID}}", html_escape(container_id, quote=True))
+    page = page.replace(
+        "{{MAP_BROWSER_CONFIG}}",
+        html_escape(json.dumps(_map_browser_config(), separators=(",", ":")), quote=True),
+    )
     return Response(page, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
@@ -3034,15 +3038,10 @@ def booking_redirect(partner: str):
     return RedirectResponse(target, status_code=302, headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"})
 
 
-@app.get("/api/map/config")
-def map_config():
-    """Publish only the read-only browser map configuration.
-
-    Mapbox public tokens are designed for client-side use. The production token
-    should be URL-restricted to the deployed domain in the Mapbox dashboard.
-    """
+def _map_browser_config() -> dict:
+    """Return the read-only configuration safe to embed in the public page."""
     configured = bool(settings.mapbox_public_token)
-    payload = {
+    return {
         "provider": "Mapbox",
         "configured": configured,
         # One pale base map everywhere (Mapbox Light). Railways are drawn by
@@ -3072,9 +3071,18 @@ def map_config():
         # Booking links that pay the site a commission must say so.
         "affiliates": {"national-express": _affiliate_url("national-express") is not None},
     }
+
+
+@app.get("/api/map/config")
+def map_config():
+    """Publish only the read-only browser map configuration.
+
+    Mapbox public tokens are designed for client-side use. The production token
+    should be URL-restricted to the deployed domain in the Mapbox dashboard.
+    """
     # A visitor may have opened the site before the production token was added.
     # Prevent that old fallback configuration from pinning them to TomTom.
-    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+    return JSONResponse(_map_browser_config(), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/map/tile/{z}/{x}/{y}.png")

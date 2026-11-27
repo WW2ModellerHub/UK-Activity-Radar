@@ -14,6 +14,7 @@
   const tileSets = {standard:null,rail:null};
   let currentBase = null;
   let liveObjectRenderer = null;
+  let bookingAffiliates = {};
   let baseMapConfigAttempt = 0;
   let baseMapRetryTimer = null;
   let baseMapConfigInFlight = false;
@@ -47,17 +48,29 @@
     baseMapConfigInFlight=true;
     let config=null;
     let configAvailable=false;
+    // The public, read-only map configuration is embedded in the initial HTML
+    // so the first tile request is not held behind another network round trip.
+    // Keep the endpoint fallback for old/cached HTML and transient parse errors.
+    try {
+      const embedded=document.body?.dataset?.mapConfig;
+      if(embedded){
+        config=JSON.parse(embedded);
+        configAvailable=Boolean(config&&typeof config==='object');
+      }
+    } catch {}
     const controller=typeof AbortController==='function'?new AbortController():null;
     const timeout=controller?window.setTimeout(()=>controller.abort(),6000):null;
     try {
       // Map provider credentials can be enabled after a deployment. Never keep
       // the earlier "not configured" response in a visitor's browser cache.
-      const response=await fetch('/api/map/config',{cache:'no-store',signal:controller?.signal});
-      if(response.ok){
-        config=await response.json();
-        configAvailable=Boolean(config&&typeof config==='object');
-        bookingAffiliates=(config&&config.affiliates)||{};
+      if(!configAvailable){
+        const response=await fetch('/api/map/config',{cache:'no-store',signal:controller?.signal});
+        if(response.ok){
+          config=await response.json();
+          configAvailable=Boolean(config&&typeof config==='object');
+        }
       }
+      bookingAffiliates=(config&&config.affiliates)||{};
     } catch {}
     finally {
       if(timeout!==null)window.clearTimeout(timeout);
@@ -225,7 +238,6 @@
   // Long-distance coaches come through the bus feed; these operators are
   // shown as coaches, with a link to book. Matches COACH_OPERATORS on the server.
   const COACH_OPERATORS={NATX:{name:'National Express',partner:'national-express'}};
-  let bookingAffiliates={};
   function coachInfo(a){return a?.type==='bus'?COACH_OPERATORS[String(a.operator||'').toUpperCase()]||null:null;}
   function coachBookingHtml(a){
     const coach=coachInfo(a);
@@ -381,6 +393,7 @@
   let savedPlaces = new Map();
   let myRadarInterests = new Set();
   let todayLoadedAt = 0;
+  let todayLoadPromise = null;
   const MY_RADAR_PLACES_KEY = 'ukRadarSavedPlacesV2';
   const MY_RADAR_INTERESTS_KEY = 'ukRadarInterestsV2';
   const TODAY_LAST_VISIT_KEY = 'ukRadarTodayLastVisitV1';
@@ -6356,21 +6369,27 @@
 
   async function loadTodayRadar(force=false) {
     const box=$('today-radar');if(!box||(!force&&Date.now()-todayLoadedAt<60000))return;
+    // Startup and the first live snapshot can arrive in the same frame. Share
+    // that request instead of making the server build the same panel twice.
+    if(todayLoadPromise)return todayLoadPromise;
     todayLoadedAt=Date.now();
-    let since='';try{since=localStorage.getItem(TODAY_LAST_VISIT_KEY)||'';}catch{}
-    try {
-      const where=lastFix||(map?.getCenter?{lat:map.getCenter().lat,lon:map.getCenter().lng}:null);
-      const params=new URLSearchParams();
-      if(since)params.set('since',new Date(Number(since)).toISOString());
-      // Disruptions near you (or near the map) rather than anywhere in Britain.
-      if(where&&Number.isFinite(Number(where.lat))&&map.getZoom()>=8){params.set('lat',Number(where.lat).toFixed(3));params.set('lon',Number(where.lon??where.lng).toFixed(3));}
-      const response=await fetch(`/api/today${params.toString()?`?${params}`:''}`,{cache:'no-store'});
-      if(!response.ok)throw new Error('summary unavailable');const payload=await response.json();
-      const fresh=(payload.new_since||[])[0],disruption=(payload.disruptions||[])[0];
-      box.innerHTML=[todayRow(payload.best,''),fresh&&fresh.activity_id!==payload.best?.activity_id?todayRow(fresh,'New'):'',disruption?todayRow(disruption,'Disruption'):'' ].filter(Boolean).join('')||'<p class="left-empty">Nothing notable right now.</p>';
-      box.querySelectorAll('[data-today-activity]').forEach(button=>button.addEventListener('click',()=>focusActivityById(button.dataset.todayActivity,11)));
-      try{localStorage.setItem(TODAY_LAST_VISIT_KEY,String(Date.now()));}catch{}
-    } catch { box.innerHTML='<p class="left-empty">Reconnecting…</p>'; }
+    todayLoadPromise=(async()=>{
+      let since='';try{since=localStorage.getItem(TODAY_LAST_VISIT_KEY)||'';}catch{}
+      try {
+        const where=lastFix||(map?.getCenter?{lat:map.getCenter().lat,lon:map.getCenter().lng}:null);
+        const params=new URLSearchParams();
+        if(since)params.set('since',new Date(Number(since)).toISOString());
+        // Disruptions near you (or near the map) rather than anywhere in Britain.
+        if(where&&Number.isFinite(Number(where.lat))&&map.getZoom()>=8){params.set('lat',Number(where.lat).toFixed(3));params.set('lon',Number(where.lon??where.lng).toFixed(3));}
+        const response=await fetch(`/api/today${params.toString()?`?${params}`:''}`,{cache:'no-store'});
+        if(!response.ok)throw new Error('summary unavailable');const payload=await response.json();
+        const fresh=(payload.new_since||[])[0],disruption=(payload.disruptions||[])[0];
+        box.innerHTML=[todayRow(payload.best,''),fresh&&fresh.activity_id!==payload.best?.activity_id?todayRow(fresh,'New'):'',disruption?todayRow(disruption,'Disruption'):'' ].filter(Boolean).join('')||'<p class="left-empty">Nothing notable right now.</p>';
+        box.querySelectorAll('[data-today-activity]').forEach(button=>button.addEventListener('click',()=>focusActivityById(button.dataset.todayActivity,11)));
+        try{localStorage.setItem(TODAY_LAST_VISIT_KEY,String(Date.now()));}catch{}
+      } catch { box.innerHTML='<p class="left-empty">Reconnecting…</p>'; }
+    })().finally(()=>{todayLoadPromise=null;});
+    return todayLoadPromise;
   }
 
   function loadWatchZones() {
