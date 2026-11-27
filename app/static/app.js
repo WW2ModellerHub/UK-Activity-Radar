@@ -1562,6 +1562,7 @@
     row.querySelectorAll('[data-sub-action="bus-stops"]').forEach(chip=>chip.setAttribute('aria-pressed',String(placeMode==='bus')));
     row.querySelectorAll('[data-sub-action="traffic"]').forEach(chip=>chip.setAttribute('aria-pressed',String(trafficMode!=='off')));
     row.querySelectorAll('[data-sub-action="webcams"]').forEach(chip=>chip.setAttribute('aria-pressed',String(webcamsEnabled)));
+    row.querySelectorAll('[data-sub-action="planes"]').forEach(chip=>chip.setAttribute('aria-pressed',String(overheadActive&&nearbyState.source==='device')));
     row.querySelectorAll('[data-sub-action="radar"]').forEach(chip=>chip.setAttribute('aria-pressed',String(rainRadar.wanted)));
     row.querySelectorAll('[data-sub-action="radar-play"]').forEach(chip=>{chip.setAttribute('aria-pressed',String(Boolean(rainRadar.timer)));chip.hidden=chip.dataset.subFor!==group||!rainRadar.wanted;});
   }
@@ -7253,6 +7254,7 @@
     setNearby(lat,lon,source);
     nearbyState.label=label;
     renderNearbyOverlay();
+    updateSubChips();
     seedNearbyAircraftFromLiveMap();
     const retainedCount=nearbyAircraftRows.length;
     if(button?.querySelector('small'))button.querySelector('small').textContent=retainedCount

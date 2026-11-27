@@ -864,6 +864,7 @@ test('What’s above me loads nearby aircraft and can be turned off', async ({ p
   await page.locator('[data-job="planes"]').click();
   await expect(page.locator('#map')).toHaveAttribute('data-map-center','54.11,-2.45');
   await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('[data-sub-action="planes"]')).toHaveAttribute('aria-pressed','true');
   // One tap answers the question: a list of the planes above you, nearest first.
   await expect(page.locator('#detail-title')).toHaveText(/Planes above you|Nearest planes/);
   await expect(page.locator('[data-job-plane]').first()).toBeVisible();
@@ -872,6 +873,7 @@ test('What’s above me loads nearby aircraft and can be turned off', async ({ p
   expect(nearbyRadii.every(radius=>radius==='25')).toBeTruthy();
   await page.locator('#nearby-note .nearby-note-close').click();
   await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','false');
+  await expect(page.locator('[data-sub-action="planes"]')).toHaveAttribute('aria-pressed','false');
 });
 
 test('closing the Planes above you panel turns its aircraft area off', async ({ page }) => {
