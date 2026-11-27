@@ -1886,6 +1886,30 @@ def airports_page(request: Request):
                     headers={"Cache-Control": "public, max-age=3600"})
 
 
+def _airport_aircraft_snapshot(airport: dict, radius_nm: float) -> list[Vehicle]:
+    """Return the primed regional sample before making a point request."""
+    if adsb_sar_collector is None:
+        return []
+    retained_lookup = getattr(adsb_sar_collector, "retained_nearby", None)
+    if callable(retained_lookup):
+        try:
+            rows, source_name = retained_lookup(
+                airport["lat"], airport["lon"], float(radius_nm) * 1.15078
+            )
+            # A source with no rows means the fresh snapshot covered the
+            # airport and correctly found no aircraft there.
+            if source_name is not None:
+                return rows
+        except Exception:
+            pass
+    try:
+        return adsb_sar_collector.fetch_nearby(
+            airport["lat"], airport["lon"], radius_nm
+        )[0]
+    except Exception:
+        return []
+
+
 @app.get("/airport/{name}", include_in_schema=False)
 def airport_page_route(name: str, request: Request):
     from .airport_pages import RADIUS_NM, airport_page, find
@@ -1895,12 +1919,7 @@ def airport_page_route(name: str, request: Request):
     origin = _site_origin(request)
 
     def build() -> str:
-        planes = []
-        if adsb_sar_collector is not None:
-            try:
-                planes = adsb_sar_collector.fetch_nearby(airport["lat"], airport["lon"], RADIUS_NM)[0]
-            except Exception:
-                planes = []
+        planes = _airport_aircraft_snapshot(airport, RADIUS_NM)
         return airport_page(origin, airport, planes, _runway_summary(airport, planes))
     return _cached_page(f"airport:{airport['iata']}", 60, build)
 
@@ -1937,12 +1956,7 @@ def airport_runways_api(iata: str):
     airport = next((a for a in AIRPORTS if a["iata"] == iata.upper()), None)
     if airport is None:
         raise HTTPException(status_code=404, detail="Airport not found")
-    planes = []
-    if adsb_sar_collector is not None:
-        try:
-            planes = adsb_sar_collector.fetch_nearby(airport["lat"], airport["lon"], RADIUS_NM)[0]
-        except Exception:
-            planes = []
+    planes = _airport_aircraft_snapshot(airport, RADIUS_NM)
     state = _airport_runways(airport, planes)
     return JSONResponse({**state, "summary": summary(state)}, headers={"Cache-Control": "public, max-age=60"})
 
@@ -2581,13 +2595,26 @@ def nearby_aircraft(request: Request, lat: float, lon: float, radius_miles: floa
     degraded = False
     warning = None
     source_name = None
+    regional_snapshot = False
     try:
-        result = adsb_sar_collector.fetch_nearby(lat, lon, radius_nm)
-        if len(result) == 3:
-            rows, checked, source_name = result
-        else:  # Compatibility with test/dry-run collectors from older builds.
-            rows, checked = result
-            source_name = "ADSB.lol"
+        # The background collector already refreshes the whole UK every minute.
+        # Prefer that regional snapshot so opening an airport never waits for
+        # another provider round trip. A non-null source also represents a
+        # covered, valid result containing zero nearby aircraft.
+        retained_lookup = getattr(adsb_sar_collector, "retained_nearby", None)
+        rows, source_name = (
+            retained_lookup(lat, lon, miles) if callable(retained_lookup) else ([], None)
+        )
+        regional_snapshot = source_name is not None
+        if regional_snapshot:
+            checked = len(rows)
+        else:
+            result = adsb_sar_collector.fetch_nearby(lat, lon, radius_nm)
+            if len(result) == 3:
+                rows, checked, source_name = result
+            else:  # Compatibility with test/dry-run collectors from older builds.
+                rows, checked = result
+                source_name = "ADSB.lol"
     except Exception as exc:
         # The point feed is a useful enhancement, but the broad live collector
         # already holds verified aircraft positions.  Do not turn a temporary
@@ -2650,7 +2677,11 @@ def nearby_aircraft(request: Request, lat: float, lon: float, radius_miles: floa
             else (f"{source_name} retained snapshot" if source_name else "Retained UK aircraft feed")
         )
     else:
-        response_source = f"{source_name} point feed" if source_name else "Live aircraft point feed"
+        response_source = (
+            f"{source_name} regional snapshot"
+            if regional_snapshot
+            else (f"{source_name} point feed" if source_name else "Live aircraft point feed")
+        )
     return {
         "activities": [row.model_dump(mode="json") for row in rows],
         "checked": checked,

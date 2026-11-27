@@ -691,20 +691,31 @@ class ADSBLolSARCollector:
         # The collector thread replaces one region while API threads may read
         # the retained fallback. Copy the tiny four-region dictionary first so
         # a concurrent refresh cannot invalidate iteration.
-        region_snapshots = list(self._region_cache.values())
-        for nearby, _rows, _special, _total, fetched_at, source_name in region_snapshots:
+        region_snapshots = list(self._region_cache.items())
+        for region_index, (nearby, _rows, _special, _total, fetched_at, source_name) in region_snapshots:
             if fetched_at < cutoff:
                 continue
-            source_used = False
+            # A fresh regional response is authoritative even when there are
+            # no aircraft inside the requested circle.  Report coverage as
+            # long as the smaller circle sits wholly inside this provider
+            # snapshot; otherwise callers cannot distinguish a valid empty
+            # result from an unprimed cache and needlessly wait on the network.
+            try:
+                region_lat, region_lon, region_radius_nm = self.settings.adsb_sar_points[region_index]
+                fully_covered = (
+                    _haversine_km(lat, lon, float(region_lat), float(region_lon)) + radius_km
+                    <= float(region_radius_nm) * 1.852
+                )
+            except (IndexError, TypeError, ValueError):
+                fully_covered = False
+            if fully_covered:
+                sources.add(source_name)
             for row in nearby:
                 if _haversine_km(lat, lon, float(row.lat), float(row.lon)) > radius_km:
                     continue
-                source_used = True
                 old = combined.get(row.id)
                 if old is None or row.last_updated >= old.last_updated:
                     combined[row.id] = row
-            if source_used:
-                sources.add(source_name)
         rows = sorted(
             combined.values(),
             key=lambda row: _haversine_km(lat, lon, float(row.lat), float(row.lon)),

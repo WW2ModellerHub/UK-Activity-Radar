@@ -73,6 +73,35 @@ def test_nearby_aircraft_reports_the_live_provider_without_exposing_its_key(monk
     assert [row["id"] for row in payload["activities"]] == ["aircraft:live"]
 
 
+def test_nearby_aircraft_uses_fresh_regional_snapshot_without_waiting_for_point_feed(monkeypatch):
+    aircraft = Vehicle(
+        id="aircraft:regional", type="aircraft", name="EZY456",
+        lat=51.48, lon=-0.46, source="FlyItalyADSB",
+        position_method="gps", last_updated=datetime.now(timezone.utc),
+    )
+
+    class PrimedRegionalFeed:
+        def retained_nearby(self, lat, lon, radius_miles):
+            return [aircraft], "FlyItalyADSB"
+
+        def fetch_nearby(self, lat, lon, radius_nm):
+            raise AssertionError("a covered airport must not wait for another provider request")
+
+    monkeypatch.setattr(main, "adsb_sar_collector", PrimedRegionalFeed())
+    monkeypatch.setattr(main, "_enforce_public_budget", lambda request, budget: None)
+
+    response = TestClient(main.app).get(
+        "/api/aircraft/nearby",
+        params={"lat": 51.47, "lon": -0.4543, "radius_miles": 50},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["degraded"] is False
+    assert payload["source"] == "FlyItalyADSB regional snapshot"
+    assert [row["id"] for row in payload["activities"]] == ["aircraft:regional"]
+
+
 def test_a_zero_altitude_is_kept_and_ground_or_missing_is_none():
     # 0 ft is a real reading (Birmingham's runway on a high-pressure day).
     # `alt_baro or alt_geom` dropped it and fell through to the GNSS height.

@@ -332,6 +332,18 @@ def test_rotating_region_cache_does_not_present_old_aircraft_as_overhead():
     assert source is None
 
 
+def test_fresh_region_cache_reports_coverage_when_no_aircraft_are_nearby():
+    collector = ADSBLolSARCollector(Settings(), LiveState())
+    collector._region_cache[0] = (
+        [], [], [], 0, datetime.now(timezone.utc), "FlyItalyADSB"
+    )
+
+    rows, source = collector.retained_nearby(51.47, -0.4543, 50)
+
+    assert rows == []
+    assert source == "FlyItalyADSB"
+
+
 def test_common_military_training_and_tanker_types_are_named():
     rows, _ = parse_nearby_aircraft_response({"ac": [
         {"hex": "43c8d0", "flight": "VYT61", "r": "ZM329", "lat": 52.0, "lon": -1.0, "t": "TEX2", "dbFlags": 1},
