@@ -74,6 +74,19 @@ def test_requested_passenger_classes_are_cut_per_coach_in_each_operator_livery()
     assert "'lumo'" in js and "'gatwick-express'" in js and "'island-line'" in js
 
 
+def test_all_recognised_legacy_classes_now_have_raster_profiles_and_the_card_is_compact():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    sets = dict(re.findall(r"\['(class-[\w-]+)',\[([\d,]+)\]\]", js))
+    for folder, coaches in (("class-142-northern-2", 2), ("class-143-transport-for-wales-2", 2),
+                            ("class-144-northern-2", 2), ("class-321-greater-anglia-4", 4),
+                            ("class-365-great-northern-4", 4), ("class-456-south-western-2", 2),
+                            ("class-507-merseyrail-3", 3), ("class-508-merseyrail-3", 3)):
+        assert len(sets[folder].split(",")) == coaches, folder
+    assert 'loading="eager" fetchpriority="high"' in js
+    assert "Normally provided on the allocated unit" not in js
+    assert "Coach layout from the allocated unit. Facilities are normally provided" not in js
+
+
 def test_cut_points_are_taken_from_the_name_and_guided_where_the_bellows_match_the_body():
     import importlib.util
     spec = importlib.util.spec_from_file_location("build", Path(__file__).parents[1] / "scripts" / "build_train_profiles.py")

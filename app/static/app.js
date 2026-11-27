@@ -4496,17 +4496,15 @@
     const entries=Object.keys(TRAIN_FACILITY_LABELS).filter(key=>facilities[key]===true);
     if(!entries.length)return '';
     const badges=entries.map(key=>`<span class="train-facility" title="${esc(TRAIN_FACILITY_LABELS[key])}">${TRAIN_FACILITY_ICONS[key]}<span>${esc(TRAIN_FACILITY_LABELS[key])}</span></span>`).join('');
-    const source=safeUrl(formation.facilities_source_url);
-    const sourceLabel=formation.facilities_source||'operator fleet information';
-    const basis=formation.facilities_basis==='allocated_unit'
-      ?'Normally provided on the allocated unit'
-      :`Normally provided on ${[formation.operator,formation.class?`Class ${formation.class}`:null,'trains'].filter(Boolean).join(' ')}`;
-    return `<div class="train-facilities" aria-label="Facilities normally provided">${badges}</div><p class="facility-provenance">${esc(basis)} · ${source?`<a href="${source}" target="_blank" rel="noopener">${esc(sourceLabel)}</a>`:esc(sourceLabel)}</p>`;
+    return `<div class="train-facilities" aria-label="On-board facilities">${badges}</div>`;
   }
   // Generated broadside profiles, cut into one image per coach
   // (scripts/build_train_profiles.py): [folder, width of each coach image at
   // 96 px high]. The timetable chooses the class; the operator the livery.
   const TRAIN_PROFILE_SETS={
+    '142':{northern:['class-142-northern-2',[360,364]],default:['class-142-northern-2',[360,364]]},
+    '143':{'transport-for-wales':['class-143-transport-for-wales-2',[341,348]],default:['class-143-transport-for-wales-2',[341,348]]},
+    '144':{northern:['class-144-northern-2',[357,362]],default:['class-144-northern-2',[357,362]]},
     '139':{'west-midlands':['class-139-west-midlands-1',[374]]},
     '390':{default:['class-390-pendolino',[292,165,161,154,147,162,283]]},
     '170':{crosscountry:['class-170-crosscountry-turbostar',[268,254,278]],scotrail:['class-170-scotrail-3',[344,364,354]],northern:['class-170-northern-3',[290,259,283]],'west-midlands':['class-170-west-midlands-3',[346,291,328]],'transport-for-wales':['class-170-transport-for-wales-3',[387,355,362]],'east-midlands':['class-170-east-midlands-3',[262,246,270]],chiltern:['class-170-chiltern-3',[260,257,253]]},
@@ -4547,12 +4545,14 @@
     '231':{'transport-for-wales':['class-231-transport-for-wales-4',[347,246,262,291]]},
     '318':{scotrail:['class-318-scotrail-3',[253,233,244]]},
     '320':{scotrail:['class-320-scotrail-3',[295,283,294]]},
+    '321':{'greater-anglia':['class-321-greater-anglia-4',[251,225,216,255]],default:['class-321-greater-anglia-4',[251,225,216,255]]},
     '323':{northern:['class-323-northern-3',[267,250,256]],'west-midlands':['class-323-west-midlands-3',[257,262,266]]},
     '331':{northern:['class-331-northern-3',[245,229,241]]},
     '333':{northern:['class-333-northern-4',[254,189,204,204]]},
     '334':{scotrail:['class-334-scotrail-3',[249,214,250]]},
     '357':{c2c:['class-357-c2c-4',[209,180,187,186]]},
     '360':{'east-midlands':['class-360-east-midlands-4',[304,249,252,260]]},
+    '365':{'great-northern':['class-365-great-northern-4',[296,232,232,287]],default:['class-365-great-northern-4',[296,232,232,287]]},
     '375':{southeastern:['class-375-southeastern-4',[320,231,248,267]]},
     '376':{southeastern:['class-376-southeastern-4',[246,198,216,206]]},
     '378':{'london-overground':['class-378-london-overground-5',[237,189,196,197,211]]},
@@ -4563,10 +4563,13 @@
     '399':{default:['class-399-stagecoach-supertram-3',[200,169,178]]},
     '450':{'south-western':['class-450-south-western-4',[307,274,268,270]]},
     '455':{'south-western':['class-455-south-western-4',[306,269,263,320]]},
+    '456':{'south-western':['class-456-south-western-2',[428,421]],default:['class-456-south-western-2',[428,421]]},
     '458':{'south-western':['class-458-south-western-4',[302,268,274,306]]},
     '465':{southeastern:['class-465-southeastern-4',[279,243,241,246]]},
     '466':{southeastern:['class-466-southeastern-4',[304,270,260,271]]},
     '484':{'island-line':['class-484-island-line-2',[368,368]]},
+    '507':{merseyrail:['class-507-merseyrail-3',[354,348,354]],default:['class-507-merseyrail-3',[354,348,354]]},
+    '508':{merseyrail:['class-508-merseyrail-3',[376,375,382]],default:['class-508-merseyrail-3',[376,375,382]]},
     '701':{'south-western':['class-701-south-western-5',[293,247,249,246,240]]},
     '707':{southeastern:['class-707-southeastern-5',[223,179,186,185,223]],'south-western':['class-707-south-western-5',[294,212,226,212,259]]},
     '710':{'london-overground':['class-710-london-overground-5',[225,203,214,192,210]]},
@@ -4632,7 +4635,7 @@
     const cells=coaches.map((coach,i)=>{
       const piece=pieces[i];
       const label=coach.letter?`Coach ${coach.letter}${coach.first?', first class':''}${coach.toilet==='accessible'?', accessible toilet':coach.toilet==='standard'?', toilet':''}${coach.bicycle?', cycle spaces':''}${coach.wheelchair_space?', wheelchair space':''}`:'';
-      return `<figure class="profile-coach" style="flex:${widths[piece]} 1 0"${label?` aria-label="${esc(label)}"`:''}>${labelled?`<small>${esc(coach.letter||'')}</small>`:''}<img src="/static/assets/train-profiles/${folder}/${piece}.webp" width="${widths[piece]}" height="96" alt="" decoding="async">${labelled?`<span class="coach-marks">${coachMarksHtml(coach)}</span>`:''}</figure>`;
+      return `<figure class="profile-coach" style="flex:${widths[piece]} 1 0"${label?` aria-label="${esc(label)}"`:''}>${labelled?`<small>${esc(coach.letter||'')}</small>`:''}<img src="/static/assets/train-profiles/${folder}/${piece}.webp" width="${widths[piece]}" height="96" alt="" loading="eager" fetchpriority="high" decoding="async">${labelled?`<span class="coach-marks">${coachMarksHtml(coach)}</span>`:''}</figure>`;
     }).join('');
     // Long trains scroll sideways rather than shrink to a sliver.
     const total=pieces.reduce((sum,piece)=>sum+widths[piece],0);
@@ -4796,19 +4799,11 @@
       // Without published coaches: the drawn unit's own length if that is one
       // the class runs at, else its usual length.
       const drawn=known?coaches:Array.from({length:usual.includes(profile[1].length)?profile[1].length:count},()=>({}));
-      const note=published
-        ? 'Coaches, first class and toilets as published by National Rail for this train.'
-        : formation.facilities_basis==='allocated_unit'
-          ? 'Coach layout from the allocated unit. Facilities are normally provided and may change on the day.'
-          : formation.facilities_typical
-            ? 'Exact coaches are not published. Facilities are normally provided for this operator and train class and may change on the day.'
-          : 'Not published for this train: drawn at its class’s usual length. Coaches, first class and toilets appear here when National Rail publishes them.';
-      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header>${facilitiesHtml}${profileTrainHtml(profile,drawn)}${unitsHtml}<p>${esc(note)}</p></section>`;
+      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header>${profileTrainHtml(profile,drawn)}${facilitiesHtml}${unitsHtml}</section>`;
     }
     if(wholeProfile){
       const coachData=known?coaches.map(coach=>`<li><strong>${coach.letter?`Coach ${esc(coach.letter)}`:'Coach'}</strong><div>${coach.first?'<b class="coach-first">First class</b>':'<span>Standard</span>'}${coach.toilet==='accessible'?`<span class="coach-facility">${WHEELCHAIR_ICON} Accessible toilet</span>`:coach.toilet==='standard'?'<span class="coach-facility">WC Toilet</span>':''}${coach.bicycle?'<span class="coach-facility">Cycle spaces</span>':''}${coach.wheelchair_space?'<span class="coach-facility">Wheelchair space</span>':''}</div></li>`).join(''):'';
-      const note=published?'Coach information from National Rail for this service.':formation.facilities_typical?'Coach layout from the allocated unit; facilities may change on the day.':'The operator has not published this service’s exact coach formation.';
-      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header>${facilitiesHtml}<div class="train-profile-stage"><img src="${wholeProfile}" alt="" loading="lazy" decoding="async"></div>${coachData?`<div class="formation-data"><strong>${count} ${published?'published':'allocated'} coaches</strong><ul>${coachData}</ul></div>`:''}${unitsHtml}<p>${esc(note)}</p></section>`;
+      return `<section class="train-formation train-profile-image profile-class-${esc(formation.class)}" aria-label="${esc(`${title}, ${length}`)}"><header><strong>${esc(title)}</strong>${length?`<span>${esc(length)}</span>`:''}</header><div class="train-profile-stage"><img src="${wholeProfile}" alt="" loading="eager" fetchpriority="high" decoding="async"></div>${facilitiesHtml}${coachData?`<div class="formation-data"><strong>${count} ${published?'published':'allocated'} coaches</strong><ul>${coachData}</ul></div>`:''}${unitsHtml}</section>`;
     }
     if(formation.hauled&&!known)coaches.push({loco:true});
     const cells=coaches.map((coach,i)=>{

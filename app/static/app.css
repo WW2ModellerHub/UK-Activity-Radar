@@ -1502,15 +1502,13 @@ strong[data-plus].needs-plus::after,
 .engineering-stops{margin:6px 0 4px}.engineering-stops b{display:block;font-size:12px}.engineering-stops p{margin:2px 0;font-size:13px;line-height:1.4}.engineering-stops .link-button{border:0;background:none;padding:0;color:var(--accent,#1463d8);font:inherit;text-decoration:underline;cursor:pointer}
 
 /* Drawn train: coaches in the operator's colours (trainFormationHtml). */
-.train-formation { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface, #fff); }
+.train-formation { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface, #fff); }
 .train-formation header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .train-formation header strong { font-size: 15px; }
 .train-formation header span { font-size: 13px; color: var(--muted); }
-.train-facilities { display: flex; flex-wrap: wrap; gap: 5px; }
-.train-facility { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 999px; background: var(--subtle, #f6f8f9); color: var(--ink, inherit); font-size: 11px; font-weight: 600; line-height: 1.2; }
+.train-facilities { display: flex; flex-wrap: wrap; gap: 6px; }
+.train-facility { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 2px 7px; border: 1px solid var(--line); border-radius: 999px; background: var(--subtle, #f6f8f9); color: var(--ink, inherit); font-size: 11px; font-weight: 600; line-height: 1.2; }
 .train-facility > svg { width: 16px; height: 16px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.train-formation > .facility-provenance { margin-top: -3px; font-size: 11px; }
-.facility-provenance a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .formation-row { display: grid; grid-template-columns: repeat(var(--coaches), minmax(0, 1fr)); gap: 2px; align-items: start; }
 .formation-row .coach { display: grid; grid-template-rows: 15px 30px 18px; gap: 3px; justify-items: center; align-items: center; min-width: 0; }
 .formation-row .coach > small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; min-height: 14px; }
@@ -1534,7 +1532,7 @@ strong[data-plus].needs-plus::after,
 .train-profile-stage img { display: block; width: 100%; height: auto; max-height: 92px; object-fit: contain; object-position: center; }
 
 /* Generated profiles, one image per coach, with that coach's data under it. */
-.profile-scroll { overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+.profile-scroll { min-height: 56px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
 .profile-train { display: flex; align-items: flex-end; gap: 0; }
 .profile-coach { margin: 0; display: grid; justify-items: center; min-width: 0; }
 .profile-coach img { display: block; width: 100%; height: auto; }
