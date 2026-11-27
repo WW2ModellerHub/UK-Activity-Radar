@@ -876,15 +876,20 @@ test('What’s above me loads nearby aircraft and can be turned off', async ({ p
   await expect(page.locator('[data-sub-action="planes"]')).toHaveAttribute('aria-pressed','false');
 });
 
-test('closing the Planes above you panel turns its aircraft area off', async ({ page }) => {
+test('closing the Planes above you panel keeps its aircraft area on and can reopen it', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
   await page.locator('[data-job="planes"]').click();
   await expect(page.locator('#detail-title')).toHaveText(/Planes above you|Nearest planes/);
   await expect(page.locator('#nearby-note')).toContainText('Aircraft within 25 miles of you');
   await page.locator('#detail-close').click();
-  await expect(page.locator('#nearby-note')).toHaveClass(/hidden/);
-  await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','false');
+  await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
+  await expect(page.locator('#nearby-note')).toBeVisible();
+  await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('[data-sub-action="planes"]')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('.aerial-map-marker').first()).toBeVisible();
+  await page.locator('[data-sub-action="planes"]').click();
+  await expect(page.locator('#detail-title')).toHaveText(/Planes above you|Nearest planes/);
 });
 
 test('What’s above me keeps retained aircraft visible when its point lookup fails', async ({ page }) => {

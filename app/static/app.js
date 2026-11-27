@@ -7168,18 +7168,11 @@
     renderRanking();
   }
   $('detail-close')?.addEventListener('click',()=>{
-    const title=$('detail-title')?.textContent||'';
-    const closesOverheadMode=overheadActive&&!selectedId&&!selectedPlaceId&&(
-      nearbyState.source==='airport'||/^(Planes above you|Nearest planes)$/.test(title)
-    );
+    // Closing a sheet only puts the sheet away. In particular, it must not
+    // also turn off the live aircraft area: the radius pill is the explicit
+    // control for ending Above me / airport mode, and the active chip can
+    // reopen this list without another location or aircraft lookup.
     closeDetailSelection();
-    if(closesOverheadMode){
-      clearTransientLocationModes();
-      airportOpen=null;
-      selectedType=currentWorkspace==='cool'?'cool-off':'useful';
-      sendViewport();renderMap();renderStats();renderRanking();
-      showToast('Aircraft area turned off.');
-    }
   });
   document.querySelectorAll('[data-rail-delays]').forEach(chip=>chip.addEventListener('click',()=>setDelayHotspots(!railView.delaysOn)));
   $('detail-route-view')?.addEventListener('click',()=>setDetailRouteView(true,{fit:true,focusPeek:true}));
