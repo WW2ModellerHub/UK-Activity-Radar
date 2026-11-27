@@ -702,6 +702,10 @@ body:has(.detail-sidebar:not(.is-empty):not(.route-view)) #recenter { right: cal
 .detail-intelligence { display: grid; gap: 10px; }
 .detail-intelligence > small, .rail-intelligence-shell > small { font-size: 13px; font-weight: 600; color: var(--muted); }
 .rail-intelligence-shell { display: grid; gap: 10px; }
+.rail-route-loading { min-height: 72px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--muted); font-size: 13px; display: grid; align-content: center; gap: 9px; }
+.rail-route-loading > span:first-child { display: block; width: min(68%, 260px); height: 10px; border-radius: 999px; background: linear-gradient(90deg,var(--subtle),var(--surface),var(--subtle)); background-size: 200% 100%; animation: rail-route-loading 1.2s ease-in-out infinite; }
+@keyframes rail-route-loading { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .rail-route-loading > span:first-child { animation: none; } }
 .transport-run-card { display: grid; gap: 8px; min-width: 0; }
 .transport-run-card h4, .transport-route-head strong { font-size: 16px; font-weight: 600; }
 .transport-route-head { display: grid; gap: 2px; }

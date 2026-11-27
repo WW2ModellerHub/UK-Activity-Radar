@@ -1,5 +1,5 @@
-const CACHE = 'uk-activity-radar-shell-v1.5.0-r193';
-const SHELL = ['/', '/about', '/terms', '/privacy', '/data-licences', '/static/map-markers.css?v=16393', '/static/app.css?v=16403', '/static/motion-engine.js?v=16410', '/static/renderer-loader.js?v=16406', '/static/live-object-renderer.js?v=16406', '/static/vendor/maplibre/maplibre-gl.css?v=6.17.0', '/static/vendor/maplibre/maplibre-gl.mjs', '/static/app.js?v=16416', '/static/share.html', '/static/share.css', '/static/share.js', '/static/legal.css?v=16375', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png', '/static/brand/logo.svg'];
+const CACHE = 'uk-activity-radar-shell-v1.5.0-r194';
+const SHELL = ['/', '/about', '/terms', '/privacy', '/data-licences', '/static/map-markers.css?v=16393', '/static/app.css?v=16404', '/static/motion-engine.js?v=16410', '/static/renderer-loader.js?v=16406', '/static/live-object-renderer.js?v=16406', '/static/vendor/maplibre/maplibre-gl.css?v=6.17.0', '/static/vendor/maplibre/maplibre-gl.mjs', '/static/app.js?v=16417', '/static/share.html', '/static/share.css', '/static/share.js', '/static/legal.css?v=16375', '/static/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png', '/static/brand/logo.svg'];
 self.addEventListener('install', event => {
   // One file failing (the server mid-restart) must not leave nothing saved.
   event.waitUntil(caches.open(CACHE).then(cache => Promise.allSettled(SHELL.map(item => cache.add(item)))).catch(() => null));

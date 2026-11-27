@@ -3338,19 +3338,44 @@ def activity_aircraft(request: Request, activity_id: str):
     }
 
 
+def _train_quick_detail(item) -> dict:
+    """Cheap, schedule-free facts for the first paint of a train sheet."""
+    from .train_formation import describe
+
+    coaches = darwin_collector.formation_for(item.train_uid, item.service_date) if darwin_collector is not None else []
+    return {
+        "available": True,
+        "mode": "live_summary",
+        "source": "Live railway data",
+        "runs": [{
+            "headcode": item.headcode,
+            "train_uid": item.train_uid,
+            "operator": item.operator,
+            "origin": item.origin,
+            "destination": item.destination,
+            "next_location": item.next_location,
+            "status": item.status,
+            "delay_minutes": item.delay_minutes,
+        }],
+        "rolling_stock": train_reference.lookup(item.vehicle_ref),
+        "formation": describe(item, coaches),
+    }
+
+
 @app.get("/api/activity/{activity_id:path}/rail")
-def activity_rail(request: Request, activity_id: str):
+def activity_rail(request: Request, activity_id: str, summary: bool = False):
     _enforce_public_budget(request, lookup_request_budget)
     item = state.get(activity_id)
     if not item or item.type != "train":
         raise HTTPException(status_code=404, detail="Train activity not found")
+    if summary:
+        return {"activity": activity_id, "detail": _train_quick_detail(item)}
     if smart_places is None:
         raise HTTPException(status_code=503, detail="Rail intelligence is not ready")
     detail = smart_places.train_vehicle_detail(item)
-    detail["rolling_stock"] = train_reference.lookup(item.vehicle_ref)
-    from .train_formation import describe
-    coaches = darwin_collector.formation_for(item.train_uid, item.service_date) if darwin_collector is not None else []
-    detail["formation"] = describe(item, coaches)
+    quick = _train_quick_detail(item)
+    detail["rolling_stock"] = quick["rolling_stock"]
+    detail["formation"] = quick["formation"]
     return {"activity": activity_id, "detail": detail}
 
 

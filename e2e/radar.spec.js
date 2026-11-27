@@ -1013,6 +1013,29 @@ test('activity marker hover shows facts and click opens and closes detail', asyn
   await expect(page.locator('#detail-sidebar')).toHaveClass(/is-empty/);
 });
 
+test('train formation paints before a slow full route without moving the route slot', async ({ page }) => {
+  await page.setViewportSize({ width:375, height:812 });
+  await page.emulateMedia({ reducedMotion:'reduce' });
+  await page.route('**/api/activity/train-live-1/rail**', async route => {
+    const summary = new URL(route.request().url()).searchParams.get('summary') === 'true';
+    const formation = { class:'810', name:'Aurora', operator:'East Midlands Railway', usual:[5], coaches:[], coaches_known:false, source:'Timetable' };
+    if(summary)return route.fulfill({ json:{ detail:{ available:true, mode:'live_summary', formation, runs:[{ operator:'East Midlands Railway' }] } } });
+    await new Promise(resolve=>setTimeout(resolve,900));
+    return route.fulfill({ json:{ detail:{ available:true, formation, runs:[{ operator:'East Midlands Railway', calling_points:[
+      { name:'Leicester', scheduled:'20:46', state:'current' },
+      { name:'Market Harborough', scheduled:'21:02', state:'next' },
+    ] }] } } });
+  });
+  await page.locator('[data-layer-toggle="train"]').click();
+  await page.locator('.marker-bubble.marker-train').first().evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles:true })));
+  await expect(page.locator('#detail-intelligence .train-formation')).toContainText('Class 810 Aurora');
+  await expect(page.locator('#detail-intelligence .rail-route-loading')).toBeVisible();
+  await expect(page.locator('#detail-intelligence .train-full-route')).toContainText('Market Harborough');
+  await expect(page.locator('#detail-intelligence .rail-route-loading')).toHaveCount(0);
+  await page.setViewportSize({ width:812, height:375 });
+  await expect(page.locator('#detail-intelligence .train-full-route')).toBeVisible();
+});
+
 test('a selected train that the server no longer holds stops polling and says so', async ({ page }) => {
   const railRequests = [];
   await page.route('**/api/activity/train-live-1/rail', route => {

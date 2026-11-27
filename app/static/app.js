@@ -4877,6 +4877,13 @@
     return `<div class="rail-intelligence-shell${stock?.matched?' has-rolling-stock':''}"${livery?` style="${livery.css}"`:''}>${formation}${liveState}${repay}${freightCard}${cards || `<div class="transport-unavailable"><strong>Stops not published</strong><span>${esc(message)}</span></div>`}${stockCard}${terms?`<p class="transport-source"><a target="_blank" rel="noopener" href="${esc(terms)}">Data terms ↗</a></p>`:''}</div>`;
   }
 
+  function renderRailSummary(detail) {
+    const run=Array.isArray(detail?.runs)?detail.runs[0]:null;
+    const formation=trainFormationHtml(detail?.formation,run?.operator);
+    if(!formation)return '';
+    return `<div class="rail-intelligence-shell">${formation}<div class="rail-route-loading" role="status" aria-live="polite"><span></span><span>Loading calling points…</span></div></div>`;
+  }
+
   function busLatenessLabel(detail) {
     const raw=detail?.delay_minutes ?? detail?.live_prediction?.delay_minutes;
     const delay=Number(raw);
@@ -4967,10 +4974,25 @@
     const requestId=++intelligenceRequest;
     let keepRefreshing=true;
     let responsePayload={};
+    let fullRailResponse=false;
     if(!force){box.classList.remove('hidden');box.innerHTML=`<small>${a.type==='train'?'LIVE TRAIN JOURNEY':'LIVE BUS JOURNEY'}</small><p class="coverage-loading">Loading route…</p>`;}
     try {
+      // The full physical route can take longer on its first request. Fetch a
+      // schedule-free train summary alongside it so the correct formation is
+      // useful immediately, while reserving a stable place for calling points.
+      if(a.type==='train'&&!force){
+        fetch(`/api/activity/${encodeURIComponent(a.id)}/rail?summary=true`,{cache:'no-store',signal:controller.signal})
+          .then(response=>response.ok?response.json():null)
+          .then(payload=>{
+            if(fullRailResponse||requestId!==intelligenceRequest||selectedId!==a.id)return;
+            const summary=payload?.detail&&typeof payload.detail==='object'?payload.detail:payload;
+            const html=renderRailSummary(summary);
+            if(html)box.innerHTML=html;
+          }).catch(()=>{});
+      }
       const response=await fetch(`/api/activity/${encodeURIComponent(a.id)}/${a.type==='train'?'rail':'bus'}`,{cache:'no-store',signal:controller.signal});
       const payload=await response.json().catch(()=>({}));
+      fullRailResponse=a.type==='train';
       responsePayload=payload;
       if(requestId!==intelligenceRequest || selectedId!==a.id)return;
       if(response.status===404&&a.type==='train'){
