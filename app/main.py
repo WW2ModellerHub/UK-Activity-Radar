@@ -839,6 +839,7 @@ def runtime_report(detail: bool = False) -> dict:
             report["estimate_errors"] = {"count": _runtime["estimate_errors"], "last": _runtime.get("estimate_error")}
         if getattr(state, "estimate_errors", 0):
             report["stream_estimate_errors"] = {"count": state.estimate_errors, "last": state.estimate_error}
+        report["train_movement_quality"] = state.movement_quality_report()
         if td_collector is not None and td_collector.kafka is not None:
             report["td_kafka"] = td_collector.kafka.report()
         if trust_collector is not None and getattr(trust_collector, "kafka", None) is not None:

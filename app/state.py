@@ -234,6 +234,12 @@ class LiveState:
         # here and shown at /api/health/runtime?detail=true.
         self.estimate_errors = 0
         self.estimate_error: str | None = None
+        # Rolling evidence for railway movement quality. This measures server
+        # coordinate discontinuities before browser smoothing, so regressions
+        # remain visible even when the UI successfully hides a jump.
+        self._train_motion_counts = {"over_2km": 0, "over_5km": 0, "over_10km": 0,
+                                     "unchanged_timestamp": 0}
+        self._train_motion_recent: deque[dict] = deque(maxlen=100)
         self._revision = 0
 
     @property
@@ -322,11 +328,72 @@ class LiveState:
                     previous = incumbent
             if stored.type == 'train':
                 _carry_delay_history(previous, stored)
+                self._observe_train_motion_unlocked(previous, stored)
             if previous is not None:
                 self._unindex_unlocked(previous)
             self._vehicles[stored.id] = stored
             self._index_unlocked(stored)
             self._touch_unlocked()
+
+    def _observe_train_motion_unlocked(self, previous: Vehicle | None, stored: Vehicle) -> None:
+        if previous is None or previous.type != "train":
+            return
+        old_lat = previous.reported_lat if previous.reported_lat is not None else previous.lat
+        old_lon = previous.reported_lon if previous.reported_lon is not None else previous.lon
+        new_lat = stored.reported_lat if stored.reported_lat is not None else stored.lat
+        new_lon = stored.reported_lon if stored.reported_lon is not None else stored.lon
+        if None in {old_lat, old_lon, new_lat, new_lon} or (old_lat, old_lon) == (new_lat, new_lon):
+            return
+        distance = _distance_km(old_lat, old_lon, new_lat, new_lon)
+        if distance < 2:
+            return
+        same_time = stored.last_updated == previous.last_updated
+        self._train_motion_counts["over_2km"] += 1
+        if distance >= 5:
+            self._train_motion_counts["over_5km"] += 1
+        if distance >= 10:
+            self._train_motion_counts["over_10km"] += 1
+        if same_time:
+            self._train_motion_counts["unchanged_timestamp"] += 1
+        self._train_motion_recent.append({
+            "id": stored.id,
+            "headcode": stored.headcode or stored.name,
+            "operator": stored.operator,
+            "distance_km": round(distance, 2),
+            "same_report_timestamp": same_time,
+            "from_tiploc": previous.rail_tiploc,
+            "to_tiploc": stored.rail_tiploc,
+            "report_at": stored.last_updated.isoformat(),
+        })
+
+    def movement_quality_report(self, now: datetime | None = None) -> dict:
+        """Live jump counters plus gauges for estimates which have stopped."""
+        at = now or datetime.now(timezone.utc)
+        overdue: list[dict] = []
+        stalled: list[dict] = []
+        with self._lock:
+            trains = list(self._vehicles.values())
+            counts = dict(self._train_motion_counts)
+            recent = list(self._train_motion_recent)
+        for train in trains:
+            if train.type != "train" or _train_finished(train, at) or not train.estimate_due_at:
+                continue
+            overdue_seconds = (at - train.estimate_due_at).total_seconds()
+            if overdue_seconds <= 120:
+                continue
+            row = {"id": train.id, "headcode": train.headcode or train.name,
+                   "operator": train.operator, "overdue_seconds": round(overdue_seconds),
+                   "tiploc": train.rail_tiploc, "next_tiploc": train.next_tiploc}
+            overdue.append(row)
+            if (at - train.last_updated).total_seconds() > 600:
+                stalled.append(row)
+        return {
+            "since_process_start": counts,
+            "overdue_estimates": len(overdue),
+            "stalled_over_10_minutes": len(stalled),
+            "worst_overdue": sorted(overdue, key=lambda row: row["overdue_seconds"], reverse=True)[:20],
+            "recent_jumps": sorted(recent, key=lambda row: row["distance_km"], reverse=True)[:20],
+        }
 
     def _duplicate_service_unlocked(self, stored: Vehicle) -> Vehicle | None:
         uid = str(stored.train_uid or '').strip()

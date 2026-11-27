@@ -164,3 +164,5 @@ def test_the_server_reports_how_busy_it_is_even_without_a_free_worker_thread():
     report = TestClient(main.app).get("/api/health/runtime").json()
     for key in ("uptime_seconds", "memory_mb", "worker_threads_busy", "worker_threads_total", "loop_lag_ms"):
         assert key in report
+    detailed = TestClient(main.app).get("/api/health/runtime", params={"detail": "true"}).json()
+    assert "over_10km" in detailed["train_movement_quality"]["since_process_start"]

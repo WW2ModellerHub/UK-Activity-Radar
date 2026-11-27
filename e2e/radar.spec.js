@@ -2975,7 +2975,10 @@ test('a station board shows official disruption messages, train problems first',
   await expect(notices.locator('li').nth(2).locator('a')).toHaveCount(0);
 });
 
-for (const [cls, operator, usual, pieces] of [['150','Northern',[2],2],['377','Southern',[4],4],['745','Greater Anglia',[12],0]]) {
+for (const [cls, operator, usual, pieces] of [
+  ['150','Northern',[2],2],['150','Transport for Wales',[2],2],['150','Great Western Railway',[2],2],
+  ['377','Southern',[4],4],['745','Greater Anglia',[12],0],
+]) {
   test(`class ${cls} ${operator} is drawn from its generated profile`, async ({ page }) => {
     await page.route('**/api/activity/train-live-1/rail', route => route.fulfill({ json: { activity:'train-live-1', detail:{ available:true,
       runs:[{ headcode:'2A23', operator, status:'On time', calling_points:[] }],
@@ -2987,7 +2990,8 @@ for (const [cls, operator, usual, pieces] of [['150','Northern',[2],2],['377','S
     if (pieces) await expect(drawn.locator('.profile-coach')).toHaveCount(pieces);
     else await expect(drawn.locator('.train-profile-stage img')).toHaveAttribute('src', /class-745-greater-anglia\.webp$/);
     await expect.poll(() => drawn.locator('img').evaluateAll(imgs => imgs.every(i => i.complete && i.naturalWidth > 0))).toBe(true);
-    await drawn.screenshot({ path: process.env.PROFILE_DIR ? `${process.env.PROFILE_DIR}/p-${cls}.png` : '/dev/null' }).catch(() => {});
+    const slug=operator.toLowerCase().replace(/[^a-z0-9]+/g,'-');
+    await drawn.screenshot({ path: process.env.PROFILE_DIR ? `${process.env.PROFILE_DIR}/p-${cls}-${slug}.png` : '/dev/null' }).catch(() => {});
   });
 }
 

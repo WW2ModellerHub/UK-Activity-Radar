@@ -4512,7 +4512,7 @@
     '801':{lner:['class-800-lner-azuma',[215,187,176,171,206]]},
     '802':{gwr:['class-800-gwr-iet',[292,216,263,196,281]],transpennine:['class-802-transpennine-5',[349,243,252,226,248]],'hull-trains':['class-802-hull-trains-5',[368,259,280,249,264]]},
     '810':{'east-midlands':['class-810-emr-aurora',[275,209,245,202,267]]},
-    '150':{'northern':['class-150-northern',[367,368]]},
+    '150':{'northern':['class-150-northern',[367,368]],'transport-for-wales':['class-150-transport-for-wales-2',[386,389]],gwr:['class-150-gwr-2',[389,389]]},
     '158':{'northern':['class-158-northern',[377,375]],scotrail:['class-158-scotrail-2',[424,406]],'transport-for-wales':['class-158-transport-for-wales-2',[422,407]],gwr:['class-158-gwr-2',[431,406]],'east-midlands':['class-158-east-midlands-2',[436,432]],'south-western':['class-158-south-western-2',[435,431]]},
     '159':{'south-western':['class-159-south-western',[317,280,328]]},
     '165':{'gwr':['class-165-gwr',[317,303,316]],chiltern:['class-165-chiltern-3',[317,302,318]]},

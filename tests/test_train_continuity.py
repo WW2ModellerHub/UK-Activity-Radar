@@ -140,3 +140,20 @@ def test_a_train_with_no_position_does_not_fail_the_map_list():
     rows = state.all(bbox=(-2.2, 52.3, -1.6, 52.7), train_bbox=(-2.2, 52.3, -1.6, 52.7), include_trains=True,
                      train_limit=100, include_buses=False, include_vessels=False)
     assert [row.id for row in rows] == ["ok"]
+
+
+def test_movement_quality_records_same_report_coordinate_jumps_and_stalled_estimates():
+    state = LiveState()
+    now = datetime.now(london_tz())
+    first = Vehicle(id="jump", type="train", name="1A01", headcode="1A01", operator="Example Rail",
+                    lat=52.0, lon=-1.0, reported_lat=52.0, reported_lon=-1.0, last_updated=now,
+                    estimate_started_at=now - timedelta(minutes=20), estimate_due_at=now - timedelta(minutes=12),
+                    schedule_id=1, next_tiploc="NEXT")
+    state.upsert(first)
+    state.upsert(first.model_copy(update={"lat": 52.12, "reported_lat": 52.12}))
+    report = state.movement_quality_report(now)
+    assert report["since_process_start"]["over_10km"] == 1
+    assert report["since_process_start"]["unchanged_timestamp"] == 1
+    assert report["recent_jumps"][0]["headcode"] == "1A01"
+    assert report["overdue_estimates"] == 1
+    assert report["stalled_over_10_minutes"] == 0
