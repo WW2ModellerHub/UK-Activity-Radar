@@ -131,6 +131,26 @@ def test_emr_125mph_diesel_with_no_class_is_a_meridian_and_says_it_was_worked_ou
     assert slower["class"] is None and slower["inferred"] is False
 
 
+def test_emr_regional_diesel_speed_settles_158_and_170_timing_family():
+    turbostar = describe(_train(operator="East Midlands Railway", power_type="DMU", timing_load="E",
+                                booked_speed="100", headcode="2P77",
+                                origin="Leicester", destination="Nottingham"), [])
+    assert turbostar["class"] == "170" and turbostar["name"] == "Turbostar"
+    assert turbostar["inferred"] is True and turbostar["generic"] is False
+    assert turbostar["inference_reason"] == "operator, regional diesel timing and 100 mph booked speed"
+
+    sprinter = describe(_train(operator="East Midlands Railway", power_type="DMU", timing_load="E",
+                               booked_speed="90"), [])
+    assert sprinter["class"] == "158" and sprinter["name"] == "Express Sprinter"
+    assert sprinter["inferred"] is True and sprinter["generic"] is False
+
+    # EMR's S timing family still covers both 153 and 156 at the same speed,
+    # so it must remain generic unless an allocation identifies the unit.
+    ambiguous = describe(_train(operator="East Midlands Railway", power_type="DMU", timing_load="S",
+                                booked_speed="75"), [])
+    assert ambiguous["class"] is None and ambiguous["generic"] is True
+
+
 def test_tpe_diesel_with_no_numeric_class_is_a_class_185_and_explains_the_inference():
     drawn = describe(_train(operator="TransPennine Express", power_type="DMU", timing_load=None,
                             booked_speed="100", headcode="1P86"), [])

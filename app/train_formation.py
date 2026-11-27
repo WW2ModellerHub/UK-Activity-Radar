@@ -198,6 +198,18 @@ def describe(train, coaches: list[dict] | None) -> dict | None:
         code, inferred = "222", True
         inference_reason = "operator, diesel unit and 125 mph timing"
         name, usual, traction = CLASSES[code]
+    if not code and power in {"DMU", "DEM"} and operator == "East Midlands Railway":
+        # EMR uses CIF timing-load E for both its Class 158 and Class 170
+        # regional fleets.  Their booked speeds settle the ambiguity: 158s
+        # are timed at 90 mph and 170s at 100 mph.  This is materially safer
+        # than guessing from a headcode or route, both of which can change.
+        load = str(getattr(train, "timing_load", "") or "").strip().upper()
+        speed = _speed(train)
+        if load.startswith("E") and speed in {90, 100}:
+            code = "170" if speed == 100 else "158"
+            inferred = True
+            inference_reason = f"operator, regional diesel timing and {speed} mph booked speed"
+            name, usual, traction = CLASSES[code]
     if not code and power in {"DMU", "DEM"} and operator == "TransPennine Express" and 0 < _speed(train) <= 110:
         # TPE's diesel-only passenger fleet is Class 185. Nova 1 Class 802
         # workings are bi-mode and normally carry their numeric timing load.
