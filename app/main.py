@@ -3240,22 +3240,14 @@ def activity_media(request: Request, activity_id: str, kind: str | None = None, 
             exact_photo = planespotters_photos.lookup(aircraft_hex)
             if exact_photo.get("ok"):
                 return exact_photo
+            return {"ok": False, "reason": "no_planespotters_photo"}
         except requests.RequestException:
-            pass
+            return {"ok": False, "reason": "planespotters_unavailable"}
     if aircraft_hex or (item is not None and item.type in {"aircraft", "sar"}) or kind in {"aircraft", "sar"}:
-        # No photo of this exact aircraft: an example of its type, in the
-        # airline's colours where known, clearly labelled as an example.
-        plane_kind = (item.type if item is not None else None) or (kind if kind in {"aircraft", "sar"} else "aircraft")
-        plane_model = (getattr(item, "aircraft_model", None) or getattr(item, "aircraft_type_code", None)) if item is not None else None
-        plane_model = plane_model or model
-        try:
-            example = media_lookup.reference(plane_kind, (getattr(item, "operator", None) if item is not None else None) or operator,
-                                             plane_model, (getattr(item, "name", None) if item is not None else None) or callsign)
-            if example.get("ok"):
-                return example
-        except Exception:
-            pass
-        return {"ok": False, "reason": "no_exact_airframe_photo"}
+        # Aircraft images are exact Planespotters airframe photos only. Never
+        # substitute a Wikimedia type example: a plausible but unrelated
+        # aircraft is materially misleading in a live identification panel.
+        return {"ok": False, "reason": "no_planespotters_photo"}
     if not item:
         raise HTTPException(status_code=404, detail="Activity not found")
     try:

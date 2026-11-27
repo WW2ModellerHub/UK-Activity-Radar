@@ -1949,7 +1949,12 @@
     try {
       const reference=await mediaFor(a, controller.signal);
       if (requestId !== mediaRequest || selectedId !== a.id) return;
-      if(!reference.ok || !reference.thumbnail_url){box.classList.add('hidden');box.innerHTML='';return;}
+      if(!reference.ok || !reference.thumbnail_url){
+        const spotterUrl=a.source_id?`https://www.planespotters.net/hex/${encodeURIComponent(String(a.source_id).toUpperCase())}`:null;
+        box.classList.remove('hidden');
+        box.innerHTML=`<div class="detail-photo-copy"><strong>${reference.reason==='planespotters_unavailable'?'Planespotters photo unavailable':'No Planespotters photo for this aircraft'}</strong>${spotterUrl?`<span><a target="_blank" rel="noopener" href="${esc(spotterUrl)}">Check Planespotters ↗</a></span>`:''}</div>`;
+        return;
+      }
       const reg = a.vehicle_ref || null;
       const model = a.aircraft_model || a.aircraft_type_code || null;
       const identity = [reg, model].filter(Boolean).join(' • ');
@@ -1962,21 +1967,10 @@
       const links = a.source_id ? `<a target="_blank" rel="noopener" href="https://www.planespotters.net/hex/${esc(String(a.source_id).toUpperCase())}">Planespotters ↗</a>` : '';
       box.innerHTML = `${image}<div class="detail-photo-copy"><b class="image-truth">${esc(imageTruth)}</b><span>${esc(imageCredit || 'Planespotters.net')}${links ? ` • ${links}` : ''}</span></div>`;
       const remoteImage=box.querySelector('img');
-      remoteImage?.addEventListener('error',async()=>{
+      remoteImage?.addEventListener('error',()=>{
         if(requestId!==mediaRequest || selectedId!==a.id)return;
-        // The exact photo would not load: try an example of the type instead.
-        if(reference.match_kind!=='type_reference'&&(a.aircraft_model||a.aircraft_type_code)){
-          try{
-            const q=new URLSearchParams({kind:a.type==='sar'?'sar':'aircraft',model:a.aircraft_model||a.aircraft_type_code});
-            if(a.name)q.set('callsign',a.name); if(a.operator)q.set('operator',a.operator);
-            const r=await fetch(`/api/media/reference?${q}`); const ex=r.ok?await r.json():null;
-            if(ex?.ok&&ex.thumbnail_url&&requestId===mediaRequest&&selectedId===a.id){
-              box.innerHTML=`<a target="_blank" rel="noopener" href="${esc(safeUrl(ex.page_url||ex.search_url))}"><img src="${esc(safeUrl(ex.thumbnail_url))}" alt="${esc(identity||a.name)}" loading="eager" decoding="async"></a><div class="detail-photo-copy"><b class="image-truth">${esc(ex.reference_label||'Example of this aircraft type — not this exact aircraft')}</b><span>${esc([ex.artist,ex.license,'Wikimedia Commons'].filter(Boolean).join(' • '))}</span></div>`;
-              return;
-            }
-          }catch{}
-        }
-        box.classList.add('hidden');box.innerHTML='';
+        const spotterUrl=a.source_id?`https://www.planespotters.net/hex/${encodeURIComponent(String(a.source_id).toUpperCase())}`:null;
+        box.innerHTML=`<div class="detail-photo-copy"><strong>Planespotters photo could not load</strong>${spotterUrl?`<span><a target="_blank" rel="noopener" href="${esc(spotterUrl)}">Open on Planespotters ↗</a></span>`:''}</div>`;
       },{once:true});
     } catch {
       if (requestId !== mediaRequest) return;

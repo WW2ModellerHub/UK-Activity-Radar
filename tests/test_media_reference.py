@@ -119,6 +119,22 @@ def test_aircraft_uses_only_an_exact_planespotters_airframe_photo(monkeypatch):
     assert client.get("/api/media/reference", params={"kind": "ship"}).status_code == 400
 
 
+def test_aircraft_without_a_planespotters_photo_never_falls_back_to_wikimedia(monkeypatch):
+    monkeypatch.setattr(main.planespotters_photos, "lookup", lambda icao: {"ok": False, "reason": "no_photo"})
+    monkeypatch.setattr(main.media_lookup, "reference", lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("aircraft must never use Wikimedia")
+    ))
+    monkeypatch.setattr(main, "state", LiveState())
+
+    response = TestClient(main.app).get(
+        "/api/activity/aircraft:e1fb64/media",
+        params={"kind": "aircraft", "model": "Westland Lynx"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": False, "reason": "no_planespotters_photo"}
+
+
 def test_a_bus_looks_for_its_own_route_first_then_says_the_route_may_differ():
     from app.media_reference import tidy_title
 
