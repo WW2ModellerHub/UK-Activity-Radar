@@ -2381,12 +2381,15 @@ test('tapping an airport shows its planes in the app, grouped, each one tappable
   ] } }));
   await page.locator('[data-layer-chip="aircraft"]').click();
   await expect(page.locator('.airport-marker')).toHaveText('EMA');
+  const aircraftBeforeAirport=await page.locator('.aerial-map-marker').count();
   await page.locator('.airport-marker').evaluate(el => el.closest('.leaflet-marker-icon, .airport-marker-wrap')?.dispatchEvent(new MouseEvent('click', { bubbles:true })));
   await expect(page.locator('#detail-title')).toHaveText('East Midlands Airport');
   await expect(page.locator('#detail-subtitle')).toHaveText('1 arriving · 0 leaving · 0 on the ground · 1 overhead');
   await expect(page.locator('#detail-insight .airport-group').first()).toContainText('Arriving');
   await page.locator('#detail-insight [data-job-plane="aircraft:aaa111"]').click();
   await expect(page.locator('#detail-title')).toContainText('RYR12');
+  await page.locator('#nearby-note .nearby-note-close').click();
+  await expect.poll(()=>page.locator('.aerial-map-marker').count()).toBe(aircraftBeforeAirport);
 });
 
 test('the airport list says a plane is landing or on the runway, not "0 ft" or "on the ground" at 122 kt', async ({ page }) => {

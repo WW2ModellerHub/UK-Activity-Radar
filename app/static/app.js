@@ -286,6 +286,7 @@
   let overheadAutoEnabledAircraft = false;
   let nearbyAircraftRows = [];
   let nearbyAircraftIds = new Set();
+  let overheadInjectedAircraftIds = new Set();
   let overheadRefreshTimer = null;
   let overheadRefreshRequest = 0;
   const detailBackButton=document.createElement('button');
@@ -5379,6 +5380,10 @@
       // disappear while the automatic retry runs.
       if(received.length||!payload.degraded)nearbyAircraftRows=received;
       nearbyAircraftIds=new Set(nearbyAircraftRows.map(row=>row.id));
+      const existingIds=new Set(activities.map(row=>row.id));
+      nearbyAircraftRows.forEach(row=>{
+        if(row?.id&&!existingIds.has(row.id))overheadInjectedAircraftIds.add(row.id);
+      });
       replaceActivities([...new Map([...activities,...nearbyAircraftRows].map(row=>[row.id,row])).values()]);
       renderMap();renderStats();renderRanking();renderCoolSummary();
       const note=$('overhead-now')?.querySelector('small');
@@ -5413,6 +5418,10 @@
   function clearTransientLocationModes({clearNearestStop=true}={}) {
     stopOverheadRefresh();
     overheadActive=false;
+    if(overheadInjectedAircraftIds.size){
+      replaceActivities(activities.filter(row=>!overheadInjectedAircraftIds.has(row.id)));
+    }
+    overheadInjectedAircraftIds=new Set();
     nearbyAircraftRows=[];
     nearbyAircraftIds=new Set();
     nearbyState.active=false;
@@ -6592,6 +6601,12 @@
         const pending=deferredTrainRemovals.get(row?.id);
         if(pending){clearTimeout(pending);deferredTrainRemovals.delete(row.id);}
       }
+    }
+    // A plane that has now arrived through the normal UK stream is no longer
+    // owned solely by the temporary airport/above-me view and must survive
+    // when that view is switched off.
+    if(overheadActive){
+      for(const row of streamed)if(row?.id)overheadInjectedAircraftIds.delete(row.id);
     }
     const nextActivities = overheadActive
       ? [...new Map([...streamed,...nearbyAircraftRows].map(row=>[row.id,row])).values()]
