@@ -33,7 +33,9 @@ UNMATCHED_TD_IDLE_MINUTES = 20
 # expected to be running, has stopped running: stock stabled in sidings or a
 # depot after its service ended without a terminating report.
 STABLED_IDLE_MINUTES = 20
-AIRCRAFT_VISIBLE_MINUTES = 10
+# All four UK ADS-B regions refresh in about one minute. An aircraft silent
+# for five has landed or left coverage and should not remain frozen in flight.
+AIRCRAFT_VISIBLE_MINUTES = 5
 
 
 def _train_finished(vehicle: Vehicle, now: datetime) -> bool:
@@ -480,7 +482,7 @@ class LiveState:
         cutoff = now - timedelta(minutes=max_age_minutes)
         bus_cutoff = now - timedelta(minutes=5)
         vessel_cutoff = now - timedelta(minutes=10)
-        # Aircraft report every few seconds; one not heard from for ten
+        # Aircraft report every few seconds; one not heard from for five
         # minutes has landed or left coverage and must not be shown airborne.
         aircraft_cutoff = now - timedelta(minutes=AIRCRAFT_VISIBLE_MINUTES)
         cool_cutoff = now - timedelta(minutes=60)

@@ -116,6 +116,14 @@ _SQUAWK_EMERGENCIES = {
     "7700": "General emergency alert",
 }
 
+# A provider may retain an aircraft after its final position report. Do not
+# put that historical coordinate back onto a map presented as live.
+AIRCRAFT_REPORT_MAX_AGE_SECONDS = 180
+
+
+def _position_age_seconds(row: dict) -> float:
+    return max(0.0, _num(row.get("seen_pos")) or 0.0)
+
 _FRIENDLY_AIRFRAME_PATTERNS = (
     (re.compile(r"\b(?:AH-?64|H64|APACHE)\b", re.I), "Boeing AH-64 Apache"),
     (re.compile(r"\b(?:CH-?47|H47|CHINOOK)\b", re.I), "Boeing CH-47 Chinook"),
@@ -258,8 +266,10 @@ def parse_interesting_aircraft_response(
         lat, lon = _num(row.get("lat")), _num(row.get("lon"))
         if lat is None or lon is None or not (48.0 <= lat <= 62.5 and -13.5 <= lon <= 5.0):
             continue
-        seen_pos = _num(row.get("seen_pos")) or 0.0
-        updated = now - timedelta(seconds=max(0.0, seen_pos))
+        seen_pos = _position_age_seconds(row)
+        if seen_pos > AIRCRAFT_REPORT_MAX_AGE_SECONDS:
+            continue
+        updated = now - timedelta(seconds=seen_pos)
         hex_id = str(row.get("hex") or row.get("icao") or callsign or "unknown").strip().lower()
         model, model_name = _airframe_identity(row)
         owner = _aircraft_operator(callsign, row.get("ownOp"))
@@ -332,8 +342,10 @@ def parse_adsb_response(
         lat, lon = _num(row.get("lat")), _num(row.get("lon"))
         if lat is None or lon is None or not (48.0 <= lat <= 62.5 and -13.5 <= lon <= 5.0):
             continue
-        seen_pos = _num(row.get("seen_pos")) or 0.0
-        updated = now - timedelta(seconds=max(0.0, seen_pos))
+        seen_pos = _position_age_seconds(row)
+        if seen_pos > AIRCRAFT_REPORT_MAX_AGE_SECONDS:
+            continue
+        updated = now - timedelta(seconds=seen_pos)
         hex_id = str(row.get("hex") or row.get("icao") or callsign or "unknown").strip().lower()
         model, model_name = _airframe_identity(row)
         owner = _aircraft_operator(callsign, row.get("ownOp"))
@@ -408,8 +420,10 @@ def parse_nearby_aircraft_response(
         model, model_name = _airframe_identity(row)
         owner = _aircraft_operator(callsign, row.get("ownOp"))
         details = _aircraft_details(row)
-        seen_pos = _num(row.get("seen_pos")) or 0.0
-        updated = now - timedelta(seconds=max(0.0, seen_pos))
+        seen_pos = _position_age_seconds(row)
+        if seen_pos > AIRCRAFT_REPORT_MAX_AGE_SECONDS:
+            continue
+        updated = now - timedelta(seconds=seen_pos)
         altitude = _altitude_ft(row)
         identity = callsign or reg or f"Aircraft {hex_id.upper()}"
         facts = [value for value in (reg, model_name or model, owner) if value]

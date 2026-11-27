@@ -61,6 +61,15 @@ def test_nearby_aircraft_includes_ordinary_and_special_aircraft():
     assert military.aircraft_model == "Boeing CH-47 Chinook"
 
 
+def test_adsb_parsers_reject_old_provider_positions():
+    payload = {"ac": [{
+        "hex": "407abc", "flight": "RRR01", "lat": 52.2, "lon": -1.2,
+        "t": "H47", "dbFlags": 1, "seen_pos": 181,
+    }]}
+    assert parse_adsb_response(payload)[0] == []
+    assert parse_nearby_aircraft_response(payload)[0] == []
+
+
 def test_nearby_ryanair_b38m_is_named_immediately_without_route_guessing():
     rows, _ = parse_nearby_aircraft_response({"ac": [{
         "hex": "4cadbc", "flight": "RYR1YY", "r": "EI-IGJ",
@@ -214,10 +223,10 @@ def test_aircraft_background_poll_defaults_are_quota_safe(monkeypatch):
     assert _adsb_poll_seconds() == 360
 
     monkeypatch.setenv("FLYITALYADSB_API_KEY", "test-key")
-    assert _adsb_poll_seconds() == 60
+    assert _adsb_poll_seconds() == 15
 
     monkeypatch.setenv("ADSB_SAR_POLL_SECONDS", "not-a-number")
-    assert _adsb_poll_seconds() == 60
+    assert _adsb_poll_seconds() == 15
 
 
 def test_nearby_aircraft_falls_back_to_adsb_lol_when_primary_is_limited(monkeypatch):

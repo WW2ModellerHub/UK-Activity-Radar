@@ -32,12 +32,13 @@ def _adsb_poll_default() -> int:
 
     ADSB.lol's anonymous allowance is shared by every visitor behind the
     server's egress IP, so the old 12-second national poll exhausted a full
-    day of requests in about 100 minutes. Authenticated providers have larger
-    allowances, but still benefit from a conservative background cadence; the
-    explicit nearby-aircraft lookup remains independently cached and faster.
+    day of requests in about 100 minutes. FlyItalyADSB's authenticated free
+    plan permits 30 requests/minute and 300,000/month. One regional request
+    every 15 seconds is only four/minute and refreshes all four UK regions
+    once a minute; explicit nearby lookups remain independently cached.
     """
     if os.getenv("FLYITALYADSB_API_KEY", "").strip():
-        return 60
+        return 15
     if os.getenv("ADSB_LOL_API_KEY", "").strip():
         return 180
     return 360

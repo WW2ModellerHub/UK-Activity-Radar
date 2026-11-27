@@ -2118,12 +2118,11 @@
     const pace=Number.isFinite(speed)&&speed>=1?`${Math.round(speed)}kt`:'';
     return [level&&trend?`${level} ${trend}`:level,pace].filter(Boolean).join(' ');
   }
-  // Not heard from for 4 minutes: its last known position, drawn faded.
-  // (The background feed reports each plane every 60-180 s, so 90 s faded
-  // ordinary planes between reports.)
+  // Not heard from for 2 minutes: its last known position, drawn faded. The
+  // national collector now refreshes each UK region about once a minute.
   function aircraftIsStale(v) {
     const updated=Date.parse(v.last_updated||'');
-    return Number.isFinite(updated)&&(Date.now()-updated)/1000>240;
+    return Number.isFinite(updated)&&(Date.now()-updated)/1000>120;
   }
 
   function aircraftMapIdentity(v) {
