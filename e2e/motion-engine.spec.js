@@ -354,6 +354,29 @@ test('a train held at a junction catches up with its new leg gradually, not in o
   expect(result.end).toBeCloseTo(result.target, 4);                       // caught up within 30 s
 });
 
+test('a train rolled onto a later connected leg catches up along railway instead of jumping', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const now = Date.now();
+    const oldLeg = { id:'train-rollover', type:'train', lat:52, lon:-1,
+      estimate_path:[[52,-1],[52,-0.8]],
+      estimate_started_at:new Date(now-50000).toISOString(), estimate_due_at:new Date(now+50000).toISOString() };
+    const before=engine.present(oldLeg,now,false);
+    // The server has caught up a late timetable and now publishes the next
+    // connected leg while the marker is still midway along the preceding one.
+    const nextLeg={ ...oldLeg, estimate_path:[[52,-0.8],[52,-0.5]],
+      estimate_started_at:new Date(now-50000).toISOString(), estimate_due_at:new Date(now+50000).toISOString() };
+    const immediate=engine.present(nextLeg,now+1,false);
+    const later=engine.present(nextLeg,now+5000,false);
+    return {before,immediate,later};
+  });
+  expect(result.immediate.lon).toBeCloseTo(result.before.lon,4);
+  expect(result.later.lon).toBeGreaterThan(result.immediate.lon);
+  expect(result.later.lon).toBeLessThan(-0.65);
+});
+
 
 test('a plane reported every 60 seconds keeps moving through the gap instead of freezing', async ({ page }) => {
   await openEngine(page);

@@ -115,9 +115,19 @@ _POWER_TRACTION = {"DMU": "diesel", "DEM": "diesel", "HST": "diesel", "D": "dies
 def train_class(power_type: str | None, timing_load: str | None, operator: str | None) -> str | None:
     power = str(power_type or "").strip().upper()
     load = str(timing_load or "").strip().upper()
+    operator = canonical_operator(operator)
     if power == "DMU" and load and not load.isdigit():
-        return _DMU_BY_OPERATOR.get((load[:1], canonical_operator(operator)))
+        return _DMU_BY_OPERATOR.get((load[:1], operator))
     digits = load[:3]
+    # CIF timing load 800 is a performance family, not proof of Class 800.
+    # These operators each have one visually distinct 800-series fleet; Avanti
+    # can be a 390, 805 or 807, so it must remain unnamed without an allocation.
+    if digits == "800":
+        return {
+            "TransPennine Express": "802",
+            "Hull Trains": "802",
+            "Lumo": "803",
+        }.get(operator, "800" if operator in {"LNER", "Great Western Railway"} else None)
     if power in {"EMU", "DMU", "DEM", "EML"} and digits in CLASSES:
         return digits
     return None

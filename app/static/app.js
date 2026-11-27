@@ -4527,7 +4527,7 @@
     '385':{'scotrail':['class-385-scotrail',[203,167,167,213]]},
     '395':{'southeastern':['class-395-southeastern',[251,180,190,184,186,250]]},
     '444':{'south-western':['class-444-south-western',[286,260,263,262,283]]},
-    '700':{'thameslink':['class-700-thameslink',[225,123,133,125,129,125,125,223]]},
+    '700':{'thameslink':['class-700-thameslink',[225,123,133,125,129,125,125,223]],'great-northern':['class-700-thameslink',[225,123,133,125,129,125,125,223]]},
     '720':{'greater-anglia':['class-720-greater-anglia',[197,198,224,188,208]],c2c:['class-720-c2c-5',[223,187,188,183,176]]},
     '153':{'transport-for-wales':['class-153-transport-for-wales-1',[432]],'east-midlands':['class-153-east-midlands-1',[408]]},
     '155':{northern:['class-155-northern-2',[427,414]]},
@@ -4604,6 +4604,10 @@
   function trainProfileSet(formation,operator){
     const choices=TRAIN_PROFILE_SETS[String(formation?.class||'')];
     if(!choices)return null;
+    // The live feed sometimes supplies the owning company rather than the
+    // customer-facing Thameslink brand. Class 700 is the Thameslink fleet, so
+    // this is an identity alias rather than a guessed livery.
+    if(String(formation?.class||'')==='700'&&/GOVIA THAMESLINK/i.test(String(formation?.operator||operator||'')))return choices.thameslink;
     const livery=trainLiveryTheme(null,formation?.operator||operator).key;
     return choices[livery]||choices.default||null;
   }
@@ -4632,9 +4636,12 @@
       const label=coach.letter?`Coach ${coach.letter}${coach.first?', first class':''}${coach.toilet==='accessible'?', accessible toilet':coach.toilet==='standard'?', toilet':''}${coach.bicycle?', cycle spaces':''}${coach.wheelchair_space?', wheelchair space':''}`:'';
       return `<figure class="profile-coach" style="flex:${widths[piece]} 1 0"${label?` aria-label="${esc(label)}"`:''}>${labelled?`<small>${esc(coach.letter||'')}</small>`:''}<img src="/static/assets/train-profiles/${folder}/${piece}.webp" width="${widths[piece]}" height="96" alt="" loading="eager" fetchpriority="high" decoding="async">${labelled?`<span class="coach-marks">${coachMarksHtml(coach)}</span>`:''}</figure>`;
     }).join('');
-    // Long trains scroll sideways rather than shrink to a sliver.
+    // Keep every broadside tall enough to read.  The old 18 px scale made a
+    // nine/eleven-car Pendolino roughly a third of the height of a three-car
+    // unit.  Long formations deliberately scroll instead of being crushed to
+    // fit the card.
     const total=pieces.reduce((sum,piece)=>sum+widths[piece],0);
-    return `<div class="profile-scroll"><div class="profile-train${labelled?' is-labelled':''}" style="min-width:${Math.round(total*18/96)}px">${cells}</div></div>`;
+    return `<div class="profile-scroll"><div class="profile-train${labelled?' is-labelled':''}" style="min-width:${Math.round(total*44/96)}px">${cells}</div></div>`;
   }
   function pendolinoCoachSvg(index,count){
     const first=index===0,last=index===count-1;

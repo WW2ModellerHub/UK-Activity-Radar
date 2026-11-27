@@ -47,6 +47,21 @@
     return {lat,lon,bearing,total,progress,points:usable,fraction:clamp(fraction)};
   }
 
+  function pathSection(points,fromFraction,toFraction){
+    const {usable,legs,total}=pathLegs(points);
+    if(usable.length<2||!legs.length)return [];
+    const from=clamp(fromFraction),to=Math.max(from,clamp(toFraction));
+    const start=samplePath(usable,from),end=samplePath(usable,to);
+    if(!start||!end)return [];
+    const result=[[start.lat,start.lon]];
+    for(const leg of legs){
+      const at=(leg.start+leg.length)/total;
+      if(at>from&&at<to)result.push(leg.to);
+    }
+    if(distanceKm(...result[result.length-1],end.lat,end.lon)>.001)result.push([end.lat,end.lon]);
+    return result;
+  }
+
   // Find the closest fraction on mapped railway geometry. Corrections then
   // travel along that geometry instead of drawing a chord across the map.
   function nearestPathFraction(points,lat,lon){
@@ -195,6 +210,22 @@
         state.fromFraction=projected.fraction;state.correctionStarted=now;state.correctionMs=trainCatchUpMs(along);
         return;
       }
+      // A delayed feed can roll through several elapsed timetable legs before
+      // the next websocket frame.  The marker is then on the preceding proven
+      // railway path, not the new one.  Join the tail of that old path to the
+      // new leg when their ends genuinely meet, and catch up along rail rather
+      // than teleporting to the new leg (or drawing a chord across fields).
+      const previous=usablePath(state.path);
+      const oldProjection=previous.length>=2?nearestPathFraction(previous,from.lat,from.lon):null;
+      const oldEnd=previous[previous.length-1],newStart=target.path[0];
+      if(oldProjection&&oldProjection.distance<=TRAIN_ON_PATH_KM&&oldEnd&&newStart
+          &&distanceKm(...oldEnd,...newStart)<=TRAIN_ON_PATH_KM){
+        const tail=pathSection(previous,oldProjection.fraction,1);
+        const distance=pathLegs(tail).total+target.sample.total*target.fraction;
+        if(distance<=TRAIN_PATH_GLIDE_MAX_KM){
+          state.bridgePrefix=tail;state.correctionStarted=now;state.correctionMs=trainCatchUpMs(distance);
+        }
+      }
       return;
     }
     const gap=distanceKm(from.lat,from.lon,target.sample.lat,target.sample.lon);
@@ -221,12 +252,17 @@
       const progress=clamp((now-state.correctionStarted)/state.correctionMs),amount=gentle(progress);
       if(target.mode==='path'&&Number.isFinite(state.fromFraction)){
         sample=samplePath(target.path,state.fromFraction+(target.fraction-state.fromFraction)*amount)||sample;
+      }else if(target.mode==='path'&&state.bridgePrefix){
+        const onward=pathSection(target.path,0,target.fraction);
+        const bridge=[...state.bridgePrefix,...onward.slice(1)];
+        sample=samplePath(bridge,amount)||sample;
       }else if(state.from){
         sample={...sample,lat:state.from.lat+(sample.lat-state.from.lat)*amount,lon:state.from.lon+(sample.lon-state.from.lon)*amount,
           bearing:Number.isFinite(Number(state.from.bearing))?state.from.bearing:sample.bearing};
       }
-      if(progress>=1){delete state.correctionStarted;delete state.correctionMs;delete state.fromFraction;delete state.from;}
+      if(progress>=1){delete state.correctionStarted;delete state.correctionMs;delete state.fromFraction;delete state.from;delete state.bridgePrefix;}
     }
+    state.path=target.mode==='path'?target.path:null;
     state.displayed={lat:sample.lat,lon:sample.lon,bearing:sample.bearing};remember(key,state,now);
     if(target.mode!=='path'){
       if(!Number.isFinite(state.correctionStarted))return activity;

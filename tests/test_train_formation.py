@@ -25,6 +25,13 @@ def test_class_comes_from_the_timetable_and_letters_only_where_the_operator_sett
     assert train_class("D", "1600", "DB Cargo UK") is None
 
 
+def test_800_timing_family_uses_operator_only_when_it_settles_the_fleet():
+    assert train_class("EMU", "800", "TransPennine Express") == "802"
+    assert train_class("EMU", "800", "Hull Trains") == "802"
+    assert train_class("EMU", "800", "Lumo") == "803"
+    assert train_class("EMU", "800", "Avanti West Coast") is None
+
+
 def test_without_darwin_the_class_usual_length_is_given_and_marked_as_such():
     drawn = describe(_train(power_type="EMU", timing_load="390", operator="Avanti West Coast"), [])
     assert drawn["name"] == "Pendolino" and drawn["usual"] == [9, 11]
