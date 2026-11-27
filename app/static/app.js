@@ -5354,7 +5354,7 @@
 
   function seedNearbyAircraftFromLiveMap() {
     if(nearbyState.lat==null||nearbyState.lon==null)return;
-    const radiusKm=50*1.609344;
+    const radiusKm=(Number(nearbyState.radiusMiles)||25)*1.609344;
     const retained=activities.filter(row=>['aircraft','sar'].includes(row.type)
       &&Number.isFinite(Number(row.lat))&&Number.isFinite(Number(row.lon))
       &&distanceKm(nearbyState.lat,nearbyState.lon,Number(row.lat),Number(row.lon))<=radiusKm);
@@ -5370,7 +5370,8 @@
     const controller=new AbortController();
     const requestTimeout=setTimeout(()=>controller.abort(),7000);
     try{
-      const response=await fetch(`/api/aircraft/nearby?lat=${encodeURIComponent(nearbyState.lat)}&lon=${encodeURIComponent(nearbyState.lon)}&radius_miles=50`,{cache:'no-store',signal:controller.signal});
+      const radiusMiles=Number(nearbyState.radiusMiles)||25;
+      const response=await fetch(`/api/aircraft/nearby?lat=${encodeURIComponent(nearbyState.lat)}&lon=${encodeURIComponent(nearbyState.lon)}&radius_miles=${encodeURIComponent(radiusMiles)}`,{cache:'no-store',signal:controller.signal});
       const payload=await response.json().catch(()=>({}));
       if(!response.ok)throw new Error(payload.detail||'aircraft lookup unavailable');
       if(requestId!==overheadRefreshRequest||!overheadActive)return;
@@ -7132,7 +7133,20 @@
     $('detail-sidebar')?.classList.add('is-empty'); $('detail-panel')?.classList.remove('has-selection');
     renderRanking();
   }
-  $('detail-close')?.addEventListener('click',closeDetailSelection);
+  $('detail-close')?.addEventListener('click',()=>{
+    const title=$('detail-title')?.textContent||'';
+    const closesOverheadMode=overheadActive&&!selectedId&&!selectedPlaceId&&(
+      nearbyState.source==='airport'||/^(Planes above you|Nearest planes)$/.test(title)
+    );
+    closeDetailSelection();
+    if(closesOverheadMode){
+      clearTransientLocationModes();
+      airportOpen=null;
+      selectedType=currentWorkspace==='cool'?'cool-off':'useful';
+      sendViewport();renderMap();renderStats();renderRanking();
+      showToast('Aircraft area turned off.');
+    }
+  });
   document.querySelectorAll('[data-rail-delays]').forEach(chip=>chip.addEventListener('click',()=>setDelayHotspots(!railView.delaysOn)));
   $('detail-route-view')?.addEventListener('click',()=>setDetailRouteView(true,{fit:true,focusPeek:true}));
   $('detail-route-restore')?.addEventListener('click',()=>setDetailRouteView(false,{focusDetails:true}));

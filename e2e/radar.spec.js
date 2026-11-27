@@ -858,7 +858,8 @@ test('selected aircraft draws its trail on the map and shows compact facts', asy
 test('What’s above me loads nearby aircraft and can be turned off', async ({ page }) => {
   await page.goto('/');
   let nearbyRequests=0;
-  page.on('request',request=>{if(new URL(request.url()).pathname==='/api/aircraft/nearby')nearbyRequests+=1;});
+  const nearbyRadii=[];
+  page.on('request',request=>{const url=new URL(request.url());if(url.pathname==='/api/aircraft/nearby'){nearbyRequests+=1;nearbyRadii.push(url.searchParams.get('radius_miles'));}});
   await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
   await page.locator('[data-job="planes"]').click();
   await expect(page.locator('#map')).toHaveAttribute('data-map-center','54.11,-2.45');
@@ -868,7 +869,19 @@ test('What’s above me loads nearby aircraft and can be turned off', async ({ p
   await expect(page.locator('[data-job-plane]').first()).toBeVisible();
   await expect(page.locator('.aerial-map-marker').first()).toBeVisible();
   await expect.poll(()=>nearbyRequests,{timeout:15000}).toBeGreaterThan(1);
+  expect(nearbyRadii.every(radius=>radius==='25')).toBeTruthy();
   await page.locator('#nearby-note .nearby-note-close').click();
+  await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','false');
+});
+
+test('closing the Planes above you panel turns its aircraft area off', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(()=>Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(success){success({coords:{latitude:54.11,longitude:-2.45}});}}}));
+  await page.locator('[data-job="planes"]').click();
+  await expect(page.locator('#detail-title')).toHaveText(/Planes above you|Nearest planes/);
+  await expect(page.locator('#nearby-note')).toContainText('Aircraft within 25 miles of you');
+  await page.locator('#detail-close').click();
+  await expect(page.locator('#nearby-note')).toHaveClass(/hidden/);
   await expect(page.locator('[data-layer-toggle="aircraft"]')).toHaveAttribute('aria-pressed','false');
 });
 
