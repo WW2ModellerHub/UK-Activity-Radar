@@ -3017,6 +3017,9 @@
 
   function activityPassesFilters(a) {
     if (!a || aircraftNotWorthShowing(a)) return false;
+    // Never leave restored/aged bus rows looking live behind an outage
+    // warning. They return automatically with the next healthy BODS snapshot.
+    if (a.type === 'bus' && latestSources.find(source => source.name === 'bods')?.mode === 'error') return false;
     if (!matchesMapFilters(a)) return false;
     if (!layerTypeMatch(a, selectedType)) return false;
     if (!operatorMatches(a)) return false;
@@ -3040,6 +3043,7 @@
       aircraftLandingView,
       aircraftFilter,
       trainFilter, busFilter, roadFilter,
+      latestSources.find(source => source.name === 'bods')?.mode || '',
       [...enabledActivityTypes].sort().join(','),
       lateTrainsOnly,
     ].join('|');
