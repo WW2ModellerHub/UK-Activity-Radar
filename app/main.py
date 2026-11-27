@@ -3026,7 +3026,7 @@ _BOOKING_SITES = {
 
 
 def _affiliate_url(partner: str) -> str | None:
-    url = {"national-express": settings.national_express_affiliate_url}.get(partner, "")
+    url = {"national-express": getattr(settings, "national_express_affiliate_url", "")}.get(partner, "")
     return url if url.startswith("https://") else None
 
 
@@ -3040,7 +3040,8 @@ def booking_redirect(partner: str):
 
 def _map_browser_config() -> dict:
     """Return the read-only configuration safe to embed in the public page."""
-    configured = bool(settings.mapbox_public_token)
+    mapbox_token = str(getattr(settings, "mapbox_public_token", "") or "").strip()
+    configured = bool(mapbox_token)
     return {
         "provider": "Mapbox",
         "configured": configured,
@@ -3049,7 +3050,7 @@ def _map_browser_config() -> dict:
         # trains are on, and the dark lines read clearly on the pale map.
         "tile_url": (
             "https://api.mapbox.com/styles/v1/mapbox/light-v11/tiles/512/"
-            "{z}/{x}/{y}?access_token=" + settings.mapbox_public_token
+            "{z}/{x}/{y}?access_token=" + mapbox_token
         ) if configured else None,
         # Kept for pages cached before this change; null disables the swap.
         "rail_tile_url": None,
@@ -3064,7 +3065,7 @@ def _map_browser_config() -> dict:
         "aircraft_attribution": (
             'Aircraft: <a href="https://flyitalyadsb.com/" target="_blank" rel="noopener">FlyItalyADSB</a> '
             '(CC BY-SA 4.0) · <a href="https://www.adsb.lol/" target="_blank" rel="noopener">ADSB.lol</a> (ODbL)'
-            if settings.flyitaly_adsb_api_key else
+            if getattr(settings, "flyitaly_adsb_api_key", "") else
             'Aircraft: <a href="https://www.adsb.lol/" target="_blank" rel="noopener">ADSB.lol</a> (ODbL)'
         ),
         "message": None if configured else "Add MAPBOX_PUBLIC_TOKEN to enable the commercial basemap.",
