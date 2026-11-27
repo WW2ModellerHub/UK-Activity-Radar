@@ -566,6 +566,30 @@ class BODSCollector:
                 ) from bulk_exc
             raise
 
+    def _fetch_siri(self) -> tuple[bytes, str, str]:
+        """Fetch BODS' independent national SIRI-VM representation.
+
+        GTFS-RT is normally smaller and remains the primary feed. BODS can,
+        however, return a successful but empty GTFS-RT snapshot while its raw
+        SIRI-VM aggregation is still populated. Keeping this second official
+        representation prevents a partial BODS incident from blanking entire
+        cities such as Birmingham.
+        """
+        if not self.settings.bods_api_key:
+            raise RuntimeError("BODS SIRI-VM fallback needs an API key")
+        response = self._session.get(
+            getattr(
+                self.settings,
+                "bods_siri_url",
+                "https://data.bus-data.dft.gov.uk/api/v1/datafeed/",
+            ),
+            params={"api_key": self.settings.bods_api_key},
+            headers={"Accept": "application/xml, text/xml, */*"},
+            timeout=(10, 90),
+        )
+        response.raise_for_status()
+        return response.content, response.headers.get("content-type", ""), "siri-vm"
+
     def _update_predictions(self, rows: list[dict]) -> None:
         now = datetime.now(timezone.utc)
         grouped: dict[str, list[dict]] = {}
@@ -613,6 +637,14 @@ class BODSCollector:
                 payload, content_type, used_mode = self._fetch()
                 last_mode = used_mode
                 vehicles = parse_bods_payload(payload, content_type)
+                # A national feed with zero vehicles is not a credible quiet
+                # period. Try BODS' raw SIRI-VM API before publishing an empty
+                # snapshot or leaving old regional clusters on the map.
+                if not vehicles and used_mode == "gtfs-rt":
+                    payload, content_type, used_mode = self._fetch_siri()
+                    vehicles = parse_bods_payload(payload, content_type)
+                    if not vehicles:
+                        raise RuntimeError("BODS returned empty GTFS-RT and SIRI-VM snapshots")
                 predictions = parse_siri_predictions_from_payload(payload, content_type)
                 # An empty successful snapshot must clear predictions removed
                 # upstream (for example after a journey cancellation).
@@ -637,7 +669,7 @@ class BODSCollector:
                         name="bods", enabled=True, connected=True, mode="live" if fresh else "ready",
                         message=(
                             f"Live GPS • {len(fresh):,} current buses • "
-                            f"{'GTFS-RT API' if used_mode == 'gtfs-rt' else 'bulk SIRI-VM fallback'}"
+                            f"{'GTFS-RT API' if used_mode == 'gtfs-rt' else 'SIRI-VM API fallback' if used_mode == 'siri-vm' else 'bulk SIRI-VM fallback'}"
                             f" • {mb:.1f} MB • poll {self.settings.bods_poll_seconds if used_mode == 'gtfs-rt' else max(60, self.settings.bods_poll_seconds)}s"
                             + (f" • {stale:,} stale ignored" if stale else "")
                         ),

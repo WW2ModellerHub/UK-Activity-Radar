@@ -218,6 +218,9 @@ class Settings:
         if "/api/v1/datafeed/" in raw and "/gtfsrtdatafeed/" not in raw:
             return "https://data.bus-data.dft.gov.uk/api/v1/gtfsrtdatafeed/"
         return raw
+    bods_siri_url: str = os.getenv(
+        "BODS_SIRI_URL", "https://data.bus-data.dft.gov.uk/api/v1/datafeed/"
+    ).strip()
     bods_disruptions_url: str = os.getenv("BODS_DISRUPTIONS_URL", "https://data.bus-data.dft.gov.uk/api/v1/siri-sx").strip()
     bods_cancellations_url: str = os.getenv("BODS_CANCELLATIONS_URL", "https://data.bus-data.dft.gov.uk/api/v1/siri-sx/cancellations").strip()
     bods_sx_enabled: bool = _bool("BODS_SX_ENABLED", True)

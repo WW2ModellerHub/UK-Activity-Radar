@@ -3656,8 +3656,19 @@
     }
     const busTotal = Number(streamMeta.buses_in_memory || 0);
     const busMin = Number(streamMeta.bus_min_zoom || 7);
-    const busShown = Number(streamMeta.buses_streamed || 0);
-    if (busTotal && ((currentWorkspace === 'useful' && enabledActivityTypes.has('bus')) || heatMode === 'bus')) {
+    const busSource = latestSources.find(source => source.name === 'bods');
+    // Socket metadata describes the viewport that produced its snapshot. It
+    // can briefly lag behind the markers after a pan or zoom, so count what
+    // the user can actually see instead of reporting zero below bus clusters.
+    const bounds = map.getBounds?.();
+    const visibleBuses = filteredActivities().filter(row => row.type === 'bus'
+      && Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lon))
+      && (!bounds || bounds.contains([Number(row.lat), Number(row.lon)]))).length;
+    const busShown = visibleBuses || Number(streamMeta.buses_streamed || 0);
+    const busesSelected = (currentWorkspace === 'useful' && enabledActivityTypes.has('bus')) || heatMode === 'bus';
+    if (busesSelected && busSource?.mode === 'error') {
+      messages.push('Live bus feed temporarily unavailable');
+    } else if (busTotal && busesSelected) {
       messages.push(zoom < busMin ? `${fmt(busTotal)} live buses • zoom in to see them` : `${fmt(busShown)} buses in view`);
     }
     if (!messages.length) { note.classList.add('hidden'); return; }
@@ -7074,6 +7085,7 @@
       if(effectivePlaceMode()!=='off')fetchPlaces();
       if(webcamsEnabled)fetchCameras(false);
       renderNearbySummary();
+      renderStreamZoomNote();
     },80);
   });
   $('map')?.classList.toggle('show-aircraft-data',map.getZoom()>=7);

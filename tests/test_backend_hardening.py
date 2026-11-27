@@ -1,5 +1,6 @@
 import json
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
@@ -7,6 +8,7 @@ from types import SimpleNamespace
 import app.collectors.bods as bods_module
 from app.collectors.bods import BODSCollector
 from app.collectors.stomp_client import MultiplexStompFeed, StompFeed, _MultiplexListener, _session_retry_seconds
+from app.models import Vehicle
 from app.reference_data import merge_station_file
 
 
@@ -168,3 +170,43 @@ def test_successful_bods_snapshot_clears_predictions_removed_upstream(monkeypatc
     collector._run()
 
     assert collector._stop_predictions == {}
+
+
+def test_empty_gtfs_snapshot_uses_siri_vm_fallback(monkeypatch):
+    settings = SimpleNamespace(
+        bods_api_key="secret", bods_max_age_seconds=300, bods_poll_seconds=10,
+    )
+    now = datetime.now(timezone.utc)
+    fallback_bus = Vehicle(
+        id="bus:test:1", type="bus", name="Bus 1", lat=52.48, lon=-1.9,
+        source="DfT Bus Open Data Service", last_updated=now,
+    )
+
+    class State:
+        def __init__(self):
+            self.rows = []
+
+        def source(self, name):
+            return None
+
+        def set_source(self, status):
+            if status.mode == "live":
+                collector._stop.set()
+
+        def upsert(self, vehicle):
+            self.rows.append(vehicle)
+
+    state = State()
+    collector = BODSCollector(settings, state)
+    collector._fetch = lambda: (b"empty-gtfs", "application/x-protobuf", "gtfs-rt")
+    collector._fetch_siri = lambda: (b"siri", "application/xml", "siri-vm")
+    monkeypatch.setattr(
+        bods_module,
+        "parse_bods_payload",
+        lambda payload, content_type: [fallback_bus] if payload == b"siri" else [],
+    )
+    monkeypatch.setattr(bods_module, "parse_siri_predictions_from_payload", lambda *_: [])
+
+    collector._run()
+
+    assert [row.id for row in state.rows] == ["bus:test:1"]
