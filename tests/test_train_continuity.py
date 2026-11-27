@@ -155,5 +155,40 @@ def test_movement_quality_records_same_report_coordinate_jumps_and_stalled_estim
     assert report["since_process_start"]["over_10km"] == 1
     assert report["since_process_start"]["unchanged_timestamp"] == 1
     assert report["recent_jumps"][0]["headcode"] == "1A01"
+    assert report["classification_counts"]["unexplained_discontinuity"] == 1
+    assert report["suspicious_jumps"][0]["classification"] == "unexplained_discontinuity"
     assert report["overdue_estimates"] == 1
     assert report["stalled_over_10_minutes"] == 0
+
+
+def test_movement_quality_respects_berth_learning_and_finds_rollovers_and_backtracking():
+    state = LiveState()
+    now = datetime.now(london_tz())
+
+    def moved(identifier, old_lon, new_lon, old_path, new_path=None, label="Estimated"):
+        first = Vehicle(id=identifier, type="train", name=identifier, lat=52, lon=old_lon,
+                        reported_lat=52, reported_lon=old_lon, last_updated=now,
+                        estimate_path=old_path, position_label="Estimated")
+        state.upsert(first)
+        state.upsert(first.model_copy(update={
+            "lon": new_lon, "reported_lon": new_lon,
+            "estimate_path": new_path if new_path is not None else old_path,
+            "position_label": label,
+        }))
+
+    moved("learned", -1, -0.95, [[52, -1], [52, -0.8]],
+          label="TD step into learned berth LR 0396 • placed on the track")
+    moved("rollover", -0.95, -0.85, [[52, -1], [52, -0.9]], [[52, -0.9], [52, -0.8]])
+    moved("backwards", -0.85, -0.95, [[52, -1], [52, -0.8]])
+
+    report = state.movement_quality_report(now)
+    assert report["classification_counts"] == {
+        "learned_berth_correction": 1,
+        "connected_leg_transition": 1,
+        "backwards_movement": 1,
+        "unexplained_discontinuity": 0,
+    }
+    assert {row["classification"] for row in report["expected_corrections"]} == {
+        "learned_berth_correction", "connected_leg_transition",
+    }
+    assert [row["classification"] for row in report["suspicious_jumps"]] == ["backwards_movement"]

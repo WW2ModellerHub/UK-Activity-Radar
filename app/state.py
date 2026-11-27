@@ -95,6 +95,40 @@ def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * asin(sqrt(a))
 
 
+def _valid_train_path(raw_path) -> list[list[float]]:
+    points = []
+    for raw in raw_path or []:
+        try:
+            lat, lon = float(raw[0]), float(raw[1])
+        except (IndexError, TypeError, ValueError):
+            continue
+        if -90 <= lat <= 90 and -180 <= lon <= 180:
+            points.append([lat, lon])
+    return points
+
+
+def _train_motion_class(previous: Vehicle, stored: Vehicle, old_lat: float, old_lon: float,
+                        new_lat: float, new_lon: float) -> str:
+    """Explain a coordinate correction without second-guessing berth learning."""
+    if "learned berth" in str(stored.position_label or "").lower():
+        return "learned_berth_correction"
+    old_path = _valid_train_path(previous.estimate_path)
+    new_path = _valid_train_path(stored.estimate_path)
+    if len(old_path) >= 2 and len(new_path) >= 2 and old_path != new_path:
+        if _distance_km(old_path[-1][0], old_path[-1][1], new_path[0][0], new_path[0][1]) <= 1:
+            return "connected_leg_transition"
+    if len(old_path) >= 2:
+        # Import locally: berth_positions has no dependency on LiveState and
+        # this keeps the hot state module's ordinary import path small.
+        from .berth_positions import project
+        old_progress = project(old_path, old_lat, old_lon)
+        new_progress = project(old_path, new_lat, new_lon)
+        if (old_progress and new_progress and old_progress[1] <= 1 and new_progress[1] <= 1
+                and new_progress[0] < old_progress[0] - 0.05):
+            return "backwards_movement"
+    return "unexplained_discontinuity"
+
+
 def _inside(lat: float, lon: float, bbox: tuple[float, float, float, float] | None) -> bool:
     if not bbox:
         return True
@@ -239,6 +273,12 @@ class LiveState:
         # remain visible even when the UI successfully hides a jump.
         self._train_motion_counts = {"over_2km": 0, "over_5km": 0, "over_10km": 0,
                                      "unchanged_timestamp": 0}
+        self._train_motion_classes = {
+            "learned_berth_correction": 0,
+            "connected_leg_transition": 0,
+            "backwards_movement": 0,
+            "unexplained_discontinuity": 0,
+        }
         self._train_motion_recent: deque[dict] = deque(maxlen=100)
         self._revision = 0
 
@@ -355,12 +395,15 @@ class LiveState:
             self._train_motion_counts["over_10km"] += 1
         if same_time:
             self._train_motion_counts["unchanged_timestamp"] += 1
+        category = _train_motion_class(previous, stored, old_lat, old_lon, new_lat, new_lon)
+        self._train_motion_classes[category] += 1
         self._train_motion_recent.append({
             "id": stored.id,
             "headcode": stored.headcode or stored.name,
             "operator": stored.operator,
             "distance_km": round(distance, 2),
             "same_report_timestamp": same_time,
+            "classification": category,
             "from_tiploc": previous.rail_tiploc,
             "to_tiploc": stored.rail_tiploc,
             "report_at": stored.last_updated.isoformat(),
@@ -374,6 +417,7 @@ class LiveState:
         with self._lock:
             trains = list(self._vehicles.values())
             counts = dict(self._train_motion_counts)
+            classes = dict(self._train_motion_classes)
             recent = list(self._train_motion_recent)
         for train in trains:
             if train.type != "train" or _train_finished(train, at) or not train.estimate_due_at:
@@ -389,10 +433,19 @@ class LiveState:
                 stalled.append(row)
         return {
             "since_process_start": counts,
+            "classification_counts": classes,
             "overdue_estimates": len(overdue),
             "stalled_over_10_minutes": len(stalled),
             "worst_overdue": sorted(overdue, key=lambda row: row["overdue_seconds"], reverse=True)[:20],
             "recent_jumps": sorted(recent, key=lambda row: row["distance_km"], reverse=True)[:20],
+            "suspicious_jumps": sorted(
+                (row for row in recent if row["classification"] in {"backwards_movement", "unexplained_discontinuity"}),
+                key=lambda row: row["distance_km"], reverse=True,
+            )[:20],
+            "expected_corrections": sorted(
+                (row for row in recent if row["classification"] in {"learned_berth_correction", "connected_leg_transition"}),
+                key=lambda row: row["distance_km"], reverse=True,
+            )[:20],
         }
 
     def _duplicate_service_unlocked(self, stored: Vehicle) -> Vehicle | None:

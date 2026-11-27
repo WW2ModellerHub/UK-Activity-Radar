@@ -166,3 +166,4 @@ def test_the_server_reports_how_busy_it_is_even_without_a_free_worker_thread():
         assert key in report
     detailed = TestClient(main.app).get("/api/health/runtime", params={"detail": "true"}).json()
     assert "over_10km" in detailed["train_movement_quality"]["since_process_start"]
+    assert "learned_berth_correction" in detailed["train_movement_quality"]["classification_counts"]
