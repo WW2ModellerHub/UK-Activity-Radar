@@ -52,6 +52,29 @@ test('train report corrections remain on mapped railway geometry', async ({ page
   expect(result.settled.lon).toBeCloseTo(-0.8, 5);
 });
 
+test('a train acquiring a mapped path never glides across open land', async ({ page }) => {
+  await openEngine(page);
+  const result = await page.evaluate(() => {
+    const engine = window.UKActivityMotionEngine;
+    engine.reset();
+    const now = Date.now();
+    engine.present({ id:'train-off-line', type:'train', lat:52, lon:-1.03 }, now, false);
+    const path = [[52, -1], [52, -0.9]];
+    const activity = {
+      id:'train-off-line', type:'train', lat:52, lon:-1,
+      estimate_path:path,
+      estimate_started_at:new Date(now - 50000).toISOString(),
+      estimate_due_at:new Date(now + 50000).toISOString(),
+    };
+    const corrected = engine.present(activity, now + 100, false);
+    return { corrected, projection:engine.nearestPathFraction(path, corrected.lat, corrected.lon) };
+  });
+
+  expect(result.corrected.position_method).toBe('estimated');
+  expect(result.projection.distance).toBeLessThan(0.001);
+  expect(result.corrected.lon).toBeCloseTo(-0.95, 3);
+});
+
 test('aircraft freeze at their safe projection instead of jumping backwards', async ({ page }) => {
   await openEngine(page);
   const result = await page.evaluate(() => {

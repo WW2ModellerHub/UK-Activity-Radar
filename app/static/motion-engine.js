@@ -119,12 +119,10 @@
   }
   function clockOffset(){return clockOffsetMs;}
 
-  // An off-path correction (e.g. a report arriving without a track leg) this
-  // short glides for under a second, which at map scale stays on the railway.
-  // Anything further is placed directly rather than slid across countryside.
-  // Corrections up to this size glide (over trainCatchUpMs); bigger ones are a
-  // different train or a reconnect and are taken at once. At 1.5 km, measured
-  // 1.7-1.8 km corrections were snapping.
+  // Point-to-point corrections may glide when no railway path is available.
+  // A correction *to* proven railway geometry must never use that fallback:
+  // if the previous marker is not on the new path, place it on the path at
+  // once instead of visibly crossing fields to reach it.
   const TRAIN_GLIDE_MAX_KM=6;
   // Corrections along the railway itself never leave the track, so they may
   // cover more ground before a direct placement is preferable.
@@ -197,6 +195,7 @@
         state.fromFraction=projected.fraction;state.correctionStarted=now;state.correctionMs=trainCatchUpMs(along);
         return;
       }
+      return;
     }
     const gap=distanceKm(from.lat,from.lon,target.sample.lat,target.sample.lon);
     if(gap<.001||gap>TRAIN_GLIDE_MAX_KM)return;
