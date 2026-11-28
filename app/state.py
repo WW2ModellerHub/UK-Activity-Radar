@@ -280,6 +280,8 @@ class LiveState:
             "unexplained_discontinuity": 0,
         }
         self._train_motion_recent: deque[dict] = deque(maxlen=100)
+        self._write_counter = 0
+        self._stale_train_writes = 0
         self._revision = 0
 
     @property
@@ -350,6 +352,16 @@ class LiveState:
             previous=self._vehicles.get(vehicle.id)
             if previous is not None and stored.type == 'train' and stored.last_updated < previous.last_updated:
                 return
+            if (previous is not None and stored.type == 'train' and stored._state_write is not None
+                    and stored._state_write != previous._state_write and stored.last_updated <= previous.last_updated):
+                # A copy taken before another write, bringing no newer report:
+                # writing it back would put the train where it was (seen live
+                # as trains bouncing A -> B -> A on the map).
+                self._stale_train_writes += 1
+                return
+            self._write_counter += 1
+            stored._state_write = self._write_counter
+            vehicle._state_write = self._write_counter   # the writer's copy stays current for its next write
             if stored.type == 'train' and stored.train_uid:
                 # One railway service must keep one map identity. TD and TRUST
                 # can briefly create separate records before the timetable
@@ -374,6 +386,25 @@ class LiveState:
             self._vehicles[stored.id] = stored
             self._index_unlocked(stored)
             self._touch_unlocked()
+
+    def patch_train(self, activity_id: str, **fields) -> bool:
+        """Change a few fields (platform, delay, formation) on the stored train.
+
+        Enrichment feeds use this rather than writing back a whole copy, so
+        they never move a train that has stepped on since the copy was taken.
+        """
+        with self._lock:
+            current = self._vehicles.get(activity_id)
+            if current is None:
+                return False
+            updated = deepcopy(current)
+            for name, value in fields.items():
+                setattr(updated, name, value)
+            self._write_counter += 1
+            updated._state_write = self._write_counter
+            self._vehicles[activity_id] = updated
+            self._touch_unlocked()
+        return True
 
     def _observe_train_motion_unlocked(self, previous: Vehicle | None, stored: Vehicle) -> None:
         if previous is None or previous.type != "train":
@@ -433,6 +464,7 @@ class LiveState:
                 stalled.append(row)
         return {
             "since_process_start": counts,
+            "stale_writes_refused": self._stale_train_writes,
             "classification_counts": classes,
             "overdue_estimates": len(overdue),
             "stalled_over_10_minutes": len(stalled),
