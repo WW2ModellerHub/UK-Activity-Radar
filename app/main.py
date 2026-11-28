@@ -1035,6 +1035,9 @@ async def lifespan(app: FastAPI):
     if getattr(smart_places, "bus_timetables", None) is not None:
         # Search results say where each bus runs ("Lutterworth → ... Leicester").
         activity_search.bus_trip_ends = smart_places.bus_timetables.trip_ends
+        from .bus_timetable import routes_serving as _routes_serving
+        _timetables = smart_places.bus_timetables
+        activity_search.bus_routes_serving = lambda route, place, near: _routes_serving(_timetables, route, place, near)
 
     if settings.bods_sx_enabled:
         bods_sx_collector = BODSSXCollector(settings, state)

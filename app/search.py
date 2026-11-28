@@ -344,8 +344,62 @@ class ActivitySearch:
             return True   # postcode or the start of one: CV11 4, LE10
         return bool(re.search(r"[A-Za-z]{3,}", query)) and not re.search(r"\d", query)
 
+    # "8 lutterworth", "bus 8 to Lutterworth", "Lutterworth 8": a route and a place on it.
+    _ROUTE_PLACE = re.compile(r"^(?:bus\s+|route\s+)?([a-z]{0,3}\d{1,4}[a-z]{0,2})\s+(?:to\s+|from\s+|in\s+|via\s+)?([a-z][a-z' .&-]{2,60})$", re.I)
+    _PLACE_ROUTE = re.compile(r"^([a-z][a-z' .&-]{2,60}?)\s+(?:bus\s+|route\s+)?([a-z]{0,3}\d{1,4}[a-z]{0,2})$", re.I)
+    # Set by the app: (route, place, (lat, lon) | None) -> timetabled routes serving that place.
+    bus_routes_serving = None
+
+    def _route_place(self, query: str) -> tuple[str, str] | None:
+        found = self._ROUTE_PLACE.match(query)
+        if found and not self._HEADCODE.match(found.group(1)):
+            return found.group(1), found.group(2).strip()
+        found = self._PLACE_ROUTE.match(query)
+        if found and not self._HEADCODE.match(found.group(2)) and not re.fullmatch(r"(?i)[a-z]{1,2}\d", query[-3:].strip()):
+            place = found.group(1).strip()
+            # "LE17 4": a postcode, not a route.
+            if not re.fullmatch(r"(?i)[a-z]{1,2}", place):
+                return found.group(2), place
+        return None
+
+    def _route_place_matches(self, route: str, place: str, lat: float | None, lon: float | None) -> dict[str, Any]:
+        """Every timetabled route with this number calling there, then its buses on the road now."""
+        try:
+            location = self._geocode(place)
+        except Exception:
+            location = None
+        near = (location["lat"], location["lon"]) if location else None
+        rows: list[dict[str, Any]] = []
+        if self.bus_routes_serving is not None:
+            try:
+                served = self.bus_routes_serving(route, place, near)
+            except Exception:
+                served = []
+            for row in served:
+                from .seo_pages import slug
+                rows.append({
+                    "kind": "route", "id": f"route:{row['operator']}:{row['route']}", "type": "bus",
+                    "name": f"Bus {row['route']} · {row['operator']}", "subtitle": row["ends"],
+                    "url": f"/bus/{slug(row['operator'])}/{slug(row['route'])}", "score": 95,
+                })
+        place_key = place.casefold()
+        centre = near or ((lat, lon) if lat is not None and lon is not None else None)
+        for bus in self._route_matches(route, *(centre or (None, None))):
+            label = str(bus.get("subtitle") or "").casefold()
+            close = bus.get("distance_km") is not None and near is not None and bus["distance_km"] <= 25
+            if place_key in label or close:
+                rows.append(bus)
+        return {"query": f"{route} {place}", "matches": rows[:14], "location": None,
+                "intent": {"type": "bus", "route": route.upper(), "place": place}}
+
     def search(self, query: str, *, lat: float | None = None, lon: float | None = None) -> dict[str, Any]:
         query = re.sub(r"\s+", " ", (query or "").strip())[:160]
+        route_place = self._route_place(query)
+        if route_place:
+            found = self._route_place_matches(*route_place, lat, lon)
+            # No such route there: "10 Downing Street" or "A5 Hinckley" is an address or a road.
+            if found["matches"]:
+                return found
         route = self._ROUTE.match(query)
         if route and not self._HEADCODE.match(route.group(1)):
             matches = self._route_matches(route.group(1), lat, lon)
