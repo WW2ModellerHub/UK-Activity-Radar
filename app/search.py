@@ -71,6 +71,8 @@ class ActivitySearch:
         self._session = requests.Session()
         self._session.headers.update({"User-Agent": "UKActivityRadar/0.8 search (OpenStreetMap Nominatim)"})
         self._lock = threading.RLock()
+        self._towns: dict[tuple, str | None] = {}
+        self._town_budget = 8
         self._last_request = 0.0
         self._cache: dict[str, _CachedLocation] = {}
 
@@ -318,6 +320,52 @@ class ActivitySearch:
 
     # Set by the app once the bus timetables exist: vehicle -> {"origin", "destination"} or None.
     bus_trip_ends = None
+    TOWN_LOOKUPS_PER_SEARCH = 8
+
+    def town_at(self, lat, lon) -> str | None:
+        """The post town at a point ("Lutterworth", "Leicester"), from TomTom; cached for good.
+
+        BODS stop names leave out the town ("St Margaret's Bus Station") and
+        many journeys' headsigns are a stop name too.
+        """
+        try:
+            lat, lon = float(lat), float(lon)
+        except (TypeError, ValueError):
+            return None
+        key = ("town", round(lat, 3), round(lon, 3))
+        with self._lock:
+            if key in self._towns:
+                return self._towns[key]
+            if self._town_budget <= 0 or not self.tomtom_api_key:
+                return None
+            self._town_budget -= 1
+        town = None
+        try:
+            response = self._session.get(
+                f"{self.tomtom_base_url}/search/2/reverseGeocode/{lat:.5f},{lon:.5f}.json",
+                params={"key": self.tomtom_api_key, "language": "en-GB", "radius": 200},
+                timeout=(1.5, 3.0))
+            response.raise_for_status()
+            rows = response.json().get("addresses") or []
+            address = (rows[0].get("address") or {}) if rows else {}
+            town = str(address.get("municipality") or "").strip() or None
+        except Exception:
+            return None   # not cached: tried again next time
+        with self._lock:
+            self._towns[key] = town
+        return town
+
+    def stop_label(self, end: dict | None) -> str | None:
+        """'St Margaret's Bus Station, Leicester': a route end with its town."""
+        if not isinstance(end, dict) or not end.get("name"):
+            return None
+        from .bus_timetable import stop_with_town
+        town = self.town_at(end.get("lat"), end.get("lon")) or end.get("town")
+        return stop_with_town(end["name"], town)
+
+    def route_ends_label(self, first: dict | None, last: dict | None) -> str | None:
+        a, b = self.stop_label(first), self.stop_label(last)
+        return f"{a} → {b}" if a and b else None
 
     def _bus_journey_label(self, row) -> str:
         """'Lutterworth → St Margaret's Bus Station, Leicester · Arriva': where it runs, not a trip id."""
@@ -328,8 +376,8 @@ class ActivitySearch:
             except Exception:
                 ends = None
             if ends:
-                origin = ends.get("origin") or origin
-                destination = ends.get("destination") or destination
+                origin = self.stop_label(ends.get("first")) or ends.get("origin") or origin
+                destination = self.stop_label(ends.get("last")) or ends.get("destination") or destination
         route = (f"{origin} → {destination}" if origin and destination
                  else f"To {destination}" if destination else None)
         operator = str(row.operator or "").strip()
@@ -379,7 +427,8 @@ class ActivitySearch:
                 from .seo_pages import slug
                 rows.append({
                     "kind": "route", "id": f"route:{row['operator']}:{row['route']}", "type": "bus",
-                    "name": f"Bus {row['route']} · {row['operator']}", "subtitle": row["ends"],
+                    "name": f"Bus {row['route']} · {row['operator']}",
+                    "subtitle": self.route_ends_label(row.get("first"), row.get("last")) or row["ends"],
                     "url": f"/bus/{slug(row['operator'])}/{slug(row['route'])}", "score": 95,
                 })
         place_key = place.casefold()
@@ -394,6 +443,8 @@ class ActivitySearch:
 
     def search(self, query: str, *, lat: float | None = None, lon: float | None = None) -> dict[str, Any]:
         query = re.sub(r"\s+", " ", (query or "").strip())[:160]
+        with self._lock:
+            self._town_budget = self.TOWN_LOOKUPS_PER_SEARCH   # keeps a first search quick
         route_place = self._route_place(query)
         if route_place:
             found = self._route_place_matches(*route_place, lat, lon)

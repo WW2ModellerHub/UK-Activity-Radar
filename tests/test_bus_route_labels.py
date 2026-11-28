@@ -59,7 +59,9 @@ def test_a_long_route_always_ends_with_its_final_stop_and_says_where_it_runs(tmp
     last = journey["stops"][-1]
     assert last["name"] == "St Margaret's Bus Station" and last["after_gap"] is True
     assert len(journey["stops"]) < 40
-    assert service.trip_ends(bus) == {"origin": "Lutterworth Bus Station", "destination": "St Margaret's Bus Station, Leicester"}
+    ends = service.trip_ends(bus)
+    assert (ends["origin"], ends["destination"]) == ("Lutterworth Bus Station", "St Margaret's Bus Station, Leicester")
+    assert ends["last"]["town"] == "Leicester" and journey["ends"]["last"]["name"] == "St Margaret's Bus Station"
 
 
 def test_searching_a_route_number_lists_each_bus_with_where_it_runs(tmp_path):
@@ -89,9 +91,10 @@ def test_the_bus_feed_backs_off_while_bods_refuses_it():
 def test_searching_a_route_and_a_town_finds_the_timetabled_route_even_with_no_buses_live(tmp_path):
     from app.bus_timetable import routes_serving
     service = _service_with_route_4(tmp_path)
-    assert routes_serving(service, "4", "lutterworth") == [{
-        "operator": "Arriva Midlands", "route": "4", "region": "east_midlands",
-        "ends": "Lutterworth Bus Station → St Margaret's Bus Station, Leicester"}]
+    found = routes_serving(service, "4", "lutterworth")
+    assert [(r["operator"], r["route"], r["ends"]) for r in found] == [
+        ("Arriva Midlands", "4", "Lutterworth Bus Station → St Margaret's Bus Station, Leicester")]
+    assert found[0]["last"]["name"] == "St Margaret's Bus Station"
     assert routes_serving(service, "4", "Hinckley") == []          # route 4 does not call there
     assert routes_serving(service, "8", "Lutterworth") == []
     search = ActivitySearch(LiveState(), "", enabled=False)
@@ -106,3 +109,32 @@ def test_searching_a_route_and_a_town_finds_the_timetabled_route_even_with_no_bu
     assert search._route_place("A5 Hinckley") == ("A5", "Hinckley")
     assert search.search("A5 Hinckley").get("intent") != {"type": "bus", "route": "A5", "place": "Hinckley"}   # a road
     assert search._route_place("LE17 4") is None and search._route_place("1Q15 leicester") is None
+
+
+
+class _Reply:
+    def __init__(self, town):
+        self.town = town
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"addresses": [{"address": {"municipality": self.town}}]}
+
+
+def test_route_ends_are_named_after_their_post_town_when_the_timetable_leaves_it_out():
+    search = ActivitySearch(LiveState(), "", enabled=False, tomtom_api_key="k")
+    calls = []
+
+    def get(url, params=None, timeout=None):
+        calls.append(url)
+        return _Reply("Lutterworth" if "52.45" in url else "Hinckley")
+    search._session.get = get
+    first = {"name": "George Street Car Park", "lat": 52.455, "lon": -1.2, "town": None}
+    last = {"name": "The Crescent Bus Station", "lat": 52.54, "lon": -1.37, "town": "The Crescent Bus Station"}
+    assert search.route_ends_label(first, last) == "George Street Car Park, Lutterworth → The Crescent Bus Station, Hinckley"
+    search.route_ends_label(first, last)
+    assert len(calls) == 2                                           # each place looked up once
+    offline = ActivitySearch(LiveState(), "", enabled=False)        # no key: the headsign's town
+    assert offline.stop_label({"name": "St Margaret's Bus Station", "lat": 52.6, "lon": -1.1, "town": "Leicester"}) == "St Margaret's Bus Station, Leicester"
