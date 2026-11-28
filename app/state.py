@@ -281,6 +281,9 @@ class LiveState:
         }
         self._train_motion_recent: deque[dict] = deque(maxlen=100)
         self._write_counter = 0
+        self._drawn_writes = 0
+        self._drawn_counts = {"over_0_5km": 0, "over_2km": 0, "over_5km": 0, "backwards": 0}
+        self._drawn_recent: deque[dict] = deque(maxlen=200)
         self._stale_train_writes = 0
         self._revision = 0
 
@@ -409,6 +412,7 @@ class LiveState:
     def _observe_train_motion_unlocked(self, previous: Vehicle | None, stored: Vehicle) -> None:
         if previous is None or previous.type != "train":
             return
+        self._observe_drawn_jump_unlocked(previous, stored)
         old_lat = previous.reported_lat if previous.reported_lat is not None else previous.lat
         old_lon = previous.reported_lon if previous.reported_lon is not None else previous.lon
         new_lat = stored.reported_lat if stored.reported_lat is not None else stored.lat
@@ -440,6 +444,40 @@ class LiveState:
             "report_at": stored.last_updated.isoformat(),
         })
 
+    def _observe_drawn_jump_unlocked(self, previous: Vehicle, stored: Vehicle) -> None:
+        """How far this write moves the train *as drawn* (what a viewer sees).
+
+        The counters above compare reported_lat, the start of the timetable
+        leg: it moves a whole leg (10-20 km) at every ordinary leg rollover
+        while the drawn train glides on, so they count jumps nobody sees.
+        """
+        now = datetime.now(timezone.utc)
+        before = _estimated_train_position(previous, now) or (previous.lat, previous.lon)
+        after = _estimated_train_position(stored, now) or (stored.lat, stored.lon)
+        if None in (*before, *after):
+            return
+        distance = _distance_km(before[0], before[1], after[0], after[1])
+        self._drawn_writes += 1
+        if distance < 0.5:
+            return
+        for limit, key in ((0.5, "over_0_5km"), (2, "over_2km"), (5, "over_5km")):
+            if distance >= limit:
+                self._drawn_counts[key] += 1
+        path = _valid_train_path(previous.estimate_path)
+        backwards = False
+        if len(path) >= 2:
+            from .berth_positions import project
+            a, b = project(path, *before), project(path, *after)
+            backwards = bool(a and b and a[1] <= 1 and b[1] <= 1 and b[0] < a[0] - 0.02)
+        if backwards:
+            self._drawn_counts["backwards"] += 1
+        self._drawn_recent.append({
+            "id": stored.id, "headcode": stored.headcode or stored.name, "operator": stored.operator,
+            "distance_km": round(distance, 2), "backwards": backwards,
+            "same_report_timestamp": stored.last_updated == previous.last_updated,
+            "status": stored.status, "tiploc": stored.rail_tiploc, "at": now.isoformat(timespec="seconds"),
+        })
+
     def movement_quality_report(self, now: datetime | None = None) -> dict:
         """Live jump counters plus gauges for estimates which have stopped."""
         at = now or datetime.now(timezone.utc)
@@ -465,6 +503,9 @@ class LiveState:
         return {
             "since_process_start": counts,
             "stale_writes_refused": self._stale_train_writes,
+            # Where the train is drawn, before and after each write: the jumps a viewer can see.
+            "drawn_jumps": {"writes": self._drawn_writes, **self._drawn_counts,
+                            "recent": sorted(self._drawn_recent, key=lambda row: row["distance_km"], reverse=True)[:20]},
             "classification_counts": classes,
             "overdue_estimates": len(overdue),
             "stalled_over_10_minutes": len(stalled),
