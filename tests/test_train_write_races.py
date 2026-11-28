@@ -57,3 +57,18 @@ def test_enrichment_changes_only_its_own_fields():
     assert (train.lat, train.platform, train.formation) == (53.49, "2", ["170636"])
     assert state.patch_train("nope", platform="1") is False
     assert "_state_write" not in train.model_dump()
+
+
+def test_drawn_jumps_ignore_a_leg_rollover_and_count_a_real_jump():
+    now = datetime.now(timezone.utc)
+    state = LiveState()
+    leg = dict(estimate_path=[[52.0, -1.0], [52.0, -0.8]], estimate_started_at=now - timedelta(minutes=10),
+               estimate_due_at=now - timedelta(seconds=1), reported_lat=52.0, reported_lon=-1.0)
+    state.upsert(_train(lat=52.0, lon=-1.0, last_updated=now - timedelta(minutes=10), **leg))
+    # Rolls onto the next leg, starting where the last one ended: the leg start moves 14 km, the train does not.
+    state.upsert(_train(lat=52.0, lon=-0.8, reported_lat=52.0, reported_lon=-0.8, last_updated=now - timedelta(minutes=10),
+                        estimate_path=[[52.0, -0.8], [52.0, -0.6]], estimate_started_at=now, estimate_due_at=now + timedelta(minutes=10)))
+    drawn = state.movement_quality_report()["drawn_jumps"]
+    assert drawn["over_0_5km"] == 0 and state.movement_quality_report()["since_process_start"]["over_2km"] == 1
+    state.upsert(_train(lat=52.3, lon=-0.8, last_updated=now))       # a report 33 km away
+    assert state.movement_quality_report()["drawn_jumps"]["over_5km"] == 1
