@@ -3550,6 +3550,13 @@ def activity_bus(request: Request, activity_id: str, limit: int = 30):
             pass
     if isinstance(detail, dict):
         detail["fleet_path"] = _fleet_vehicle_path(item.operator, item.vehicle_ref)
+        ends = detail.get("ends") if isinstance(detail.get("ends"), dict) else None
+        if ends:
+            # Both ends with their towns: "Lutterworth Bus Station → St Margaret's Bus Station, Leicester".
+            with activity_search._lock:
+                activity_search._town_budget = 2
+            detail["origin"] = activity_search.stop_label(ends.get("first")) or detail.get("origin")
+            detail["final_stop"] = activity_search.stop_label(ends.get("last")) or detail.get("final_stop")
     return {"activity": activity_id, "detail": detail}
 
 

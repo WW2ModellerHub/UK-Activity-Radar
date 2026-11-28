@@ -508,13 +508,15 @@ class BusTimetableService:
                 trip = con.execute("SELECT headsign FROM trips WHERE trip_id=? LIMIT 1", (trip_id,)).fetchone()
                 if trip is not None:
                     rows = con.execute(
-                        """SELECT s.name FROM stop_times st LEFT JOIN stops s ON s.stop_id=st.stop_id
+                        """SELECT s.name, s.lat, s.lon FROM stop_times st LEFT JOIN stops s ON s.stop_id=st.stop_id
                            WHERE st.trip_id=? AND st.stop_sequence IN (
                              (SELECT MIN(stop_sequence) FROM stop_times WHERE trip_id=?),
                              (SELECT MAX(stop_sequence) FROM stop_times WHERE trip_id=?))
                            ORDER BY st.stop_sequence""", (trip_id, trip_id, trip_id)).fetchall()
                     if rows:
-                        ends = {"origin": rows[0][0], "destination": stop_with_town(rows[-1][0], trip[0])}
+                        ends = {"origin": rows[0][0], "destination": stop_with_town(rows[-1][0], trip[0]),
+                                "first": {"name": rows[0][0], "lat": rows[0][1], "lon": rows[0][2], "town": None},
+                                "last": {"name": rows[-1][0], "lat": rows[-1][1], "lon": rows[-1][2], "town": trip[0]}}
         except sqlite3.Error:
             return None
         with self._lock:
@@ -710,6 +712,8 @@ class BusTimetableService:
             "mode": "matched_timetable", "source": "DfT BODS GTFS timetable + live BODS GPS",
             "origin": first["name"], "final_stop": stop_with_town(last["name"], trip["headsign"]),
             "final_clock": last["clock"],
+            "ends": {"first": {"name": first["name"], "lat": first["lat"], "lon": first["lon"], "town": None},
+                     "last": {"name": last["name"], "lat": last["lat"], "lon": last["lon"], "town": trip["headsign"]}},
             "region": region, "service_date": service_date.isoformat(),
             "route": trip["short_name"] or trip["route_id"], "route_long_name": trip["long_name"],
             "destination": trip["headsign"], "operator": trip["agency_name"],
@@ -822,18 +826,20 @@ def routes_serving(service: "BusTimetableService", route: str, place: str,
                     for trip_id, headsign, direction in con.execute(
                             f"SELECT trip_id, headsign, direction_id FROM trips WHERE route_id IN ({marks}) LIMIT 80", route_ids):
                         stops = con.execute(
-                            """SELECT s.name FROM stop_times st JOIN stops s ON s.stop_id=st.stop_id
+                            """SELECT s.name, s.lat, s.lon FROM stop_times st JOIN stops s ON s.stop_id=st.stop_id
                                WHERE st.trip_id=? ORDER BY st.stop_sequence""", (trip_id,)).fetchall()
                         way = str(direction or "0")
                         if stops and len(stops) > ends.get(way, (0,))[0]:
-                            ends[way] = (len(stops), stops[0][0], stops[-1][0], str(headsign or ""))
+                            ends[way] = (len(stops), tuple(stops[0]), tuple(stops[-1]), str(headsign or ""))
                     if not ends:
                         continue
-                    ways = sorted(ends.values(), reverse=True)
+                    ways = sorted(ends.values(), key=lambda w: w[0], reverse=True)
                     _, first, last, towards = ways[0]
                     back = next((w[3] for w in ways[1:] if w[3] and w[3] != towards), None)
                     out.append({"operator": operator, "route": route.upper(), "region": region,
-                                "ends": f"{stop_with_town(first, back)} → {stop_with_town(last, towards)}"})
+                                "first": {"name": first[0], "lat": first[1], "lon": first[2], "town": back},
+                                "last": {"name": last[0], "lat": last[1], "lon": last[2], "town": towards},
+                                "ends": f"{stop_with_town(first[0], back)} → {stop_with_town(last[0], towards)}"})
         except sqlite3.Error:
             continue
     out = out[:limit]
