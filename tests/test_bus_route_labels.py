@@ -84,3 +84,25 @@ def test_the_bus_feed_backs_off_while_bods_refuses_it():
     assert collector.retry_after(3) == 120
     assert collector.retry_after(10) == 900
     assert collector.retry_after(1, "BODS error: HTTP 403") == 300
+
+
+def test_searching_a_route_and_a_town_finds_the_timetabled_route_even_with_no_buses_live(tmp_path):
+    from app.bus_timetable import routes_serving
+    service = _service_with_route_4(tmp_path)
+    assert routes_serving(service, "4", "lutterworth") == [{
+        "operator": "Arriva Midlands", "route": "4", "region": "east_midlands",
+        "ends": "Lutterworth Bus Station → St Margaret's Bus Station, Leicester"}]
+    assert routes_serving(service, "4", "Hinckley") == []          # route 4 does not call there
+    assert routes_serving(service, "8", "Lutterworth") == []
+    search = ActivitySearch(LiveState(), "", enabled=False)
+    search.bus_routes_serving = lambda route, place, near: routes_serving(service, route, place, near)
+    for query in ("4 lutterworth", "bus 4 to Lutterworth", "Lutterworth 4"):
+        found = search.search(query)
+        assert found["location"] is None                           # not "4 Lutterworth Road, Newcastle"
+        assert found["matches"][0]["name"] == "Bus 4 · Arriva Midlands"
+        assert found["matches"][0]["subtitle"] == "Lutterworth Bus Station → St Margaret's Bus Station, Leicester"
+        assert found["matches"][0]["url"] == "/bus/arriva-midlands/4"
+    assert search.search("4 hinckley").get("intent") is None       # no route 4 there: an ordinary search
+    assert search._route_place("A5 Hinckley") == ("A5", "Hinckley")
+    assert search.search("A5 Hinckley").get("intent") != {"type": "bus", "route": "A5", "place": "Hinckley"}   # a road
+    assert search._route_place("LE17 4") is None and search._route_place("1Q15 leicester") is None

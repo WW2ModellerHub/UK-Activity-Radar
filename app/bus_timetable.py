@@ -4,6 +4,7 @@ import csv
 import io
 import os
 import sqlite3
+import time
 import threading
 import zipfile
 from datetime import date, datetime, timedelta
@@ -765,6 +766,78 @@ def route_index(service: "BusTimetableService") -> list[dict]:
         built = sorted(rows.values(), key=lambda r: (r["operator"].lower(), _route_sort(r["route"])))
         _ROUTE_INDEX[region] = (now, built)
         out.extend(built)
+    return out
+
+
+_SERVING: dict[tuple, tuple[float, list[dict]]] = {}
+
+
+def routes_serving(service: "BusTimetableService", route: str, place: str,
+                   near: tuple[float, float] | None = None, limit: int = 6) -> list[dict]:
+    """Timetabled routes numbered `route` that call at `place` ("8", "Lutterworth").
+
+    A route serves the place when one of its stops or its destination is named
+    after it, or (when the place was found on the map) a stop is within about
+    3 km of it. Each result says where the route runs, end to end:
+    {"operator", "route", "region", "ends": "Lutterworth Bus Station → St Margaret's Bus Station, Leicester"}.
+    Only regions already downloaded are searched; nothing is fetched.
+    """
+    route, place = str(route or "").strip(), str(place or "").strip()
+    if not route or len(place) < 3:
+        return []
+    key = (route.upper(), place.casefold(), tuple(round(x, 2) for x in near) if near else None)
+    cached = _SERVING.get(key)
+    if cached and time.time() - cached[0] < 3600:
+        return cached[1]
+    regions = [r for r in REGION_URLS if service._db(r).exists() and service.ready(r)]
+    if near and region_for(*near) in regions:
+        regions = [region_for(*near)]   # the place's own region only; else every ready one, by name
+    like = f"%{place.casefold()}%"
+    out: list[dict] = []
+    for region in regions:
+        try:
+            with sqlite3.connect(service._db(region), timeout=30) as con:
+                groups: dict[str, list[str]] = {}
+                for route_id, operator in con.execute(
+                        """SELECT r.route_id, COALESCE(a.name, r.agency_id) FROM routes r
+                           LEFT JOIN agencies a ON a.agency_id=r.agency_id
+                           WHERE r.short_name IN (?, ?, ?)""", (route, route.upper(), route.lower())):
+                    groups.setdefault(str(operator or "").strip(), []).append(route_id)
+                for operator, route_ids in groups.items():
+                    marks = ",".join("?" for _ in route_ids)
+                    area = ""
+                    params: list = [*route_ids, like, like]
+                    if near:
+                        area = " OR (s.lat BETWEEN ? AND ? AND s.lon BETWEEN ? AND ?)"
+                        params += [near[0] - 0.027, near[0] + 0.027, near[1] - 0.045, near[1] + 0.045]
+                    hit = con.execute(
+                        f"""SELECT 1 FROM trips t JOIN stop_times st ON st.trip_id=t.trip_id
+                            JOIN stops s ON s.stop_id=st.stop_id
+                            WHERE t.route_id IN ({marks}) AND (LOWER(s.name) LIKE ? OR LOWER(t.headsign) LIKE ?{area})
+                            LIMIT 1""", params).fetchone()
+                    if not hit:
+                        continue
+                    # The longest trip each way gives the route's two ends and their towns.
+                    ends: dict[str, tuple[int, str, str, str]] = {}
+                    for trip_id, headsign, direction in con.execute(
+                            f"SELECT trip_id, headsign, direction_id FROM trips WHERE route_id IN ({marks}) LIMIT 80", route_ids):
+                        stops = con.execute(
+                            """SELECT s.name FROM stop_times st JOIN stops s ON s.stop_id=st.stop_id
+                               WHERE st.trip_id=? ORDER BY st.stop_sequence""", (trip_id,)).fetchall()
+                        way = str(direction or "0")
+                        if stops and len(stops) > ends.get(way, (0,))[0]:
+                            ends[way] = (len(stops), stops[0][0], stops[-1][0], str(headsign or ""))
+                    if not ends:
+                        continue
+                    ways = sorted(ends.values(), reverse=True)
+                    _, first, last, towards = ways[0]
+                    back = next((w[3] for w in ways[1:] if w[3] and w[3] != towards), None)
+                    out.append({"operator": operator, "route": route.upper(), "region": region,
+                                "ends": f"{stop_with_town(first, back)} → {stop_with_town(last, towards)}"})
+        except sqlite3.Error:
+            continue
+    out = out[:limit]
+    _SERVING[key] = (time.time(), out)
     return out
 
 

@@ -1571,3 +1571,4 @@ strong[data-plus].needs-plus::after,
 .transport-route-head .transport-route-ends { flex-basis: 100%; color: var(--text); font-size: 14px; }
 .transport-stops li.stops-gap small { font-style: italic; }
 .transport-stops li.stops-gap i { opacity: .35; }
+a.search-result { color: inherit; text-decoration: none; }

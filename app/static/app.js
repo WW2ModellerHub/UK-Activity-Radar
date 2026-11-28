@@ -6770,6 +6770,8 @@
       if (requestId !== searchRequest) return;   // a newer search has started
       const buttons = rows.map(row => {
         const isPlace = row.kind === 'place';
+        // A timetabled route ("Bus 8 · Arriva Midlands", where it runs): opens its route page.
+        if (row.kind === 'route' && row.url) return `<a class="search-result" href="${esc(row.url)}"><span class="search-result-icon">${icons.bus || '•'}</span><span><strong>${esc(row.name)}</strong><span>${esc(humanTransitLabel(row.subtitle || 'Timetable and live buses'))}</span></span></a>`;
         const attr = isPlace ? `data-place="${esc(row.id)}"` : `data-activity="${esc(row.id)}"`;
         const icon = isPlace ? (placeIcons[row.place_type] || iconSvg('pin')) : (icons[row.type] || '•');
         return `<button type="button" class="search-result" ${attr}><span class="search-result-icon">${icon}</span><span><strong>${esc(row.name)}</strong><span>${esc([row.distance_km != null ? `${row.distance_km} km away` : null,row.subtitle || row.source || (isPlace?'Place':'Live activity')].filter(Boolean).join(' • '))}</span></span></button>`;
