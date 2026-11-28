@@ -1032,6 +1032,9 @@ async def lifespan(app: FastAPI):
         bods_collector_getter=lambda: bods_collector,
     )
     smart_places.start_background_sync()
+    if getattr(smart_places, "bus_timetables", None) is not None:
+        # Search results say where each bus runs ("Lutterworth → ... Leicester").
+        activity_search.bus_trip_ends = smart_places.bus_timetables.trip_ends
 
     if settings.bods_sx_enabled:
         bods_sx_collector = BODSSXCollector(settings, state)

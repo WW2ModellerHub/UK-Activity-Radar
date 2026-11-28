@@ -603,6 +603,23 @@ class BODSCollector:
         response.raise_for_status()
         return response.content, response.headers.get("content-type", ""), "siri-vm"
 
+    def _last_error(self) -> str:
+        source = self.state.source("bods")
+        return str(getattr(source, "message", "") or "")
+
+    def retry_after(self, failures: int, error: str = "") -> float:
+        """Seconds before trying again after `failures` failed polls in a row.
+
+        Each failed poll tries GTFS-RT, then the national SIRI-VM feed, then
+        the bulk archive (tens of MB). Repeating that every 15 s while BODS
+        refuses us (403) keeps the refusal going, so back off: 30 s doubling
+        to 15 min, and at least 5 min once BODS has said 403.
+        """
+        wait = min(900.0, 30.0 * 2 ** max(0, failures - 1))
+        if "403" in error:
+            wait = max(wait, 300.0)
+        return wait
+
     def _update_predictions(self, rows: list[dict]) -> None:
         now = datetime.now(timezone.utc)
         grouped: dict[str, list[dict]] = {}
@@ -644,8 +661,10 @@ class BODSCollector:
         ))
 
         last_mode = source_mode
+        failures = 0
         while not self._stop.is_set():
             started = time.monotonic()
+            failed = False
             try:
                 payload, content_type, used_mode = self._fetch()
                 last_mode = used_mode
@@ -692,6 +711,8 @@ class BODSCollector:
                         movements_unmapped=0,
                     ))
             except Exception as exc:
+                failed = True
+                failures += 1
                 previous = self.state.source("bods")
                 self.state.set_source(SourceStatus(
                     name="bods", enabled=True, connected=False, mode="error",
@@ -705,4 +726,8 @@ class BODSCollector:
             # an installation has no BODS key. GTFS-RT remains genuinely live.
             poll_seconds = self.settings.bods_poll_seconds if last_mode == "gtfs-rt" else max(60, self.settings.bods_poll_seconds)
             wait = max(5.0, poll_seconds - elapsed)
+            if failed:
+                wait = self.retry_after(failures, str(exc_text) if (exc_text := self._last_error()) else "")
+            else:
+                failures = 0
             self._stop.wait(wait)

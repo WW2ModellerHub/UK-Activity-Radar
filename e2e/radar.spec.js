@@ -3040,3 +3040,18 @@ test('a freight train shows the operator usual locomotive and container wagons f
   // Colas has no picture: its locomotive stays drawn in Colas colours, not another company's.
   expect((await draw('Colas Rail', 'B4', 'Aggregates')).some(src => /class-66/.test(src))).toBe(false);
 });
+
+test('a bus journey says where it runs and always ends at its final stop and town', async ({ page }) => {
+  await page.route('**/api/activity/bus-live-7/bus', route => route.fulfill({ json:{ activity:'bus-live-7', detail:{ mode:'matched_timetable', route:'4', destination:'Leicester', operator:'Arriva Midlands',
+    origin:'Lutterworth Bus Station', final_stop:"St Margaret's Bus Station, Leicester", final_clock:'11:40',
+    stops:[{name:'Lutterworth Bus Station',clock:'10:30',state:'passed'},{name:'Broughton Astley',clock:'10:45',state:'next'},{name:'Blaby',clock:'11:05',state:'upcoming'},
+      {name:"St Margaret's Bus Station",clock:'11:40',state:'upcoming',after_gap:true}] } } }));
+  await page.goto('/?open=bus-live-7');
+  const head = page.locator('.transport-route-head');
+  await expect(head.locator('strong')).toHaveText('Route 4');
+  await expect(head.locator('.transport-route-ends')).toHaveText("Lutterworth Bus Station → St Margaret's Bus Station, Leicester");
+  await expect(page.locator('.bus-stops li.stops-gap')).toHaveText(/More stops/);
+  await expect(page.locator('.bus-stops li').last()).toContainText("St Margaret's Bus Station, Leicester");
+  await expect(page.locator('.bus-stops li').last()).toContainText('11:40');
+  await page.locator('#detail-intelligence').screenshot({ path: test.info().outputPath('bus-route.png') });
+});

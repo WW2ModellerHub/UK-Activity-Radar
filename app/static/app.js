@@ -4293,7 +4293,9 @@
         ? `<li class="train-here" aria-label="${esc(vehicle)} is here"><i></i><span><small>${esc(vehicle)} is here</small></span><b></b></li>`
         : '';
       const classes=[state,row.cancelled?'is-cancelled':'',index<start?'is-earlier':''].filter(Boolean).join(' ');
-      return `${here}<li class="${classes}"${state==='current'?` aria-label="${esc(vehicle)} is at this stop"`:''}><i></i><span><strong>${esc(row.name)}</strong>${row.detailHtml?`<small>${row.detailHtml}</small>`:''}</span><b>${esc(row.booked||'')}${row.lateClock?`<em class="stop-late">${esc(row.lateClock)}</em>`:''}</b></li>`;
+      // A long route is shortened in the middle; its last stop is still shown.
+      const gap=row.afterGap?'<li class="stops-gap"><i></i><span><small>More stops</small></span><b></b></li>':'';
+      return `${here}${gap}<li class="${classes}"${state==='current'?` aria-label="${esc(vehicle)} is at this stop"`:''}><i></i><span><strong>${esc(row.name)}</strong>${row.detailHtml?`<small>${row.detailHtml}</small>`:''}</span><b>${esc(row.booked||'')}${row.lateClock?`<em class="stop-late">${esc(row.lateClock)}</em>`:''}</b></li>`;
     });
     const toggle=start>0
       ? `<li class="earlier-toggle"><button type="button" data-show-earlier>${open?'Hide earlier stops':`Show ${start} earlier stop${start===1?'':'s'}`}</button></li>`
@@ -4954,19 +4956,24 @@
     const rows=stops.map((stop,index)=>{
       const booked=providerClock(stop?.clock || stop?.scheduled);
       const expected=providerClock(stop?.expected_clock || stop?.expected);
+      // The end of the journey with its town: "St Margaret's Bus Station, Leicester".
+      const last=index===stops.length-1&&detail?.final_stop;
       return {
-        name:humanTransitLabel(stop?.name || `Stop ${index+1}`),
+        name:humanTransitLabel(last?detail.final_stop:(stop?.name || `Stop ${index+1}`)),
+        afterGap:Boolean(stop?.after_gap),
         booked:booked||'—',
         lateClock:expected&&expected!==booked?expected:'',
         detailHtml:'',
         state:stop?.state,
       };
     });
-    const heading=humanTransitLabel([detail?.route?`Route ${detail.route}`:null,detail?.destination?`to ${detail.destination}`:null].filter(Boolean).join(' '));
+    // "Route 4", then where it runs: "Lutterworth → St Margaret's Bus Station, Leicester".
+    const ends=detail?.origin&&detail?.final_stop?`${detail.origin} → ${detail.final_stop}`:'';
+    const heading=humanTransitLabel([detail?.route?`Route ${detail.route}`:null,!ends&&detail?.destination?`to ${detail.destination}`:null].filter(Boolean).join(' '));
     const operator=humanTransitLabel(detail?.operator||'');
     const lateness=busLatenessLabel(detail);
     const head=heading||operator||lateness
-      ? `<div class="transport-route-head"><strong>${esc(heading||'Bus journey')}</strong>${operator?`<span>${esc(operator)}</span>`:''}${lateness?`<em class="bus-lateness is-${lateness.tone}">${esc(lateness.text)}</em>`:''}</div>`
+      ? `<div class="transport-route-head"><strong>${esc(heading||'Bus journey')}</strong>${ends?`<span class="transport-route-ends">${esc(humanTransitLabel(ends))}</span>`:''}${operator?`<span>${esc(operator)}</span>`:''}${lateness?`<em class="bus-lateness is-${lateness.tone}">${esc(lateness.text)}</em>`:''}</div>`
       : '';
     const vehicleWord=coachInfo(a)?'Coach':'Bus';
     const list=stopTimelineHtml(rows,{vehicle:vehicleWord,hasProgress:rows.some(row=>row.state),className:'bus-stops train-full-route'});
