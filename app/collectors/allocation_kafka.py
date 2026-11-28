@@ -162,10 +162,8 @@ class AllocationKafkaFeed(TrustKafkaFeed):
                 train = self.state.find_train_by_headcode(record["headcode"])
             if train is None:
                 continue
-            train.formation = record["vehicles"]
-            train.vehicle_ref = record["vehicles"][0]
-            self.state.upsert(train)
-            self.enriched += 1
+            if self.state.patch_train(train.id, formation=record["vehicles"], vehicle_ref=record["vehicles"][0]):
+                self.enriched += 1
 
     def _status(self, message: str) -> None:
         self.state.set_source(SourceStatus(name="allocation_kafka", enabled=True,

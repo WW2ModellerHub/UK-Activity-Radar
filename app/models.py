@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal, TypeAlias
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 ActivityType = Literal["train", "bus", "vessel", "sar", "aircraft", "rescue", "road", "roadfeature", "incident", "flood", "weather", "earthquake", "river", "tide", "wave", "grid", "airquality", "bike", "space", "satellite", "outage", "gritter", "camera", "other"]
 PositionMethod = Literal["gps", "network_report", "estimated", "static", "demo"]
@@ -12,6 +12,8 @@ IdentityConfidence = Literal["exact", "type", "unresolved"]
 
 
 class Vehicle(BaseModel):
+    # Which stored write a copy was taken from (LiveState). Never serialised.
+    _state_write: int | None = PrivateAttr(default=None)
     kind: Literal["vehicle"] = "vehicle"
     id: str
     type: ActivityType

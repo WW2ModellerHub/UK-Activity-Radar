@@ -399,21 +399,18 @@ class DarwinKafkaFeed:
         )
         if relevant is None:
             return
-        changed = False
+        changes = {}
         platform = _text(relevant.get("plat"))
         delay = _delay_minutes(relevant)
         if platform and platform != train.platform:
-            train.platform = platform
-            changed = True
+            changes["platform"] = platform
         if delay is not None and delay != train.delay_minutes:
-            train.delay_minutes = delay
+            changes["delay_minutes"] = delay
             if not str(train.status or "").lower().startswith(("cancel", "terminat")):
-                train.status = "On time" if delay <= 2 else f"{delay} min late"
-            changed = True
-        if changed:
-            # Do not alter last_updated: it is the last *position* report and
-            # drives stale-marker protection and the interpolation engine.
-            self.state.upsert(train)
+                changes["status"] = "On time" if delay <= 2 else f"{delay} min late"
+        # Only these fields: the train may have stepped on since it was looked
+        # up, and last_updated stays the last *position* report.
+        if changes and self.state.patch_train(train.id, **changes):
             self.enriched += 1
 
     def _run(self) -> None:
