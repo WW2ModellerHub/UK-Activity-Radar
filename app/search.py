@@ -308,14 +308,32 @@ class ActivitySearch:
         for row in rows[:12]:
             item = {
                 "kind": "activity", "id": row.id, "type": row.type, "name": _display_name(row),
-                "subtitle": " · ".join(x for x in (f"To {row.destination}" if row.destination else None,
-                                                   _display_subtitle(row)) if x),
+                "subtitle": self._bus_journey_label(row),
                 "lat": row.lat, "lon": row.lon, "source": row.source, "score": 90,
             }
             if lat is not None and lon is not None:
                 item["distance_km"] = round(_distance_km(lat, lon, row.lat, row.lon), 1)
             out.append(item)
         return out
+
+    # Set by the app once the bus timetables exist: vehicle -> {"origin", "destination"} or None.
+    bus_trip_ends = None
+
+    def _bus_journey_label(self, row) -> str:
+        """'Lutterworth → St Margaret's Bus Station, Leicester · Arriva': where it runs, not a trip id."""
+        origin, destination = row.origin, row.destination
+        if self.bus_trip_ends is not None:
+            try:
+                ends = self.bus_trip_ends(row)
+            except Exception:
+                ends = None
+            if ends:
+                origin = ends.get("origin") or origin
+                destination = ends.get("destination") or destination
+        route = (f"{origin} → {destination}" if origin and destination
+                 else f"To {destination}" if destination else None)
+        operator = str(row.operator or "").strip()
+        return " · ".join(x for x in (route or row.subtitle, operator if operator and operator not in str(row.subtitle) else None) if x)
 
     @staticmethod
     def _looks_like_a_place(query: str) -> bool:

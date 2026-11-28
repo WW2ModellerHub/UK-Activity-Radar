@@ -1566,3 +1566,8 @@ strong[data-plus].needs-plus::after,
 .train-formation.is-freight .formation-row .coach { flex: 0 0 auto; grid-template-rows: auto; }
 .train-formation.is-freight .freight-profile-asset { height: 36px; width: auto; max-width: none; }
 .train-formation.is-freight .coach-svg { width: 96px; height: 36px; }
+
+/* Bus route: where it runs, on its own line, and a gap before the last stop. */
+.transport-route-head .transport-route-ends { flex-basis: 100%; color: var(--text); font-size: 14px; }
+.transport-stops li.stops-gap small { font-style: italic; }
+.transport-stops li.stops-gap i { opacity: .35; }

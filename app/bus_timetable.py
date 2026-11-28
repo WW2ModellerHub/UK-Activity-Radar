@@ -77,6 +77,22 @@ def region_for(lat: float, lon: float) -> str:
     return "south_east"
 
 
+def stop_with_town(stop: str | None, town: str | None) -> str | None:
+    """'St Margaret's Bus Station' and headsign 'Leicester' -> 'St Margaret's Bus Station, Leicester'.
+
+    BODS stop names leave out the town; a journey's headsign is usually the
+    town it is going to. Nothing is added when one already contains the other.
+    """
+    stop, town = str(stop or "").strip(), str(town or "").strip()
+    if not stop or not town:
+        return stop or town or None
+    if town.casefold() in stop.casefold():
+        return stop
+    if stop.casefold() in town.casefold():
+        return town
+    return f"{stop}, {town}"
+
+
 def _gtfs_minutes(value: str | None) -> int | None:
     if not value:
         return None
@@ -467,6 +483,43 @@ class BusTimetableService:
                    + (" A newer regional timetable is refreshing in the background." if refreshing else ""),
         }
 
+    def trip_ends(self, vehicle) -> dict | None:
+        """Where a live bus's journey starts and finishes, from its exact timetable trip.
+
+        Cheap (two indexed look-ups, cached): used to label search results.
+        Never downloads a region.
+        """
+        trip_id = str(getattr(vehicle, "journey_ref", None) or "").strip()
+        try:
+            region = region_for(float(vehicle.lat), float(vehicle.lon))
+        except (TypeError, ValueError, AttributeError):
+            return None
+        if not trip_id or not self.ready(region):
+            return None
+        key = ("ends", region, trip_id)
+        with self._lock:
+            cached = self._journey_cache.get(key)
+            if cached and datetime.now().timestamp() - cached[0] < 3600:
+                return cached[1]
+        ends = None
+        try:
+            with sqlite3.connect(self._db(region)) as con:
+                trip = con.execute("SELECT headsign FROM trips WHERE trip_id=? LIMIT 1", (trip_id,)).fetchone()
+                if trip is not None:
+                    rows = con.execute(
+                        """SELECT s.name FROM stop_times st LEFT JOIN stops s ON s.stop_id=st.stop_id
+                           WHERE st.trip_id=? AND st.stop_sequence IN (
+                             (SELECT MIN(stop_sequence) FROM stop_times WHERE trip_id=?),
+                             (SELECT MAX(stop_sequence) FROM stop_times WHERE trip_id=?))
+                           ORDER BY st.stop_sequence""", (trip_id, trip_id, trip_id)).fetchall()
+                    if rows:
+                        ends = {"origin": rows[0][0], "destination": stop_with_town(rows[-1][0], trip[0])}
+        except sqlite3.Error:
+            return None
+        with self._lock:
+            self._journey_cache[key] = (datetime.now().timestamp(), ends)
+        return ends
+
     def journey_for_vehicle(self, vehicle, limit: int = 12) -> dict:
         """Return an honest timetable spine for one live BODS vehicle.
 
@@ -648,8 +701,14 @@ class BusTimetableService:
         shown = timeline[start:next_index + max(12, min(60, int(limit)))]
         for index, row in enumerate(shown, start=start):
             row["state"] = "next" if index == next_index else ("passed" if index < next_index else "upcoming")
+        first, last = timeline[0], timeline[-1]
+        if shown and shown[-1] is not last:
+            # Long routes are trimmed: the end of the journey is always shown.
+            shown.append({**last, "state": "upcoming", "after_gap": True})
         payload = {
             "mode": "matched_timetable", "source": "DfT BODS GTFS timetable + live BODS GPS",
+            "origin": first["name"], "final_stop": stop_with_town(last["name"], trip["headsign"]),
+            "final_clock": last["clock"],
             "region": region, "service_date": service_date.isoformat(),
             "route": trip["short_name"] or trip["route_id"], "route_long_name": trip["long_name"],
             "destination": trip["headsign"], "operator": trip["agency_name"],
